@@ -1,5 +1,10 @@
 # Profiles: dev (laptop, CPU + mock LLM), gpu (MI300X droplet), demo (public CPU server, cached results).
-# Images marked "pin" must be pinned by digest after the Monday spikes (docs/spike-results.md).
+# Profile switches live in override files, so the laptop .env cannot leak into them:
+#   gpu:  -f infra/docker-compose.yml -f infra/compose.gpu.yml   (DEVICE=gpu, LLM_MODE=vllm)
+#   demo: -f infra/docker-compose.yml -f infra/compose.demo.yml  (DEMO_MODE=cached)
+#   GPU spikes add -f infra/compose.spike.yml (infra/spikes/README.md). Use the Makefile targets.
+# Images are pinned by tag@digest in .env.example (VLLM_IMAGE, DGL_IMAGE, ROCM_BASE_IMAGE).
+# Never mount data/truth/ into a running service (CLAUDE.md rule 12).
 name: returnring
 
 x-gpu: &gpu
@@ -46,15 +51,17 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    # Loopback only: the public entry point is the proxy (Caddy reaches api:8000 on the internal
+    # network). Docker-published ports bypass ufw, so 0.0.0.0 here would expose the API.
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
 
   ui:
     build:
       context: ../apps/ui
     profiles: [dev, gpu, demo]
     ports:
-      - "8080:80"
+      - "127.0.0.1:8080:80"
 
   pipeline:
     build:
@@ -68,19 +75,43 @@ services:
 
   vllm:
     <<: *gpu
-    image: ${VLLM_IMAGE}  # pin
+    image: ${VLLM_IMAGE}
     profiles: [gpu]
     environment:
-      HF_TOKEN: ${HF_TOKEN}
-    # Flags verified in spike SPK-G1; add tool calling flags after SPK-G6.
+      HF_TOKEN: ${HF_TOKEN:-}
+      # Rule 2: no call to huggingface.co at runtime; the weights are already in hf-cache at
+      # GEMMA_REVISION (infra/spikes/weights.sh downloads them with this turned off).
+      HF_HUB_OFFLINE: "1"
+    # The image ENTRYPOINT is ["vllm", "serve"]: these items are its arguments. The model is
+    # positional (--model= is deprecated). Tool-call flags and the chat template path are those of
+    # the vLLM Gemma 4 recipe for MI300X; the template path is absolute because the image WORKDIR
+    # is /app and the template ships in /app/vllm/examples. One start covers SPK-G1, G5 and G6.
+    # The recipe's --reasoning-parser=gemma4 is left out: thinking is off by default and unused,
+    # and its interplay with guided JSON is not verified.
     command:
-      - --model=${GEMMA_MODEL}
+      - ${GEMMA_MODEL}
+      - --revision=${GEMMA_REVISION}
+      - --tokenizer-revision=${GEMMA_REVISION}
       - --port=8001
       - --gpu-memory-utilization=0.55
       - --max-model-len=16384
       - --api-key=${VLLM_API_KEY}
+      - --enable-auto-tool-choice
+      - --tool-call-parser=gemma4
+      - --chat-template=/app/vllm/examples/tool_chat_template_gemma4.jinja
+      - '--limit-mm-per-prompt={"image": 1, "audio": 0}'
     volumes:
       - hf-cache:/root/.cache/huggingface
+      # torch.compile and graph-capture caches: a restart (plan B model, later sessions from the
+      # snapshot) skips the compile instead of paying it again.
+      - vllm-cache:/root/.cache/vllm
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8001/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      # The first start downloads about 62.6 GB of weights before the server answers.
+      start_period: 45m
     # No published port: reachable only by the api on the internal network (NFR-11).
 
   trainer-gbm:
@@ -89,28 +120,39 @@ services:
       context: ..
       dockerfile: infra/docker/trainer-gbm.Dockerfile
       args:
-        ROCM_BASE_IMAGE: ${ROCM_BASE_IMAGE}  # pin
+        ROCM_BASE_IMAGE: ${ROCM_BASE_IMAGE}
         AMD_PYPI_INDEX_URL: ${AMD_PYPI_INDEX_URL}
     profiles: [gpu]
+    environment:
+      SEED: ${SEED:-42}
+    # Job container (ADR-02). ML stories add read-only mounts of the data they need, never
+    # data/truth/ (rule 12).
     volumes:
-      - ../data:/app/data
       - ../artifacts:/app/artifacts
 
   trainer-gnn:
     <<: *gpu
-    image: ${DGL_IMAGE}  # pin
+    image: ${DGL_IMAGE}
     profiles: [gpu]
+    environment:
+      DGLBACKEND: pytorch
+      SEED: ${SEED:-42}
     working_dir: /app
-    command: ["python", "-c", "import dgl, torch; print('dgl', dgl.__version__, 'gpu', torch.cuda.is_available())"]
+    # Smoke check only, exit 1 without a GPU. DGL is an editable install in /src/dgl: never mount
+    # over it.
+    command:
+      - python
+      - -c
+      - "import dgl, torch; print('dgl', dgl.__version__, 'torch', torch.__version__, 'hip', torch.version.hip, 'gpu', torch.cuda.is_available()); raise SystemExit(0 if torch.cuda.is_available() else 1)"
     volumes:
-      - ..:/app
+      - ../artifacts:/app/artifacts
 
   telemetry:
     build:
       context: ..
       dockerfile: infra/docker/telemetry.Dockerfile
       args:
-        ROCM_BASE_IMAGE: ${ROCM_BASE_IMAGE}  # pin
+        ROCM_BASE_IMAGE: ${ROCM_BASE_IMAGE}
     <<: *gpu
     profiles: [gpu]
     command: ["sh", "-c", "while true; do amd-smi metric --json > /app/artifacts/telemetry.json; sleep 5; done"]
@@ -132,4 +174,5 @@ services:
 volumes:
   pgdata:
   hf-cache:
+  vllm-cache:
   caddy-data:

@@ -56,6 +56,12 @@ It is downloaded by `make asos` and never committed to this repository.
 Code: MIT (see LICENSE). Runtime dependencies are permissive (MIT, BSD, Apache-2.0), checked in CI.
 Hypothesis (MPL-2.0) is used only as a development tool and is not distributed.
 
+The GPU containers run third-party images pulled unmodified by digest and never redistributed
+(docs/adr/ADR-12-container-licences.md): vLLM (`vllm/vllm-openai-rocm`, Apache-2.0), DGL on ROCm
+(`rocm/dgl`, Apache-2.0 with PyTorch BSD-3-Clause), the ROCm base image (`rocm/dev-ubuntu-24.04`,
+ROCm components under MIT, NCSA and other licences, including GPL-3.0 tools) and amd_xgboost
+(Apache-2.0). Gemma 4 weights are Apache-2.0 on Hugging Face.
+
 ## Built with
 
 AMD Developer Cloud, AMD Instinct MI300X, ROCm, AMD Finance toolkit (XGBoost), DGL on ROCm, vLLM,

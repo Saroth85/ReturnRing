@@ -174,13 +174,18 @@
     "customer_id": "C-17305",
     "lang": "it",
     "subject": "Il tuo reso RET-000108",
-    "connective_text": "Ciao, grazie per averci scritto. Abbiamo registrato il reso e il rimborso arriverà entro il {deadline}.",
+    "sentence_ids": [
+      "OPEN_MESSAGE",
+      "CONTACT_TEAM",
+      "CLOSE_DAY"
+    ],
     "fields": {
-      "terms": "finestra di reso di 30 giorni, reso gratuito, rimborso immediato, cambio taglia gratuito",
+      "terms": null,
       "amount": null,
       "deadline": "13 ottobre 2026"
     },
-    "body": "Ciao, grazie per averci scritto. Abbiamo registrato il reso e il rimborso arriverà entro il 13 ottobre 2026.",
+    "refund": null,
+    "body": "Ciao, grazie per il tuo messaggio. Abbiamo registrato la tua richiesta di reso e il rimborso è previsto per il 13 ottobre 2026. Le condizioni di reso dei tuoi ordini restano quelle di sempre. Il nostro team ti risponderà volentieri. Grazie ancora e buona giornata.",
     "legal_clause_kind": null,
     "generation_id": null,
     "status": "sent_simulated",

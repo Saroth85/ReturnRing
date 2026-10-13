@@ -1618,12 +1618,13 @@
   "draft": {
     "generation": {
       "generation_id": "GEN-000102-1",
-      "generation_path": "llm",
+      "generation_path": "model",
+      "fallback_reason": null,
       "llm_mode": "mock",
       "served_from": "live",
       "model": "mock",
-      "attempts": 1,
-      "validator_errors": [],
+      "model_calls": 1,
+      "validator_codes": [],
       "created_at": "2026-09-28T09:17:00Z",
       "latency_ms": 14
     },
@@ -1642,54 +1643,98 @@
     },
     "explanation": [
       {
-        "label": "OBSERVED",
-        "text": "The 7 linked accounts of cluster CL-000417 each redeemed a welcome coupon between 2026-09-02 and 2026-09-11.",
-        "entity": "CL-000417",
-        "metric": "welcome_coupons",
-        "value": "7",
-        "period": "2026-09-02 to 2026-09-11"
+        "label": "SCORE",
+        "fact_ids": [
+          "F1",
+          "F3"
+        ],
+        "text": "Risk score 0.87; the largest contribution is welcome_coupons_per_account: each linked account used the welcome coupon.",
+        "facts": [
+          {
+            "id": "F1",
+            "entity": "customer",
+            "metric": "risk_score",
+            "value": 0.87,
+            "period": "as of 2026-09-28",
+            "nature": "synthetic"
+          },
+          {
+            "id": "F3",
+            "entity": "cluster",
+            "metric": "welcome_coupons_per_account",
+            "value": 1,
+            "period": "as of 2026-09-28",
+            "nature": "synthetic"
+          }
+        ]
       },
       {
-        "label": "SCORE",
-        "text": "The welcome coupons of the linked accounts raise the risk score to 0.87: contributions to the score, not causes.",
-        "entity": "C-MARCO-1",
-        "metric": "risk",
-        "value": "0.87",
-        "period": "2025-10-01 to 2026-09-30"
+        "label": "OBSERVED",
+        "fact_ids": [
+          "F6",
+          "F4"
+        ],
+        "text": "The cluster has 7 linked accounts, created within 9 days.",
+        "facts": [
+          {
+            "id": "F6",
+            "entity": "cluster",
+            "metric": "cluster_size",
+            "value": 7,
+            "period": "as of 2026-09-28",
+            "nature": "synthetic"
+          },
+          {
+            "id": "F4",
+            "entity": "cluster",
+            "metric": "creation_spread_days",
+            "value": 9,
+            "period": "as of 2026-09-28",
+            "nature": "synthetic"
+          }
+        ]
       },
       {
         "label": "HYPOTHESIS",
-        "text": "The linked accounts may be managed together: verify the shared cards before approving.",
-        "entity": "CL-000417",
-        "metric": null,
-        "value": null,
-        "period": null
+        "fact_ids": [],
+        "text": "The linked accounts may be managed together: verify the shared payment cards before approving.",
+        "facts": []
       }
     ],
-    "messages": [
-      {
-        "lang": "it",
-        "connective_text": "Ciao, abbiamo ricevuto la tua richiesta di reso e il rimborso arriverà entro il {deadline}. Dal prossimo ordine valgono queste condizioni: {terms}. Le condizioni dell'ordine attuale non cambiano.",
-        "fields": {
-          "terms": "finestra di reso di 14 giorni, spedizione del reso a tuo carico, rimborso nei termini di legge, cambio taglia gratuito, coupon non disponibili",
-          "amount": null,
-          "deadline": "12 ottobre 2026"
+    "message": {
+      "sentence_ids": [
+        "OPEN_THANKS",
+        "INFO_TERMS",
+        "CLOSE_REGARDS"
+      ],
+      "legal_clause_kind": "withdrawal",
+      "texts": [
+        {
+          "lang": "it",
+          "fields": {
+            "terms": "reso entro 14 giorni dalla consegna; spedizione del reso a tuo carico; rimborso nei tempi di legge, non istantaneo; codici sconto non utilizzabili",
+            "amount": null,
+            "deadline": "12 ottobre 2026"
+          },
+          "text": "Ciao, grazie per averci scritto. Abbiamo registrato la tua richiesta di reso e il rimborso è previsto per il 12 ottobre 2026. I tuoi prossimi ordini avranno nuove condizioni di reso, mostrate prima di ogni acquisto: reso entro 14 giorni dalla consegna; spedizione del reso a tuo carico; rimborso nei tempi di legge, non istantaneo; codici sconto non utilizzabili. Queste condizioni tengono conto dei resi dei tuoi ordini precedenti. Per domande su queste condizioni, rispondi pure a questo messaggio. Un caro saluto dal nostro team.\n\nTi ricordiamo che puoi sempre esercitare il diritto di recesso entro 14 giorni dalla consegna, senza indicarne il motivo. Ti rimborseremo entro 14 giorni dalla tua comunicazione, al ricevimento dei prodotti o della prova della loro spedizione."
         },
-        "legal_clause_kind": "withdrawal",
-        "rendered_text": "Ciao, abbiamo ricevuto la tua richiesta di reso e il rimborso arriverà entro il 12 ottobre 2026. Dal prossimo ordine valgono queste condizioni: finestra di reso di 14 giorni, spedizione del reso a tuo carico, rimborso nei termini di legge, cambio taglia gratuito, coupon non disponibili. Le condizioni dell'ordine attuale non cambiano.\n\nTi ricordiamo che puoi sempre esercitare il diritto di recesso entro 14 giorni dalla consegna, senza indicarne il motivo. Ti rimborseremo entro 14 giorni dalla tua comunicazione, al ricevimento dei prodotti o della prova della loro spedizione."
-      },
-      {
-        "lang": "en",
-        "connective_text": "Hello, we have received your return request and your refund will arrive by {deadline}. From your next order these terms apply: {terms}. The terms of your current order do not change.",
-        "fields": {
-          "terms": "14-day return window, return shipping at your cost, refund within the legal terms, free size exchange, coupons not available",
-          "amount": null,
-          "deadline": "12 October 2026"
-        },
-        "legal_clause_kind": "withdrawal",
-        "rendered_text": "Hello, we have received your return request and your refund will arrive by 12 October 2026. From your next order these terms apply: 14-day return window, return shipping at your cost, refund within the legal terms, free size exchange, coupons not available. The terms of your current order do not change.\n\nYou can always withdraw from your purchase within 14 days of delivery without giving any reason. We will refund you within 14 days of your notice, once we receive the items or proof that you have sent them back."
-      }
-    ]
+        {
+          "lang": "en",
+          "fields": {
+            "terms": "returns within 14 days of delivery; return shipping at your expense; refund within the legal time limit, not instant; discount codes not available",
+            "amount": null,
+            "deadline": "12 October 2026"
+          },
+          "text": "Hello, thank you for writing to us. We have registered your return request and your refund is due by 12 October 2026. Your next orders will have new return terms, shown before each purchase: returns within 14 days of delivery; return shipping at your expense; refund within the legal time limit, not instant; discount codes not available. These terms take into account the returns on your previous orders. Questions about these terms? Just reply to this message. Warm regards from our team.\n\nYou can always withdraw from your purchase within 14 days of delivery without giving any reason. We will refund you within 14 days of your notice, once we receive the items or proof that you have sent them back."
+        }
+      ]
+    },
+    "provenance": {
+      "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+      "period_start": "2025-10-01",
+      "period_end": "2026-09-28",
+      "nature": "synthetic"
+    }
   },
   "product_anomaly": null,
   "revisions": [

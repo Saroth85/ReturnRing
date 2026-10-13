@@ -355,6 +355,61 @@
       "response": "decision_record.chiara_v2.json"
     },
     {
+      "method": "GET",
+      "endpoint": "/api/decisions/{decision_id}",
+      "path": "/api/decisions/DEC-000102-1",
+      "query": null,
+      "request": null,
+      "scenario": "default",
+      "status": 200,
+      "media_type": "application/json",
+      "response": "decision_record.marco_v1.json"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/decisions/{decision_id}",
+      "path": "/api/decisions/DEC-000107-1",
+      "query": null,
+      "request": null,
+      "scenario": "default",
+      "status": 200,
+      "media_type": "application/json",
+      "response": "decision_record.andrea_v1.json"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/decisions/{decision_id}",
+      "path": "/api/decisions/DEC-000108-1",
+      "query": null,
+      "request": null,
+      "scenario": "default",
+      "status": 200,
+      "media_type": "application/json",
+      "response": "decision_record.martina_v1.json"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/decisions/{decision_id}",
+      "path": "/api/decisions/DEC-000110-1",
+      "query": null,
+      "request": null,
+      "scenario": "default",
+      "status": 200,
+      "media_type": "application/json",
+      "response": "decision_record.valentina_v1.json"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/decisions/{decision_id}",
+      "path": "/api/decisions/DEC-000077-1",
+      "query": null,
+      "request": null,
+      "scenario": "default",
+      "status": 200,
+      "media_type": "application/json",
+      "response": "decision_record.earlier_q4_v1.json"
+    },
+    {
       "method": "POST",
       "endpoint": "/api/returns/{return_id}/regenerate",
       "path": "/api/returns/RET-000101/regenerate",

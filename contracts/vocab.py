@@ -59,10 +59,28 @@ MIN_REASON_CHARS = 3  # an override, a rejection, a dispute or a reversal needs 
 
 # ---- LLM generations (spec 8.7, ADR-03, US-901) ------------------------------------------------
 
-# llm: validated on the first attempt; llm_regenerated: validated on the second attempt;
-# template: the deterministic fallback (validator failed twice, or the LLM was unavailable).
-GenerationPath = Literal["llm", "llm_regenerated", "template"]
+# The paths of llm.generate.GenerationPath (a test keeps them equal): model, validated on the
+# first call; regenerated, validated on the second call; template, the deterministic fallback.
+GenerationPath = Literal["model", "regenerated", "template"]
 GENERATION_PATHS: tuple[GenerationPath, ...] = get_args(GenerationPath)
+# Why llm.generate fell back to the template (Generation.fallback_reason).
+FallbackReason = Literal["decision_echo", "invalid_twice", "unavailable"]
+FALLBACK_REASONS: tuple[FallbackReason, ...] = get_args(FallbackReason)
+# The codes of llm.validator.Code (a test keeps them equal), recorded with each generation.
+ValidatorCode = Literal[
+    "SCHEMA",
+    "CASE_INVALID",
+    "DECISION_ECHO",
+    "UNKNOWN_FACT",
+    "MISSING_FACT",
+    "LABEL_MISMATCH",
+    "UNGROUNDED_NUMBER",
+    "BANNED_TERM",
+    "SCRIPT",
+    "SENTENCE_ID",
+    "WRONG_LANGUAGE",
+]
+VALIDATOR_CODES: tuple[ValidatorCode, ...] = get_args(ValidatorCode)
 LlmMode = Literal["vllm", "mock"]
 LLM_MODES: tuple[LlmMode, ...] = get_args(LlmMode)
 ServedFrom = Literal["live", "cached"]  # DEMO_MODE: cached = precomputed on the MI300X
@@ -174,6 +192,11 @@ DECISION_AUDIT_ACTIONS: frozenset[AuditAction] = frozenset(
         "restriction_renewed",
         "case_recomputed",
     }
+)
+# The actions about a draft generation: exactly the entries with entity_type "llm_generation",
+# whose after is a typed generation record (path, model calls, validator codes; spec 8.7).
+GENERATION_AUDIT_ACTIONS: frozenset[AuditAction] = frozenset(
+    {"draft_generated", "draft_regenerated"}
 )
 # Actions only a person may take (rule 5, GDPR art. 22): never logged with the system role.
 HUMAN_ONLY_ACTIONS: frozenset[AuditAction] = frozenset(

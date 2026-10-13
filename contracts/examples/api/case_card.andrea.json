@@ -956,12 +956,13 @@
   "draft": {
     "generation": {
       "generation_id": "GEN-000107-1",
-      "generation_path": "llm",
+      "generation_path": "model",
+      "fallback_reason": null,
       "llm_mode": "mock",
       "served_from": "live",
       "model": "mock",
-      "attempts": 1,
-      "validator_errors": [],
+      "model_calls": 1,
+      "validator_codes": [],
       "created_at": "2026-09-28T13:06:00Z",
       "latency_ms": 14
     },
@@ -976,46 +977,147 @@
     },
     "explanation": [
       {
-        "label": "OBSERVED",
-        "text": "C-11872 kept 5 of 6 items in 12 months.",
-        "entity": "C-11872",
-        "metric": "kept_lines",
-        "value": "5 of 6",
-        "period": "2025-10-01 to 2026-09-30"
+        "label": "SCORE",
+        "fact_ids": [
+          "F1"
+        ],
+        "text": "Risk score 0.22 from the model: an estimate, not a cause.",
+        "facts": [
+          {
+            "id": "F1",
+            "entity": "customer",
+            "metric": "risk_score",
+            "value": 0.22,
+            "period": "as of 2026-09-28",
+            "nature": "synthetic"
+          }
+        ]
       },
       {
         "label": "SCORE",
-        "text": "The account features lower the risk score to 0.22: contributions to the score, not causes.",
-        "entity": "C-11872",
-        "metric": "risk",
-        "value": "0.22",
-        "period": "2025-10-01 to 2026-09-30"
-      }
-    ],
-    "messages": [
-      {
-        "lang": "it",
-        "connective_text": "Ciao, grazie per averci scritto. Abbiamo registrato il reso e il rimborso arriverà entro il {deadline}. Per i tuoi prossimi ordini valgono queste condizioni: {terms}.",
-        "fields": {
-          "terms": "finestra di reso di 60 giorni, reso gratuito, rimborso immediato, cambio taglia gratuito e prioritario",
-          "amount": null,
-          "deadline": "12 ottobre 2026"
-        },
-        "legal_clause_kind": null,
-        "rendered_text": "Ciao, grazie per averci scritto. Abbiamo registrato il reso e il rimborso arriverà entro il 12 ottobre 2026. Per i tuoi prossimi ordini valgono queste condizioni: finestra di reso di 60 giorni, reso gratuito, rimborso immediato, cambio taglia gratuito e prioritario."
+        "fact_ids": [
+          "F3"
+        ],
+        "text": "Contribution to the score: size_share is 1.",
+        "facts": [
+          {
+            "id": "F3",
+            "entity": "customer",
+            "metric": "size_share",
+            "value": 1,
+            "period": "as of 2026-09-28",
+            "nature": "synthetic"
+          }
+        ]
       },
       {
-        "lang": "en",
-        "connective_text": "Hello, thank you for letting us know. We have registered your return and your refund will arrive by {deadline}. Your next orders come with these terms: {terms}.",
-        "fields": {
-          "terms": "60-day return window, free return shipping, instant refund, free priority size exchange",
-          "amount": null,
-          "deadline": "12 October 2026"
-        },
-        "legal_clause_kind": null,
-        "rendered_text": "Hello, thank you for letting us know. We have registered your return and your refund will arrive by 12 October 2026. Your next orders come with these terms: 60-day return window, free return shipping, instant refund, free priority size exchange."
+        "label": "SCORE",
+        "fact_ids": [
+          "F4"
+        ],
+        "text": "Contribution to the score: residual_z is -0.3.",
+        "facts": [
+          {
+            "id": "F4",
+            "entity": "customer",
+            "metric": "residual_z",
+            "value": -0.3,
+            "period": "as of 2026-09-28",
+            "nature": "synthetic"
+          }
+        ]
+      },
+      {
+        "label": "SCORE",
+        "fact_ids": [
+          "F5"
+        ],
+        "text": "Contribution to the score: tenure_days is 326.",
+        "facts": [
+          {
+            "id": "F5",
+            "entity": "customer",
+            "metric": "tenure_days",
+            "value": 326,
+            "period": "as of 2026-09-28",
+            "nature": "synthetic"
+          }
+        ]
+      },
+      {
+        "label": "OBSERVED",
+        "fact_ids": [
+          "F2"
+        ],
+        "text": "Customer net margin over the period: 276.05 EUR.",
+        "facts": [
+          {
+            "id": "F2",
+            "entity": "customer",
+            "metric": "value_eur_12m",
+            "value": 276.05,
+            "period": "12 months to 2026-09-28",
+            "nature": "synthetic"
+          }
+        ]
+      },
+      {
+        "label": "OBSERVED",
+        "fact_ids": [],
+        "text": "The rules engine placed the case in Q1; the levers are listed with the decision.",
+        "facts": []
+      },
+      {
+        "label": "OBSERVED",
+        "fact_ids": [
+          "F6"
+        ],
+        "text": "Days from delivery to the return notice: 5.",
+        "facts": [
+          {
+            "id": "F6",
+            "entity": "return",
+            "metric": "days_since_delivery",
+            "value": 5,
+            "period": "2026-09-23/2026-09-28",
+            "nature": "synthetic"
+          }
+        ]
       }
-    ]
+    ],
+    "message": {
+      "sentence_ids": [
+        "OPEN_THANKS",
+        "CLOSE_HAPPY"
+      ],
+      "legal_clause_kind": null,
+      "texts": [
+        {
+          "lang": "it",
+          "fields": {
+            "terms": "reso entro 60 giorni dalla consegna; cambio taglia con priorità",
+            "amount": null,
+            "deadline": "12 ottobre 2026"
+          },
+          "text": "Ciao, grazie per averci scritto. Abbiamo registrato la tua richiesta di reso e il rimborso è previsto per il 12 ottobre 2026. Per i tuoi prossimi ordini ti offriamo condizioni di reso migliori: reso entro 60 giorni dalla consegna; cambio taglia con priorità. Siamo felici di averti tra i nostri clienti."
+        },
+        {
+          "lang": "en",
+          "fields": {
+            "terms": "returns within 60 days of delivery; priority size exchange",
+            "amount": null,
+            "deadline": "12 October 2026"
+          },
+          "text": "Hello, thank you for writing to us. We have registered your return request and your refund is due by 12 October 2026. For your next orders we are glad to offer you better return terms: returns within 60 days of delivery; priority size exchange. We are happy to have you with us."
+        }
+      ]
+    },
+    "provenance": {
+      "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+      "period_start": "2025-10-01",
+      "period_end": "2026-09-28",
+      "nature": "synthetic"
+    }
   },
   "product_anomaly": null,
   "revisions": [

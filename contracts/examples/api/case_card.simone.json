@@ -748,12 +748,13 @@
   "draft": {
     "generation": {
       "generation_id": "GEN-000111-1",
-      "generation_path": "llm",
+      "generation_path": "model",
+      "fallback_reason": null,
       "llm_mode": "mock",
       "served_from": "live",
       "model": "mock",
-      "attempts": 1,
-      "validator_errors": [],
+      "model_calls": 1,
+      "validator_codes": [],
       "created_at": "2026-09-27T13:06:00Z",
       "latency_ms": 14
     },
@@ -765,46 +766,148 @@
     },
     "explanation": [
       {
-        "label": "OBSERVED",
-        "text": "C-16634 kept 3 of 4 items in 12 months.",
-        "entity": "C-16634",
-        "metric": "kept_lines",
-        "value": "3 of 4",
-        "period": "2025-10-01 to 2026-09-30"
+        "label": "SCORE",
+        "fact_ids": [
+          "F1"
+        ],
+        "text": "Risk score 0.28 from the model: an estimate, not a cause.",
+        "facts": [
+          {
+            "id": "F1",
+            "entity": "customer",
+            "metric": "risk_score",
+            "value": 0.28,
+            "period": "as of 2026-09-27",
+            "nature": "synthetic"
+          }
+        ]
       },
       {
         "label": "SCORE",
-        "text": "The account features lower the risk score to 0.28: contributions to the score, not causes.",
-        "entity": "C-16634",
-        "metric": "risk",
-        "value": "0.28",
-        "period": "2025-10-01 to 2026-09-30"
-      }
-    ],
-    "messages": [
-      {
-        "lang": "it",
-        "connective_text": "Ciao, grazie per averci scritto. Abbiamo registrato il reso e il rimborso arriverà entro il {deadline}.",
-        "fields": {
-          "terms": "finestra di reso di 30 giorni, reso gratuito, rimborso immediato, cambio taglia gratuito",
-          "amount": null,
-          "deadline": "11 ottobre 2026"
-        },
-        "legal_clause_kind": null,
-        "rendered_text": "Ciao, grazie per averci scritto. Abbiamo registrato il reso e il rimborso arriverà entro il 11 ottobre 2026."
+        "fact_ids": [
+          "F3"
+        ],
+        "text": "Contribution to the score: changed_mind_share is 1.",
+        "facts": [
+          {
+            "id": "F3",
+            "entity": "customer",
+            "metric": "changed_mind_share",
+            "value": 1,
+            "period": "as of 2026-09-27",
+            "nature": "synthetic"
+          }
+        ]
       },
       {
-        "lang": "en",
-        "connective_text": "Hello, thank you for letting us know. We have registered your return and your refund will arrive by {deadline}.",
-        "fields": {
-          "terms": "30-day return window, free return shipping, instant refund, free size exchange",
-          "amount": null,
-          "deadline": "11 October 2026"
-        },
-        "legal_clause_kind": null,
-        "rendered_text": "Hello, thank you for letting us know. We have registered your return and your refund will arrive by 11 October 2026."
+        "label": "SCORE",
+        "fact_ids": [
+          "F4"
+        ],
+        "text": "Contribution to the score: tenure_days is 243.",
+        "facts": [
+          {
+            "id": "F4",
+            "entity": "customer",
+            "metric": "tenure_days",
+            "value": 243,
+            "period": "as of 2026-09-27",
+            "nature": "synthetic"
+          }
+        ]
+      },
+      {
+        "label": "SCORE",
+        "fact_ids": [
+          "F5"
+        ],
+        "text": "Contribution to the score: residual_z is 0.1.",
+        "facts": [
+          {
+            "id": "F5",
+            "entity": "customer",
+            "metric": "residual_z",
+            "value": 0.1,
+            "period": "as of 2026-09-27",
+            "nature": "synthetic"
+          }
+        ]
+      },
+      {
+        "label": "OBSERVED",
+        "fact_ids": [
+          "F2"
+        ],
+        "text": "Customer net margin over the period: 61.2 EUR.",
+        "facts": [
+          {
+            "id": "F2",
+            "entity": "customer",
+            "metric": "value_eur_12m",
+            "value": 61.2,
+            "period": "12 months to 2026-09-27",
+            "nature": "synthetic"
+          }
+        ]
+      },
+      {
+        "label": "OBSERVED",
+        "fact_ids": [],
+        "text": "The rules engine placed the case in Q2; the levers are listed with the decision.",
+        "facts": []
+      },
+      {
+        "label": "OBSERVED",
+        "fact_ids": [
+          "F6"
+        ],
+        "text": "Days from delivery to the return notice: 5.",
+        "facts": [
+          {
+            "id": "F6",
+            "entity": "return",
+            "metric": "days_since_delivery",
+            "value": 5,
+            "period": "2026-09-22/2026-09-27",
+            "nature": "synthetic"
+          }
+        ]
       }
-    ]
+    ],
+    "message": {
+      "sentence_ids": [
+        "OPEN_THANKS",
+        "HELP_SIZE",
+        "CLOSE_REGARDS"
+      ],
+      "legal_clause_kind": null,
+      "texts": [
+        {
+          "lang": "it",
+          "fields": {
+            "terms": null,
+            "amount": null,
+            "deadline": "11 ottobre 2026"
+          },
+          "text": "Ciao, grazie per averci scritto. Abbiamo registrato la tua richiesta di reso e il rimborso è previsto per il 11 ottobre 2026. Se ti serve un'altra taglia, rispondi pure a questo messaggio. Un caro saluto dal nostro team."
+        },
+        {
+          "lang": "en",
+          "fields": {
+            "terms": null,
+            "amount": null,
+            "deadline": "11 October 2026"
+          },
+          "text": "Hello, thank you for writing to us. We have registered your return request and your refund is due by 11 October 2026. If you need a different size, just reply to this message. Warm regards from our team."
+        }
+      ]
+    },
+    "provenance": {
+      "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+      "period_start": "2025-10-01",
+      "period_end": "2026-09-27",
+      "nature": "synthetic"
+    }
   },
   "product_anomaly": null,
   "revisions": [

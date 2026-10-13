@@ -1239,13 +1239,13 @@ Corpo di POST /api/returns/{id}/decision:
 {
   "action": "approve",
   "levers": [{"id": "instant_refund", "value": false, "scope": "future_orders"}],
-  "message": {"lang": "it", "text": "..."},
+  "message": {"lang": "it", "sentence_ids": ["OPEN_THANKS", "CONTACT_REPLY", "CLOSE_REGARDS"]},
   "override_reason": null,
   "approver": "sara"
 }
 ```
 
-Forma vincolante: `contracts/json/api/decision_request.schema.json` (ADR-15), che aggiunge `decision_id`, `override_category` e l'azione `lift`; motivazione e categoria obbligatorie per override, rifiuto e revoca.
+Forma vincolante: `contracts/json/api/decision_request.schema.json` (ADR-15), che aggiunge `decision_id`, `override_category` e le azioni `lift` e `renew`; motivazione e categoria obbligatorie per override, rifiuto e revoca. Il messaggio sceglie id del frasario (`message.sentence_ids`, ADR-14), mai testo libero, e manca per revoca e rinnovo.
 
 ### C. Clausola legale fissa (bozza da validare con un legale)
 

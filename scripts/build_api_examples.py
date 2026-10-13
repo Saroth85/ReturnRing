@@ -21,7 +21,7 @@ import json
 import math
 import random
 import sys
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
@@ -37,12 +37,16 @@ from contracts.vocab import (
     AuditAction,
     AuditEntityType,
     DecisionStatus,
-    GenerationPath,
     Lang,
     OverrideCategory,
     RevisionTrigger,
     Tone,
 )
+from llm.case import ClusterSummary, ScoreFactor, build_case
+from llm.client import MockClient
+from llm.decision import ExpectedDecision, serialize_decision
+from llm.generate import generate
+from llm.templates import format_value, lever_ids_of
 from policy.engine import NAVIGLI_BASE_TERMS, Thresholds, approve, decide, quadrant_for
 from policy.legal_guard import check, is_restrictive
 from policy.simulator import PROPOSAL_EXAMPLE
@@ -913,145 +917,196 @@ def alternative(
     )
 
 
-# ---- Drafts -------------------------------------------------------------------------------------
+# ---- Drafts and messages: llm/ end to end (ADR-14) ---------------------------------------------
+
+POLICY_TEXT = (
+    "Navigli Fashion return policy (demo): returns within the window of the order terms, refund "
+    "within 14 days of the notice, the legal guarantee for defects."
+)
+# Score factors measured on the cluster: their facts have the entity cluster (llm/case.py).
+CLUSTER_FEATURES = frozenset(
+    {
+        "welcome_coupons_per_account",
+        "creation_spread_days",
+        "strong_id_share",
+        "cluster_return_rate",
+        "n_distinct_cards",
+        "cluster_size",
+    }
+)
 
 
-def generation(
+@dataclass(frozen=True)
+class DraftSource:
+    """What an example draft was generated from: the llm_case llm.case.build_case made of the
+    engine decision of its version, and that decision (tests validate every draft against it)."""
+
+    decision_id: str
+    case: dict[str, Any]
+    expected: ExpectedDecision
+    decision: Decision
+
+
+DRAFT_SOURCES: dict[str, DraftSource] = {}  # by generation id, filled by draft()
+Outputs = Callable[[Mapping[str, Any]], Sequence[Any]]
+
+
+def fact_id(case: Mapping[str, Any], metric: str) -> str:
+    """The id of the fact of `case` with this metric (F1, F2...)."""
+    return str(next(f["id"] for f in case["facts"] if f["metric"] == metric))
+
+
+def fact_value(case: Mapping[str, Any], metric: str) -> str:
+    """The value of a fact as written in the case (format_value of llm.templates)."""
+    return format_value(next(f["value"] for f in case["facts"] if f["metric"] == metric))
+
+
+def cluster_summary(linked: s.LinkedAccountsView) -> ClusterSummary:
+    kinds = {kind for link in linked.links for kind in link.kinds}
+    return ClusterSummary(
+        linked.cluster_id, linked.cluster_size, tuple(k for k in KIND_ORDER if k in kinds)
+    )
+
+
+def draft(
+    view: s.DecisionView,
+    engine: Engine,
     generation_id: str,
     created_at: datetime,
-    path: GenerationPath = "llm",
-    errors: Sequence[str] = (),
+    *,
+    risk: s.RiskView | Sequence[s.ScoreContribution] | None = None,
+    linked: s.LinkedAccountsView | None = None,
+    customer_text: str | None = None,
+    outputs: Outputs | None = None,
+    languages: Sequence[Lang] = ("it", "en"),
+    tone: Tone = "warm",
     latency_ms: int = 14,
-) -> s.GenerationInfo:
-    attempts = {"llm": 1, "llm_regenerated": 2, "template": 2}[path]
-    return s.GenerationInfo(
+) -> s.DraftView:
+    """A draft made by llm/ as the API makes it: llm.case.build_case of the engine decision of
+    the version (s.proposal_decision), llm.generate.generate with the mock model (MockClient;
+    `outputs` are model answers given before its default one), then s.DraftView.build, which
+    copies the cited facts and composes the messages with llm.phrasebook."""
+    decision = s.proposal_decision(view)
+    factors = risk.top_factors if isinstance(risk, s.RiskView) else risk
+    scored = (
+        view.path is ReturnPath.WITHDRAWAL and view.evidence_quality is EvidenceQuality.SUFFICIENT
+    )
+    case = build_case(
+        decision,
+        engine.request,
+        BASE,
+        policy_text=POLICY_TEXT,
+        scores=engine.scores if scored else None,
+        factors=score_factors_of(factors) if scored else (),
+        cluster=cluster_summary(linked) if scored and linked is not None else None,
+        missing_evidence=view.missing_evidence,
+        customer_text=customer_text,
+        nature=view.inputs.provenance.nature,
+        languages=languages,
+    )
+    _, expected = serialize_decision(decision, BASE)
+    result = generate(case, expected, MockClient(outputs(case) if outputs else ()))
+    info = s.GenerationInfo.from_generation(
+        result,
         generation_id=generation_id,
-        generation_path=path,
         llm_mode="mock",
         served_from="live",
         model="mock",
-        attempts=attempts,
-        validator_errors=list(errors),
+        created_at=created_at,
+        latency_ms=latency_ms,
+    )
+    DRAFT_SOURCES[generation_id] = DraftSource(view.decision_id, case, expected, decision)
+    return s.DraftView.build(
+        info, result.output, case, decision, BASE, view.inputs.provenance, tone
+    )
+
+
+def score_factors_of(factors: Sequence[s.ScoreContribution] | None) -> list[ScoreFactor]:
+    out: list[ScoreFactor] = []
+    for c in factors or ():
+        value = c.feature_value
+        assert isinstance(value, int | float) and not isinstance(value, bool), c.feature
+        entity: Literal["customer", "cluster"] = (
+            "cluster" if c.feature in CLUSTER_FEATURES else "customer"
+        )
+        out.append(ScoreFactor(c.feature, value, c.phrase, entity))
+    return out
+
+
+def model_output(
+    case: Mapping[str, Any],
+    statements: Sequence[tuple[str, Sequence[str], str]],
+    sentence_ids: Sequence[str],
+    *,
+    quadrant: str | None = None,
+) -> dict[str, Any]:
+    """A mock model answer for `case` (llm_output): the echo of the case, the statements as
+    (label, cited metrics, text) and the phrasebook ids. `quadrant` replaces the echoed
+    quadrant (a misread decision, for the template examples)."""
+    return {
+        "decision_echo": {
+            "path": case["path"],
+            "quadrant": quadrant if quadrant is not None else case["quadrant"],
+            "lever_ids": lever_ids_of(case),
+        },
+        "operator_explanation": [
+            {"label": label, "fact_ids": [fact_id(case, m) for m in metrics], "text": text}
+            for label, metrics, text in statements
+        ],
+        "customer_message": {"sentence_ids": list(sentence_ids)},
+    }
+
+
+def model_generation(generation_id: str, created_at: datetime, latency_ms: int) -> s.GenerationInfo:
+    """The record of a mock-model output validated on its first call (the vision checklist and
+    the agent answers, which do not go through llm.generate)."""
+    return s.GenerationInfo(
+        generation_id=generation_id,
+        generation_path="model",
+        fallback_reason=None,
+        llm_mode="mock",
+        served_from="live",
+        model="mock",
+        model_calls=1,
+        validator_codes=[],
         created_at=created_at,
         latency_ms=latency_ms,
     )
 
 
-def statement(
-    label: s.StatementLabel,
-    text: str,
-    entity: str | None = None,
-    metric: str | None = None,
-    value: str | None = None,
-    period: str | None = None,
-) -> s.ExplanationStatement:
-    return s.ExplanationStatement(
-        label=label, text=text, entity=entity, metric=metric, value=value, period=period
-    )
-
-
-def draft(
-    decision: s.DecisionView,
-    gen: s.GenerationInfo,
-    statements: Sequence[s.ExplanationStatement],
-    connective: dict[Lang, str],
-    tone: Tone = "warm",
-) -> s.DraftView:
-    """A mock draft: the fields come from s.template_fields, the clause from s.required_clause."""
-    kind = s.required_clause(decision)
-    messages = []
-    for lang, text in connective.items():
-        fields = s.template_fields(decision, lang)
-        messages.append(
-            s.CustomerMessageView(
-                lang=lang,
-                connective_text=text,
-                fields=fields,
-                legal_clause_kind=kind,
-                rendered_text=s.render_customer_message(text, fields.as_mapping(), lang, kind),
-            )
-        )
-    return s.DraftView(
-        generation=gen,
-        tone=tone,
-        decision_echo=s.DecisionEchoView(
-            path=decision.path, quadrant=decision.quadrant, lever_ids=decision.lever_ids
-        ),
-        explanation=list(statements),
-        messages=messages,
-    )
+def subject(lang: Lang, return_id: str) -> str:
+    return f"{'Il tuo reso' if lang == 'it' else 'Your return'} {return_id}"
 
 
 def outbox_message(
     message_id: str,
     decision: s.DecisionView,
     lang: Lang,
-    text: str,
     created_by: str,
     created_at: datetime,
+    *,
+    sentence_ids: Sequence[str] | None = None,
+    preferred: Sequence[str] | None = None,
     generation_id: str | None = None,
+    refund: s.Metric | None = None,
 ) -> s.OutboxMessage:
-    """A message sent after a person acted: the text, the fields of the decision, the clause."""
-    fields = s.template_fields(decision, lang)
-    kind = s.required_clause(decision)
-    subject = "Il tuo reso" if lang == "it" else "Your return"
-    return s.OutboxMessage(
+    """A message sent after a person acted, composed by llm.phrasebook for the decision as it
+    stands: the ids chosen (MessageChoice.sentence_ids) or, without them, the draft's selection
+    when it is allowed for the decision, otherwise the fallback selection."""
+    policy_decision, _ = s.to_policy_decision(decision)
+    amount = Decimal(str(refund.value)) if refund is not None else None
+    ids = sentence_ids or s.default_selection_for(policy_decision, BASE, preferred, amount)
+    return s.OutboxMessage.compose(
+        decision,
         message_id=message_id,
-        return_id=decision.return_id,
-        decision_id=decision.decision_id,
-        customer_id=decision.inputs.customer_id,
         lang=lang,
-        subject=f"{subject} {decision.return_id}",
-        connective_text=text,
-        fields=fields,
-        body=s.render_customer_message(text, fields.as_mapping(), lang, kind),
-        legal_clause_kind=kind,
-        generation_id=generation_id,
-        status="sent_simulated",
+        subject=subject(lang, decision.return_id),
+        sentence_ids=ids,
         created_by=created_by,
         created_at=created_at,
+        generation_id=generation_id,
+        refund=refund,
     )
-
-
-PERIOD = "2025-10-01 to 2026-09-30"
-TEXT_UPGRADE: dict[Lang, str] = {
-    "it": "Ciao, grazie per averci scritto. Abbiamo registrato il reso e il rimborso arriverà "
-    "entro il {deadline}. Per i tuoi prossimi ordini valgono queste condizioni: {terms}.",
-    "en": "Hello, thank you for letting us know. We have registered your return and your refund "
-    "will arrive by {deadline}. Your next orders come with these terms: {terms}.",
-}
-TEXT_RESTRICTED: dict[Lang, str] = {
-    "it": "Ciao, abbiamo ricevuto la tua richiesta di reso e il rimborso arriverà entro il "
-    "{deadline}. Dal prossimo ordine valgono queste condizioni: {terms}. Le condizioni "
-    "dell'ordine attuale non cambiano.",
-    "en": "Hello, we have received your return request and your refund will arrive by "
-    "{deadline}. From your next order these terms apply: {terms}. The terms of your current "
-    "order do not change.",
-}
-TEXT_REGISTERED: dict[Lang, str] = {
-    "it": "Ciao, grazie per averci scritto. Abbiamo registrato il reso e il rimborso arriverà "
-    "entro il {deadline}.",
-    "en": "Hello, thank you for letting us know. We have registered your return and your refund "
-    "will arrive by {deadline}.",
-}
-TEXT_WRONG_ITEM: dict[Lang, str] = {
-    "it": "Ciao, ci dispiace per l'errore: hai ricevuto un articolo diverso da quello ordinato. "
-    "Il reso è gratuito e il rimborso arriverà entro il {deadline}.",
-    "en": "Hello, we are sorry for the mistake: you received a different item from the one you "
-    "ordered. The return is free and your refund will arrive by {deadline}.",
-}
-TEXT_RENEWED: dict[Lang, str] = {
-    "it": "Ciao, abbiamo rivisto le condizioni del tuo account. Dal prossimo ordine continuano a "
-    "valere queste condizioni: {terms}. Le rivedremo di nuovo alla prossima data di riesame.",
-    "en": "Hello, we have reviewed the terms of your account. From your next order these terms "
-    "still apply: {terms}. We will review them again at the next review date.",
-}
-TEXT_LIFTED: dict[Lang, str] = {
-    "it": "Ciao, abbiamo rivisto le condizioni del tuo account. Dal prossimo ordine valgono di "
-    "nuovo le condizioni standard: {terms}.",
-    "en": "Hello, we have reviewed the terms of your account. From your next order the standard "
-    "terms apply again: {terms}.",
-}
 
 
 def evidence_view(
@@ -1311,34 +1366,46 @@ def giulia() -> Case:
         ),
         alternative("current_terms", "Keep the current terms", did, period),
     ]  # fmt: skip
-    gen = generation("GEN-000101-1", created + timedelta(minutes=1))
-    kept, lines = kept_of(orders)
-    statements = [
-        statement(
-            "OBSERVED",
-            f"C-GIULIA kept {kept} of {lines} items in 12 months; 5 of her 6 returns were for "
-            "size.",
-            "C-GIULIA", "kept_lines", f"{kept} of {lines}", PERIOD,
-        ),
-        statement(
-            "SCORE",
-            "Size returns lower the risk score to 0.12: a contribution to the score, not a cause.",
-            "C-GIULIA", "risk", "0.12", PERIOD,
-        ),
-        statement(
-            "OBSERVED",
-            f"Customer value is {value:.2f} EUR, above the {THRESHOLDS.value_eur:.2f} EUR "
-            "threshold: quadrant Q1.",
-            "C-GIULIA", "value_eur", f"{value:.2f}", PERIOD,
-        ),
-    ]  # fmt: skip
-    connective: dict[Lang, str] = {
-        "it": "Ciao, grazie per averci scritto. Abbiamo registrato il reso per la taglia e il "
-        "rimborso arriverà entro il {deadline}. Per i tuoi prossimi ordini valgono queste "
-        "condizioni: {terms}.",
-        "en": "Hello, thank you for letting us know. We have registered your size return and "
-        "your refund will arrive by {deadline}. Your next orders come with these terms: {terms}.",
-    }
+    risk = risk_view(
+        0.12,
+        [
+            factor("size_share", 0.8333, -0.48, "5 of 6 returns were for size"),
+            factor("residual_z", 0.4, -0.21, "Returns close to what the products predict"),
+            factor("cluster_size", 1, -0.12, "No linked accounts"),
+        ],
+        0.4,
+        [
+            point("OBSERVED", "Kept 5 of 11 items in 12 months", ("customer", "C-GIULIA")),
+            point(
+                "OBSERVED",
+                "Returns are for size, with the other size kept",
+                ("order", "ORD-004811"),
+            ),
+        ],
+        [point("OBSERVED", "Return rate 55% of lines in 12 months", ("customer", "C-GIULIA"))],
+    )
+    customer_text = "La L mi sta larga, tengo la M."
+
+    def answer(case: Mapping[str, Any]) -> list[dict[str, Any]]:
+        return [
+            model_output(
+                case,
+                [
+                    ("SCORE", ["risk_score", "size_share"],
+                     f"Risk score {fact_value(case, 'risk_score')}; size_share at "
+                     f"{fact_value(case, 'size_share')} lowers it: a contribution to the score, "
+                     "not a cause."),
+                    ("OBSERVED", ["value_eur_12m"],
+                     f"Customer net margin over the period: {fact_value(case, 'value_eur_12m')} "
+                     "EUR, above the value threshold."),
+                    ("OBSERVED", ["days_since_delivery"],
+                     "The size return came "
+                     f"{fact_value(case, 'days_since_delivery')} days after delivery."),
+                ],
+                ["OPEN_CHOICE", "HELP_SIZE", "CLOSE_HAPPY"],
+            )
+        ]  # fmt: skip
+
     card = _card(
         return_id="RET-000101",
         order=order,
@@ -1350,30 +1417,21 @@ def giulia() -> Case:
         brand="Navigli Studio",
         notice_on=notice,
         hour=10,
-        customer_text="La L mi sta larga, tengo la M.",
+        customer_text=customer_text,
         evidence=evidence_view(11, 0.83, 0.86),
-        risk=risk_view(
-            0.12,
-            [
-                factor("size_share", 0.8333, -0.48, "5 of 6 returns were for size"),
-                factor("residual_z", 0.4, -0.21, "Returns close to what the products predict"),
-                factor("cluster_size", 1, -0.12, "No linked accounts"),
-            ],
-            0.4,
-            [
-                point("OBSERVED", "Kept 5 of 11 items in 12 months", ("customer", "C-GIULIA")),
-                point(
-                    "OBSERVED",
-                    "Returns are for size, with the other size kept",
-                    ("order", "ORD-004811"),
-                ),
-            ],
-            [point("OBSERVED", "Return rate 55% of lines in 12 months", ("customer", "C-GIULIA"))],
-        ),
+        risk=risk,
         linked=None,
         decision=view,
         alternatives=alternatives,
-        draft_view=draft(view, gen, statements, connective),
+        draft_view=draft(
+            view,
+            engine,
+            "GEN-000101-1",
+            created + timedelta(minutes=1),
+            risk=risk,
+            customer_text=customer_text,
+            outputs=answer,
+        ),  # fmt: skip
     )
     return Case("giulia", card, engine, queue_item(card))
 
@@ -1419,27 +1477,71 @@ def marco() -> Case:
         alternative("current_terms", "Keep the current terms", did, period),
     ]  # fmt: skip
     links = build_links(accounts)
-    gen = generation("GEN-000102-1", created + timedelta(minutes=1))
-    statements = [
-        statement(
-            "OBSERVED",
-            f"The 7 linked accounts of cluster {MARCO_CLUSTER} each redeemed a welcome coupon "
-            "between 2026-09-02 and 2026-09-11.",
-            MARCO_CLUSTER, "welcome_coupons", "7", "2026-09-02 to 2026-09-11",
-        ),
-        statement(
-            "SCORE",
-            "The welcome coupons of the linked accounts raise the risk score to 0.87: "
-            "contributions to the score, not causes.",
-            "C-MARCO-1", "risk", "0.87", PERIOD,
-        ),
-        statement(
-            "HYPOTHESIS",
-            "The linked accounts may be managed together: verify the shared cards before "
-            "approving.",
-            MARCO_CLUSTER,
-        ),
-    ]  # fmt: skip
+    risk = risk_view(
+        0.87,
+        [
+            factor(
+                "welcome_coupons_per_account",
+                1.0,
+                1.12,
+                "Each of the 7 linked accounts used a welcome coupon",
+            ),
+            factor(
+                "creation_spread_days",
+                9.0,
+                0.64,
+                "The 7 linked accounts were created within 9 days",
+            ),
+            factor("changed_mind_share", 0.8333, 0.41, "5 of 6 returns were for change of mind"),
+        ],  # fmt: skip
+        1.9,
+        [point("OBSERVED", "Kept 5 of 11 items in 12 months", ("customer", "C-MARCO-1"))],
+        [
+            point(
+                "OBSERVED",
+                "7 linked accounts created within 9 days, each with a welcome coupon",
+                ("cluster", MARCO_CLUSTER),
+            ),
+            point(
+                "OBSERVED",
+                "One device shared by the 7 linked accounts",
+                ("link", s.link_id("C-MARCO-1", "C-MARCO-2")),
+            ),
+            point("HYPOTHESIS", "The linked accounts may be managed together"),
+        ],
+    )
+    linked = cluster_view(
+        MARCO_CLUSTER,
+        accounts,
+        "C-MARCO-1",
+        links,
+        cards=2,
+        welcome_per_account=1.0,
+        return_rate=0.79,
+        strong_share=0.86,
+    )
+    customer_text = "Non mi piace più."
+
+    def answer(case: Mapping[str, Any]) -> list[dict[str, Any]]:
+        return [
+            model_output(
+                case,
+                [
+                    ("SCORE", ["risk_score", "welcome_coupons_per_account"],
+                     f"Risk score {fact_value(case, 'risk_score')}; the largest contribution is "
+                     "welcome_coupons_per_account: each linked account used the welcome "
+                     "coupon."),
+                    ("OBSERVED", ["cluster_size", "creation_spread_days"],
+                     f"The cluster has {fact_value(case, 'cluster_size')} linked accounts, "
+                     f"created within {fact_value(case, 'creation_spread_days')} days."),
+                    ("HYPOTHESIS", [],
+                     "The linked accounts may be managed together: verify the shared payment "
+                     "cards before approving."),
+                ],
+                ["OPEN_THANKS", "INFO_TERMS", "CLOSE_REGARDS"],
+            )
+        ]  # fmt: skip
+
     card = _card(
         return_id="RET-000102",
         order=order,
@@ -1451,56 +1553,22 @@ def marco() -> Case:
         brand="Navigli Studio",
         notice_on=notice,
         hour=9,
-        customer_text="Non mi piace più.",
+        customer_text=customer_text,
         evidence=evidence_view(11, 1.0, 0.83),
-        risk=risk_view(
-            0.87,
-            [
-                factor(
-                    "welcome_coupons_per_account",
-                    1.0,
-                    1.12,
-                    "Each of the 7 linked accounts used a welcome coupon",
-                ),
-                factor(
-                    "creation_spread_days",
-                    9.0,
-                    0.64,
-                    "The 7 linked accounts were created within 9 days",
-                ),
-                factor(
-                    "changed_mind_share", 0.8333, 0.41, "5 of 6 returns were for change of mind"
-                ),
-            ],  # fmt: skip
-            1.9,
-            [point("OBSERVED", "Kept 5 of 11 items in 12 months", ("customer", "C-MARCO-1"))],
-            [
-                point(
-                    "OBSERVED",
-                    "7 linked accounts created within 9 days, each with a welcome coupon",
-                    ("cluster", MARCO_CLUSTER),
-                ),
-                point(
-                    "OBSERVED",
-                    "One device shared by the 7 linked accounts",
-                    ("link", s.link_id("C-MARCO-1", "C-MARCO-2")),
-                ),
-                point("HYPOTHESIS", "The linked accounts may be managed together"),
-            ],
-        ),
-        linked=cluster_view(
-            MARCO_CLUSTER,
-            accounts,
-            "C-MARCO-1",
-            links,
-            cards=2,
-            welcome_per_account=1.0,
-            return_rate=0.79,
-            strong_share=0.86,
-        ),
+        risk=risk,
+        linked=linked,
         decision=view,
         alternatives=alternatives,
-        draft_view=draft(view, gen, statements, TEXT_RESTRICTED),
+        draft_view=draft(
+            view,
+            engine,
+            "GEN-000102-1",
+            created + timedelta(minutes=1),
+            risk=risk,
+            linked=linked,
+            customer_text=customer_text,
+            outputs=answer,
+        ),  # fmt: skip
     )
     return Case("marco", card, engine, queue_item(card))
 
@@ -1565,20 +1633,36 @@ def rossi(card_shared: bool) -> Case:
             ),
             factor("cluster_size", 3, 0.12, f"3 linked accounts share {shared}"),
         ]  # fmt: skip
-    gen = generation(f"GEN-{number}-1", created + timedelta(minutes=1))
-    statements = [
-        statement(
-            "OBSERVED",
-            f"3 linked accounts share {shared}; their return rate is in line with the shop.",
-            cluster, "linked_accounts", "3", PERIOD,
-        ),
-        statement(
-            "SCORE",
-            f"The account features lower the risk score to {risk}: contributions, not causes.",
-            customer, "risk", str(risk), PERIOD,
-        ),
-    ]  # fmt: skip
     links = build_links(accounts)
+    risk_section = risk_view(
+        risk,
+        factors,
+        0.2 if card_shared else -0.1,
+        [
+            point(
+                "OBSERVED",
+                f"{'2' if card_shared else '3'} distinct payment cards in the cluster",
+                ("cluster", cluster),
+            ),
+            point(
+                "OBSERVED",
+                "Linked accounts created more than a year apart",
+                ("cluster", cluster),
+            ),
+            point("OBSERVED", "Welcome coupon used by 1 of 3 linked accounts"),
+        ],
+        [point("OBSERVED", f"3 linked accounts share {shared}", ("cluster", cluster))],
+    )
+    linked = cluster_view(
+        cluster,
+        accounts,
+        customer,
+        links,
+        cards=2 if card_shared else 3,
+        welcome_per_account=0.3333,
+        return_rate=0.21,
+        strong_share=0.5 if card_shared else 0.0,
+    )
     card = _card(
         return_id=return_id,
         order=order,
@@ -1592,38 +1676,18 @@ def rossi(card_shared: bool) -> Case:
         hour=11,
         customer_text=None,
         evidence=evidence_view(len([x for o in orders for x in o.lines]), 1.0, 0.8),
-        risk=risk_view(
-            risk,
-            factors,
-            0.2 if card_shared else -0.1,
-            [
-                point(
-                    "OBSERVED",
-                    f"{'2' if card_shared else '3'} distinct payment cards in the cluster",
-                    ("cluster", cluster),
-                ),
-                point(
-                    "OBSERVED",
-                    "Linked accounts created more than a year apart",
-                    ("cluster", cluster),
-                ),
-                point("OBSERVED", "Welcome coupon used by 1 of 3 linked accounts"),
-            ],
-            [point("OBSERVED", f"3 linked accounts share {shared}", ("cluster", cluster))],
-        ),
-        linked=cluster_view(
-            cluster,
-            accounts,
-            customer,
-            links,
-            cards=2 if card_shared else 3,
-            welcome_per_account=0.3333,
-            return_rate=0.21,
-            strong_share=0.5 if card_shared else 0.0,
-        ),
+        risk=risk_section,
+        linked=linked,
         decision=view,
         alternatives=alternatives,
-        draft_view=draft(view, gen, statements, TEXT_REGISTERED),
+        draft_view=draft(
+            view,
+            engine,
+            f"GEN-{number}-1",
+            created + timedelta(minutes=1),
+            risk=risk_section,
+            linked=linked,
+        ),  # fmt: skip
     )
     return Case("rossi_card" if card_shared else "rossi", card, engine, queue_item(card))
 
@@ -1681,33 +1745,25 @@ def elena() -> Case:
         ),
         alternative("current_terms", "Guarantee return without a catalogue task", did, period),
     ]  # fmt: skip
-    gen = generation(
-        "GEN-000105-1",
-        created + timedelta(minutes=1),
-        "llm_regenerated",
-        ["UNGROUNDED_NUMBER: ['12']"],
-        latency_ms=31,
-    )
-    statements = [
-        statement(
-            "OBSERVED",
-            "Variant V-JKT-DEF had 11 returns for defect in the week of 2026-09-21, against 1.8 "
-            "expected from its category.",
-            "V-JKT-DEF", "returns_defective", "11", "week of 2026-09-21",
-        ),
-        statement(
-            "HYPOTHESIS",
-            "The sleeves of one production batch may be shorter than the size guide: the "
-            "catalogue task checks it.",
-            "V-JKT-DEF",
-        ),
-    ]  # fmt: skip
-    connective: dict[Lang, str] = {
-        "it": "Ciao, ci dispiace per il problema con la giacca. Il reso è gratuito e il rimborso "
-        "arriverà entro il {deadline}. Abbiamo segnalato il capo al nostro team catalogo.",
-        "en": "Hello, we are sorry about the problem with the jacket. The return is free and "
-        "your refund will arrive by {deadline}. We have reported the item to our catalogue team.",
-    }
+    customer_text = "Le maniche sono più corte di quanto indicato nella guida alle misure."
+
+    def answer(case: Mapping[str, Any]) -> list[dict[str, Any]]:
+        """A first answer with numbers that no fact holds (the variant's weekly returns are not
+        facts of the case): the validator asks again, and the second answer is the default."""
+        return [
+            model_output(
+                case,
+                [
+                    ("OBSERVED", ["days_since_delivery"],
+                     "Variant V-JKT-DEF had 11 returns for defect in 12 weeks."),
+                    ("HYPOTHESIS", [],
+                     "The sleeves of one production batch may be shorter than the size guide: "
+                     "the catalogue task checks it."),
+                ],
+                ["OPEN_SORRY_ITEM", "GUARANTEE_PHOTO", "CLOSE_PATIENCE"],
+            )
+        ]  # fmt: skip
+
     card = _card(
         return_id="RET-000105",
         order=order,
@@ -1719,13 +1775,21 @@ def elena() -> Case:
         brand="Navigli Studio",
         notice_on=notice,
         hour=15,
-        customer_text="Le maniche sono più corte di quanto indicato nella guida alle misure.",
+        customer_text=customer_text,
         evidence=evidence_view(4, 0.67, 1.0),
         risk=None,
         linked=None,
         decision=view,
         alternatives=alternatives,
-        draft_view=draft(view, gen, statements, connective),
+        draft_view=draft(
+            view,
+            engine,
+            "GEN-000105-1",
+            created + timedelta(minutes=1),
+            customer_text=customer_text,
+            outputs=answer,
+            latency_ms=31,
+        ),  # fmt: skip
         anomaly=jacket_anomaly(),
     )
     return Case("elena", card, engine, queue_item(card))
@@ -1770,26 +1834,37 @@ def chiara() -> Case:
     ]  # fmt: skip
     accounts = esposito_accounts()
     links = build_links(accounts, PICKUP_SHARERS)
-    gen = generation("GEN-000106-1", created + timedelta(minutes=1))
-    statements = [
-        statement(
-            "OBSERVED",
-            "C-10233 shares a payment card with linked account C-20871 since 2026-08-30.",
-            ESPOSITO_LINK, "card_shared_since", "2026-08-30", PERIOD,
-        ),
-        statement(
-            "SCORE",
-            "The shared card raises the risk score to 0.66: contributions to the score, not "
-            "causes.",
-            "C-10233", "risk", "0.66", PERIOD,
-        ),
-        statement(
-            "HYPOTHESIS",
-            "The card may have been used once for a gift: ask the customer before approving.",
-            ESPOSITO_LINK,
-        ),
-    ]  # fmt: skip
     kept, lines = kept_of(orders)
+    risk = risk_view(
+        0.66,
+        [factor(*f) for f in ESPOSITO_FACTORS],
+        0.6,
+        [
+            point(
+                "OBSERVED",
+                f"Kept {kept} of {lines} items in 12 months",
+                ("customer", "C-10233"),
+            )
+        ],
+        [
+            point(
+                "OBSERVED",
+                "A payment card shared with a linked account since 2026-08-30",
+                ("link", ESPOSITO_LINK),
+            )
+        ],
+    )  # fmt: skip
+    linked = cluster_view(
+        ESPOSITO_CLUSTER,
+        accounts,
+        "C-10233",
+        links,
+        cards=1,
+        welcome_per_account=1.0,
+        return_rate=0.71,
+        strong_share=0.5,
+    )
+    customer_text = "Il colore è diverso da come lo immaginavo."
     card = _card(
         return_id="RET-000106",
         order=order,
@@ -1801,40 +1876,21 @@ def chiara() -> Case:
         brand="Navigli Studio",
         notice_on=date(2026, 9, 29),
         hour=11,
-        customer_text="Il colore è diverso da come lo immaginavo.",
+        customer_text=customer_text,
         evidence=evidence_view(lines, 1.0, 0.75),
-        risk=risk_view(
-            0.66,
-            [factor(*f) for f in ESPOSITO_FACTORS],
-            0.6,
-            [
-                point(
-                    "OBSERVED",
-                    f"Kept {kept} of {lines} items in 12 months",
-                    ("customer", "C-10233"),
-                )
-            ],
-            [
-                point(
-                    "OBSERVED",
-                    "A payment card shared with a linked account since 2026-08-30",
-                    ("link", ESPOSITO_LINK),
-                )
-            ],
-        ),  # fmt: skip
-        linked=cluster_view(
-            ESPOSITO_CLUSTER,
-            accounts,
-            "C-10233",
-            links,
-            cards=1,
-            welcome_per_account=1.0,
-            return_rate=0.71,
-            strong_share=0.5,
-        ),
+        risk=risk,
+        linked=linked,
         decision=view,
         alternatives=alternatives,
-        draft_view=draft(view, gen, statements, TEXT_RESTRICTED),
+        draft_view=draft(
+            view,
+            engine,
+            "GEN-000106-1",
+            created + timedelta(minutes=1),
+            risk=risk,
+            linked=linked,
+            customer_text=customer_text,
+        ),  # fmt: skip
     )
     return Case("chiara", card, engine, queue_item(card))
 
@@ -2039,51 +2095,10 @@ def simple_case(c: Simple) -> Case:
     view = simple_view(c)
     order = c.orders[-1]
     guarantee = view.path is ReturnPath.GUARANTEE
-    proposal = view.proposed_levers
     alternatives = simple_alternatives(c, view)
     kept, lines = kept_of(c.orders)
     returned = lines - kept
-    statements = [
-        statement(
-            "OBSERVED",
-            f"{c.customer_id} kept {kept} of {lines} items in 12 months.",
-            c.customer_id, "kept_lines", f"{kept} of {lines}", PERIOD,
-        ),
-    ]  # fmt: skip
-    if guarantee:
-        statements.append(
-            statement(
-                "OBSERVED",
-                "The item received is not the one ordered: the return follows the legal "
-                "guarantee and is not scored.",
-                c.return_id,
-            )
-        )
-        connective = TEXT_WRONG_ITEM
-    else:
-        verb = "raise" if c.risk >= THRESHOLDS.risk else "lower"
-        statements.append(
-            statement(
-                "SCORE",
-                f"The account features {verb} the risk score to {c.risk}: contributions to the "
-                "score, not causes.",
-                c.customer_id, "risk", str(c.risk), PERIOD,
-            )
-        )  # fmt: skip
-        if view.requires_approval:
-            statements.append(
-                statement(
-                    "HYPOTHESIS",
-                    "The returns for change of mind may have a reason the customer can explain: "
-                    "ask before approving.",
-                    c.customer_id,
-                )
-            )
-            connective = TEXT_RESTRICTED
-        else:
-            connective = TEXT_UPGRADE if proposal else TEXT_REGISTERED
     number = c.return_id.removeprefix("RET-")
-    gen = generation(f"GEN-{number}-1", view.created_at + timedelta(minutes=1))
     risk = None
     if not guarantee:
         risk = risk_view(
@@ -2112,7 +2127,14 @@ def simple_case(c: Simple) -> Case:
         linked=None,
         decision=view,
         alternatives=alternatives,
-        draft_view=draft(view, gen, statements, connective),
+        draft_view=draft(
+            view,
+            engine,
+            f"GEN-{number}-1",
+            view.created_at + timedelta(minutes=1),
+            risk=risk,
+            customer_text=c.customer_text,
+        ),  # fmt: skip
     )
     return Case(c.key, card, engine, queue_item(card))
 
@@ -2158,24 +2180,19 @@ def insufficient() -> Case:
         alternative("verification", "Check the item at the warehouse", did, period,
                     quantities=VERIFICATION),
     ]  # fmt: skip
-    gen = generation("GEN-000109-1", view.created_at + timedelta(minutes=1))
-    statements = [
-        statement(
-            "OBSERVED",
-            "Only 2 order lines and one identifier kind are on file for C-19921: the evidence "
-            "is insufficient, so the standard terms apply.",
-            "C-19921", "observations", "2", PERIOD,
-        ),
-        statement(
-            "HYPOTHESIS",
-            "With more orders the case can be scored; until then no quadrant is assigned.",
-            "C-19921",
-        ),
-    ]  # fmt: skip
-    connective: dict[Lang, str] = {
-        "it": "Ciao, abbiamo registrato il reso e il rimborso arriverà entro il {deadline}.",
-        "en": "Hello, we have registered your return and your refund will arrive by {deadline}.",
-    }
+    customer_text = "Il tessuto è diverso dalla foto."
+
+    def answer(case: Mapping[str, Any]) -> list[dict[str, Any]]:
+        """An answer that reads the case as Q2: a decision echo mismatch, so the template."""
+        return [
+            model_output(
+                case,
+                [("OBSERVED", [], "The evidence is too thin for a score; the terms stay.")],
+                ["OPEN_THANKS", "CLOSE_REGARDS"],
+                quadrant="Q2",
+            )
+        ]
+
     card = _card(
         return_id="RET-000109",
         order=order,
@@ -2187,13 +2204,20 @@ def insufficient() -> Case:
         brand="Navigli Studio",
         notice_on=notice,
         hour=12,
-        customer_text="Il tessuto è diverso dalla foto.",
+        customer_text=customer_text,
         evidence=evidence_view(2, 0.33, 1.0, MISSING_EVIDENCE),
         risk=None,
         linked=None,
         decision=view,
         alternatives=alternatives,
-        draft_view=draft(view, gen, statements, connective),
+        draft_view=draft(
+            view,
+            engine,
+            "GEN-000109-1",
+            view.created_at + timedelta(minutes=1),
+            customer_text=customer_text,
+            outputs=answer,
+        ),  # fmt: skip
     )
     return Case("insufficient", card, engine, queue_item(card))
 
@@ -2240,8 +2264,8 @@ def audit_entry(
     return_id: str | None,
     decision_id: str | None,
     reason: str | None,
-    before: dict[str, Any] | s.DecisionAuditState | None = None,
-    after: dict[str, Any] | s.DecisionAuditState | None = None,
+    before: dict[str, Any] | s.DecisionAuditState | s.GenerationAuditState | None = None,
+    after: dict[str, Any] | s.DecisionAuditState | s.GenerationAuditState | None = None,
 ) -> s.AuditEntry:
     decision_related = decision_id is not None
     return s.AuditEntry(
@@ -2297,13 +2321,13 @@ def marco_approval(case: Case) -> tuple[s.DecisionRequest, s.DecisionResult, Dec
         affected=accounts,
         approved_at=approved_at,
     )
-    message = case.card.draft.messages[0] if case.card.draft else None
-    assert message is not None
+    assert case.card.draft is not None
+    draft_ids = case.card.draft.message.sentence_ids
     request = s.DecisionRequest(
         decision_id=view.decision_id,
         action="approve",
         levers=view.proposed_levers,
-        message=s.MessageChoice(lang="it", text=None),
+        message=s.MessageChoice(lang="it"),
         approver="sara",
     )
     result = s.DecisionResult(
@@ -2315,10 +2339,10 @@ def marco_approval(case: Case) -> tuple[s.DecisionRequest, s.DecisionResult, Dec
             "MSG-000102-1",
             view,
             "it",
-            message.connective_text,
             "sara",
             approved_at,
-            "GEN-000102-1",
+            preferred=draft_ids,
+            generation_id="GEN-000102-1",
         ),  # fmt: skip
         coupon_application=application_of(view, approved_at),  # confirmed by the approval
     )
@@ -2331,12 +2355,12 @@ def override_example(case: Case) -> tuple[s.DecisionRequest, s.DecisionResult]:
     when = AS_OF + timedelta(minutes=50)
     reason = "The customer explained two wrong deliveries by phone; restriction not justified"
     overridden = acted(view, "overridden", [], "sara", when, reason, "customer_context")
-    text = TEXT_REGISTERED["it"]
+    chosen = ["OPEN_MESSAGE", "CONTACT_TEAM", "CLOSE_DAY"]  # Sara picks the sentences
     request = s.DecisionRequest(
         decision_id=view.decision_id,
         action="override",
         levers=[],
-        message=s.MessageChoice(lang="it", text=text),
+        message=s.MessageChoice(lang="it", sentence_ids=chosen),
         override_reason=reason,
         override_category="customer_context",
         approver="sara",
@@ -2346,7 +2370,9 @@ def override_example(case: Case) -> tuple[s.DecisionRequest, s.DecisionResult]:
         audit_entry=decision_entry(
             11, when, "sara", "decision_overridden", overridden, reason, before=view
         ),  # fmt: skip
-        outbox_message=outbox_message("MSG-000108-1", overridden, "it", text, "sara", when),
+        outbox_message=outbox_message(
+            "MSG-000108-1", overridden, "it", "sara", when, sentence_ids=chosen
+        ),
         coupon_application=None,
     )
     return request, result
@@ -2372,8 +2398,13 @@ def reject_example(case: Case) -> tuple[s.DecisionRequest, s.DecisionResult]:
             12, when, "sara", "decision_rejected", rejected, reason, before=view
         ),  # fmt: skip
         outbox_message=outbox_message(
-            "MSG-000107-1", rejected, "en", TEXT_REGISTERED["en"], "sara", when
-        ),
+            "MSG-000107-1",
+            rejected,
+            "en",
+            "sara",
+            when,
+            preferred=case.card.draft.message.sentence_ids if case.card.draft else None,
+        ),  # fmt: skip
         coupon_application=None,
     )
     return request, result
@@ -2387,10 +2418,8 @@ def review_result(
     when: datetime,
     *,
     entry_id: int,
-    message_id: str,
     reason: str | None = None,
     category: OverrideCategory | None = None,
-    lang: Lang = "it",
     application_id: str | None = None,
 ) -> tuple[s.DecisionRequest, s.DecisionResult]:
     """US-607: a person reviews the restriction `before` (approved or overridden) at `when`.
@@ -2425,7 +2454,6 @@ def review_result(
                 reversal_reason=reason,
                 in_force=False,
             )
-        text = TEXT_LIFTED[lang]
     else:
         assert reason is None and category is None
         renewed = approve(fresh, engine.request, BASE, person)
@@ -2438,11 +2466,10 @@ def review_result(
         if after.coupon_rule is not None:
             assert cluster is not None and application_id is not None
             application = application_of(after, when)
-        text = TEXT_RENEWED[lang]
     request = s.DecisionRequest(
         decision_id=before.decision_id,
         action=action,
-        message=s.MessageChoice(lang=lang),
+        message=None,  # a review sends no message (ADR-15 section 11)
         override_reason=reason,
         override_category=category,
         approver=person,
@@ -2451,7 +2478,7 @@ def review_result(
     result = s.DecisionResult(
         decision=after,
         audit_entry=decision_entry(entry_id, when, person, audit_action, after, reason, before),
-        outbox_message=outbox_message(message_id, after, lang, text, person, when),
+        outbox_message=None,
         coupon_application=application,
     )
     return request, result
@@ -2466,7 +2493,7 @@ def lift_example(case: Case) -> tuple[s.DecisionRequest, s.DecisionResult]:
     version stays in the log; the new version has the standard levers."""
     return review_result(
         case.engine, case.card.decision, "lift", "luca", LIFT_AT, entry_id=14,
-        message_id="MSG-000088-2", reason=LIFT_REASON, category="periodic_review",
+        reason=LIFT_REASON, category="periodic_review",
     )  # fmt: skip
 
 
@@ -2504,20 +2531,28 @@ def legal_guard_error(elena_case: Case) -> tuple[s.DecisionRequest, s.ErrorRespo
 
 
 def regenerate_example(giulia_case: Case) -> tuple[s.RegenerateRequest, s.RegenerateResponse]:
+    """A new English draft of Giulia's case in a formal tone: llm/ runs again on the same case,
+    in the languages asked for."""
     view = giulia_case.card.decision
-    gen = generation("GEN-000101-2", AS_OF + timedelta(minutes=5), latency_ms=11)
-    assert giulia_case.card.draft is not None
-    text: dict[Lang, str] = {
-        "en": "Dear customer, thank you for your message. Your size return is registered and the "
-        "refund will reach you by {deadline}. Your next orders come with these terms: {terms}."
-    }
+    created = AS_OF + timedelta(minutes=5)
     request = s.RegenerateRequest(
         decision_id=view.decision_id, languages=["en"], tone="formal", requested_by="sara"
     )
+    assert giulia_case.card.risk is not None
     response = s.RegenerateResponse(
         return_id=view.return_id,
-        decision=revalidate(view, as_of=gen.created_at),
-        draft=draft(view, gen, giulia_case.card.draft.explanation, text, tone="formal"),
+        decision=revalidate(view, as_of=created),
+        draft=draft(
+            view,
+            giulia_case.engine,
+            "GEN-000101-2",
+            created,
+            risk=giulia_case.card.risk,
+            customer_text=giulia_case.card.request.customer_text,
+            languages=request.languages,
+            tone=request.tone,
+            latency_ms=11,
+        ),  # fmt: skip
     )
     return request, response
 
@@ -2532,6 +2567,7 @@ def snapshot(
     return s.CaseSnapshot(
         decision_id=view.decision_id,
         version=view.version,
+        state=view.state,
         quadrant=view.quadrant,
         evidence_quality=view.evidence_quality,
         risk=metric_or_none(risk, "probability", SCORES),
@@ -2580,20 +2616,8 @@ def evidence_example(case: Case) -> tuple[s.EvidenceRequest, s.RecomputeResponse
         ),
         factor("strong_id_share", 0.0, -0.12, "No identifier shared beyond address and device"),
     ]  # fmt: skip
-    gen = generation("GEN-000104-2", when + timedelta(seconds=40))
-    statements = [
-        statement(
-            "OBSERVED",
-            "The shared card is explained by the operator: the link no longer counts in the "
-            "cluster features.",
-            link,
-        ),
-        statement(
-            "SCORE",
-            "The risk score goes from 0.34 to 0.21: contributions to the score, not causes.",
-            "C-ROSSI-CARD-2", "risk", "0.21", PERIOD,
-        ),
-    ]  # fmt: skip
+    linked = case.card.linked_accounts
+    assert linked is not None
     response = s.RecomputeResponse(
         return_id="RET-000104",
         trigger="evidence_added",
@@ -2602,7 +2626,15 @@ def evidence_example(case: Case) -> tuple[s.EvidenceRequest, s.RecomputeResponse
         before=snapshot(before_view, 0.34, before_factors, 3, 3),
         after=snapshot(after_view, 0.21, after_factors, 3, 2),
         decision=after_view,
-        draft=draft(after_view, gen, statements, TEXT_REGISTERED),
+        draft=draft(
+            after_view,
+            after_engine,
+            "GEN-000104-2",
+            when + timedelta(seconds=40),
+            risk=after_factors,
+            linked=linked,
+        ),  # fmt: skip
+        coupon_application=None,  # the version superseded blocked no coupons
         audit_entry_ids=[5, 6],
         provenance=SCORES,
     )
@@ -2632,41 +2664,43 @@ def dispute_example(case: Case) -> tuple[s.LinkDisputeRequest, s.LinkDisputeResp
         supersedes=before.decision_id,
         generation_id="GEN-000106-2",
     )
-    gen = generation(
-        "GEN-000106-2",
-        when + timedelta(seconds=50),
-        "template",
-        ["DECISION_ECHO: output does not match the engine decision"] * 2,
-    )
-    statements = [
-        statement(
-            "OBSERVED",
-            "The operator disputed the link between the case customer and a linked account: the "
-            "case customer is no longer in a cluster.",
-            ESPOSITO_LINK,
-        ),
-        statement("SCORE", "The risk score is 0.41, below the 0.6 threshold.", "C-10233", "risk",
-                  "0.41", PERIOD),
-    ]  # fmt: skip
+    after_factors = [
+        factor("cluster_size", 1, -0.3, "No linked accounts after the dispute"),
+        factor("changed_mind_share", 1.0, 0.21, "2 of 2 returns were for change of mind"),
+        factor("residual_z", 0.6, 0.09, "Returns slightly above what the products predict"),
+    ]
+
+    def answer(case: Mapping[str, Any]) -> list[dict[str, Any]]:
+        """An answer that still reads the case as Q3, as before the dispute: a decision echo
+        mismatch, so the template."""
+        return [
+            model_output(
+                case,
+                [("SCORE", ["risk_score"],
+                  f"Risk score {fact_value(case, 'risk_score')}: an estimate, not a cause.")],
+                ["OPEN_THANKS", "CLOSE_REGARDS"],
+                quadrant="Q3",
+            )
+        ]  # fmt: skip
+
     recompute = s.RecomputeResponse(
         return_id="RET-000106",
         trigger="link_disputed",
         evidence_id=None,
         dispute_id=info.dispute_id,
         before=snapshot(before, 0.66, [factor(*f) for f in ESPOSITO_FACTORS], 3, 3),
-        after=snapshot(
-            after,
-            0.41,
-            [
-                factor("cluster_size", 1, -0.3, "No linked accounts after the dispute"),
-                factor("changed_mind_share", 1.0, 0.21, "2 of 2 returns were for change of mind"),
-                factor("residual_z", 0.6, 0.09, "Returns slightly above what the products predict"),
-            ],
-            None,
-            0,
-        ),
+        after=snapshot(after, 0.41, after_factors, None, 0),
         decision=after,
-        draft=draft(after, gen, statements, TEXT_UPGRADE),
+        draft=draft(
+            after,
+            esposito_engine(True),
+            "GEN-000106-2",
+            when + timedelta(seconds=50),
+            risk=after_factors,
+            customer_text=case.card.request.customer_text,
+            outputs=answer,
+        ),  # fmt: skip
+        coupon_application=None,
         audit_entry_ids=[7, 8],
         provenance=SCORES,
     )
@@ -2695,6 +2729,43 @@ def recompute_alternatives(view: s.DecisionView) -> list[s.Alternative]:
         alternative("verification", "Check the item at the warehouse before closing the "
                     "return", did, period, quantities=VERIFICATION),
     ]  # fmt: skip
+
+
+EARLIER_CLUSTER = "CL-000655"
+EARLIER_ACCOUNTS = ("C-12007", "C-12930", "C-15561")
+
+
+def earlier_cluster_decision() -> tuple[s.DecisionView, list[s.Alternative]]:
+    """DEC-000077-1: an earlier Q4 case of cluster CL-000655, approved by Sara on 29 September
+    with the coupon block of its 3 linked accounts (application CRA-000027, which Luca later
+    reversed on request: coupon_rules.json). Served by GET /api/decisions/DEC-000077-1."""
+    notice = date(2026, 9, 29)
+    engine = run_engine(
+        "RET-000077", "ORD-004977", EARLIER_ACCOUNTS[0], ReturnReason.CHANGED_MIND,
+        notice - timedelta(days=5), notice, 0.82, Decimal("40.00"), cluster_id=EARLIER_CLUSTER,
+    )  # fmt: skip
+    approved_at = at(notice, 15)
+    approved = approve(engine.decision, engine.request, BASE, "sara")
+    view = decision_view(
+        replace(engine, decision=approved),
+        version=1,
+        created_at=at(notice, 14),
+        as_of=approved_at,
+        coupon_application_id="CRA-000027",
+        affected=EARLIER_ACCOUNTS,
+        approved_at=approved_at,
+    )
+    period = f"12 months after the decision, cluster {EARLIER_CLUSTER} (3 linked accounts)"
+    did = view.decision_id
+    alternatives = [
+        alternative(
+            "proposal", "Q4 terms for future orders and coupons paused for the cluster",
+            did, period, view.proposed_levers, True,
+            logistics_returns_avoided=4, undue_discounts_avoided=2, system_cost_eur="0.50",
+        ),
+        alternative("current_terms", "Keep the current terms", did, period),
+    ]  # fmt: skip
+    return view, alternatives
 
 
 def decision_records(
@@ -2815,23 +2886,14 @@ def checkout_examples(giulia_case: Case, marco_approved: s.DecisionView) -> dict
     }
 
 
+CLAIM = prov("diminished-value rule DV-RULE-1 applied to a synthetic return")
 VISION = prov("vision checklist of the mock model on a synthetic photo (declared confidences)")
 
 
 def inspection_examples(valentina: Case, simone: Case) -> dict[str, BaseModel]:
     view = valentina.card.decision
     created = AS_OF + timedelta(minutes=41)
-    gen = s.GenerationInfo(
-        generation_id="GEN-INS-000014",
-        generation_path="llm",
-        llm_mode="mock",
-        served_from="live",
-        model="mock",
-        attempts=1,
-        validator_errors=[],
-        created_at=created,
-        latency_ms=22,
-    )
+    gen = model_generation("GEN-INS-000014", created, latency_ms=22)
     checklist = [
         s.ChecklistSuggestion(
             item="tag_attached", suggestion="no", model_confidence=0.78, note="No tag visible"
@@ -2848,7 +2910,7 @@ def inspection_examples(valentina: Case, simone: Case) -> dict[str, BaseModel]:
     ]
     rule_text = "Visible damage, not resellable as new: 20% of the line price (rule DV-RULE-1)"
     amount = eur(Decimal(str(valentina.card.item.price_eur)) * Decimal("0.20"))
-    claim_prov = prov("diminished-value rule DV-RULE-1 applied to a synthetic return")
+    claim_prov = CLAIM
     awaiting = s.InspectionView(
         inspection_id="INS-000014",
         return_id=view.return_id,
@@ -2926,10 +2988,11 @@ def inspection_examples(valentina: Case, simone: Case) -> dict[str, BaseModel]:
         BASE,
     )
     with_claim = revalidate(view, diminished_value_claim=claim, as_of=confirmed_at)
-    text = (
-        "Ciao, abbiamo controllato il capo reso: presenta una macchia visibile, quindi "
-        "tratteniamo {amount} dal rimborso, che arriverà entro il {deadline}."
+    # The refund the customer gets: the price of the returned line less the claim (art. 14(2)).
+    refund = m(
+        eur(Decimal(str(valentina.card.item.price_eur)) - Decimal(str(amount))), "eur", claim_prov
     )
+    assert valentina.card.draft is not None
     confirm_response = s.InspectionConfirmResponse(
         inspection=revalidate(
             awaiting,
@@ -2941,7 +3004,13 @@ def inspection_examples(valentina: Case, simone: Case) -> dict[str, BaseModel]:
         claim=claim,
         decision=with_claim,
         outbox_message=outbox_message(
-            "MSG-000110-1", with_claim, "it", text, "ahmed", confirmed_at
+            "MSG-000110-1",
+            with_claim,
+            "it",
+            "ahmed",
+            confirmed_at,
+            preferred=valentina.card.draft.message.sentence_ids,
+            refund=refund,
         ),  # fmt: skip
     )
     return {
@@ -3296,6 +3365,7 @@ def fairness() -> s.FairnessResponse:
 
 def audit_page(
     marco_proposed: s.DecisionView,
+    marco_draft: s.DraftView,
     results: Sequence[s.DecisionResult],
     recomputes: Sequence[tuple[s.DecisionView, s.DecisionView]],
 ) -> s.AuditPage:
@@ -3308,7 +3378,8 @@ def audit_page(
                        marco_proposed),
         a(2, at(date(2026, 9, 28), 9, 17), "system", "draft_generated", "llm_generation",
           "GEN-000102-1", "RET-000102", "DEC-000102-1", None, None,
-          {"generation_path": "llm", "llm_mode": "mock"}),
+          s.GenerationAuditState.from_info(marco_draft.generation, "case_draft",
+                                           marco_proposed.decision_id)),
         marco_result.audit_entry,
         a(4, AS_OF + timedelta(minutes=20), "system", "message_queued", "outbox_message",
           "MSG-000102-1", "RET-000102", "DEC-000102-1", None, None, {"lang": "it"}),
@@ -3331,7 +3402,8 @@ def audit_page(
         a(10, AS_OF + timedelta(minutes=47), "ahmed",
           "inspection_confirmed", "inspection", "INS-000014", "RET-000110", "DEC-000110-1", None,
           {"state": "awaiting_confirmation"},
-          {"state": "confirmed", "compensation_eur": 17.98, "rule_id": "DV-RULE-1"}),
+          {"state": "confirmed", "compensation": m(17.98, "eur", CLAIM).model_dump(mode="json"),
+           "rule_id": "DV-RULE-1"}),
         override.audit_entry,
         reject.audit_entry,
         a(13, AS_OF + timedelta(hours=1), "luca", "assumptions_updated",
@@ -3523,7 +3595,7 @@ def agent_examples() -> dict[str, BaseModel | str]:
     gen_at = AS_OF + timedelta(minutes=10)
 
     def done(seq: int, steps: int, gid: str) -> dict[str, Any]:
-        info = generation(gid, gen_at, latency_ms=27).model_dump(mode="json")
+        info = model_generation(gid, gen_at, latency_ms=27).model_dump(mode="json")
         return {"type": "done", "seq": seq, "steps_used": steps, "generation": info}
 
     def stream(
@@ -3899,6 +3971,10 @@ def build() -> tuple[Files, list[dict[str, Any]]]:
     files["link_dispute_request"] = dispute_request
     files["link_dispute_response"] = dispute_response
     assert dispute_response.recompute is not None
+    inspections = inspection_examples(by_key["valentina"], by_key["simone"])
+    confirmed = inspections["inspection_confirm_response"]
+    assert isinstance(confirmed, s.InspectionConfirmResponse)
+    valentina_record = (confirmed.decision, by_key["valentina"].card.alternatives)
     chiara_v1, lorenzo_v1 = by_key["chiara"].card, by_key["lorenzo"].card
     rossi_v1 = by_key["rossi_card"].card
     chiara_v2, rossi_v2 = dispute_response.recompute.decision, evidence_response.decision
@@ -3922,17 +3998,30 @@ def build() -> tuple[Files, list[dict[str, Any]]]:
                     "DEC-000104-2",
                 ),
                 ("rossi_card_v2", rossi_v2, recompute_alternatives(rossi_v2), None),
+                # D9: every decision the audit log and the coupon applications name
+                ("marco_v1", approve_result.decision, by_key["marco"].card.alternatives, None),
+                ("andrea_v1", reject_result.decision, by_key["andrea"].card.alternatives, None),
+                (
+                    "martina_v1",
+                    override_result.decision,
+                    by_key["martina"].card.alternatives,
+                    None,
+                ),
+                ("valentina_v1", *valentina_record, None),
+                ("earlier_q4_v1", *earlier_cluster_decision(), None),
             ]
         )
     )
     files.update(checkout_examples(by_key["giulia"], approve_result.decision))
-    files.update(inspection_examples(by_key["valentina"], by_key["simone"]))
+    files.update(inspections)
     files["portfolio_matrix"] = matrix(cases)
     files.update(simulator_examples())
     files["kpi"] = kpi()
     files["fairness"] = fairness()
+    assert by_key["marco"].card.draft is not None
     files["audit_page"] = audit_page(
         by_key["marco"].card.decision,
+        by_key["marco"].card.draft,
         (approve_result, override_result, reject_result, lift_result),
         (
             (by_key["rossi_card"].card.decision, evidence_response.decision),
@@ -3942,11 +4031,14 @@ def build() -> tuple[Files, list[dict[str, Any]]]:
     confirm = files["inspection_confirm_response"]
     assert isinstance(confirm, s.InspectionConfirmResponse) and confirm.outbox_message
     messages = [
-        lift_result.outbox_message,
-        reject_result.outbox_message,
-        override_result.outbox_message,
-        confirm.outbox_message,
-        approve_result.outbox_message,
+        message
+        for message in (
+            reject_result.outbox_message,
+            override_result.outbox_message,
+            confirm.outbox_message,
+            approve_result.outbox_message,
+        )
+        if message is not None
     ]
     files["outbox"] = s.OutboxResponse(items=messages, total=len(messages))
     files.update(anomalies_and_tasks())
@@ -4022,6 +4114,9 @@ def mock_routes(cases: Sequence[Case]) -> list[dict[str, Any]]:
                 ("lorenzo_v1", "DEC-000088-1"), ("lorenzo_v2", "DEC-000088-2"),
                 ("rossi_card_v1", "DEC-000104-1"), ("rossi_card_v2", "DEC-000104-2"),
                 ("chiara_v1", "DEC-000106-1"), ("chiara_v2", "DEC-000106-2"),
+                ("marco_v1", "DEC-000102-1"), ("andrea_v1", "DEC-000107-1"),
+                ("martina_v1", "DEC-000108-1"), ("valentina_v1", "DEC-000110-1"),
+                ("earlier_q4_v1", "DEC-000077-1"),
             )
         ],
         r("POST", "/api/returns/{return_id}/regenerate", "regenerate_response.json",

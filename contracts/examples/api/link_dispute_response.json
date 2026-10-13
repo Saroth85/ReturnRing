@@ -33,6 +33,7 @@
     "before": {
       "decision_id": "DEC-000106-1",
       "version": 1,
+      "state": "proposed",
       "quadrant": "Q3",
       "evidence_quality": "sufficient",
       "risk": {
@@ -82,6 +83,7 @@
     "after": {
       "decision_id": "DEC-000106-2",
       "version": 2,
+      "state": "proposed",
       "quadrant": "Q1",
       "evidence_quality": "sufficient",
       "risk": {
@@ -245,13 +247,13 @@
       "generation": {
         "generation_id": "GEN-000106-2",
         "generation_path": "template",
+        "fallback_reason": "decision_echo",
         "llm_mode": "mock",
         "served_from": "live",
         "model": "mock",
-        "attempts": 2,
-        "validator_errors": [
-          "DECISION_ECHO: output does not match the engine decision",
-          "DECISION_ECHO: output does not match the engine decision"
+        "model_calls": 1,
+        "validator_codes": [
+          "DECISION_ECHO"
         ],
         "created_at": "2026-09-30T18:40:50Z",
         "latency_ms": 14
@@ -267,47 +269,166 @@
       },
       "explanation": [
         {
-          "label": "OBSERVED",
-          "text": "The operator disputed the link between the case customer and a linked account: the case customer is no longer in a cluster.",
-          "entity": "C-10233~C-20871",
-          "metric": null,
-          "value": null,
-          "period": null
+          "label": "SCORE",
+          "fact_ids": [
+            "F1"
+          ],
+          "text": "Risk score 0.41 from the model: an estimate, not a cause.",
+          "facts": [
+            {
+              "id": "F1",
+              "entity": "customer",
+              "metric": "risk_score",
+              "value": 0.41,
+              "period": "as of 2026-09-29",
+              "nature": "synthetic"
+            }
+          ]
         },
         {
           "label": "SCORE",
-          "text": "The risk score is 0.41, below the 0.6 threshold.",
-          "entity": "C-10233",
-          "metric": "risk",
-          "value": "0.41",
-          "period": "2025-10-01 to 2026-09-30"
-        }
-      ],
-      "messages": [
-        {
-          "lang": "it",
-          "connective_text": "Ciao, grazie per averci scritto. Abbiamo registrato il reso e il rimborso arriverà entro il {deadline}. Per i tuoi prossimi ordini valgono queste condizioni: {terms}.",
-          "fields": {
-            "terms": "finestra di reso di 60 giorni, reso gratuito, rimborso immediato, cambio taglia gratuito e prioritario",
-            "amount": null,
-            "deadline": "13 ottobre 2026"
-          },
-          "legal_clause_kind": null,
-          "rendered_text": "Ciao, grazie per averci scritto. Abbiamo registrato il reso e il rimborso arriverà entro il 13 ottobre 2026. Per i tuoi prossimi ordini valgono queste condizioni: finestra di reso di 60 giorni, reso gratuito, rimborso immediato, cambio taglia gratuito e prioritario."
+          "fact_ids": [
+            "F3"
+          ],
+          "text": "Contribution to the score: cluster_size is 1.",
+          "facts": [
+            {
+              "id": "F3",
+              "entity": "cluster",
+              "metric": "cluster_size",
+              "value": 1,
+              "period": "as of 2026-09-29",
+              "nature": "synthetic"
+            }
+          ]
         },
         {
-          "lang": "en",
-          "connective_text": "Hello, thank you for letting us know. We have registered your return and your refund will arrive by {deadline}. Your next orders come with these terms: {terms}.",
-          "fields": {
-            "terms": "60-day return window, free return shipping, instant refund, free priority size exchange",
-            "amount": null,
-            "deadline": "13 October 2026"
-          },
-          "legal_clause_kind": null,
-          "rendered_text": "Hello, thank you for letting us know. We have registered your return and your refund will arrive by 13 October 2026. Your next orders come with these terms: 60-day return window, free return shipping, instant refund, free priority size exchange."
+          "label": "SCORE",
+          "fact_ids": [
+            "F4"
+          ],
+          "text": "Contribution to the score: changed_mind_share is 1.",
+          "facts": [
+            {
+              "id": "F4",
+              "entity": "customer",
+              "metric": "changed_mind_share",
+              "value": 1,
+              "period": "as of 2026-09-29",
+              "nature": "synthetic"
+            }
+          ]
+        },
+        {
+          "label": "SCORE",
+          "fact_ids": [
+            "F5"
+          ],
+          "text": "Contribution to the score: residual_z is 0.6.",
+          "facts": [
+            {
+              "id": "F5",
+              "entity": "customer",
+              "metric": "residual_z",
+              "value": 0.6,
+              "period": "as of 2026-09-29",
+              "nature": "synthetic"
+            }
+          ]
+        },
+        {
+          "label": "OBSERVED",
+          "fact_ids": [
+            "F2"
+          ],
+          "text": "Customer net margin over the period: 433.75 EUR.",
+          "facts": [
+            {
+              "id": "F2",
+              "entity": "customer",
+              "metric": "value_eur_12m",
+              "value": 433.75,
+              "period": "12 months to 2026-09-29",
+              "nature": "synthetic"
+            }
+          ]
+        },
+        {
+          "label": "OBSERVED",
+          "fact_ids": [
+            "F3"
+          ],
+          "text": "Linked accounts in the cluster: 1.",
+          "facts": [
+            {
+              "id": "F3",
+              "entity": "cluster",
+              "metric": "cluster_size",
+              "value": 1,
+              "period": "as of 2026-09-29",
+              "nature": "synthetic"
+            }
+          ]
+        },
+        {
+          "label": "OBSERVED",
+          "fact_ids": [],
+          "text": "The rules engine placed the case in Q1; the levers are listed with the decision.",
+          "facts": []
+        },
+        {
+          "label": "OBSERVED",
+          "fact_ids": [
+            "F6"
+          ],
+          "text": "Days from delivery to the return notice: 4.",
+          "facts": [
+            {
+              "id": "F6",
+              "entity": "return",
+              "metric": "days_since_delivery",
+              "value": 4,
+              "period": "2026-09-25/2026-09-29",
+              "nature": "synthetic"
+            }
+          ]
         }
-      ]
+      ],
+      "message": {
+        "sentence_ids": [
+          "OPEN_THANKS",
+          "CLOSE_HAPPY"
+        ],
+        "legal_clause_kind": null,
+        "texts": [
+          {
+            "lang": "it",
+            "fields": {
+              "terms": "reso entro 60 giorni dalla consegna; cambio taglia con priorità",
+              "amount": null,
+              "deadline": "13 ottobre 2026"
+            },
+            "text": "Ciao, grazie per averci scritto. Abbiamo registrato la tua richiesta di reso e il rimborso è previsto per il 13 ottobre 2026. Per i tuoi prossimi ordini ti offriamo condizioni di reso migliori: reso entro 60 giorni dalla consegna; cambio taglia con priorità. Siamo felici di averti tra i nostri clienti."
+          },
+          {
+            "lang": "en",
+            "fields": {
+              "terms": "returns within 60 days of delivery; priority size exchange",
+              "amount": null,
+              "deadline": "13 October 2026"
+            },
+            "text": "Hello, thank you for writing to us. We have registered your return request and your refund is due by 13 October 2026. For your next orders we are glad to offer you better return terms: returns within 60 days of delivery; priority size exchange. We are happy to have you with us."
+          }
+        ]
+      },
+      "provenance": {
+        "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+        "period_start": "2025-10-01",
+        "period_end": "2026-09-29",
+        "nature": "synthetic"
+      }
     },
+    "coupon_application": null,
     "audit_entry_ids": [
       7,
       8

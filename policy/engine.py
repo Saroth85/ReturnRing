@@ -5,11 +5,18 @@ The engine decides; models only estimate and the LLM only explains (CLAUDE.md ru
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from decimal import Decimal
 
-from policy.legal_guard import LEGAL_REFUND_DAYS, LEGAL_WITHDRAWAL_DAYS, check, is_restrictive
+from policy.legal_guard import (
+    APPROVAL_QUADRANTS,
+    LEGAL_REFUND_DAYS,
+    LEGAL_WITHDRAWAL_DAYS,
+    check,
+    is_restrictive,
+)
 from policy.types import (
     NON_CONFORMITY_REASONS,
     CaseScores,
@@ -52,6 +59,14 @@ def choose_path(reason: ReturnReason) -> Path:
     return Path.GUARANTEE if reason in NON_CONFORMITY_REASONS else Path.WITHDRAWAL
 
 
+def check_scores(scores: CaseScores) -> None:
+    """Scores come from ml/: a NaN or out-of-range value is a bug upstream, never a decision."""
+    if not (math.isfinite(scores.risk) and 0.0 <= scores.risk <= 1.0):
+        raise PolicyError(f"risk must be a probability in [0, 1], got {scores.risk!r}")
+    if not scores.value_eur.is_finite():
+        raise PolicyError(f"value_eur must be finite, got {scores.value_eur!r}")
+
+
 def quadrant_for(scores: CaseScores, thresholds: Thresholds) -> Quadrant:
     high_risk = scores.risk >= thresholds.risk
     high_value = scores.value_eur >= thresholds.value_eur
@@ -80,7 +95,11 @@ def levers_for(quadrant: Quadrant, base: ReturnTerms, has_cluster: bool) -> Leve
             free_size_exchange=True,
         )
         return Levers(
-            terms, cluster_coupons_disabled=False, transparency_notice=False, size_advice=True
+            terms,
+            cluster_coupons_disabled=False,
+            transparency_notice=False,
+            size_advice=True,
+            priority_size_exchange=True,
         )
     if quadrant is Quadrant.Q2:
         return standard_levers(base)
@@ -110,7 +129,7 @@ def decide(
     decided_on: date,
     coupon_rule_version: str | None = "coupon-rule-v1",
 ) -> Decision:
-    """Propose a decision. Restrictive proposals always require human approval."""
+    """Propose a decision. Q3, Q4 and any restrictive proposal require human approval."""
     path = choose_path(request.reason)
     refund_due_by = request.notice_on + timedelta(days=LEGAL_REFUND_DAYS)
 
@@ -127,9 +146,10 @@ def decide(
             requires_approval=False,
         )
     else:
+        check_scores(scores)
         quadrant = quadrant_for(scores, thresholds)
         levers = levers_for(quadrant, base, has_cluster=scores.cluster_id is not None)
-        restrictive = is_restrictive(levers, base)
+        needs_approval = quadrant in APPROVAL_QUADRANTS or is_restrictive(levers, base)
         decision = Decision(
             return_id=request.return_id,
             decided_on=decided_on,
@@ -139,8 +159,8 @@ def decide(
             levers=levers,
             current_return_terms=request.order_terms,
             refund_due_by=refund_due_by,
-            requires_approval=restrictive,
-            review_on=decided_on + timedelta(days=REVIEW_DAYS) if restrictive else None,
+            requires_approval=needs_approval,
+            review_on=decided_on + timedelta(days=REVIEW_DAYS) if needs_approval else None,
             coupon_rule=(
                 CouponRuleApplication(rule_version=coupon_rule_version, confirmed_by=None)
                 if levers.cluster_coupons_disabled
@@ -158,8 +178,11 @@ def approve(
     decision: Decision, request: ReturnRequest, base: ReturnTerms, approver: str
 ) -> Decision:
     """Record a human approval. The approver also confirms any cluster coupon application."""
+    approver = approver.strip()
     if not approver:
         raise PolicyError("An approver is required")
+    if decision.state is not DecisionState.PROPOSED:
+        raise PolicyError(f"Only a proposed decision can be approved, not a {decision.state} one")
     coupon_rule = decision.coupon_rule
     if coupon_rule is not None:
         coupon_rule = replace(coupon_rule, confirmed_by=approver)

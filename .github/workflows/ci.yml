@@ -18,8 +18,10 @@ jobs:
           python-version: "3.12"
       - run: pip install -r requirements/dev.txt
       - run: make lint
-      - run: python -m pytest -m "not gpu" -q --cov=policy --cov=llm --cov-report=term-missing
-      - run: python -m coverage report --include="policy/legal_guard.py,policy/simulator.py" --fail-under=100
+      - run: python -m pytest -m "not gpu" -q --cov=policy --cov=llm --cov-branch --cov-report=term-missing
+      # NFR-14: 100% line and branch coverage on the whole policy package (engine, legal guard,
+      # simulator, types).
+      - run: python -m coverage report --include="policy/*" --fail-under=100
       - run: make licenses
 
   secrets:

@@ -1,10 +1,10 @@
 {
   "contract_version": "2.0.0",
   "provenance": {
-    "origin": "ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; calibration: aggregates of the train split (2021-09-01..2021-10-31) by pipeline/ingest/asos_profile.py",
+    "origin": "ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; calibration: aggregates of the train split by pipeline/ingest/asos_profile.py. Rates, counts and purchases per customer come from the train events (2021-09-01..2021-10-31); product types, prices, return rates and reason shares come from the train product table, whose aggregates equal the test table's for every shared variant, so their window is the test window too (ADR-10); hence the period 2021-09-01..2021-11-30",
     "period": {
       "start": "2021-09-01",
-      "end": "2021-10-31"
+      "end": "2021-11-30"
     },
     "nature": "real"
   },

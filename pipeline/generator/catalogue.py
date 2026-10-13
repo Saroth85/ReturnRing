@@ -14,6 +14,12 @@ the sales-weighted rate distribution of the store matches the sales-weighted qua
 
 About 2% of the variants are defective (spec section 7): during a window, a share of their buyers
 return them for one non-conformity reason. The golden jacket V-JKT-DEF is one of them (US-104).
+Their sales are lifted during the window (orders.boost_defect_windows), so that the weekly
+detector of spec 8.9 (at least 20 sales a week) can see them.
+
+A store needs at least one sized product type: size customers bracket two sizes and the golden
+cases buy sized items (Giulia's pairs, the jacket's fit defect). A calibration whose types are all
+one-size is refused with a CalibrationError (require_sizes).
 """
 
 from __future__ import annotations
@@ -26,8 +32,15 @@ import numpy as np
 import numpy.typing as npt
 
 from pipeline.generator import golden
-from pipeline.generator.calibration import Calibration, ProductType, QuantileDistribution
+from pipeline.generator.calibration import (
+    Calibration,
+    CalibrationError,
+    ProductType,
+    QuantileDistribution,
+)
 from pipeline.generator.config import (
+    DEFECT_MAX_TYPE_SHARE,
+    DEFECT_WEEKLY_SALES,
     DEFECTIVE_VARIANT_SHARE,
     END_US,
     GBP_TO_EUR,
@@ -38,6 +51,7 @@ from pipeline.generator.config import (
     US_PER_DAY,
     VARIANTS_AT_SCALE_1,
     ScenarioConfig,
+    expected_weekly_lines,
     to_us,
 )
 from pipeline.generator.timeline import uniform_us, weekday
@@ -198,13 +212,30 @@ def _sales_weighted_rates(rng: np.random.Generator, t: ProductType, popularity: 
 
 
 def jacket_type(types: tuple[ProductType, ...]) -> int:
-    """The type of the golden jacket: one named like outerwear, else the dearest sized type."""
-    for i, t in enumerate(types):
-        if any(w in t.name.lower() for w in _JACKET_WORDS):
+    """The type of the golden jacket, an apparel garment sized XS-XL: an apparel type named like
+    outerwear, else the dearest apparel type, else (no apparel type) the dearest sized type."""
+    apparel = [i for i, t in enumerate(types) if size_kind_for(t.name) is SizeKind.APPAREL]
+    for i in apparel:
+        if any(w in types[i].name.lower() for w in _JACKET_WORDS):
             return i
     sized = [i for i, t in enumerate(types) if size_kind_for(t.name) is not SizeKind.ONE]
-    pool = sized or list(range(len(types)))
+    pool = apparel or sized
+    if not pool:
+        raise CalibrationError(["the golden jacket needs a sized product type: " + _NO_SIZES])
     return max(pool, key=lambda i: (types[i].price_gbp.p50, -i))
+
+
+_NO_SIZES = (
+    "every product type of the calibration is one-size (bags, accessories, jewellery...), so "
+    "the size behaviour (12% of customers, spec section 7) and the golden cases, which buy "
+    "sized items, cannot be generated"
+)
+
+
+def require_sizes(types: tuple[ProductType, ...]) -> None:
+    """Refuse a calibration without any sized product type that sells (G3)."""
+    if not any(size_kind_for(t.name) is not SizeKind.ONE and t.sales_share > 0 for t in types):
+        raise CalibrationError([_NO_SIZES])
 
 
 def _price_cents(gbp: F64) -> I64:
@@ -216,6 +247,7 @@ def build_catalogue(
     cal: Calibration, scale: float, cfg: ScenarioConfig, rng: np.random.Generator
 ) -> Catalogue:
     types = cal.product_types
+    require_sizes(types)
     n_total = max(MIN_VARIANTS, round(VARIANTS_AT_SCALE_1 * scale))
     n_golden = 2 if cfg.golden else 0
     per_type = _largest_remainder(n_total - n_golden, [t.variant_share for t in types])
@@ -293,13 +325,17 @@ def build_catalogue(
     if cfg.golden:
         _add_golden_jacket(cat, types)
     _normalise_popularity(cat, types, cfg.golden)
-    _add_defects(cat, n_total, cfg.golden, rng)
+    if not ((cat.size_kind != int(SizeKind.ONE)) & (cat.popularity > 0)).any():
+        raise CalibrationError(["no sized variant sells in this catalogue: " + _NO_SIZES])
+    type_weekly = np.asarray([t.sales_share for t in types]) * expected_weekly_lines(scale)
+    _add_defects(cat, n_total, cfg.golden, type_weekly, rng)
     return cat
 
 
 def _add_golden_jacket(cat: Catalogue, types: tuple[ProductType, ...]) -> None:
     ti = jacket_type(types)
     t = types[ti]
+    kind = size_kind_for(t.name)  # its sizes are those of its category (XS-XL for apparel)
     price = max(MIN_PRICE_CENTS, math.ceil(t.price_gbp.p75 * GBP_TO_EUR) * 100 - 1)
     listed = to_us(golden.JACKET_LISTED_AT)
     for vid in (golden.DEFECTIVE_JACKET, golden.JACKET_SIBLING):
@@ -309,7 +345,7 @@ def _add_golden_jacket(cat: Catalogue, types: tuple[ProductType, ...]) -> None:
         cat.defect_reason.append(None)
     k = 2
     cat.type_index = np.concatenate([cat.type_index, np.full(k, ti, dtype=np.int64)])
-    cat.size_kind = np.concatenate([cat.size_kind, np.full(k, int(SizeKind.APPAREL))])
+    cat.size_kind = np.concatenate([cat.size_kind, np.full(k, int(kind))])
     cat.price_cents = np.concatenate([cat.price_cents, np.full(k, price, dtype=np.int64)])
     cat.listed_at = np.concatenate([cat.listed_at, np.full(k, listed, dtype=np.int64)])
     cat.base_rate = np.concatenate([cat.base_rate, np.full(k, t.return_rate.p50)])
@@ -357,14 +393,23 @@ def _monday(t: I64) -> I64:
     return np.asarray((day - weekday(t)) * US_PER_DAY, dtype=np.int64)
 
 
-def _add_defects(cat: Catalogue, n_total: int, with_jacket: bool, rng: np.random.Generator) -> None:
+def _add_defects(
+    cat: Catalogue,
+    n_total: int,
+    with_jacket: bool,
+    type_weekly: F64,
+    rng: np.random.Generator,
+) -> None:
+    """Defective variants, drawn among the best sellers of the types that sell enough lines a
+    week for the window lift of orders.boost_defect_windows (review G6). When too few variants
+    qualify (small scales), among all best sellers: the detector cannot see them at that size."""
     n_defective = max(1, round(DEFECTIVE_VARIANT_SHARE * n_total))
     n_generic = n_defective - (1 if with_jacket else 0)
     if n_generic <= 0:
         return
     latest_start = END_US - 120 * US_PER_DAY
     golden_ids = {golden.DEFECTIVE_JACKET, golden.JACKET_SIBLING}
-    eligible = np.asarray(
+    listed_in_time = np.asarray(
         [
             i
             for i in range(cat.n)
@@ -373,6 +418,10 @@ def _add_defects(cat: Catalogue, n_total: int, with_jacket: bool, rng: np.random
         ],
         dtype=np.int64,
     )
+    liftable = type_weekly[cat.type_index[listed_in_time]] * DEFECT_MAX_TYPE_SHARE
+    eligible = listed_in_time[liftable >= DEFECT_WEEKLY_SALES]
+    if len(eligible) < n_generic:
+        eligible = listed_in_time
     # Defects are noticed on variants that sell: draw them from the most popular ones.
     by_popularity = eligible[np.argsort(-cat.popularity[eligible], kind="stable")]
     pool = by_popularity[: max(3 * n_generic, len(eligible) // 20)]

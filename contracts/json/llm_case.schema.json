@@ -59,6 +59,7 @@
     },
     "levers": {
       "type": "array",
+      "uniqueItems": true,
       "items": {
         "type": "object",
         "required": [
@@ -179,7 +180,8 @@
             "then": {
               "properties": {
                 "value": {
-                  "type": "boolean"
+                  "type": "boolean",
+                  "const": true
                 },
                 "scope": {
                   "const": "all_orders"
@@ -289,7 +291,8 @@
             "then": {
               "properties": {
                 "value": {
-                  "type": "boolean"
+                  "type": "boolean",
+                  "const": true
                 },
                 "scope": {
                   "const": "all_orders"
@@ -298,7 +301,135 @@
             }
           }
         ]
-      }
+      },
+      "allOf": [
+        {
+          "contains": {
+            "required": [
+              "id"
+            ],
+            "properties": {
+              "id": {
+                "const": "return_window_days"
+              }
+            }
+          },
+          "minContains": 0,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "required": [
+              "id"
+            ],
+            "properties": {
+              "id": {
+                "const": "free_return_shipping"
+              }
+            }
+          },
+          "minContains": 0,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "required": [
+              "id"
+            ],
+            "properties": {
+              "id": {
+                "const": "instant_refund"
+              }
+            }
+          },
+          "minContains": 0,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "required": [
+              "id"
+            ],
+            "properties": {
+              "id": {
+                "const": "free_size_exchange"
+              }
+            }
+          },
+          "minContains": 0,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "required": [
+              "id"
+            ],
+            "properties": {
+              "id": {
+                "const": "coupons_enabled"
+              }
+            }
+          },
+          "minContains": 0,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "required": [
+              "id"
+            ],
+            "properties": {
+              "id": {
+                "const": "cluster_coupons_disabled"
+              }
+            }
+          },
+          "minContains": 0,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "required": [
+              "id"
+            ],
+            "properties": {
+              "id": {
+                "const": "transparency_notice"
+              }
+            }
+          },
+          "minContains": 0,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "required": [
+              "id"
+            ],
+            "properties": {
+              "id": {
+                "const": "size_advice"
+              }
+            }
+          },
+          "minContains": 0,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "required": [
+              "id"
+            ],
+            "properties": {
+              "id": {
+                "const": "priority_size_exchange"
+              }
+            }
+          },
+          "minContains": 0,
+          "maxContains": 1
+        }
+      ]
     },
     "risk": {
       "type": "object",

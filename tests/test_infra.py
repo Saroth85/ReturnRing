@@ -48,12 +48,30 @@ def env_example() -> dict[str, str]:
 
 def bind_sources(service: dict[str, Any]) -> list[Path]:
     """Host paths of bind mounts (relative to infra/, as Compose resolves them)."""
-    paths = []
+    return [source for source, _, _ in bind_mounts(service)]
+
+
+def bind_mounts(service: dict[str, Any]) -> list[tuple[Path, str, bool]]:
+    """(host path, container path, read-only) of each bind mount, short or long syntax."""
+    mounts = []
     for volume in service.get("volumes", []):
-        source = volume.split(":", 1)[0] if isinstance(volume, str) else volume.get("source", "")
+        if isinstance(volume, str):
+            parts = volume.split(":")
+            source, target = parts[0], parts[1] if len(parts) > 1 else ""
+            read_only = len(parts) > 2 and "ro" in parts[2].split(",")
+        else:
+            source, target = volume.get("source", ""), volume.get("target", "")
+            read_only = bool(volume.get("read_only", False))
         if source.startswith((".", "/")):
-            paths.append((INFRA / source).resolve())
-    return paths
+            mounts.append(((INFRA / source).resolve(), target, read_only))
+    return mounts
+
+
+# Offline jobs may read the ground truth (rule 12 as rewritten in ADR-13); only the generator
+# writes data/. Every other service (postgres, api, ui, proxy, vllm, telemetry, spike-client)
+# never sees data/truth.
+JOB_SERVICES = frozenset({"pipeline", "trainer-gbm", "trainer-gnn"})
+DATA_WRITERS = frozenset({"pipeline"})
 
 
 @pytest.mark.parametrize(
@@ -94,15 +112,89 @@ def test_only_the_proxy_publishes_on_all_interfaces() -> None:
 
 
 def test_no_service_mounts_truth_or_the_whole_repo() -> None:
+    """Rule 12: data/truth (main and OOD truth, docs/synthetic-store.md) reaches offline jobs
+    only. A non-job service mounts no ancestor of data/truth and no path with a 'truth' part."""
     truth = ROOT / "data" / "truth"
     for name in COMPOSE_FILES:
         for service_name, service in services(name).items():
-            for source in bind_sources(service):
+            for source, target, read_only in bind_mounts(service):
                 assert source != ROOT, (name, service_name, "mounts the whole repo")
-                assert source != truth and truth not in source.parents, (name, service_name)
-                if source in truth.parents:
-                    # data/ contains truth/: only the generator job may mount it (rule 12)
-                    assert service_name == "pipeline", (name, service_name, source)
+                sees_truth = source == truth or truth in source.parents or source in truth.parents
+                if service_name not in JOB_SERVICES:
+                    assert not sees_truth, (name, service_name, source)
+                    assert "truth" not in source.parts, (name, service_name, source)
+                    assert "truth" not in Path(target).parts, (name, service_name, target)
+                elif sees_truth and service_name not in DATA_WRITERS:
+                    assert read_only, (name, service_name, "training jobs read data/ only")
+
+
+def test_running_services_never_see_data() -> None:
+    data = ROOT / "data"
+    for name in COMPOSE_FILES:
+        for service_name in ("api", "ui", "proxy", "postgres", "vllm"):
+            for source in bind_sources(services(name).get(service_name, {})):
+                assert source != data and data not in source.parents, (name, service_name)
+
+
+def test_training_jobs_read_the_data_folder_read_only() -> None:
+    compose = services("docker-compose.yml")
+    for service_name in ("trainer-gbm", "trainer-gnn"):
+        mounts = bind_mounts(compose[service_name])
+        assert ((ROOT / "data").resolve(), "/app/data", True) in mounts, service_name
+
+
+def test_pipeline_service_runs_the_generator_on_the_real_calibration() -> None:
+    pipeline = services("docker-compose.yml")["pipeline"]
+    command = " ".join(pipeline["command"])
+    assert "print(" not in command
+    for scenario in ("main", "ood"):
+        assert f"--scenario {scenario}" in command
+    assert command.count("python -m pipeline.generator") == 2
+    assert "--calibration pipeline/calibration/asos_calibration.json" in command
+    assert (ROOT / "pipeline/calibration/asos_calibration.json").is_file()
+    assert ((ROOT / "data").resolve(), "/app/data", False) in bind_mounts(pipeline)
+
+
+def makefile_targets() -> dict[str, tuple[str, list[str]]]:
+    """Each Makefile target: (prerequisites, recipe lines)."""
+    targets: dict[str, tuple[str, list[str]]] = {}
+    current = None
+    for line in (ROOT / "Makefile").read_text(encoding="utf-8").splitlines():
+        match = re.match(r"^([A-Za-z0-9_.-]+):(?!=)(.*)$", line)
+        if match:
+            current = match.group(1)
+            targets[current] = (match.group(2).strip(), [])
+        elif line.startswith("\t") and current is not None:
+            targets[current][1].append(line.strip())
+        elif line and not line.startswith("#"):
+            current = None
+    return targets
+
+
+def test_makefile_data_targets() -> None:
+    """F1: the ingest, its checks and the generator are one make command each."""
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    targets = makefile_targets()
+    assert re.search(
+        r"^CALIBRATION \?= pipeline/calibration/asos_calibration\.json$", makefile, re.M
+    )
+    asos = " ".join(targets["asos"][1])
+    assert "python -m pipeline.ingest --dest data/raw/asos" in asos
+    assert "$(SOURCE_DIR)" in asos and "--source-dir" in asos
+    verify = " ".join(targets["asos-verify"][1])
+    assert "python -m pipeline.ingest.asos_download --dest data/raw/asos --verify-only" in verify
+    test_asos = " ".join(targets["test-asos"][1])
+    assert "ASOS_DIR=data/raw/asos" in test_asos and "-m asos" in test_asos
+    for target, scenario in (("generate", "main"), ("generate-ood", "ood")):
+        recipe = " ".join(targets[target][1])
+        assert "python -m pipeline.generator --calibration $(CALIBRATION)" in recipe, target
+        assert f"--scenario {scenario}" in recipe, target
+        assert "--seed $(SEED)" in recipe and "--out data" in recipe, target
+    assert targets["pipeline"][0].split() == ["generate", "generate-ood"]
+    phony = re.search(r"^\.PHONY:(.*)$", makefile.replace("\\\n", " "), re.M)
+    assert phony is not None
+    for target in ("asos", "asos-verify", "test-asos", "generate", "generate-ood", "pipeline"):
+        assert re.search(rf"(^|\s){re.escape(target)}(\s|$)", phony.group(1)), target
 
 
 def test_spike_scripts_are_mounted_read_only() -> None:

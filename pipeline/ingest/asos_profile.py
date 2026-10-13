@@ -37,6 +37,11 @@ from pipeline.ingest.asos_download import ATTRIBUTION
 
 RAW = ("raw/asos_events", "raw/asos_customers", "raw/asos_variants")
 CALIBRATION_SPLIT = "train"  # the generator is calibrated on the training split only
+# The period of the calibration (review I1). Events and purchases come from the train events,
+# September-October 2021. The variant aggregates come from the train product table, which holds the
+# same aggregates as the test table for every shared variant (ADR-10): their window is the test
+# window too, so the calibration covers September to November 2021.
+CALIBRATION_PERIOD = (SPLIT_PERIODS["train"][0], SPLIT_PERIODS["test"][1])
 QUANTILES = (("p10", 0.10), ("p25", 0.25), ("p50", 0.50), ("p75", 0.75), ("p90", 0.90))
 DIGITS = 6  # rounding of every number in the calibration
 UNKNOWN_TYPE = "unknown"  # product type of a variant row without one
@@ -157,14 +162,20 @@ def calibration(raw: RawAsos) -> dict[str, Any]:
         raise ProfileError(f"no {split} events")
     if variants.height == 0:
         raise ProfileError(f"no {split} variant rows")
-    start, end = SPLIT_PERIODS[split]
+    events_start, events_end = SPLIT_PERIODS[split]
+    start, end = CALIBRATION_PERIOD
     with_c, with_v, both = _coverage(events, customers, variants)
     purchases = events.group_by("customer_hash").len().get_column("len").to_numpy()
     return {
         "contract_version": CONTRACT_VERSION,
         "provenance": {
-            "origin": f"{raw.provenance.origin}; calibration: aggregates of the {split} split "
-            f"({start.isoformat()}..{end.isoformat()}) by pipeline/ingest/asos_profile.py",
+            "origin": f"{raw.provenance.origin}; calibration: aggregates of the {split} split by "
+            f"pipeline/ingest/asos_profile.py. Rates, counts and purchases per customer come from "
+            f"the {split} events ({events_start.isoformat()}..{events_end.isoformat()}); product "
+            f"types, prices, return rates and reason shares come from the {split} product table, "
+            "whose aggregates equal the test table's for every shared variant, so their window "
+            "is the test window too (ADR-10); hence the period "
+            f"{start.isoformat()}..{end.isoformat()}",
             "period": {"start": start.isoformat(), "end": end.isoformat()},
             "nature": raw.provenance.nature,
         },
@@ -233,8 +244,11 @@ def write_calibration(doc: Mapping[str, Any], path: Path) -> Path:
         raise ProfileError("calibration is inconsistent: " + "; ".join(errors))
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(dumps(doc))
-    os.replace(tmp, path)
+    try:
+        tmp.write_text(dumps(doc))
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)  # nothing left behind when the write or the rename fails
     return path
 
 

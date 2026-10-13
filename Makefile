@@ -1,10 +1,16 @@
-.PHONY: dev-up dev-down gpu-up gpu-down demo-up test test-gpu lint licenses asos pipeline bench demo-export \
+.PHONY: dev-up dev-down gpu-up gpu-down demo-up test test-gpu test-asos lint licenses asos asos-verify \
+	generate generate-ood pipeline bench demo-export \
 	spike-preflight spike-prep spike-weights spike-weights-wait spike-vllm spike-wait spike-g1 \
 	spike-g1-bench spike-g2 spike-g2-cpu spike-g2-load spike-g3 spike-g3-cpu spike-g4 spike-g5 \
 	spike-g6 spike-g7 spike-down \
 	spike-gpu-check spike-logs
 
 ENV_FILE ?= .env
+# Data pipeline (phase 1): the committed real calibration (ASOS train-split aggregates, US-101).
+CALIBRATION ?= pipeline/calibration/asos_calibration.json
+SEED ?= 42
+SCALE ?= 1.0
+SOURCE_DIR ?=
 COMPOSE = docker compose -f infra/docker-compose.yml --env-file $(ENV_FILE)
 # gpu and demo use override files so the laptop .env (DEVICE=cpu, LLM_MODE=mock) cannot leak in.
 GPU = docker compose -f infra/docker-compose.yml -f infra/compose.gpu.yml --env-file $(ENV_FILE) --profile gpu
@@ -34,6 +40,10 @@ demo-up:
 test:
 	python -m pytest -m "not gpu" -q
 
+# US-101 on the real files (skipped in CI, where the dataset is not available).
+test-asos:
+	ASOS_DIR=data/raw/asos python -m pytest -m asos -q
+
 # pytest exits 5 when no test is collected: no GPU tests yet is not a failure.
 test-gpu:
 	python -m pytest -m gpu -q; status=$$?; if [ $$status -eq 5 ]; then echo "no gpu tests collected"; exit 0; fi; exit $$status
@@ -46,11 +56,24 @@ lint:
 licenses:
 	python -m scripts.check_licenses
 
+# US-101: download (or link from SOURCE_DIR), verify the pinned sha256, convert, profile.
+# make asos SOURCE_DIR=/path/to/cache takes the six pickles from a local copy.
 asos:
-	python -m pipeline.ingest.asos_download
+	python -m pipeline.ingest --dest data/raw/asos $(if $(SOURCE_DIR),--source-dir $(SOURCE_DIR))
 
-pipeline:
-	@echo "pipeline: implemented in sessions wt-data and wt-ml (docs/spec.md, section 15)"
+asos-verify:
+	python -m pipeline.ingest.asos_download --dest data/raw/asos --verify-only
+
+# US-102..US-105: the Navigli Fashion store (docs/synthetic-store.md). Store in data/store, truth
+# in data/truth; the OOD scenario in data/ood/store and data/truth/ood (never used in training).
+generate:
+	python -m pipeline.generator --calibration $(CALIBRATION) --out data --seed $(SEED) --scale $(SCALE) --scenario main
+
+generate-ood:
+	python -m pipeline.generator --calibration $(CALIBRATION) --out data --seed $(SEED) --scale $(SCALE) --scenario ood
+
+# Phase 1: the synthetic store. Features and models join in phase 2 (docs/spec.md, section 15).
+pipeline: generate generate-ood
 
 bench:
 	@echo "bench: implemented in session wt-ml (benchmarks B1-B4)"

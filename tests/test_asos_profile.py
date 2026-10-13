@@ -121,7 +121,9 @@ def raw_root(tmp_path: Path) -> Path:
         ("raw/asos_customers", customers()),
         ("raw/asos_variants", variants()),
     ):
-        write_table(name, pa.Table.from_pylist(rows, schema=SCHEMAS[name]), tmp_path, FIXTURE)
+        table = pa.Table.from_pylist(rows, schema=SCHEMAS[name])
+        # A synthetic fixture shaped like the real raw tables: it says so (rule 11).
+        write_table(name, table, tmp_path, FIXTURE, nature_override="synthetic")
     return tmp_path
 
 
@@ -197,7 +199,9 @@ def test_calibration_is_valid_and_holds_only_aggregates(raw_root: Path) -> None:
     for h in (C1, C2, C3, C4, C5, V1, V2, V3, V4, V9, V1 // 10):
         assert str(h) not in text
     provenance = doc["provenance"]
-    assert provenance["period"] == {"start": "2021-09-01", "end": "2021-10-31"}
+    # I1: events from the train window, variant aggregates from the train product table, whose
+    # window is the test window too (ADR-10): September to November 2021.
+    assert provenance["period"] == {"start": "2021-09-01", "end": "2021-11-30"}
     assert provenance["nature"] == "synthetic"  # carried from the input files, never invented
     assert "CC BY 4.0" in provenance["origin"]
 
@@ -212,8 +216,11 @@ def test_calibration_of_real_files_carries_the_attribution(raw_root: Path) -> No
     )
     doc = ap.calibration(ap.RawAsos(raw.events, raw.customers, raw.variants, real))
     assert doc["provenance"]["nature"] == "real"
-    assert doc["provenance"]["origin"].startswith("ASOS GraphReturns")
-    assert "train split" in doc["provenance"]["origin"]
+    origin = doc["provenance"]["origin"]
+    assert origin.startswith("ASOS GraphReturns")
+    assert "train split" in origin
+    assert "train events (2021-09-01..2021-10-31)" in origin
+    assert "train product table" in origin and "test window" in origin and "ADR-10" in origin
 
 
 def test_calibration_refuses_inconsistent_input(raw_root: Path) -> None:
@@ -237,7 +244,7 @@ def test_calibration_refuses_inconsistent_input(raw_root: Path) -> None:
 def test_load_raw_refuses_tables_of_different_provenance(raw_root: Path) -> None:
     other = Provenance("Another source", date(2021, 9, 1), date(2021, 11, 30), "synthetic")
     rows = pa.Table.from_pylist(events(), schema=SCHEMAS["raw/asos_events"])
-    write_table("raw/asos_events", rows, raw_root, other)
+    write_table("raw/asos_events", rows, raw_root, other, nature_override="synthetic")
     with pytest.raises(ap.ProfileError, match="different provenance"):
         ap.load_raw(raw_root)
 
@@ -249,6 +256,18 @@ def test_write_calibration_is_deterministic(raw_root: Path, tmp_path: Path) -> N
     assert first.read_bytes() == second.read_bytes()
     assert first.read_text().endswith("}\n")
     assert json.loads(first.read_text()) == doc
+
+
+def test_i3_write_calibration_leaves_no_tmp_when_the_rename_fails(
+    raw_root: Path, tmp_path: Path
+) -> None:
+    doc = ap.calibration(ap.load_raw(raw_root))
+    target = tmp_path / "calibration.json"
+    target.mkdir()  # os.replace onto a directory fails
+    with pytest.raises(OSError):
+        ap.write_calibration(doc, target)
+    assert not (tmp_path / "calibration.json.tmp").exists()
+    assert target.is_dir()
 
 
 def test_write_calibration_refuses_an_invalid_document(tmp_path: Path) -> None:
@@ -355,9 +374,10 @@ def test_committed_calibration_is_valid_real_and_attributed() -> None:
     assert check_calibration(doc) == []
     provenance = doc["provenance"]
     assert provenance["nature"] == "real"
-    assert provenance["period"] == {"start": "2021-09-01", "end": "2021-10-31"}
+    assert provenance["period"] == {"start": "2021-09-01", "end": "2021-11-30"}
     for text in ("ASOS GraphReturns", "McGowan", "arXiv:2302.14096", "OSF c793h", "CC BY 4.0"):
         assert text in provenance["origin"]
+    assert "train product table" in provenance["origin"]
     assert doc["splits"] == ["train"]
     # Counts of ADR-10 (origin: ASOS GraphReturns, OSF c793h; nature: real; train split).
     assert doc["overall"]["n_events"] == 1_369_133

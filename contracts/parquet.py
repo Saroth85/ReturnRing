@@ -35,8 +35,8 @@ BEHAVIOURS = ("normal", "size", "wardrober", "promo_ring", "shared_benign")
 SCENARIOS = ("main", "ood")  # ood: the out-of-distribution scenario, never trained on (US-105)
 ANOMALY_STATUSES = ("open", "task_opened", "resolved")
 ASOS_SPLITS = ("train", "test")
-# The 13 masked ASOS reason codes in source order. The source repeats the label "D" (5th and 6th
-# code); by position the first is D and the second D2 (ADR-13).
+# The 13 masked ASOS reason codes in source order. The source repeats the label "D" (the 4th and
+# the 6th code, after E); by position the first is D and the second D2 (ADR-13).
 ASOS_REASON_CODES = ("A", "B", "C", "D", "E", "D2", "F", "G", "H", "I", "J", "K", "L")
 
 # ---- Schemas -----------------------------------------------------------------------------------
@@ -187,7 +187,10 @@ SCHEMAS: dict[str, pa.Schema] = {
     "features/links": _as_of_table(  # US-203, US-302, US-310; spec 8.3
         pa.field("customer_a", pa.string(), nullable=False),  # customer_a < customer_b
         pa.field("customer_b", pa.string(), nullable=False),
-        pa.field("kinds", pa.list_(pa.field("element", pa.string(), nullable=False))),
+        # Identifier kinds shared by the pair: at least one, each once (checks.ListItems).
+        pa.field(
+            "kinds", pa.list_(pa.field("element", pa.string(), nullable=False)), nullable=False
+        ),
         pa.field("weight", pa.float64(), nullable=False),  # w_ij of 8.3, no decay
         pa.field("weight_decayed", pa.float64(), nullable=False),  # with time and d_k decay
         pa.field("first_shared_at", TS, nullable=False),
@@ -286,10 +289,22 @@ _FORBIDDEN_WORDS = frozenset(
         "lastname",
         "surname",
         "hash",
+        "nationality",
+        "nation",
+        "citizenship",
     }
 )
 # Also forbidden inside a word, for names written without separators ("shippingcountry").
-_FORBIDDEN_FRAGMENTS = ("gender", "country", "ismale", "yearofbirth", "birth", "hash")
+_FORBIDDEN_FRAGMENTS = (
+    "gender",
+    "country",
+    "ismale",
+    "yearofbirth",
+    "birth",
+    "hash",
+    "nationality",
+    "citizenship",
+)
 # Raw identifiers (pseudonymous personal data) by their whole name, separators removed.
 _RAW_IDENTIFIERS = frozenset(
     {
@@ -307,6 +322,35 @@ _RAW_IDENTIFIERS = frozenset(
         "iban",
     }
 )
+# Identifier stems (C4): a name holding one of these words is a raw identifier or a location proxy
+# (postcode), unless it is clearly an aggregate over identifiers (_is_aggregate).
+_IDENTIFIER_WORDS = frozenset(
+    {
+        "email",
+        "emails",
+        "mail",
+        "address",
+        "addresses",
+        "ip",
+        "ipv4",
+        "ipv6",
+        "phone",
+        "phones",
+        "device",
+        "devices",
+        "postcode",
+        "postcodes",
+        "postal",
+        "zip",
+        "zipcode",
+        "fingerprint",
+        "iban",
+    }
+)
+# The same stems inside a word written without separators ("customeremail", "shippingaddress").
+_IDENTIFIER_FRAGMENTS = ("email", "address", "phone", "device", "postcode", "zipcode")
+_AGGREGATE_PREFIXES = ("n", "shared")
+_AGGREGATE_SUFFIXES = ("count", "share")
 
 
 def _words(name: str) -> list[str]:
@@ -315,15 +359,31 @@ def _words(name: str) -> list[str]:
     return [w for w in re.split(r"[^a-z0-9]+", spaced.lower()) if w]
 
 
+def _is_aggregate(words: list[str]) -> bool:
+    """n_*, shared_*, *_count and *_share: a count or share over identifiers, not an identifier."""
+    return bool(words) and (words[0] in _AGGREGATE_PREFIXES or words[-1] in _AGGREGATE_SUFFIXES)
+
+
+def _names_an_identifier(words: list[str], joined: str) -> bool:
+    if joined in _RAW_IDENTIFIERS:
+        return True
+    stem = any(w in _IDENTIFIER_WORDS for w in words) or any(
+        fragment in joined for fragment in _IDENTIFIER_FRAGMENTS
+    )
+    return stem and not _is_aggregate(words)
+
+
 def is_forbidden_feature(name: str) -> bool:
     """True if a column with this name may never feed a score or a model (case-insensitive):
-    gender, country, age, names and raw identifiers, in any spelling found in our data."""
+    gender, country and nationality, age, names, hashes and raw identifiers (e-mail, address, IP,
+    phone, device, postcode), in any spelling found in our data. Aggregates over identifiers
+    (n_shared_devices, email_share) stay allowed; aggregates over protected grounds do not."""
     words = _words(name)
     joined = "".join(words)
     return (
         any(w in _FORBIDDEN_WORDS for w in words)
         or any(fragment in joined for fragment in _FORBIDDEN_FRAGMENTS)
-        or joined in _RAW_IDENTIFIERS
+        or _names_an_identifier(words, joined)
     )
 
 

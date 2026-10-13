@@ -1,8 +1,13 @@
 """Navigli Fashion synthetic store: US-102, US-103, US-104, US-105 (DATA-01..DATA-05, MOD-12).
 
-The stores are generated at small scales from contracts/examples/calibration.json, an illustrative
-calibration whose numbers are not measured: every rate checked here is synthetic, measured on the
-generated store against that example (origin: Navigli Fashion generator; nature: synthetic).
+The stores are generated at small scales from two calibrations:
+
+- contracts/examples/calibration.json, an illustrative calibration whose numbers are not measured;
+- pipeline/calibration/asos_calibration.json, the committed aggregates of the real ASOS train split
+  (origin: ASOS GraphReturns, OSF c793h; nature: real aggregates), so CI covers the real file.
+
+Every rate checked here is synthetic, measured on the generated store against its calibration
+(origin: Navigli Fashion generator; nature: synthetic).
 """
 
 from __future__ import annotations
@@ -25,16 +30,26 @@ import pytest
 from contracts.io import Provenance, read_table, validate_table
 from contracts.parquet import SCHEMAS
 from pipeline.generator import golden
-from pipeline.generator.calibration import load_calibration, type_return_targets
-from pipeline.generator.config import BASE_ORIGIN, MATURITY_DAYS, PERIOD_END, PERIOD_START
-from pipeline.generator.core import STORE_TABLES, TRUTH_TABLES, generate, scenario_root
+from pipeline.generator.calibration import Calibration, load_calibration, type_return_targets
+from pipeline.generator.catalogue import SIZE_RANGE, SizeKind, size_kind_for
+from pipeline.generator.config import (
+    BASE_ORIGIN,
+    DEFECT_BOOST_WEEKS,
+    MATURITY_DAYS,
+    PERIOD_END,
+    PERIOD_LAST_DAY,
+    PERIOD_START,
+)
+from pipeline.generator.core import STORE_TABLES, TRUTH_TABLES, generate, scenario_roots
 from policy.engine import NAVIGLI_BASE_TERMS
 from policy.legal_guard import LEGAL_REFUND_DAYS
 from policy.types import NON_CONFORMITY_REASONS, ReturnReason
 
 ROOT = Path(__file__).resolve().parents[1]
 EXAMPLE = ROOT / "contracts" / "examples" / "calibration.json"
+REAL = ROOT / "pipeline" / "calibration" / "asos_calibration.json"
 CAL = load_calibration(EXAMPLE)
+REAL_CAL = load_calibration(REAL)
 DAY = pd.Timedelta(days=1)
 START = pd.Timestamp(PERIOD_START)
 END = pd.Timestamp(PERIOD_END)
@@ -44,11 +59,16 @@ STRONG = ("card", "email", "device", "address", "phone")
 
 @dataclass
 class Store:
-    root: Path
+    root: Path  # store tables: <root>/store/*.parquet
+    truth_root: Path  # ground truth: <truth_root>/truth/*.parquet
     scale: float
     scenario: str
+    cal: Calibration
     t: dict[str, pd.DataFrame]
     provenance: dict[str, Provenance]
+
+    def root_of(self, name: str) -> Path:
+        return self.truth_root if name.startswith("truth/") else self.root
 
     def __getitem__(self, name: str) -> pd.DataFrame:
         return self.t[name]
@@ -79,45 +99,67 @@ class Store:
         return ids[ids["customer_id"].isin(customers)]
 
 
-def _load(root: Path, scale: float, scenario: str) -> Store:
+def _load(out: Path, scale: float, scenario: str, cal: Calibration) -> Store:
+    store_root, truth_root = scenario_roots(out, scenario)
     tables: dict[str, pd.DataFrame] = {}
     provenance: dict[str, Provenance] = {}
     for name in (*STORE_TABLES, *TRUTH_TABLES):
-        table, prov = read_table(name, root)
+        table, prov = read_table(name, truth_root if name.startswith("truth/") else store_root)
         tables[name] = table.to_pandas()
         provenance[name] = prov
-    return Store(root, scale, scenario, tables, provenance)
+    return Store(store_root, truth_root, scale, scenario, cal, tables, provenance)
+
+
+def _generated(
+    factory: pytest.TempPathFactory, cal: Calibration, seed: int, scale: float, scenario: str
+) -> Store:
+    out = factory.mktemp(f"store-{scenario}")
+    generate(cal, out, seed=seed, scale=scale, scenario=scenario)
+    return _load(out, scale, scenario, cal)
 
 
 @pytest.fixture(scope="session")
 def main_store(tmp_path_factory: pytest.TempPathFactory) -> Store:
-    out = tmp_path_factory.mktemp("store-main")
-    generate(CAL, out, seed=42, scale=0.1, scenario="main")
-    return _load(scenario_root(out, "main"), 0.1, "main")
+    return _generated(tmp_path_factory, CAL, 42, 0.1, "main")
+
+
+@pytest.fixture(scope="session")
+def real_store(tmp_path_factory: pytest.TempPathFactory) -> Store:
+    """The committed real calibration (ASOS train-split aggregates) at scale 0.25: its types
+    are smaller than the example's, so a quarter of the store gives every DATA-02 check enough
+    lines."""
+    return _generated(tmp_path_factory, REAL_CAL, 42, 0.25, "main")
 
 
 @pytest.fixture(scope="session")
 def tiny_store(tmp_path_factory: pytest.TempPathFactory) -> Store:
-    out = tmp_path_factory.mktemp("store-tiny")
-    generate(CAL, out, seed=7, scale=0.02, scenario="main")
-    return _load(scenario_root(out, "main"), 0.02, "main")
+    return _generated(tmp_path_factory, CAL, 7, 0.02, "main")
 
 
 @pytest.fixture(scope="session")
 def ood_store(tmp_path_factory: pytest.TempPathFactory) -> Store:
-    out = tmp_path_factory.mktemp("store-ood")
-    generate(CAL, out, seed=42, scale=0.1, scenario="ood")
-    assert not (out / "store").exists() and not (out / "truth").exists()
-    return _load(scenario_root(out, "ood"), 0.1, "ood")
+    return _generated(tmp_path_factory, CAL, 42, 0.1, "ood")
 
 
-@pytest.fixture(params=["main_store", "tiny_store"])
+@pytest.fixture(scope="session")
+def real_ood_store(tmp_path_factory: pytest.TempPathFactory) -> Store:
+    return _generated(tmp_path_factory, REAL_CAL, 42, 0.1, "ood")
+
+
+@pytest.fixture(params=["main_store", "real_store"])
+def calibrated(request: pytest.FixtureRequest) -> Store:
+    """Stores large enough to compare rates with their calibration (scale 0.1 and 0.25)."""
+    store: Store = request.getfixturevalue(request.param)
+    return store
+
+
+@pytest.fixture(params=["main_store", "real_store", "tiny_store"])
 def any_main(request: pytest.FixtureRequest) -> Store:
     store: Store = request.getfixturevalue(request.param)
     return store
 
 
-@pytest.fixture(params=["main_store", "tiny_store", "ood_store"])
+@pytest.fixture(params=["main_store", "real_store", "tiny_store", "ood_store", "real_ood_store"])
 def any_store(request: pytest.FixtureRequest) -> Store:
     store: Store = request.getfixturevalue(request.param)
     return store
@@ -135,24 +177,49 @@ def mature(lines: pd.DataFrame) -> pd.DataFrame:
 
 def test_data01_every_table_is_written_and_valid(any_store: Store) -> None:
     for name in (*STORE_TABLES, *TRUTH_TABLES):
-        table, prov = read_table(name, any_store.root)
+        table, prov = read_table(name, any_store.root_of(name))
         assert validate_table(name, table) == [], name
         assert table.num_rows > 0, name
         assert prov.nature == "synthetic"
         assert prov.origin.startswith(BASE_ORIGIN)
-        assert "Illustrative contract example" in prov.origin  # the calibration says what it is
-        assert prov.period_start == PERIOD_START.date()
-        assert prov.period_end == (PERIOD_END - timedelta(days=1)).date()
+        assert any_store.cal.origin in prov.origin  # the calibration says what it is
+        assert "store period 2025-10-01..2026-09-30" in prov.origin
+        assert prov.period_end == (PERIOD_END - timedelta(days=1)).date() == PERIOD_LAST_DAY
+        # The period covers every event of the file (C11): accounts and listings start earlier.
+        if name.startswith("store/"):
+            first = any_store[name]["event_at"].min().date()
+            assert prov.period_start == min(first, PERIOD_START.date()), name
+        else:
+            assert prov.period_start == PERIOD_START.date(), name
+    assert any_store.provenance["store/orders"].period_start == PERIOD_START.date()
+    assert any_store.provenance["store/customers"].period_start < PERIOD_START.date()
 
 
 def test_data01_the_store_holds_exactly_the_contract_tables(any_store: Store) -> None:
-    found = sorted(  # <root>/store and <root>/truth; main's root also holds ood/
-        str(p.relative_to(any_store.root).with_suffix(""))
-        for p in any_store.root.glob("*/*.parquet")
+    found = sorted(str(p.relative_to(any_store.root)) for p in any_store.root.rglob("*.parquet"))
+    if any_store.scenario == "main":  # <out>/store next to <out>/truth and <out>/ood
+        found = [f for f in found if f.startswith("store/")]
+    assert found == sorted(f"{name}.parquet" for name in STORE_TABLES)
+    truth = sorted(
+        str(p.relative_to(any_store.truth_root)) for p in any_store.truth_root.glob("truth/*")
     )
-    assert found == sorted((*STORE_TABLES, *TRUTH_TABLES))
+    assert truth == sorted(f"{name}.parquet" for name in TRUTH_TABLES)
     assert set(STORE_TABLES) == {n for n in SCHEMAS if n.startswith("store/")}
     assert set(TRUTH_TABLES) == {n for n in SCHEMAS if n.startswith("truth/")}
+
+
+def test_g5_ood_truth_lives_under_the_truth_folder(tmp_path: Path) -> None:
+    """Rule 12: one folder, <out>/truth, holds every ground truth, so a mount that leaves out
+    data/truth leaves out the OOD truth too. The OOD store goes to <out>/ood/store."""
+    generate(CAL, tmp_path, seed=3, scale=0.005, scenario="ood")
+    files = sorted(str(p.relative_to(tmp_path)) for p in tmp_path.rglob("*.parquet"))
+    assert files == sorted(
+        [f"ood/{name}.parquet" for name in STORE_TABLES]
+        + [f"truth/ood/{name}.parquet" for name in TRUTH_TABLES]
+    )
+    assert scenario_roots(tmp_path, "ood") == (tmp_path / "ood", tmp_path / "truth" / "ood")
+    assert scenario_roots(tmp_path, "main") == (tmp_path, tmp_path)
+    assert all("truth" not in Path(f).parts for f in files if not f.startswith("truth/"))
 
 
 def test_referential_integrity(any_store: Store) -> None:
@@ -204,24 +271,28 @@ def test_terms_snapshots_hold_the_navigli_base_policy(any_store: Store) -> None:
 # ---- DATA-02: calibration ----------------------------------------------------------------------
 
 
-def test_data02_overall_return_rate_within_10_percent(main_store: Store) -> None:
-    lines = mature(main_store.lines())
+def test_data02_overall_return_rate_within_10_percent(calibrated: Store) -> None:
+    lines = mature(calibrated.lines())
     rate = lines["returned"].mean()
-    target = CAL.product_sales_weighted_return_rate
+    target = calibrated.cal.product_sales_weighted_return_rate
     assert abs(rate / target - 1) <= 0.10, (rate, target)
 
 
-def test_data02_return_rate_per_product_type_within_10_percent(main_store: Store) -> None:
-    lines = mature(main_store.lines())
-    targets = type_return_targets(CAL)
-    checked = 0
+def test_data02_return_rate_per_product_type_within_10_percent(calibrated: Store) -> None:
+    """Every type with at least 2,000 mature lines is within 10% of its target. A smaller type
+    is within 10% or 3 binomial standard errors, whichever is wider."""
+    lines = mature(calibrated.lines())
+    targets = type_return_targets(calibrated.cal)
+    strict = 0
     for category, group in lines.groupby("category"):
-        if len(group) < 2000:
-            continue
-        rate = group["returned"].mean()
-        assert abs(rate / targets[str(category)] - 1) <= 0.10, (category, rate)
-        checked += 1
-    assert checked == len(CAL.product_types)
+        rate, target, n = group["returned"].mean(), targets[str(category)], len(group)
+        if n >= 2000:
+            assert abs(rate / target - 1) <= 0.10, (category, rate, target)
+            strict += 1
+        elif n >= 200:
+            se = (target * (1 - target) / n) ** 0.5
+            assert abs(rate - target) <= max(0.10 * target, 3 * se), (category, rate, target, n)
+    assert strict >= min(3, len(calibrated.cal.product_types))
 
 
 def _weighted_quantile(values: pd.Series, weights: pd.Series, q: float) -> float:
@@ -231,12 +302,12 @@ def _weighted_quantile(values: pd.Series, weights: pd.Series, q: float) -> float
     return float(v[(cum >= q).argmax()])
 
 
-def test_data02_catalogue_follows_the_type_distributions(main_store: Store) -> None:
-    variants = main_store["store/variants"]
-    truth = main_store["truth/variants"].merge(variants, on="variant_id")
-    lines = main_store.lines()
+def test_data02_catalogue_follows_the_type_distributions(calibrated: Store) -> None:
+    variants = calibrated["store/variants"]
+    truth = calibrated["truth/variants"].merge(variants, on="variant_id")
+    lines = calibrated.lines()
     sold = lines.groupby("variant_id").size()
-    for t in CAL.product_types:
+    for t in calibrated.cal.product_types:
         share = (variants["category"] == t.name).mean()
         assert share == pytest.approx(t.variant_share, abs=0.01), t.name
         sales = (lines["category"] == t.name).mean()
@@ -245,8 +316,12 @@ def test_data02_catalogue_follows_the_type_distributions(main_store: Store) -> N
         prices = of_type.drop_duplicates("product_id")["price_eur"].astype(float)
         p50_eur = t.price_gbp.p50 * 1.17
         assert prices.median() == pytest.approx(p50_eur, rel=0.10), t.name
-        # The calibration's rate quantiles are weighted by sales: so are the store's.
-        rates = of_type.set_index("variant_id")["base_return_rate"]
+        # The calibration's rate quantiles are weighted by sales: so are the store's, on the
+        # types that sell enough lines for a stable weighted quantile. The defective variants are
+        # left out: their window lift (G6) adds sales on purpose.
+        if (lines["category"] == t.name).sum() < 2000:
+            continue
+        rates = of_type[~of_type["defective"]].set_index("variant_id")["base_return_rate"]
         weights = sold.reindex(rates.index, fill_value=0)
         for q, expected in zip(
             (0.25, 0.5, 0.75),
@@ -257,10 +332,10 @@ def test_data02_catalogue_follows_the_type_distributions(main_store: Store) -> N
             assert found == pytest.approx(expected, abs=0.04), (t.name, q)
 
 
-def test_data02_volumes_scale_with_the_spec(main_store: Store) -> None:
+def test_data02_volumes_scale_with_the_spec(calibrated: Store) -> None:
     """Spec section 7 at scale 1: 20,000 customers, ~5,000 variants, ~80,000 orders,
     ~200,000 lines, ~60,000 returns. Scale 0.1 here."""
-    s, k = main_store, main_store.scale
+    s, k = calibrated, calibrated.scale
     assert len(s["store/customers"]) == round(20_000 * k)
     assert len(s["store/variants"]) == round(5_000 * k)
     assert 0.75 * 80_000 * k <= len(s["store/orders"]) <= 1.25 * 80_000 * k
@@ -288,8 +363,9 @@ def test_data03_no_store_table_carries_labels(any_store: Store) -> None:
         assert not set(SCHEMAS[name].names) & LABEL_COLUMNS, name
         assert not set(any_store[name].columns) & LABEL_COLUMNS, name
     assert all(name.startswith("truth/") for name in TRUTH_TABLES)
-    truth_files = {p.parent.name for p in (any_store.root / "truth").glob("*.parquet")}
+    truth_files = {p.parent.name for p in (any_store.truth_root / "truth").glob("*.parquet")}
     assert truth_files == {"truth"}
+    assert not list(any_store.root.glob("truth/*.parquet")) or any_store.scenario == "main"
 
 
 def test_data03_no_ring_or_family_id_leaks_into_store_values(any_store: Store) -> None:
@@ -438,22 +514,55 @@ def test_data05_golden_ids_are_present(any_main: Store) -> None:
     assert variants.loc[golden.JACKET_SIBLING, "product_id"] == golden.JACKET_PRODUCT
 
 
-def test_data05_giulia_brackets_sizes_and_keeps_half(any_main: Store) -> None:
-    lines = any_main.lines()
+def _giulia_signature(store: Store) -> None:
+    lines = store.lines()
     mine = lines[lines["customer_id"] == golden.GIULIA]
     bracketed = 0
     for _, order in mine.groupby("order_id"):
         for _, same in order.groupby("variant_id"):
-            if len(same) == 2 and same["size"].nunique() == 2:
+            assert len(same) <= 2, "an item at most twice in one order: a bracketing pair"
+            if len(same) == 2:
+                assert same["size"].nunique() == 2
                 assert same["returned"].sum() == 1
                 assert (same.loc[same["returned"], "reason"] == "size").all()
                 bracketed += 1
-    assert bracketed >= 2
+    assert bracketed == 3  # the three scripted pairs, and no accidental one
     returned = mine[mine["returned"]]
     assert (returned["reason"] == "size").all()
     delivered = mine[mine["delivered_at"].notna()]
     kept = delivered.loc[~delivered["returned"], "price"].sum()
     assert kept >= 0.5 * delivered["price"].sum()
+
+
+def test_data05_giulia_brackets_sizes_and_keeps_half(any_main: Store) -> None:
+    _giulia_signature(any_main)
+
+
+def _golden_orders_hold_distinct_items(store: Store) -> None:
+    """Every golden order holds distinct variants, except a bracketing pair (two sizes)."""
+    lines = store.lines()
+    mine = lines[lines["customer_id"].isin(golden.GOLDEN_CUSTOMERS)]
+    per_item = mine.groupby(["order_id", "variant_id"]).agg(
+        n=("line_id", "size"), sizes=("size", "nunique")
+    )
+    assert (per_item["n"] <= 2).all()
+    pairs = per_item[per_item["n"] == 2]
+    assert (pairs["sizes"] == 2).all()
+    paired = set(pairs.index.get_level_values("order_id"))
+    owners = set(mine.loc[mine["order_id"].isin(paired), "customer_id"])
+    assert owners <= {golden.GIULIA}
+
+
+@pytest.mark.parametrize(("seed", "scale"), [(s, 0.005) for s in range(1, 11)] + [(3, 0.25)])
+def test_g1_golden_signatures_hold_over_seeds(tmp_path: Path, seed: int, scale: float) -> None:
+    """DATA-05 over seeds 1..10 at the smallest scale, and at the scale where the review saw
+    Giulia's signature break (0.25, seed 3): scripted orders never repeat an item by chance."""
+    generate(CAL, tmp_path, seed=seed, scale=scale, scenario="main")
+    store = _load(tmp_path, scale, "main", CAL)
+    _golden_orders_hold_distinct_items(store)
+    _giulia_signature(store)
+    _family_signature(store, golden.ROSSI_ACCOUNTS, shared_cards=0)
+    _family_signature(store, golden.ROSSI_CARD_ACCOUNTS, shared_cards=1)
 
 
 def test_data05_marco_ring_signature(any_main: Store) -> None:
@@ -705,19 +814,69 @@ def test_ring_signatures(main_store: Store) -> None:
         assert set(linked["customer_id"]) == set(accounts), ring
 
 
-def test_wardrober_signature(main_store: Store) -> None:
-    lines = main_store.lines()
+def test_wardrober_signature(calibrated: Store) -> None:
+    lines = calibrated.lines()
     normal = lines[lines["behaviour"] == "normal"]
     wardrobe = lines[lines["behaviour"] == "wardrober"]
     assert wardrobe["price"].mean() > 1.5 * normal["price"].mean()
     assert _rate(wardrobe) > 2 * _rate(normal)
-    returns = main_store["store/returns"].set_index("line_id")
+    returns = calibrated["store/returns"].set_index("line_id")
     returned = wardrobe[wardrobe["returned"]]
     days = returned["line_id"].map(returns["days_since_delivery"])
     assert days.between(3, 7).mean() >= 0.9
     assert (returned["reason"] == "changed_mind").mean() >= 0.6
-    weekday = returned["delivered_at"].dt.dayofweek
-    assert weekday.isin([3, 4, 5]).mean() >= 0.9  # in hand before the weekend
+
+
+def _orders_with_weekdays(store: Store) -> pd.DataFrame:
+    orders = store["store/orders"][["order_id", "customer_id", "event_at"]]
+    deliveries = store["store/deliveries"][["order_id", "event_at"]].rename(
+        columns={"event_at": "delivered_at"}
+    )
+    out = orders.merge(deliveries, on="order_id", how="left")
+    out = out.merge(store["truth/labels"][["customer_id", "behaviour"]], on="customer_id")
+    out["weekday"] = out["event_at"].dt.dayofweek
+    out["lag"] = (out["delivered_at"].dt.normalize() - out["event_at"].dt.normalize()) // DAY
+    return out
+
+
+def test_g2_wardrober_timing_is_a_tendency_not_a_rule(calibrated: Store) -> None:
+    """Wardrobers lean to Tuesday-Thursday orders (in hand for the weekend), relative to normal
+    customers, but neither weekday nor delivery lag gives the label away."""
+    orders = _orders_with_weekdays(calibrated)
+    wardrobe = orders[orders["behaviour"] == "wardrober"]
+    normal = orders[orders["behaviour"] == "normal"]
+    mid_week = [1, 2, 3]
+    share_w = wardrobe["weekday"].isin(mid_week).mean()
+    assert share_w > normal["weekday"].isin(mid_week).mean() + 0.15
+    assert share_w < 0.9
+    assert wardrobe["weekday"].nunique() == 7  # every day of the week occurs
+    # Delivery lag: the shop's distribution, the same for everyone.
+    lags_w = wardrobe["lag"].dropna().value_counts(normalize=True)
+    lags_n = normal["lag"].dropna().value_counts(normalize=True)
+    assert lags_w.get(2, 0.0) < 0.6
+    assert abs(lags_w.get(2, 0.0) - lags_n.get(2, 0.0)) < 0.1
+
+
+def label_free_wardrober_rule(store: Store) -> pd.Series:
+    """The review's label-free rule: at least two orders, all placed on Tuesday or Wednesday and
+    all delivered two days later. Returns the customers it flags."""
+    orders = _orders_with_weekdays(store).dropna(subset=["lag"])
+    per_customer = orders.groupby("customer_id").agg(
+        n=("order_id", "size"),
+        tue_wed=("weekday", lambda w: w.isin([1, 2]).all()),
+        two_days=("lag", lambda lag: (lag == 2).all()),
+    )
+    flagged = per_customer[(per_customer["n"] >= 2) & per_customer["tue_wed"]]
+    return flagged[flagged["two_days"]].index.to_series()
+
+
+def test_g2_label_free_rule_precision_is_low(calibrated: Store) -> None:
+    """Before the fix this rule found wardrobers with precision 0.98 (review G2); the base rate
+    of wardrobers is 3%. The value at scale 1.0 is in docs/synthetic-store.md."""
+    flagged = label_free_wardrober_rule(calibrated)
+    labels = calibrated["truth/labels"].set_index("customer_id")["behaviour"]
+    precision = (labels[flagged] == "wardrober").mean() if len(flagged) else 0.0
+    assert precision < 0.5, (precision, len(flagged))
 
 
 def test_size_signature(main_store: Store) -> None:
@@ -753,6 +912,54 @@ def test_shared_benign_signature(main_store: Store) -> None:
     benign = lines[lines["behaviour"] == "shared_benign"]
     normal = lines[lines["behaviour"] == "normal"]
     assert abs(_rate(benign) - _rate(normal)) < 0.08
+
+
+def weekly_window_sales(store: Store) -> pd.DataFrame:
+    """Sales (order lines placed) of each defective variant in each full Monday-to-Sunday week of
+    its defect window: what the spec 8.9 detector sees (minimum 20 sales a week)."""
+    truth = store["truth/variants"]
+    lines = store["store/order_lines"]
+    rows = []
+    for row in truth[truth["defective"]].itertuples():
+        end = row.defect_end if pd.notna(row.defect_end) else END
+        mine = lines[lines["variant_id"] == row.variant_id]
+        week = row.defect_start
+        while week + 7 * DAY <= end:
+            sold = mine["event_at"].between(week, week + 7 * DAY, inclusive="left").sum()
+            rows.append({"variant_id": row.variant_id, "week": week, "sales": int(sold)})
+            week += 7 * DAY
+    return pd.DataFrame(rows, columns=["variant_id", "week", "sales"])
+
+
+def test_g6_defective_variants_reach_the_detector_minimum(calibrated: Store) -> None:
+    """Spec 8.9 assesses a variant only with at least 20 sales in the week: almost every defective
+    variant must reach it in its window, or the detector cannot be evaluated (US-208). The lift
+    covers the first DEFECT_BOOST_WEEKS weeks; the jacket's type may be too small at these
+    scales, so it is checked at scale 1.0 (docs/synthetic-store.md)."""
+    weekly = weekly_window_sales(calibrated)
+    defective = calibrated["truth/variants"]["defective"].sum()
+    assert weekly["variant_id"].nunique() == defective  # every window holds a full week
+    generic = weekly[weekly["variant_id"] != golden.DEFECTIVE_JACKET]
+    best = generic.groupby("variant_id")["sales"].max()
+    assert (best >= 20).mean() >= 0.9, best.sort_values().head()
+    first_weeks = generic.groupby("variant_id").head(DEFECT_BOOST_WEEKS)
+    assert (first_weeks["sales"] >= 20).mean() >= 0.75
+    # Without the lift (review G6) only about 3 of 100 variants reached 20 sales in a week.
+    later = generic.groupby("variant_id").nth(slice(DEFECT_BOOST_WEEKS, None))
+    assert (later["sales"] >= 20).mean() < (first_weeks["sales"] >= 20).mean()
+
+
+def test_g4_size_range_matches_the_category(any_main: Store) -> None:
+    """Every variant's sizes come from its category; the golden jacket is apparel (XS-XL)."""
+    variants = any_main["store/variants"].set_index("variant_id")
+    expected = variants["category"].map(lambda c: SIZE_RANGE[size_kind_for(c)])
+    assert (variants["size_range"].fillna("-") == expected.fillna("-")).all()
+    jacket = variants.loc[golden.DEFECTIVE_JACKET]
+    assert size_kind_for(jacket["category"]) is SizeKind.APPAREL
+    assert jacket["size_range"] == "XS-XL"
+    lines = any_main["store/order_lines"]
+    sold = lines[lines["variant_id"] == golden.DEFECTIVE_JACKET]
+    assert set(sold["size"]) <= {"XS", "S", "M", "L", "XL"}
 
 
 def test_defective_variants_concentrate_returns(main_store: Store) -> None:

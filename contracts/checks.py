@@ -4,7 +4,10 @@ Small on purpose: each check is a frozen dataclass with violations(table) -> lis
 pyarrow.compute. checks_for(name) adds the generic temporal rules to the per-table CHECKS:
 
 - event tables: every timestamp of a row, event_at included, is <= that row's available_at;
-- as-of tables: every timestamp of a row is <= its as_of.
+- as-of tables: every timestamp and every date of a row is <= its as_of (a date is compared with
+  the UTC day of as_of), and every key includes as_of, so one file may hold several snapshots.
+
+Floats are finite everywhere: NaN and +/-inf are rejected, missing values are null.
 """
 
 from __future__ import annotations
@@ -125,7 +128,10 @@ class NotAfter:
 
     def violations(self, table: pa.Table) -> list[str]:
         compare = pc.greater_equal if self.strict else pc.greater
-        bad = pc.fill_null(compare(table.column(self.before), table.column(self.after)), False)
+        before, after = table.column(self.before), table.column(self.after)
+        if pa.types.is_date(before.type) and pa.types.is_timestamp(after.type):
+            after = pc.cast(after, before.type)  # the UTC day of the instant
+        bad = pc.fill_null(compare(before, after), False)
         n = pc.sum(bad).as_py() or 0
         if n:
             op = "<" if self.strict else "<="
@@ -158,6 +164,90 @@ class PresentWhen:
             extra = pc.sum(pc.and_(pc.invert(selected), present)).as_py() or 0
             if extra:
                 out.append(f"{self.column}: allowed only when {self.when} in {list(self.values)}")
+        return out
+
+
+@dataclass(frozen=True)
+class NullUnless:
+    """`column` is null on every row where `when` is not in `values` (it may be null there too)."""
+
+    column: str
+    when: str
+    values: tuple[object, ...]
+
+    def columns(self) -> tuple[str, ...]:
+        return (self.column, self.when)
+
+    def violations(self, table: pa.Table) -> list[str]:
+        when = table.column(self.when)
+        selected = pc.fill_null(pc.is_in(when, value_set=pa.array(self.values, when.type)), False)
+        present = pc.is_valid(table.column(self.column))
+        extra = pc.sum(pc.and_(pc.invert(selected), present)).as_py() or 0
+        if extra:
+            return [f"{self.column}: allowed only when {self.when} in {list(self.values)}"]
+        return []
+
+
+@dataclass(frozen=True)
+class ListItems:
+    """A list column: every non-null list has at least `min_length` elements, all distinct."""
+
+    column: str
+    min_length: int = 1
+
+    def columns(self) -> tuple[str, ...]:
+        return (self.column,)
+
+    def violations(self, table: pa.Table) -> list[str]:
+        col = table.column(self.column).combine_chunks()
+        out: list[str] = []
+        lengths = pc.drop_null(pc.list_value_length(col))
+        short = pc.sum(pc.less(lengths, self.min_length)).as_py() or 0
+        if short:
+            out.append(f"{self.column}: {short} empty lists (fewer than {self.min_length} items)")
+        pairs = pa.table({"row": pc.list_parent_indices(col), "item": pc.list_flatten(col)})
+        repeated = pairs.num_rows - pairs.group_by(["row", "item"]).aggregate([]).num_rows
+        if repeated:
+            out.append(f"{self.column}: {repeated} items repeat within their list")
+        return out
+
+
+@dataclass(frozen=True)
+class EventLog:
+    """An issue-and-use log keyed by `key` (store/coupons, ADR-13): per key exactly one issue row
+    (`use` null), at most one use row (`use` set), and the use not before the issue."""
+
+    key: str
+    use: str
+    at: str = "event_at"
+
+    def columns(self) -> tuple[str, ...]:
+        return (self.key, self.use, self.at)
+
+    def violations(self, table: pa.Table) -> list[str]:
+        rows = table.select([self.key, self.use, self.at])
+        is_use = pc.is_valid(rows.column(self.use))
+        issues = rows.filter(pc.invert(is_use))
+        uses = rows.filter(is_use)
+        out: list[str] = []
+        per_key = issues.group_by(self.key).aggregate([(self.at, "count"), (self.at, "min")])
+        repeated = pc.sum(pc.greater(per_key.column(f"{self.at}_count"), 1)).as_py() or 0
+        if repeated:
+            out.append(f"{self.key}: {repeated} keys with more than one issue row")
+        orphans = uses.join(per_key, self.key, join_type="left anti")
+        if orphans.num_rows:
+            out.append(
+                f"{self.key}: {orphans.num_rows} {self.use} rows without an issue row: "
+                f"{_sample(orphans.column(self.key))}"
+            )
+        used = uses.group_by(self.key).aggregate([(self.use, "count")])
+        twice = pc.sum(pc.greater(used.column(f"{self.use}_count"), 1)).as_py() or 0
+        if twice:
+            out.append(f"{self.key}: {twice} keys with more than one redemption ({self.use} set)")
+        joined = uses.join(per_key, self.key, join_type="inner")
+        early = pc.sum(pc.less(joined.column(self.at), joined.column(f"{self.at}_min"))).as_py()
+        if early:
+            out.append(f"{self.key}: {early} redemptions before the issue row")
         return out
 
 
@@ -233,6 +323,7 @@ CHECKS: dict[str, tuple[Check, ...]] = {
     "store/coupons": (
         OneOf("kind", COUPON_KINDS),
         Unique(("coupon_code", "order_id")),
+        EventLog("coupon_code", "order_id"),
         InRange("discount_eur", 0),
     ),
     "truth/labels": (
@@ -248,12 +339,14 @@ CHECKS: dict[str, tuple[Check, ...]] = {
         OneOf("defect_reason", _REASONS),
         PresentWhen("defect_reason", "defective", (True,), only_then=True),
         PresentWhen("defect_start", "defective", (True,), only_then=True),
+        NullUnless("defect_end", "defective", (True,)),  # null when defective: never fixed
         NotAfter("defect_start", "defect_end"),
     ),
     "features/links": (
-        Unique(("customer_a", "customer_b")),
+        Unique(("customer_a", "customer_b", "as_of")),
         NotAfter("customer_a", "customer_b", strict=True),
         OneOf("kinds", IDENTIFIER_KINDS),
+        ListItems("kinds", min_length=1),
         InRange("weight", *_SHARE),
         InRange("weight_decayed", *_SHARE),
         NotAfter("weight_decayed", "weight"),
@@ -262,7 +355,7 @@ CHECKS: dict[str, tuple[Check, ...]] = {
         InRange("max_sharers", 2),
     ),
     "features/clusters": (
-        Unique(("customer_id",)),
+        Unique(("customer_id", "as_of")),
         InRange("cluster_size", 1),
         InRange("shared_strong_ids", 0),
         InRange("welcome_coupons", 0),
@@ -273,7 +366,7 @@ CHECKS: dict[str, tuple[Check, ...]] = {
         InRange("strong_id_share", *_SHARE),
     ),
     "features/customer_features": (
-        Unique(("customer_id",)),
+        Unique(("customer_id", "as_of")),
         InRange("return_rate", *_SHARE),
         InRange("changed_mind_share", *_SHARE),
         InRange("size_share", *_SHARE),
@@ -281,7 +374,7 @@ CHECKS: dict[str, tuple[Check, ...]] = {
         InRange("n_observations", 0),
     ),
     "features/product_anomalies": (
-        Unique(("variant_id", "reason", "week")),
+        Unique(("variant_id", "reason", "week", "as_of")),
         OneOf("reason", _REASONS),
         OneOf("status", ANOMALY_STATUSES),
         InRange("observed", 0),
@@ -289,7 +382,7 @@ CHECKS: dict[str, tuple[Check, ...]] = {
         InRange("n", 0),
     ),
     "scores/scores": (
-        Unique(("customer_id",)),
+        Unique(("customer_id", "as_of")),
         InRange("risk", *_SHARE),
         OneOf("evidence_quality", tuple(e.value for e in EvidenceQuality)),
         OneOf("quadrant", _QUADRANTS),
@@ -298,7 +391,7 @@ CHECKS: dict[str, tuple[Check, ...]] = {
 
 
 def temporal_checks(name: str) -> tuple[NotAfter, ...]:
-    """The generic time rules of a table: no timestamp after available_at (or as_of)."""
+    """The generic time rules of a table: no timestamp or date after available_at (or as_of)."""
     if name in EVENT_TABLES:
         anchor = "available_at"
     elif name in AS_OF_TABLES:
@@ -309,7 +402,8 @@ def temporal_checks(name: str) -> tuple[NotAfter, ...]:
     return tuple(
         NotAfter(field.name, anchor)
         for field in schema
-        if pa.types.is_timestamp(field.type) and field.name != anchor
+        if (pa.types.is_timestamp(field.type) or pa.types.is_date(field.type))
+        and field.name != anchor
     )
 
 
@@ -317,12 +411,13 @@ def checks_for(name: str) -> tuple[Check, ...]:
     return (*temporal_checks(name), *CHECKS.get(name, ()))
 
 
-def no_nan(table: pa.Table) -> list[str]:
-    """NaN is never a value in a contract table: missing values are null."""
+def finite_floats(table: pa.Table) -> list[str]:
+    """NaN and +/-inf are never values in a contract table: missing values are null."""
     out: list[str] = []
     for field in table.schema:
         if pa.types.is_floating(field.type):
-            n = pc.sum(pc.fill_null(pc.is_nan(table.column(field.name)), False)).as_py() or 0
+            bad = pc.invert(pc.is_finite(table.column(field.name)))
+            n = pc.sum(pc.fill_null(bad, False)).as_py() or 0
             if n:
-                out.append(f"{field.name}: {n} NaN values (use null)")
+                out.append(f"{field.name}: {n} NaN/inf values (use null for a missing value)")
     return out

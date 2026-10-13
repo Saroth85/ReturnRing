@@ -100,8 +100,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  {contract}: " + ", ".join(f"{s} {n:,} rows" for s, n in counts.items()))
         with _step("profile"):
             doc, _ = asos_profile.profile(args.data_root, args.calibration_out, report_out)
-    except (asos_download.IntegrityError, pickle.UnpicklingError, ValueError) as exc:
-        # ValueError covers ConversionError, ContractError and ProfileError.
+    except (asos_download.IntegrityError, pickle.UnpicklingError, ValueError, OSError) as exc:
+        # ValueError covers ConversionError, ContractError and ProfileError; OSError a path
+        # that cannot be written (a directory in the way, a full disk).
         return _fail(f"[convert/profile] failed: {exc}")
     print(f"  report: {report_out}")
     print(f"  calibration: {args.calibration_out} (splits {doc['splits']})")

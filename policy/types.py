@@ -10,7 +10,7 @@ from datetime import date
 from decimal import Decimal
 from enum import StrEnum
 
-from contracts.levers import LEVERS, LeverObject, format_lever_id
+from contracts.levers import LEVERS, LeverObject, format_lever_id, make_lever
 
 
 class ReturnReason(StrEnum):
@@ -126,10 +126,12 @@ class Levers:
 
     def to_contract(self, base: ReturnTerms) -> list[LeverObject]:
         """The levers that differ from the standard levers on `base`, as {id, value, scope}
-        objects in catalogue order (ADR-13): the `levers` of llm_case and decision_request."""
+        objects in catalogue order (ADR-13): the `levers` of llm_case and decision_request.
+        Raises LeverError for a value the catalogue refuses, such as an all_orders lever set to
+        false (the engine never restricts the size exchange)."""
         mine, standard = self.values(), Levers.standard(base).values()
         return [
-            LeverObject(id=lever.id, value=mine[lever.id], scope=lever.scope)
+            make_lever(lever.id, mine[lever.id])
             for lever in LEVERS
             if mine[lever.id] != standard[lever.id]
         ]

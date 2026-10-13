@@ -7,7 +7,7 @@ Return probability of a line (spec section 7 signatures):
   lines of the store return at the calibration rate, once the abusive behaviours are included;
 - bracketing pairs: exactly one of the two sizes is returned, for size;
 - wardrobers: 0.8 on high-value lines (price at or above the catalogue median), "changed mind",
-  3 to 6 days after a Thursday or Friday delivery;
+  3 to 6 days after delivery;
 - ring accounts: almost every line (ScenarioConfig.ring_return_probability);
 - defective variants: in their window, a share of the buyers return the line for the defect reason,
   whoever they are (independent customers).

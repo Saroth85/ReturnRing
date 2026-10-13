@@ -75,6 +75,12 @@ def quadrant_for(scores: CaseScores, thresholds: Thresholds) -> Quadrant:
     return Quadrant.Q4 if high_risk else Quadrant.Q2
 
 
+def guarantee_terms(order_terms: ReturnTerms) -> ReturnTerms:
+    """Terms of a defect return: the order snapshot, with return shipping always at the seller's
+    cost (Directive (EU) 2019/771, art. 14), whatever the withdrawal terms said."""
+    return replace(order_terms, free_return_shipping=True)
+
+
 def standard_levers(base: ReturnTerms) -> Levers:
     return Levers(
         future_terms=base,
@@ -141,7 +147,11 @@ def decide(
             evidence_quality=scores.evidence_quality,
             quadrant=None,
             levers=standard_levers(base),
-            current_return_terms=request.order_terms,
+            current_return_terms=(
+                guarantee_terms(request.order_terms)
+                if path is Path.GUARANTEE
+                else request.order_terms
+            ),
             refund_due_by=refund_due_by,
             requires_approval=False,
         )

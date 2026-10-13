@@ -151,7 +151,9 @@ class Decision:
     evidence_quality: EvidenceQuality
     quadrant: Quadrant | None
     levers: Levers
-    current_return_terms: ReturnTerms  # always the order snapshot: never restricted retroactively
+    # The order snapshot, never restricted retroactively; on the guarantee path return shipping
+    # is always free (Directive (EU) 2019/771, art. 14).
+    current_return_terms: ReturnTerms
     refund_due_by: date
     requires_approval: bool
     state: DecisionState = DecisionState.PROPOSED

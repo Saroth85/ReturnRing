@@ -73,6 +73,13 @@ def check(decision: Decision, request: ReturnRequest, base: ReturnTerms) -> list
         v.append(Violation("NON_CONFORMITY_ON_WITHDRAWAL_PATH", "Defects must follow guarantee"))
     if decision.path is Path.GUARANTEE and (restrictive or decision.quadrant is not None):
         v.append(Violation("GUARANTEE_RESTRICTED", "Guarantee path is never scored or restricted"))
+    if decision.path is Path.GUARANTEE and not decision.current_return_terms.free_return_shipping:
+        v.append(
+            Violation(
+                "GUARANTEE_SHIPPING_CHARGED",
+                "Return shipping of a defect is at the seller's cost (Directive 2019/771, art. 14)",
+            )
+        )
 
     if decision.evidence_quality is EvidenceQuality.INSUFFICIENT and restrictive:
         v.append(Violation("INSUFFICIENT_EVIDENCE_RESTRICTED", "No restriction without evidence"))

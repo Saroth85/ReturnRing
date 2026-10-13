@@ -64,6 +64,10 @@ def test_leg01_engine_never_produces_violations(
     assert check(d, req, base) == []
     assert d.levers.future_terms.return_window_days >= 14
     assert d.refund_due_by <= req.notice_on + timedelta(days=14)
+    if d.path is Path.GUARANTEE:  # LEG-07: return shipping is free on a defect (US-309)
+        assert d.current_return_terms == replace(snapshot, free_return_shipping=True)
+    else:  # LEG-04: the snapshot shown at purchase, never restricted retroactively
+        assert d.current_return_terms == snapshot
     if d.quadrant in (Quadrant.Q3, Quadrant.Q4):  # LEG-03 and LEG-08, spec 8.6
         assert d.requires_approval and d.review_on == TODAY + timedelta(days=REVIEW_DAYS)
     else:
@@ -118,6 +122,34 @@ def test_leg07_non_conformity_must_use_guarantee() -> None:
     d4, _ = _q4()
     restricted = replace(d4, path=Path.GUARANTEE)
     assert "GUARANTEE_RESTRICTED" in codes(restricted, req)
+    scored = replace(d, quadrant=Quadrant.Q2)  # standard levers, but scored
+    assert "GUARANTEE_RESTRICTED" in codes(scored, req)
+
+
+# Terms an order was bought with after an approved Q4 decision (return shipping paid).
+Q4_SNAPSHOT = ReturnTerms(14, False, False, True, False)
+
+
+def test_leg07_defect_return_shipping_is_free_even_on_q4_terms() -> None:
+    req = request(ReturnReason.DEFECTIVE, terms=Q4_SNAPSHOT)
+    d = decide(req, scores(0.99, "5", cluster="R-X"), BASE, THRESHOLDS, TODAY)
+    assert d.path is Path.GUARANTEE
+    assert d.current_return_terms == replace(Q4_SNAPSHOT, free_return_shipping=True)
+    assert codes(d, req) == set()
+
+
+def test_leg07_guard_refuses_charged_shipping_on_guarantee() -> None:
+    req = request(ReturnReason.DEFECTIVE, terms=Q4_SNAPSHOT)
+    d = decide(req, scores(), BASE, THRESHOLDS, TODAY)
+    charged = replace(d, current_return_terms=Q4_SNAPSHOT)
+    assert "GUARANTEE_SHIPPING_CHARGED" in codes(charged, req)
+
+
+def test_withdrawal_keeps_the_snapshot_shipping_terms() -> None:
+    # Paid return shipping on a withdrawal is lawful when it was shown before purchase (art. 14).
+    req = request(terms=Q4_SNAPSHOT)
+    d = decide(req, scores(), BASE, THRESHOLDS, TODAY)
+    assert d.path is Path.WITHDRAWAL and d.current_return_terms == Q4_SNAPSHOT
 
 
 def test_insufficient_evidence_cannot_restrict() -> None:

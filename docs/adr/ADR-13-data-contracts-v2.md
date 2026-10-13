@@ -132,7 +132,8 @@ its numbers must never be shown as ASOS results.
   variants, hash.
 - **Forbidden fragments inside a word**: gender, country, ismale, yearofbirth, birth, hash.
 - **Raw identifiers by whole name**: email, phone, ip, ip_prefix, address, device_id, card_number
-  and similar.
+  and similar; since amendment 1 also any name with an identifier stem that is not an aggregate
+  (more stems and spellings in amendment 2).
 
 Keys such as `customer_id` and counts such as `n_distinct_cards` stay allowed.
 `forbidden_features(names)` is the call for every model's feature list (FAIR-01). The tests run it
@@ -157,7 +158,8 @@ on every `features/` and `scores/` schema and on the 74 real ASOS column names.
 
 `read_table(name, root, as_of=None)` checks the contract name, the version and the schema, and
 returns `(table, provenance)`. With `as_of`, which must be timezone-aware, it keeps the rows of an
-event table with `available_at <= as_of`. On any other table it refuses `as_of`.
+event table with `available_at <= as_of`, refuses an as-of table that holds a row computed after
+`as_of`, and refuses a static table (amendment 1).
 
 ### 8. Lever catalogue (POL-7, CON-05)
 
@@ -186,10 +188,18 @@ A lever has two forms:
 
 The catalogue also sets these rules:
 
-- **Spec 19.B `welcome_coupon` is `coupons_enabled`**: the customer's own coupons on future orders.
-  The cluster-wide half of the same row of 8.6 is `cluster_coupons_disabled`.
+- **Spec 19.B `welcome_coupon` is `cluster_coupons_disabled`**: the old example carried
+  `{"id": "welcome_coupon", "value": false, "scope": "future_orders_cluster"}`, so by its scope it is
+  the cluster-wide block, `cluster_coupons_disabled:true`. The customer's own coupons on future
+  orders, the other half of the same row of 8.6, are `coupons_enabled`. Spec 19.B now shows the six
+  levers of `contracts/examples/llm_case.json`.
 - **`all_orders` is used only for the size exchange**, which the engine never restricts. A lever
-  that makes terms worse applies only to future orders (rule 3, `policy/legal_guard.py`).
+  that makes terms worse applies only to future orders (rule 3, `policy/legal_guard.py`). An
+  `all_orders` lever can only be granted: its value is always `true` (schema `const: true`,
+  `contracts.levers._check_value`), and when the engine grants the free size exchange it also holds
+  for the order being returned, even if its snapshot lacked it (`policy.engine.with_all_orders_levers`).
+- **One value per lever**: the `levers` array has `uniqueItems` and at most one object per lever id
+  (`maxContains: 1`); `contracts.levers.check_lever_objects` is the same check in Python.
 - **`size_advice:false` is now a visible difference.** It is standard on, and no quadrant turns it
   off today.
 
@@ -210,8 +220,8 @@ cluster: 6 levers in `llm_case.json` and the same 6 ids in `llm_output.json`.
   and read store tables through `read_table(..., as_of=...)`.
 - The ingest (US-101) writes `raw/asos_*` with the mapping above, and the profiler writes
   `calibration.json`.
-- Infra follow-up, outside this change: offline training jobs need a read-only mount of
-  `data/truth/`. Today `tests/test_infra.py` allows only the `pipeline` service to mount `data/`.
+- Infra follow-up, done in amendment 1: the training jobs mount `data/` read-only, and
+  `tests/test_infra.py` keeps `data/truth/` away from every other service.
 - `jsonschema` is a development dependency. A runtime check of JSON contracts would need it in
   `requirements/base.txt` (MIT).
 - Still open from the review:
@@ -222,3 +232,126 @@ cluster: 6 levers in `llm_case.json` and the same 6 ids in `llm_output.json`.
   - "last shared use" in the sense of 8.3 would need an identifier observation log
     (`store/identifier_uses`) if first-use rows prove too coarse.
 - Files written under contract v1 cannot be read. No v1 file exists.
+
+## Amendment 1 (13 Oct 2026): review findings C1 to C14, G5 and F2
+
+The contract version stays `2.0.0`. The only schema change is the nullability of
+`features/links.kinds`, and no `features/` or `scores/` file had been written yet. Every other change
+tightens a check on write or on read.
+
+**File I/O (`contracts/io.py`)**
+
+- **C1, determinism.** `write_table` combines the chunks of every column before writing. Equal
+  rows now give equal bytes at any chunking. Before, 200,000 order lines in 1 chunk and in 64 chunks
+  gave different files.
+- **C3, read guard.** `read_table(name, root, as_of=T)` now works on as-of tables too. It raises
+  `ContractError` if a row has `as_of > T`, because those rows were computed after the decision. It
+  refuses `as_of` on static tables (`raw/`, `truth/`).
+- **C3, keys.** Every key of an as-of table ends with `as_of`, so one file may hold several
+  snapshots.
+- **C10, floats.** NaN and +/-inf are rejected in every float column; missing values are null.
+- **C11, provenance and family.** The nature must fit the table family: `real` for `raw/`;
+  `synthetic` for `store/` and `truth/`; `synthetic` or `simulated` for `features/` and `scores/`.
+  A caller writes another nature only by naming it in `write_table(..., nature_override=...)`, for
+  example a synthetic test fixture shaped like the ASOS tables.
+- **C11, provenance and period.** In an event table, every `event_at` (UTC day) lies in the
+  provenance period. The generator therefore gives `store/customers` and `store/variants` a period
+  that starts with their oldest account or listing. Its origin still names the store period.
+- **C12, missing provenance.** A file without provenance metadata raises `ContractError`, not
+  `KeyError`.
+
+**Value checks (`contracts/checks.py`)**
+
+- **C2.** In an as-of table, a date column is also checked against the UTC day of `as_of`, so a
+  future `features/product_anomalies.week` is rejected.
+- **C7.** `features/links.kinds` is not null. It holds at least one kind, and each kind once.
+- **C8.** `store/coupons` is an issue-and-use log. Each `coupon_code` has exactly one issue row
+  (`order_id` null) and at most one redemption, and the redemption comes no earlier than the issue.
+- **C9.** `truth/variants.defect_end` is null when `defective` is false.
+
+**Forbidden features (C4)**
+
+Identifier stems are forbidden unless the name is clearly an aggregate (`n_*`, `*_count`, `shared_*`,
+`*_share`). The stems are e-mail, address, IP, phone, device, postcode or zip, and fingerprint.
+Nationality and citizenship are forbidden like country, in any form. So `email_normalized`,
+`shipping_address`, `ip_prefix_24` and `zip_code` are forbidden, and `n_shared_devices` and
+`email_share` are allowed.
+
+**Levers (C5, C6, C13)**
+
+See section 8. An `all_orders` lever carries only `true`, and the engine applies a granted free size
+exchange to the current order. Lever arrays have one object per lever id. Spec 19.B
+`welcome_coupon` is `cluster_coupons_disabled`. The JSON contracts were regenerated from
+`contracts.levers.lever_list_json_schema`.
+
+**Layout and rule 12 (G5, F2)**
+
+- The out-of-distribution truth is written under `<out>/truth/ood/` (files
+  `truth/ood/truth/*.parquet`), next to the main truth. Its store is in `<out>/ood/store/`.
+  `data/truth/` therefore holds every ground truth.
+- In `infra/docker-compose.yml`, the offline jobs `trainer-gbm` and `trainer-gnn` mount `data/`
+  read-only, the generator job `pipeline` writes it, and no other service mounts `data/` or any path
+  with a `truth` part. `tests/test_infra.py` checks this for every compose file.
+
+## Amendment 2 (13 Oct 2026): review findings P3 and P4
+
+The contract version stays `2.0.0`. No schema changes. One write path changes, and one check is
+tightened.
+
+**Atomic writes (P3, `contracts/files.py`)**
+
+`write_table`, the ASOS calibration and profile report (`pipeline/ingest/asos_profile.py`) and the
+ASOS downloader now use one helper. It writes to a temporary file, `.<name>.part`, in the target's
+folder, then renames that file over the target. The temporary file is always created anew: the
+helper first removes whatever is at that name, then opens it with
+`O_CREAT | O_EXCL | O_NOFOLLOW`. A symlink planted at that name is therefore never followed, and a
+symlink at the target is replaced, not written through. If anything fails, for example a directory
+in the way of the target, nothing is left at the temporary name. Before, `write_table` and
+`write_calibration` wrote `<name>.tmp` through a planted symlink, and `write_table` left the
+`.tmp` file behind on failure. Writing through the file descriptor gives the same Parquet bytes
+as writing to a path (checked on the 205,462 order lines of the scale 1.0 store).
+
+**Forbidden features (P4)**
+
+Identifier names written without separators or abbreviated are forbidden too, unless they are
+aggregates:
+
+- **More stems**: `addr`, `mobile`, `msisdn`, `imei`, `mac`, `card`, `cards` and `pan` (a card
+  number).
+- **Fragments inside a word**: `ipprefix`, `ipaddr`, `ipv4`, `ipv6`, `msisdn`, `imei`, `cardlast`,
+  `cardbin`, `cardnumber`, `creditcard`, `debitcard` and `paymentcard`.
+- **Word forms**: `ip24`, `customerip`, `remoteip`, `shippingaddr`, `shippingzip`, `zip5` and
+  similar.
+
+`ipprefix24`, `remote_addr`, `card_last4`, `msisdn` and `mobile_number` are therefore forbidden.
+`n_distinct_cards`, `card_count`, `free_return_shipping`, `zipper_defect_rate` and `discard_rate`
+stay allowed. The verdict changes for no column of any contract schema and for no name in the
+spec.
+
+Round 3 of the same review made the verdict independent of separators and removed two false
+positives:
+
+- A fragment counts inside one word, or across words only where a word starts, so
+  `time_in_transit` ("timein") no longer reads as `imei`.
+- `mobile`, `card` and `cards` name an identifier only as the head noun (`customer_mobile`,
+  `credit_card`, `card`), not as a modifier or after a preposition (`is_mobile`,
+  `mobile_checkout`, `paid_by_card`, `gift_card_used`).
+- More fragments and word forms: `mobilenumber`, `postalcode`, `cardnum`, `cardno`, `cardid`,
+  `cardtoken`, `cclast`, `ccnum`, `ipblock`, `iprange`, `ipsubnet`, `useragent`, `advertisingid`,
+  `androidid`, `idfa`, `addr1`, `ip24prefix`, and IP names after signup, lastlogin, visitor, buyer,
+  registration, account and request.
+
+## Amendment 3 (13 Oct 2026): customer features, value and evidence (US-205, US-206, US-209)
+
+The contract version stays `2.0.0`: no `features/` file had been written. Definitions are in
+`docs/customer-features.md`; the code is `pipeline/features/` and `ml/reference/`.
+
+| Table | Change |
+| --- | --- |
+| features/customer_features | Extended to the decision-time behaviour features: n_orders, n_lines, n_delivered_lines, n_observations (settled lines), n_returns (withdrawal path), return_rate, return_rate_to_date, size, changed_mind, not_as_expected and other_reason shares, median_days_to_return, tenure_days, n_welcome_coupons_used, n_promo_coupons_used, coupon_order_share, weekend_order_share, mean_line_price_eur, and the residual of spec 8.2: expected_returns, residual, residual_z, reference_model_version. return_rate, size_share and changed_mind_share become nullable: a customer without a settled line has no rate, which is not a rate of zero |
+| features/customer_value | New. V_c of spec 8.5 with its components (kept, returned, discount, order totals), counts, window_start and assumptions_version. A table of its own, so no risk model reads value by accident (rule 6) |
+| features/evidence_quality | New. evidence_quality (sufficient or insufficient), n_observations, n_observations_linked (null without the account graph), identifier_completeness, missing_identifier_kinds, n_reasons, reason_coherence, missing_evidence (plain sentences, US-307) and thresholds_version |
+
+The checks add ranges, `n_observations <= n_delivered_lines <= n_lines`, `n_returns <= n_lines`,
+`n_observations <= n_observations_linked`, the EvidenceQuality enum and the identifier kinds. No
+new column is a forbidden feature (`tenure_days`, not "account age": the word age is forbidden).

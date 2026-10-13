@@ -17,7 +17,7 @@ from pydantic import BaseModel, ValidationError
 
 from apps.api import schemas as s
 from contracts.io import NATURES
-from contracts.levers import lever_json_schema
+from contracts.levers import lever_json_schema, lever_list_json_schema
 from contracts.parquet import ANOMALY_STATUSES, COUPON_KINDS, IDENTIFIER_KINDS
 from contracts.vocab import (
     ASSUMPTION_BASES,
@@ -109,12 +109,30 @@ def test_examples_check_reports_changed_files(tmp_path: Path) -> None:
 
 
 def test_lever_schema_is_the_catalogue_schema() -> None:
-    """ADR-13: one lever schema everywhere, generated from contracts/levers.py."""
-    for path in SCHEMAS.glob("*.schema.json"):
-        defs = json.loads(path.read_text()).get("$defs", {})
-        if "Lever" in defs:
-            assert defs["Lever"] == lever_json_schema(), path.name
-    assert schema("decision_request")["$defs"]["Lever"] == lever_json_schema()
+    """ADR-13, ADR-14: one lever schema everywhere, generated from contracts/levers.py: every
+    lever array is lever_list_json_schema (each lever at most once), with its items the catalogue
+    schema."""
+
+    def arrays(node: Any) -> Iterator[dict[str, Any]]:
+        if isinstance(node, dict):
+            if node.get("type") == "array" and node.get("items") == lever_json_schema():
+                yield node
+            for child in node.values():
+                yield from arrays(child)
+        elif isinstance(node, list):
+            for child in node:
+                yield from arrays(child)
+
+    found = 0
+    for path in SCHEMAS.glob("*.json"):
+        doc = json.loads(path.read_text())
+        assert "Lever" not in doc.get("$defs", {}), path.name
+        for array in arrays(doc):
+            assert {k: v for k, v in array.items() if k != "title"} == lever_list_json_schema()
+            found += 1
+    assert found >= 10
+    levers = schema("decision_request")["properties"]["levers"]["anyOf"][0]
+    assert {k: v for k, v in levers.items() if k != "title"} == lever_list_json_schema()
 
 
 def test_responses_list_every_field_as_required() -> None:
@@ -844,11 +862,9 @@ def test_renew_takes_no_levers_and_no_reason() -> None:
 
 
 def _rerender(message: dict[str, Any], **fields: Any) -> dict[str, Any]:
-    from llm.messages import render_customer_message
-
     out = {**message, "fields": {**message["fields"], **fields}}
     mapping = {k: v for k, v in out["fields"].items() if v is not None}
-    out["rendered_text"] = render_customer_message(
+    out["rendered_text"] = s.render_customer_message(
         out["connective_text"], mapping, out["lang"], out["legal_clause_kind"]
     )
     return out

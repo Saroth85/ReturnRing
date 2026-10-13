@@ -659,7 +659,7 @@
       },
       {
         "label": "HYPOTHESIS",
-        "text": "With more orders the case can be scored; until then it is neither safe nor suspicious.",
+        "text": "With more orders the case can be scored; until then no quadrant is assigned.",
         "entity": "C-19921",
         "metric": null,
         "value": null,

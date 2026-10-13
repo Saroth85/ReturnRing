@@ -7,19 +7,23 @@ One entry per field of policy.types.Levers, with future_terms expanded into the 
 - as the string "id:value" (for example "instant_refund:false") wherever a single identifier is
   needed: Levers.lever_ids, the LLM decision echo, the validator and the audit log.
 
+A lever whose scope is all_orders also holds for orders already placed, so it can only be an
+upgrade: its value is always true (rule 3). A list of levers names each lever at most once.
+
 This module must not import policy/: policy.types imports it.
 """
 
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any, Literal, TypedDict
 
 LeverScope = Literal[
     "future_orders",  # orders placed after the decision, shown at checkout (rule 3)
     "future_orders_cluster",  # future orders of every account of the cluster
-    "all_orders",  # a concession that also holds for orders already placed (size exchange)
+    "all_orders",  # a concession that also holds for orders already placed: value true only
     "current_order",  # the order being placed (size advice at checkout)
     "communication",  # a notice to the customer, not a term
 ]
@@ -51,7 +55,8 @@ LEVERS: tuple[LeverSpec, ...] = (
     LeverSpec("free_return_shipping", "boolean", "future_orders"),
     LeverSpec("instant_refund", "boolean", "future_orders"),
     LeverSpec("free_size_exchange", "boolean", "all_orders"),
-    LeverSpec("coupons_enabled", "boolean", "future_orders"),  # spec 19.B "welcome_coupon"
+    LeverSpec("coupons_enabled", "boolean", "future_orders"),  # the customer's own coupons
+    # The welcome_coupon:false of the former spec 19.B example, whose scope is the cluster.
     LeverSpec("cluster_coupons_disabled", "boolean", "future_orders_cluster"),
     LeverSpec("transparency_notice", "boolean", "communication"),
     LeverSpec("size_advice", "boolean", "current_order"),
@@ -69,16 +74,21 @@ class LeverObject(TypedDict):
 
 
 def _spec(lever_id: str) -> LeverSpec:
-    try:
-        return LEVERS_BY_ID[lever_id]
-    except KeyError:
-        raise LeverError(f"Unknown lever id {lever_id!r}") from None
+    spec = LEVERS_BY_ID.get(lever_id) if isinstance(lever_id, str) else None
+    if spec is None:
+        raise LeverError(f"Unknown lever id {lever_id!r}")
+    return spec
 
 
 def _check_value(spec: LeverSpec, value: int | bool) -> None:
     if spec.value_type == "boolean":
         if not isinstance(value, bool):
             raise LeverError(f"{spec.id} takes a boolean, got {value!r}")
+        if spec.scope == "all_orders" and value is not True:
+            raise LeverError(
+                f"{spec.id} has scope all_orders: it reaches orders already placed, so it can "
+                "only be granted (true), never withdrawn (rule 3)"
+            )
         return
     if isinstance(value, bool) or not isinstance(value, int):
         raise LeverError(f"{spec.id} takes an integer, got {value!r}")
@@ -116,13 +126,40 @@ def parse_lever_id(text: str) -> tuple[str, int | bool]:
 def lever_from_id(text: str) -> LeverObject:
     """The contract object of an "id:value" string, with the scope from the catalogue."""
     lever_id, value = parse_lever_id(text)
-    return LeverObject(id=lever_id, value=value, scope=LEVERS_BY_ID[lever_id].scope)
+    return make_lever(lever_id, value)
+
+
+def make_lever(lever_id: str, value: int | bool) -> LeverObject:
+    """The contract object of a lever, checked against the catalogue, with its scope."""
+    spec = _spec(lever_id)
+    _check_value(spec, value)
+    return LeverObject(id=spec.id, value=value, scope=spec.scope)
+
+
+def check_lever_objects(items: Iterable[Mapping[str, Any]]) -> list[LeverObject]:
+    """Check a list of lever objects from a JSON contract the way its schema does: known ids,
+    values of the right type, the catalogue scope, no other key, and each lever at most once."""
+    out: list[LeverObject] = []
+    seen: set[str] = set()
+    for item in items:
+        if not isinstance(item, Mapping) or set(item) != {"id", "value", "scope"}:
+            raise LeverError(f"a lever is an object with exactly id, value and scope: {item!r}")
+        lever = make_lever(item["id"], item["value"])
+        if item["scope"] != lever["scope"]:
+            raise LeverError(f"{lever['id']} has scope {lever['scope']}, not {item['scope']!r}")
+        if lever["id"] in seen:
+            raise LeverError(f"{lever['id']} appears more than once in one list of levers")
+        seen.add(lever["id"])
+        out.append(lever)
+    return out
 
 
 def _value_schema(spec: LeverSpec) -> dict[str, Any]:
     schema: dict[str, Any] = {"type": spec.value_type}
     if spec.minimum is not None:
         schema["minimum"] = spec.minimum
+    if spec.scope == "all_orders":
+        schema["const"] = True  # an upgrade only, see _check_value
     return schema
 
 
@@ -144,6 +181,26 @@ def lever_json_schema() -> dict[str, Any]:
                 "then": {
                     "properties": {"value": _value_schema(lever), "scope": {"const": lever.scope}}
                 },
+            }
+            for lever in LEVERS
+        ],
+    }
+
+
+def lever_list_json_schema() -> dict[str, Any]:
+    """JSON Schema of the `levers` array of llm_case and decision_request: lever objects, each
+    lever id at most once (also with different values), no repeated object, at most one object per
+    catalogue lever (maxItems keeps the array bounded for guided decoding, ADR-14)."""
+    return {
+        "type": "array",
+        "maxItems": len(LEVERS),
+        "uniqueItems": True,
+        "items": lever_json_schema(),
+        "allOf": [
+            {
+                "contains": {"required": ["id"], "properties": {"id": {"const": lever.id}}},
+                "minContains": 0,
+                "maxContains": 1,
             }
             for lever in LEVERS
         ],

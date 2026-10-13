@@ -13,3 +13,4 @@ data/*
 artifacts/
 demo-cache/
 *.parquet
+.coverage

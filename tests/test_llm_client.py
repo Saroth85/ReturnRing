@@ -217,6 +217,10 @@ def test_chat_with_tools(server: FakeServer) -> None:
         ("http://127.0.0.1:8001/v1", "http://127.0.0.1:8001/v1/chat/completions"),
         ("https://10.0.0.5:8001/v1", "https://10.0.0.5:8001/v1/chat/completions"),
         ("http://[::1]:8001/v1", "http://[::1]:8001/v1/chat/completions"),
+        ("http://172.20.0.4:8001", "http://172.20.0.4:8001/v1/chat/completions"),  # compose
+        ("http://192.168.1.10/v1", "http://192.168.1.10/v1/chat/completions"),
+        ("http://[fd00::5]:8001/v1", "http://[fd00::5]:8001/v1/chat/completions"),
+        ("http://[::ffff:127.0.0.1]/v1", "http://[::ffff:127.0.0.1]/v1/chat/completions"),
     ],
 )
 def test_local_urls_are_accepted(url: str, endpoint: str) -> None:
@@ -230,6 +234,22 @@ def test_local_urls_are_accepted(url: str, endpoint: str) -> None:
         "http://vllm.example.com/v1",
         "http://8.8.8.8/v1",
         "http://169.254.169.254/v1",  # cloud metadata, link-local
+        # Adversarial review of 13 Oct, finding 6: mapped, reserved and documentation addresses
+        "http://[::ffff:a9fe:a9fe]/v1",  # IPv4-mapped cloud metadata
+        "http://[::ffff:8.8.8.8]/v1",
+        "http://192.0.2.1/v1",
+        "http://198.18.0.1/v1",
+        "http://240.0.0.1/v1",
+        "http://255.255.255.255/v1",
+        "http://0.0.0.0/v1",
+        "http://100.64.0.1/v1",
+        "http://[2001:db8::1]/v1",
+        "http://[2001::1]/v1",
+        "http://[2002:808:808::1]/v1",
+        "http://[64:ff9b::a9fe:a9fe]/v1",
+        "http://[fe80::1]/v1",
+        "http://[::]/v1",
+        "http://127.1/v1",
         "ftp://vllm/v1",
         "http://user:secret@vllm/v1",
         "http://vllm/v1?redirect=x",

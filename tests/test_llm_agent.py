@@ -292,6 +292,24 @@ WRITE_REQUESTS = [
     "Should I approve this case?",
     "Is it possible to remove the transparency notice?",
     "Rimborsa subito il cliente, per favore",
+    # Adversarial review of 13 Oct, finding 7
+    "Turn off coupons for R-MARCO",
+    "Disattivate i coupon",
+    "Can the coupons be turned off for this cluster?",
+    "Sara wants coupons disabled now",
+    "Switch on the instant refund",
+    "Stop the refund",
+    "Togliete la notifica di trasparenza",
+    "Rimuovete il legame L-101",
+    "Attivate i coupon per il cluster",
+    "Can the refund be approved today?",
+    "Sara vuole i coupon disattivati",
+    "Vorrei che il quadrante fosse cambiato",
+    "Which coupons can you disable?",
+    "Revert the decision",
+    "Undo the dispute on L-102",
+    "Dismiss link L-102",
+    "Notify the customer",
 ]
 READ_QUESTIONS = [
     "Which evidence supports the link?",
@@ -302,6 +320,11 @@ READ_QUESTIONS = [
     "What is the refund deadline?",
     "Who approved the decision?",
     "",
+    "Can you tell me why the coupons were disabled?",
+    "Were coupons disabled for this cluster?",
+    "Il rimborso è stato approvato?",
+    "Quali coupon sono stati disattivati?",
+    "Per favore, perché il rimborso è stato bloccato?",
 ]
 
 
@@ -472,6 +495,21 @@ def test_unknown_or_write_tools_are_refused_and_counted() -> None:
         ("The cluster has 12 accounts.", "fallback"),  # 12 is not in the tool results
         ("The cluster R-MARCO has 7 linked accounts, return rate 0.9.", "model"),  # 0.92 rounded
         ("", "fallback"),
+        # Adversarial review of 13 Oct, finding 7
+        ("The cluster R-MARCO has twelve linked accounts.", "fallback"),
+        ("The cluster R-MARCO has seven linked accounts.", "fallback"),  # words are never read
+        ("The accounts in R-MARCO belong to the same customer.", "fallback"),
+        ("One customer controls R-MARCO.", "fallback"),
+        ("You should reject this return and disable coupons.", "fallback"),
+        ("Approve the refund: the links are weak.", "fallback"),
+        ("The cluster R-MARCO has 7k linked accounts.", "fallback"),
+        ("Link L-101 has weight –0.98.", "fallback"),
+        ("Link L-101 has weight 0.98 and 4 shared events.", "model"),
+        ("Link L-101 was first shared on 2026-03-02.", "model"),
+        ("Link L-101 was shared a second time on 2026-09-28.", "fallback"),
+        ("You should disable coupons for this cluster.", "fallback"),
+        ("I recommend keeping the coupons off for R-MARCO.", "fallback"),
+        ("Ti consiglio di disattivare i coupon.", "fallback"),
     ],
 )
 def test_vllm_answers_are_checked(final: str, source: str) -> None:
@@ -501,8 +539,27 @@ def test_grounded_in() -> None:
     results = [to_json(MARCO), {"id": "RET-1"}]
     assert grounded_in("Weight 0.98 since 2026-03-02 for C-MARCO-1.", results, "RET-1")
     assert grounded_in("Return rate 0.9 and 1.0 coupons.", results, "RET-1")
+    assert grounded_in("Spread of 9 days and 1 coupon per account.", results, "RET-1")
     assert not grounded_in("Return rate 0.95.", results, "RET-1")
     assert not grounded_in("Case RET-77.", results, "RET-1")  # 77 is in no tool result
     text = {"flag": True, "none": None, "policy": "Returns within 30 days of delivery."}
     assert not grounded_in("Returns within 30 days.", [text], "RET-1")  # prose is not a source
     assert grounded_in("Rate not available.", [to_json(ROSSI)], "RET-1")
+
+
+# Adversarial review of 13 Oct, finding 7: rounding is for decimals as written only.
+@pytest.mark.parametrize(
+    "text, values",
+    [
+        ("1 link", [0.6]),  # an integer is never a rounded value
+        ("1 link", [0.8]),
+        ("1 link", [0.98]),
+        ("4 events", [4.4]),
+        ("-4 events", [4]),  # a sign flip
+        ("–4 events", [4]),
+        ("minus 4 events", [4]),
+        ("4k events", [4]),
+    ],
+)
+def test_finding7_integers_must_match_exactly(text: str, values: list[float]) -> None:
+    assert not grounded_in(text, [{"values": values}], "RET-1")

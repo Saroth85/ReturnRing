@@ -7,8 +7,11 @@
 - Every answer lists the evidence consulted, the evidence missing and the ids it cites (orders,
   links, clusters), all collected by code from the tool results, never from the model.
 - MockAgent answers the three questions of US-702 deterministically from tool results only.
-- VllmAgent uses Gemma tool calling with the same tools and limits; an answer that names a banned
-  term or a number absent from the tool results is replaced by a list of the evidence consulted.
+- VllmAgent uses Gemma tool calling with the same tools and limits. An answer is replaced by a
+  list of the evidence consulted when it names a banned term (same-person synonyms included), a
+  decision verb (approve, reject, block...), a recommendation, a number written in letters, or a
+  number absent from the tool results (integers exactly, decimals possibly rounded to the digits
+  written, no sign flip or scale suffix). Adversarial review of 13 Oct, finding 7.
 """
 
 from __future__ import annotations
@@ -24,10 +27,22 @@ from typing import Any, Literal, Protocol
 
 from llm.client import ChatClient, LlmUnavailable
 from llm.prompts import agent_system_prompt
-from llm.text import banned_terms, numbers_in_text, strip_tokens, word_set, words
+from llm.text import (
+    PRONOUN_NUMBERS,
+    banned_terms,
+    decision_wording,
+    number_modifiers,
+    number_words,
+    numbers_in_text,
+    strip_tokens,
+    word_set,
+    words,
+)
 from policy.types import ReturnTerms
 
 MAX_TOOL_CALLS = 5
+# Number words an answer may use: pronoun "one", and "first" of the tool field first_shared_on.
+ANSWER_SKIPPED_NUMBER_WORDS = PRONOUN_NUMBERS | {"first"}
 TOOL_NAMES = ("get_case", "get_orders", "get_cluster", "get_score_factors", "get_policy_text")
 DEFAULT_REFERENCES: Mapping[str, str] = {"rossi": "F-ROSSI"}  # spec 7: the Rossi family
 Nature = Literal["real", "synthetic", "simulated"]
@@ -141,22 +156,56 @@ REFUSAL = (
     "view, with a reason in the audit log."
 )
 
-# ---- Write requests (LLM-07) ------------------------------------------------------------------
+# ---- Write requests (LLM-07; adversarial review of 13 Oct, finding 7) -------------------------
 
-_WRITE_VERBS = word_set(
+_EN_WRITE_VERBS = (
     "approve reject deny change modify edit update set apply override delete remove add create "
     "insert cancel block unblock enable disable grant revoke refund send email dispute mark "
     "unmark assign lower raise increase decrease reset close reopen write save confirm flag "
-    "unflag restore merge unlink ban allow waive issue move force ignore bypass forget "
-    "approva approvate approvare rifiuta rifiutare nega negare cambia cambiare modifica "
-    "modificare aggiorna aggiornare imposta impostare applica applicare cancella cancellare "
-    "elimina eliminare rimuovi rimuovere aggiungi aggiungere crea creare annulla annullare blocca "
-    "bloccare sblocca sbloccare attiva attivare disattiva disattivare concedi concedere revoca "
-    "revocare rimborsa rimborsare invia inviare manda mandare contesta contestare segna segnare "
-    "assegna assegnare abbassa abbassare alza alzare aumenta aumentare diminuisci diminuire riduci "
-    "ridurre chiudi chiudere riapri riaprire scrivi scrivere salva salvare conferma confermare "
-    "ripristina ripristinare sposta spostare forza forzare togli togliere metti mettere ignora "
-    "ignorare dimentica dimenticare"
+    "unflag restore merge unlink ban allow waive issue move force ignore bypass forget turn "
+    "switch stop toggle activate deactivate suspend revert undo rollback dismiss split notify"
+)
+_IT_WRITE_VERBS = (
+    "approva approvare rifiuta rifiutare nega negare cambia cambiare modifica modificare aggiorna "
+    "aggiornare imposta impostare applica applicare cancella cancellare elimina eliminare rimuovi "
+    "rimuovere aggiungi aggiungere crea creare annulla annullare blocca bloccare sblocca "
+    "sbloccare attiva attivare disattiva disattivare concedi concedere revoca revocare rimborsa "
+    "rimborsare invia inviare manda mandare contesta contestare segna segnare assegna assegnare "
+    "abbassa abbassare alza alzare aumenta aumentare diminuisci diminuire riduci ridurre chiudi "
+    "chiudere riapri riaprire scrivi scrivere salva salvare conferma confermare ripristina "
+    "ripristinare sposta spostare forza forzare togli togliere metti mettere ignora ignorare "
+    "dimentica dimenticare spegni spegnere accendi accendere ferma fermare sospendi sospendere "
+    "riducete"
+)
+_ITALIAN_INFINITIVES = [w for w in _IT_WRITE_VERBS.split() if w.endswith(("are", "ere", "ire"))]
+# Imperatives in the second person plural ("disattivate", "togliete", "rimuovete").
+_IT_PLURAL_IMPERATIVES = " ".join(
+    w[:-3] + {"a": "ate", "e": "ete", "i": "ite"}[w[-3]] for w in _ITALIAN_INFINITIVES
+)
+_WRITE_VERBS = word_set(f"{_EN_WRITE_VERBS} {_IT_WRITE_VERBS} {_IT_PLURAL_IMPERATIVES}")
+# Past participles ask for a change ("Sara wants coupons disabled") unless a state auxiliary comes
+# right before them ("were disabled", "è stato approvato"): then they describe the case.
+_EN_PARTICIPLES = (
+    "approved rejected denied changed modified updated overridden deleted removed cancelled "
+    "canceled blocked unblocked enabled disabled granted revoked refunded reset lowered raised "
+    "reopened flagged unflagged restored merged unlinked banned waived forced bypassed turned "
+    "switched stopped toggled activated deactivated suspended reverted dismissed notified"
+)
+# Italian participles of the -are and -ire verbs ("disattivati", "approvato"), and a few irregular.
+_IT_PARTICIPLES = " ".join(
+    w[:-3] + {"a": "at", "i": "it"}[w[-3]] + ending
+    for w in _ITALIAN_INFINITIVES
+    if w[-3] in "ai"
+    for ending in "oaie"
+)
+_IT_IRREGULAR_PARTICIPLES = (
+    "rimosso rimossa rimossi rimosse concesso concessa concessi concesse tolto tolta tolti tolte "
+    "sospeso sospesa sospesi sospese spento spenta spenti spente"
+)
+_WRITE_PARTICIPLES = word_set(f"{_EN_PARTICIPLES} {_IT_PARTICIPLES} {_IT_IRREGULAR_PARTICIPLES}")
+_STATE_AUXILIARIES = word_set(
+    "was were is are been being has have had got e stato stata stati state sono era erano ha "
+    "hanno ho abbiamo viene vengono"
 )
 _REQUEST_MARKERS = re.compile(
     r"\b(?:can you|could you|would you|will you|please|i want you|i need you|is it possible|"
@@ -169,15 +218,50 @@ _QUESTION_WORDS = word_set(
 )
 
 
+# The agent never recommends a decision (spec 8.8): advice in an answer is not verified.
+_ADVICE_RE = re.compile(
+    r"\b(?:recommend\w*|suggest\w*|advis\w*|you should|you ought|consigli\w*|suggerisc\w*"
+    r"|raccomand\w*|dovresti|dovreste)\b"
+)
+
+
+def advice(text: str) -> list[str]:
+    """Recommendations in an answer ("you should", "I recommend", "consiglio")."""
+    return [m.group() for m in _ADVICE_RE.finditer(" ".join(words(text)))]
+
+
+def _first_write_cue(tokens: Sequence[str]) -> int | None:
+    for index, token in enumerate(tokens):
+        if token in _WRITE_VERBS:
+            return index
+        if token in _WRITE_PARTICIPLES and (
+            index == 0 or tokens[index - 1] not in _STATE_AUXILIARIES
+        ):
+            return index
+    return None
+
+
 def is_write_request(question: str) -> bool:
     """True when the question asks to change something (or to ignore the rules): it names a
-    write verb and is a request or an imperative rather than a question about the case."""
+    write verb, or a participle that asks for a change, and no question word comes between the
+    last request marker ("can you", "please") and that verb. "Why was it disabled?" and "Can you
+    tell me why it was disabled?" are questions; "Turn off coupons", "Can the coupons be turned
+    off?" and "Sara wants coupons disabled" are requests."""
     tokens = words(question)
-    if not any(token in _WRITE_VERBS for token in tokens):
+    cue = _first_write_cue(tokens)
+    if cue is None:
         return False
-    if _REQUEST_MARKERS.search(" ".join(tokens)):
-        return True
-    return tokens[0] not in _QUESTION_WORDS
+    joined = " ".join(tokens)
+    marker = max(
+        (
+            joined[: m.end()].count(" ")
+            for m in _REQUEST_MARKERS.finditer(joined)
+            if joined[: m.end()].count(" ") < cue
+        ),
+        default=-1,
+    )
+    question_word = max((i for i in range(cue) if tokens[i] in _QUESTION_WORDS), default=-1)
+    return question_word < 0 or marker >= question_word
 
 
 # ---- Tools --------------------------------------------------------------------------------------
@@ -522,17 +606,25 @@ def _collect(value: Any, numbers: list[Decimal], ids: list[str]) -> None:
 
 
 def grounded_in(answer: str, results: Sequence[Any], case_id: str) -> bool:
-    """Every number in the answer is a number of the tool results, possibly rounded to the
-    decimals written; identifiers and dates of the results are removed first."""
+    """Every number in the answer is a number of the tool results: an integer as written must
+    be equal to one, a decimal may be one rounded to the decimals written. Identifiers and dates
+    of the results are removed first; a number with a scale suffix or a sign word, or written
+    in letters, is never grounded."""
     numbers: list[Decimal] = []
     ids: list[str] = [case_id]
     for result in results:
         _collect(result, numbers, ids)
-    for written in numbers_in_text(strip_tokens(answer, ids)):
+    text = strip_tokens(answer, ids)
+    if number_modifiers(text) or number_words(text, "en", skip=ANSWER_SKIPPED_NUMBER_WORDS):
+        return False
+    for written in numbers_in_text(text):
         exponent = written.as_tuple().exponent
-        places = -exponent if isinstance(exponent, int) and exponent < 0 else 0
-        step = Decimal(1).scaleb(-places)
-        if not any(n.quantize(step, rounding=ROUND_HALF_UP) == written for n in numbers):
+        if isinstance(exponent, int) and exponent < 0:
+            step = Decimal(1).scaleb(exponent)
+            matches = (n.quantize(step, rounding=ROUND_HALF_UP) == written for n in numbers)
+        else:
+            matches = (n == written for n in numbers)
+        if not any(matches):
             return False
     return True
 
@@ -599,7 +691,12 @@ class VllmAgent:
                 )
         if not content.strip():
             return self._fallback(question, tb, "the model gave no answer")
-        if banned_terms(content) or not grounded_in(content, results, case_id):
+        if (
+            banned_terms(content)
+            or decision_wording(content)
+            or advice(content)
+            or not grounded_in(content, results, case_id)
+        ):
             return self._fallback(question, tb, "the answer could not be verified")
         links = tuple(ref for ref in tb.refs if ref.id in content)
         return AgentAnswer(

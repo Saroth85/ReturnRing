@@ -1,12 +1,10 @@
 // Never downgrade (docs/ui-design.md 11.2): the answer to the operator's action stays on screen
 // until the server's card is at least as new, then the server wins.
 import { afterEach, describe, expect, it } from 'vitest';
-import type { ResponseOf } from '@/api/client';
-import type { CaseCard, DecisionResult, RecomputeResponse } from '@/api/models';
+import type { CaseCard, DecisionResult, LinkDisputeResponse, RecomputeResponse } from '@/api/models';
 import { readExample } from '@/test/examples';
 import { applyOverlay, isNewer, overlayStore, recordDecision, recordDraft, recordRecompute, resetOverlays } from './caseOverlay';
 
-type LinkDisputeResponse = ResponseOf<'POST /api/links/{link_id}/dispute'>;
 const card = (name: string) => readExample<CaseCard>(`case_card.${name}.json`);
 const result = (name: string) => readExample<DecisionResult>(`decision_result.${name}.json`);
 

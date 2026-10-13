@@ -214,6 +214,38 @@ export const ENTITY_REF_KINDS = [
 /** From ToolCallEvent.step maximum. */
 export const AGENT_MAX_STEPS = 5 as const;
 
+/** From AgentAskRequest.question maxLength. */
+export const AGENT_QUESTION_MAX_LENGTH = 500 as const;
+
+/** From contracts/vocab.py HUMAN_ONLY_ACTIONS. */
+export const HUMAN_ONLY_ACTIONS = [
+  "assumptions_updated",
+  "catalog_task_opened",
+  "catalog_task_updated",
+  "coupon_rule_application_reversed",
+  "coupon_rule_approved",
+  "decision_approved",
+  "decision_overridden",
+  "decision_rejected",
+  "evidence_added",
+  "inspection_confirmed",
+  "link_disputed",
+  "restriction_lifted"
+] as const;
+
+/** From contracts/vocab.py REASON_REQUIRED_ACTIONS. */
+export const REASON_REQUIRED_ACTIONS = [
+  "coupon_rule_application_reversed",
+  "decision_overridden",
+  "decision_rejected",
+  "evidence_added",
+  "link_disputed",
+  "restriction_lifted"
+] as const;
+
+/** From contracts/vocab.py MIN_REASON_CHARS. */
+export const MIN_REASON_CHARS = 3 as const;
+
 /** From Lever rule: return_window_days minimum. */
 export const LEGAL_MINIMUM_WINDOW_DAYS = 14 as const;
 

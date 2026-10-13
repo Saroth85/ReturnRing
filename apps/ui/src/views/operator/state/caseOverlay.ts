@@ -3,12 +3,18 @@
 // case (a lower version, or a proposal already acted on) never replaces the answer the API gave
 // to the action. Once the server's card is as new, it wins and the overlay is ignored.
 import { useMemo } from 'react';
-import type { AccountLink, CaseCard, DecisionView, DraftView, Metric, OutboxMessage, RecomputeResponse } from '@/api/models';
+import type {
+  AccountLink,
+  CaseCard,
+  DecisionView,
+  DraftView,
+  Metric,
+  OutboxMessage,
+  RecomputeResponse,
+  RevisionSummary,
+} from '@/api/models';
 import { useCase } from '@/api/queries';
 import { createStore, useStore } from '@/api/store';
-
-/** models.ts does not alias it yet (open issue): derived from the card. */
-type RevisionSummary = CaseCard['revisions'][number];
 
 export interface CaseOverlay {
   /** The decision the API returned to an action (approve, override, reject, lift). */

@@ -161,11 +161,18 @@ for (const viewport of VIEWPORTS) {
       await shot(page, viewport.name, 'drawer-tool-calls-provenance');
     });
 
-    test('a cited link focuses the case card through its deep link', async ({ page }) => {
+    test('a cited link focuses the link on the case card', async ({ page }) => {
       const drawer = await openDrawer(page);
       await askSuggested(drawer, LINK_Q);
-      await drawer.locator('[data-evidence="consulted"]').getByRole('link', { name: 'Show link C-MARCO-1~C-MARCO-3 on the case card' }).click();
-      await expect(page).toHaveURL(/\/returns\/RET-000102\?link=C-MARCO-1~C-MARCO-3$/);
+      const ref = drawer.locator('[data-evidence="consulted"]').getByRole('link', { name: 'Show link C-MARCO-1~C-MARCO-3 on the case card' });
+      // The chip is a real deep link (new tab), and a plain click focuses the card in place.
+      await expect(ref).toHaveAttribute('href', '/returns/RET-000102?link=C-MARCO-1~C-MARCO-3');
+      await ref.click();
+      await expect(page).toHaveURL(/\/returns\/RET-000102$/);
+      const row = page.locator('[data-link-row="C-MARCO-1~C-MARCO-3"]');
+      await expect(row).toHaveAttribute('aria-selected', 'true');
+      await expect(page.locator('[data-link-detail="C-MARCO-1~C-MARCO-3"]')).toBeVisible();
+      await expect(row).toBeInViewport();
       if (viewport.name === 'desktop') {
         // Wide: the drawer stays open beside the evidence column.
         await expect(drawer).toBeVisible();
@@ -173,6 +180,19 @@ for (const viewport of VIEWPORTS) {
       } else {
         // Narrow: the drawer covers the card, so it closes before the card scrolls.
         await expect(drawer).toBeHidden();
+      }
+    });
+
+    test('a cited order and terms snapshot scroll to the orders of the case card', async ({ page }) => {
+      const drawer = await openDrawer(page);
+      await askSuggested(drawer, TERMS_Q);
+      const consulted = drawer.locator('[data-evidence="consulted"]');
+      await consulted.getByRole('link', { name: 'Show order ORD-005230 on the case card' }).click();
+      await expect(page).toHaveURL(/\/returns\/RET-000102$/);
+      await expect(page.locator('#ref-order-ORD-005230')).toBeInViewport();
+      if (viewport.name === 'desktop') {
+        await consulted.getByRole('link', { name: /TS-005230/ }).click();
+        await expect(page.locator('#ref-terms_snapshot-TS-005230')).toBeInViewport();
       }
     });
 
@@ -212,9 +232,13 @@ for (const viewport of VIEWPORTS) {
       await expect(drawer.getByRole('alert')).toHaveCount(0);
       await shot(page, viewport.name, 'drawer-refusal');
       await expectClean(page);
-      await refusal.getByRole('link', { name: 'Go to the decision panel' }).click();
+      await refusal.getByRole('button', { name: 'Go to the decision panel' }).click();
       await expect(drawer).toBeHidden();
       await expect(page).toHaveURL(/\/returns\/RET-000102$/);
+      // The engine's decision panel is where an action is taken: it is in view and focused.
+      const rail = page.getByRole('complementary', { name: 'Engine decision' });
+      await expect(rail).toBeFocused();
+      await expect(rail).toBeInViewport();
     });
 
     test('503: the language model is unavailable and the decision is unaffected', async ({ page }) => {

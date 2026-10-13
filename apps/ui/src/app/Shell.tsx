@@ -49,7 +49,8 @@ export function Shell() {
       <TopBar />
       <div className="flex min-w-0 flex-1 flex-col lg:flex-row">
         <SideNav collapsed={present} />
-        <main id="main" tabIndex={-1} className="min-w-0 flex-1 px-4 py-6 md:px-6">
+        {/* Bottom padding: the last row of a page scrolls clear of the fixed mode corner tag. */}
+        <main id="main" tabIndex={-1} className="min-w-0 flex-1 px-4 pt-6 pb-12 md:px-6">
           <Suspense fallback={<LoadingBlock rows={6} />}>
             <Outlet />
           </Suspense>

@@ -51,10 +51,11 @@ export const useHealthz = () =>
 export const useReadyz = () =>
   useQuery({ queryKey: queryKeys.readyz, queryFn: ({ signal }) => api.readyz({ signal }), refetchInterval: 30 * SECOND });
 
-export const useQueue = (query: QueueQueryParams = {}) =>
+export const useQueue = (query: QueueQueryParams = {}, options: { enabled?: boolean } = {}) =>
   useQuery({
     queryKey: queryKeys.queue(query),
     queryFn: ({ signal }) => api.listReturns(query, { signal }),
+    enabled: options.enabled ?? true,
     staleTime: 15 * SECOND,
     refetchInterval: 30 * SECOND,
     placeholderData: keepPreviousData,
@@ -75,6 +76,14 @@ export const useCase = (returnId: string | undefined) =>
     queryKey: queryKeys.case(returnId ?? ''),
     queryFn: ({ signal }) => api.getCase(returnId as string, { signal }),
     enabled: Boolean(returnId),
+    staleTime: 60 * SECOND,
+  });
+
+/** Loads a case card into the cache ahead of navigation (queue rows, the next cases of a view). */
+export const prefetchCase = (client: QueryClient, returnId: string) =>
+  client.prefetchQuery({
+    queryKey: queryKeys.case(returnId),
+    queryFn: ({ signal }) => api.getCase(returnId, { signal }),
     staleTime: 60 * SECOND,
   });
 

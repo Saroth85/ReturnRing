@@ -177,9 +177,7 @@ export function PhotoStep(props: PhotoStepProps) {
             {t.photo.sent} <IdText id={props.created.photo_id} /> · <IdText id={props.created.inspection_id} /> ·{' '}
             <DateText value={props.created.created_at} className="text-ink-2" />
           </p>
-          <span data-constant>
-            <GenerationBadge generation={props.created.generation} />
-          </span>
+          <GenerationBadge generation={props.created.generation} />
           {!props.locked && props.allowed && (
             <div>
               <button type="button" onClick={props.onReset} className="min-h-12 text-body text-accent underline underline-offset-2">

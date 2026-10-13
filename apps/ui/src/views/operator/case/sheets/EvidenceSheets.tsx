@@ -3,8 +3,7 @@
 // There is no "add unfavourable evidence": the operator can only add what speaks for the customer.
 import { useState } from 'react';
 import { EVIDENCE_KINDS } from '@/api/contract.gen';
-import type { RecomputeResponse } from '@/api/models';
-import type { ResponseOf } from '@/api/client';
+import type { LinkDisputeResponse as DisputeResponse, RecomputeResponse } from '@/api/models';
 import { useAddEvidence, useDisputeLink } from '@/api/mutations';
 import { usePersona } from '@/app/persona';
 import { InlineNotice } from '@/components/feedback';
@@ -18,7 +17,6 @@ import { activeLinks, linkState } from '../linked/linkModel';
 import { ActionError } from './ActionError';
 import { ActingAs, CaseIdsLine, ConfirmFooter, StaleOnOpen } from './common';
 
-type DisputeResponse = ResponseOf<'POST /api/links/{link_id}/dispute'>;
 
 interface EvidenceSheetProps {
   open: boolean;

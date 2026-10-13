@@ -94,9 +94,9 @@ export function SideDrawer({ open, onOpenChange, title, description, children }:
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-[rgb(20_26_38/0.24)]" />
+        <Dialog.Overlay className="fixed inset-x-0 top-[var(--mode-banner-h,0px)] bottom-0 z-40 bg-[rgb(20_26_38/0.24)]" />
         <Dialog.Content
-          className="fixed inset-y-0 right-0 z-50 flex w-full flex-col sm:w-sheet border-l border-border bg-surface text-ink-1 shadow-overlay"
+          className="fixed top-[var(--mode-banner-h,0px)] right-0 bottom-0 z-50 flex w-full flex-col sm:w-sheet border-l border-border bg-surface text-ink-1 shadow-overlay"
           data-side-drawer
         >
           <header className="flex items-start justify-between gap-3 border-b border-border p-4">

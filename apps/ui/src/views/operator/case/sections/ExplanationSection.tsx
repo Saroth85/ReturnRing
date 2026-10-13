@@ -107,10 +107,7 @@ function ExplanationList({ card, draft }: { card: CaseCard; draft: Draft }) {
           )}
         </div>
       ))}
-      {/* The model name is a named constant (LLM_NAME). */}
-      <span data-constant>
-        <GenerationBadge generation={draft.generation} />
-      </span>
+      <GenerationBadge generation={draft.generation} />
     </div>
   );
 }

@@ -5,7 +5,7 @@ import { Money, PlainNumber } from '@/components/provenance';
 import { formatValue } from '@/format';
 import { DEMO_CASES } from '../constants';
 import { MANAGER } from '../copy';
-import { convexHull, createScales, nearestIndex, placeLabels, ticks, valueDomain, type Pt } from './geometry';
+import { convexHull, createScales, nearestIndex, placeLabels, textBox, ticks, valueDomain, type Pt } from './geometry';
 
 type MatrixPoint = PortfolioMatrix['points'][number];
 
@@ -114,7 +114,6 @@ export function MatrixCanvas({ matrix, demoCases, highlightCluster }: MatrixCanv
     }
     return out;
   }, [demoCases, drawn, xs, ys, matrix.points, compact]);
-  const labels = useMemo(() => placeLabels(annotations, scales.plot), [annotations, scales.plot]);
   const hovered = hover >= 0 ? drawn[hover] : undefined;
   const corner = [
     { q: 'Q1', x: plot.left + 8, y: plot.top + 18, anchor: 'start' },
@@ -122,6 +121,18 @@ export function MatrixCanvas({ matrix, demoCases, highlightCluster }: MatrixCanv
     { q: 'Q2', x: plot.left + 8, y: plot.top + plot.height - 10, anchor: 'start' },
     { q: 'Q4', x: plot.left + plot.width - 8, y: plot.top + plot.height - 10, anchor: 'end' },
   ] as const;
+  const riskLabel = `${P.riskThreshold} ${formatValue(riskT, 'probability')}`;
+  const valueLabel = `${P.valueThreshold} ${formatValue(valueT, 'eur')}`;
+  const riskLabelAt = { x: xT + 4, y: plot.top + plot.height - 24 };
+  const valueLabelAt = { x: plot.left + plot.width - 6, y: yT - 6 };
+  // Demo annotations keep clear of the threshold labels and the quadrant names.
+  const reserved = [
+    textBox(riskLabelAt.x, riskLabelAt.y, riskLabel, 'start'),
+    textBox(valueLabelAt.x, valueLabelAt.y, valueLabel, 'end'),
+    ...corner.map((c) => textBox(c.x, c.y, c.q, c.anchor)),
+  ];
+  // A handful of labels: placed on every render, no memo needed.
+  const labels = placeLabels(annotations, scales.plot, reserved);
 
   return (
     <div ref={measure} className="relative w-full min-w-0" style={{ height }} data-matrix>
@@ -160,11 +171,31 @@ export function MatrixCanvas({ matrix, demoCases, highlightCluster }: MatrixCanv
             {/* thresholds */}
             <line x1={xT} x2={xT} y1={plot.top} y2={plot.top + plot.height} stroke="var(--border-strong)" strokeDasharray="6 4" strokeWidth={1.5} />
             <line x1={plot.left} x2={plot.left + plot.width} y1={yT} y2={yT} stroke="var(--border-strong)" strokeDasharray="6 4" strokeWidth={1.5} />
-            <text x={xT + 4} y={plot.top + plot.height - 24} fontSize={12} fill="var(--ink-2)" data-threshold="risk">
-              {P.riskThreshold} {formatValue(riskT, 'probability')}
+            <text
+              x={riskLabelAt.x}
+              y={riskLabelAt.y}
+              fontSize={12}
+              fill="var(--ink-2)"
+              stroke="var(--surface)"
+              strokeWidth={3}
+              paintOrder="stroke"
+              data-threshold="risk"
+            >
+              {riskLabel}
             </text>
-            <text x={plot.left + 6} y={yT - 6} fontSize={12} fill="var(--ink-2)" data-threshold="value">
-              {P.valueThreshold} {formatValue(valueT, 'eur')}
+            {/* At the right end, away from the dense low-risk points and the demo annotations. */}
+            <text
+              x={valueLabelAt.x}
+              y={valueLabelAt.y}
+              textAnchor="end"
+              fontSize={12}
+              fill="var(--ink-2)"
+              stroke="var(--surface)"
+              strokeWidth={3}
+              paintOrder="stroke"
+              data-threshold="value"
+            >
+              {valueLabel}
             </text>
             {corner.map((c) => (
               <text key={c.q} x={c.x} y={c.y} textAnchor={c.anchor} fontSize={13} fontWeight={600} fill="var(--ink-2)" data-id>

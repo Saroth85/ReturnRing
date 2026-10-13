@@ -1037,7 +1037,7 @@ customer or order (graph edge or node, link row, order row).
 │ It can read the case; it cannot change it.                                              │
 │ Suggested: [Which evidence supports the link between C-MARCO-1 and C-MARCO-3?]           │
 │            [What makes this case different from the Rossi family?]                       │
-│            [Which terms applied when this order was bought?]                             │
+│            [Which terms applied when the order was placed?]                              │
 │ [Ask a question about this case…                                         ] [Ask  Enter] │
 │ Step 1 of at most 5 · Read cluster ✓  Cluster CL-000417: 7 linked accounts; …  [CL-000417]│
 │ Step 2 · Read orders ✓  C-MARCO-3: 2 orders, welcome coupon redeemed …         [C-MARCO-3]│
@@ -1756,7 +1756,7 @@ behaviour.
 | O-11 | Customer-facing wording for a coupon pause (IT and EN); `coupon_block.text` is operator wording | UI copy "Welcome coupons aren't available on this account until {review_at}." |
 | O-12 | Matrix point → open return: add `return_id` to `MatrixPoint`, or confirm the `q=<customer_id>` lookup | Lookup on click |
 | O-13 | Ablation and out-of-distribution rows: an optional `GET /api/evaluation` | Slides only |
-| O-14 | Public demo writes: spec section 11 says read-only; confirm, or expose a capability flag | `VITE_READ_ONLY` build flag |
+| O-14 | Public demo writes: spec section 11 says read-only; confirm, or expose a capability flag | `VITE_READ_ONLY` build flag; `POST /api/agent/ask` stays enabled because the agent only reads (in the cached demo, only the precomputed questions) |
 | O-15 | Which agent questions are cached (in `/readyz` or a small endpoint) | The three US-702 questions |
 | O-16 | Telemetry behind Caddy basic auth vs "the judge sees telemetry" (US-905): protect only `/admin/*`? | "Protected" state on 401 |
 | O-17 | `contracts/examples/llm_output.json` and `llm_case.json` use the truth-ring id `R-MARCO`; rule 12 and ADR-15 require opaque `CL-…` ids | Not shown by the UI; align the fixtures |

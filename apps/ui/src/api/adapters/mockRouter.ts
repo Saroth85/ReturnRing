@@ -127,6 +127,7 @@ const BODY_KEYS: Record<string, (body: Record<string, unknown> | null) => unknow
   'POST /api/returns/{return_id}/decision': (b) => b?.action,
   'POST /api/agent/ask': (b) => b?.question,
   'POST /api/checkout/evaluate': (b) => b?.customer_id,
+  'POST /api/checkout/confirm': (b) => b?.customer_id,
   // The two inspection examples carry the same photo, so the return decides (RET-000111 is the
   // manual review), together with the photo of docs/ui-design.md 11.5.
   'POST /api/inspections': (b) => [b?.return_id, (b?.photo as Record<string, unknown> | undefined)?.data_base64],

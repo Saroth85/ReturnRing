@@ -138,10 +138,11 @@ export function LinkTable({ links, selectedLinkId, onSelect }: LinkTableProps) {
                     type="button"
                     onClick={() => onSelect(link.link_id)}
                     aria-pressed={selected}
-                    className="rounded-chip text-left font-mono text-dense whitespace-nowrap text-accent underline-offset-2 hover:underline"
+                    className="rounded-chip text-left font-mono text-dense text-accent underline-offset-2 hover:underline"
                     data-id
                   >
-                    {link.customer_a} ~ {link.customer_b}
+                    {/* Long account ids wrap after the tilde, so the actions column stays in view. */}
+                    <span className="whitespace-nowrap">{link.customer_a} ~</span> <span className="whitespace-nowrap">{link.customer_b}</span>
                   </button>
                   {isWeak(link) && (
                     <span className="block text-caption text-ink-2" data-weak-link>
@@ -294,7 +295,8 @@ export function CouponTimeline({ accounts, onSelect }: { accounts: AccountNode[]
             >
               {a.customer_id}
             </button>
-            <span className="relative h-4 border-b border-grid" aria-hidden="true">
+            {/* Inset by half a marker, so a marker at either end stays inside the column. */}
+            <span className="relative mx-2 h-4 border-b border-grid" aria-hidden="true">
               <span
                 className="absolute top-0.5 h-2.5 w-2.5 -translate-x-1/2 rounded-full border-2 border-ink-2 bg-surface"
                 style={{ left: pct(a.created_at) }}
@@ -312,7 +314,7 @@ export function CouponTimeline({ accounts, onSelect }: { accounts: AccountNode[]
       </ul>
       <div className="grid grid-cols-[7.5rem_1fr] gap-2 text-caption text-ink-3">
         <span />
-        <span className="flex justify-between">
+        <span className="mx-2 flex justify-between">
           <DateText value={range.start} />
           <DateText value={range.end} />
         </span>

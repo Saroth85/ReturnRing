@@ -37,7 +37,7 @@ export default function OutboxPage() {
       {outbox.data && items.length === 0 && <EmptyState icon={Mail} message={t.empty} />}
       {items.length > 0 && (
         <div className="grid gap-4 xl:grid-cols-12">
-          <div className="relative min-w-0 overflow-x-auto rounded-card border border-border bg-surface xl:col-span-6">
+          <div className="relative min-w-0 overflow-x-auto rounded-card border border-border bg-surface xl:col-span-7">
             <table className="w-full text-dense" data-outbox-table>
               <thead className="bg-surface-2 text-left text-caption text-ink-2">
                 <tr>
@@ -74,7 +74,7 @@ export default function OutboxPage() {
                       className={clsx('border-t border-border align-top', active && 'bg-accent-bg')}
                       data-outbox-row={m.message_id}
                     >
-                      <td className="px-3 py-2">
+                      <td className="min-w-[10rem] px-3 py-2">
                         <button
                           type="button"
                           onClick={() => setSelectedId(m.message_id)}
@@ -84,11 +84,11 @@ export default function OutboxPage() {
                         >
                           {m.subject}
                         </button>
-                        <span className="block font-mono text-caption text-ink-3" data-id>
+                        <span className="block font-mono text-caption whitespace-nowrap text-ink-3" data-id>
                           {m.message_id}
                         </span>
                       </td>
-                      <td className="px-3 py-2">
+                      <td className="px-3 py-2 whitespace-nowrap">
                         <IdText id={m.customer_id} />
                       </td>
                       <td className="px-3 py-2">{OPERATOR.sheets.langs[m.lang] ?? m.lang}</td>
@@ -107,7 +107,7 @@ export default function OutboxPage() {
             </table>
           </div>
           {selected && (
-            <section className="flex min-w-0 flex-col gap-3 xl:col-span-6" aria-label={t.selected} data-outbox-detail={selected.message_id}>
+            <section className="flex min-w-0 flex-col gap-3 xl:col-span-5" aria-label={t.selected} data-outbox-detail={selected.message_id}>
               <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-caption text-ink-3">
                 <span>
                   {t.decision}{' '}

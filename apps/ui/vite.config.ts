@@ -5,6 +5,7 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig, loadEnv } from 'vite';
 import { returnringMock } from './mock/returnring-mock';
+import pkg from './package.json' with { type: 'json' };
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, '../..');
@@ -44,6 +45,11 @@ export default defineConfig(({ mode }) => {
           replacement: path.join(here, 'src/api/adapters', apiMode === 'mock' ? 'mock.ts' : 'mock.disabled.ts'),
         },
       ],
+    },
+    // Pre-bundle every runtime dependency at startup: a dependency found later (a lazily loaded
+    // view) makes Vite optimise again and reload the page, which breaks a running E2E test.
+    optimizeDeps: {
+      include: [...Object.keys(pkg.dependencies), 'react-dom/client', 'react/jsx-runtime', 'react/jsx-dev-runtime'],
     },
     server: {
       // The contract examples live outside apps/ui.

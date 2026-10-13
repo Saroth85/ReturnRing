@@ -68,6 +68,12 @@ export function AssistantDrawer({ conversation, returnId, open, onOpenChange, on
           }}
           onCloseAutoFocus={(event) => {
             const back = returnFocus.current;
+            const now = document.activeElement;
+            // A cited ref or "Go to the decision panel" already moved focus to the card: keep it there.
+            if (now instanceof HTMLElement && now !== document.body && !content.current?.contains(now)) {
+              event.preventDefault();
+              return;
+            }
             if (back?.isConnected) {
               event.preventDefault();
               back.focus();

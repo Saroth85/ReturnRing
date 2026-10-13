@@ -40,7 +40,7 @@ export function LlmUnavailableNotice({ onRetry }: { onRetry?: () => void }) {
     <InlineNotice tone="attention">
       <p>{FEEDBACK.llmUnavailable}</p>
       {onRetry && (
-        <Button className="mt-2" disabled={wait > 0} onClick={onRetry}>
+        <Button className="mt-2" disabled={wait > 0} onClick={onRetry} data-constant>
           {wait > 0 ? FEEDBACK.llmRetryIn(wait) : FEEDBACK.retry}
         </Button>
       )}

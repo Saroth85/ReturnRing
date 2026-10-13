@@ -1,6 +1,7 @@
 import { useId } from 'react';
 import {
   Bar,
+  CartesianGrid,
   ComposedChart,
   Line,
   LineChart,
@@ -42,10 +43,8 @@ interface TickProps {
 }
 
 /**
- * Axis ticks as plain SVG text. Recharts' own tick Text measures words in a hidden span appended to
- * <body>, outside the chart's ProvenanceScope, which the PROV-UI scan would read as a number
- * without provenance; with interval={0}, these ticks and no CartesianGrid (whose tick positions are
- * measured the same way) nothing is measured.
+ * Axis ticks as plain SVG text, so the labels use the page's tokens and thin out on narrow charts.
+ * (Recharts measures text in a hidden span appended to <body>; the PROV-UI scan exempts it.)
  */
 function tick(format: (value: unknown) => string, axis: 'x' | 'y', every = 1) {
   return function AxisTick({ x, y, payload, index = 0 }: TickProps) {
@@ -147,6 +146,7 @@ export function WeeklyTrendChart({ title, trend, provenance, flagged, correction
           {width > 0 && (
             <ComposedChart width={width} height={height} data={trend} margin={{ top: 20, right: 12, bottom: 4, left: 0 }}>
               <XAxis dataKey="week" interval={0} tick={width < NARROW_CHART ? X_TICK_SPARSE : X_TICK} tickLine={false} axisLine={{ stroke: 'var(--border-strong)' }} />
+              <CartesianGrid vertical={false} stroke="var(--border)" />
               <YAxis allowDecimals={false} interval={0} tick={COUNT_TICK} tickLine={false} axisLine={false} width={32} />
               {after && last && <ReferenceArea x1={after} x2={last} fill="var(--surface-2)" fillOpacity={1} ifOverflow="extendDomain" />}
               <Tooltip content={(p) => <TrendTooltip active={p.active} payload={p.payload} />} cursor={{ fill: 'var(--surface-2)' }} isAnimationActive={false} />
@@ -181,7 +181,16 @@ export function WeeklyTrendChart({ title, trend, provenance, flagged, correction
           </p>
           {width > 0 && (
             <LineChart width={width} height={rateHeight} data={trend} margin={{ top: 8, right: 12, bottom: 4, left: 0 }}>
-              <XAxis dataKey="week" interval={0} tick={width < NARROW_CHART ? X_TICK_SPARSE : X_TICK} tickLine={false} axisLine={{ stroke: 'var(--border-strong)' }} />
+              {/* Padding keeps the first and last week labels inside the chart. */}
+              <XAxis
+                dataKey="week"
+                interval={0}
+                padding={{ left: 20, right: 24 }}
+                tick={width < NARROW_CHART ? X_TICK_SPARSE : X_TICK}
+                tickLine={false}
+                axisLine={{ stroke: 'var(--border-strong)' }}
+              />
+              <CartesianGrid vertical={false} stroke="var(--border)" />
               <YAxis interval={0} tickCount={3} tick={RATE_TICK} tickLine={false} axisLine={false} width={48} />
               {after && last && <ReferenceArea x1={after} x2={last} fill="var(--surface-2)" fillOpacity={1} />}
               <Tooltip content={(p) => <TrendTooltip active={p.active} payload={p.payload} />} isAnimationActive={false} />

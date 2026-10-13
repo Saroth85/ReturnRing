@@ -1,15 +1,13 @@
 // Named limits of the agent area (docs/ui-design.md 10.2: no number literals in copy). Each one
 // names its source. The step limit and the tool list come from the contract (AGENT_MAX_STEPS,
 // AGENT_TOOLS in src/api/contract.gen.ts).
+import { AGENT_QUESTION_MAX_LENGTH } from '@/api/contract.gen';
 
 /** Seconds the question input stays disabled after a 429 rate_limited (docs/ui-design.md 7, 10.1). */
 export const RATE_LIMIT_COOLDOWN_SECONDS = 10;
 
-/**
- * AgentAskRequest.question maxLength (contracts/json/api/agent_ask_request.schema.json); a test
- * compares it with the schema, since contract.gen.ts does not export string limits yet.
- */
-export const QUESTION_MAX_LENGTH = 500;
+/** AgentAskRequest.question maxLength (contracts/json/api/agent_ask_request.schema.json). */
+export const QUESTION_MAX_LENGTH = AGENT_QUESTION_MAX_LENGTH;
 
 /**
  * The width from which the case card has two columns and the evidence column stays visible next

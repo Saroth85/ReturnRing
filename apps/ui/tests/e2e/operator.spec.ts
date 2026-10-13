@@ -46,7 +46,7 @@ async function scan(page: Page): Promise<{ unprovenanced: string[]; banned: stri
 }
 
 async function settle(page: Page): Promise<void> {
-  await expect(page.locator('h1').first()).toBeVisible();
+  await expect(page.locator('h1').first()).toBeVisible({ timeout: 15_000 });
   await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
 }
 

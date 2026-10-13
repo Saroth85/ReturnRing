@@ -1,14 +1,11 @@
 // Case card /returns/:returnId (US-302..310, US-607; docs/ui-design.md 6.2 to 6.4): the evidence
 // column with the case hero on the left, the sticky decision rail on the right (first on narrow
 // screens). Deep links: ?action=approve|override|reject|review|evidence, ?link=, ?focus=, ?from=.
-import { useQuery } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
-import { api } from '@/api/client';
 import { isApiError } from '@/api/errors';
-import type { CaseCard, DecisionResult, EntityRef, Lang, RecomputeResponse } from '@/api/models';
-import type { ResponseOf } from '@/api/client';
-import { queryKeys } from '@/api/queries';
+import type { CaseCard, DecisionResult, EntityRef, Lang, LinkDisputeResponse, RecomputeResponse } from '@/api/models';
+import { useQueue } from '@/api/queries';
 import { useHotkeys } from '@/app/hotkeys';
 import { usePersona } from '@/app/persona';
 import { ErrorState, LoadingBlock, READ_ONLY, useRoleGate } from '@/components/feedback';
@@ -34,8 +31,6 @@ import { AddEvidenceSheet, DisputeLinkSheet } from './sheets/EvidenceSheets';
 import { RecomputeComparison } from './sheets/RecomputeComparison';
 import { useDecisionAction } from './sheets/useDecisionAction';
 
-type DisputeResponse = ResponseOf<'POST /api/links/{link_id}/dispute'>;
-
 const DRAFT_POLL_MS = 3_000;
 const DRAFT_POLL_LIMIT_MS = 60_000;
 const VIEW_REFRESH_MS = 60_000;
@@ -54,12 +49,7 @@ function pulse(element: HTMLElement | null): void {
 /** The ids of the `?from` view, for the `[` and `]` loop (shares the queue's cache key). */
 function useCaseNav(returnId: string, from: QueueTab | null): CaseNav | null {
   const query = from ? tabQuery(from) : {};
-  const list = useQuery({
-    queryKey: queryKeys.queue(query),
-    queryFn: ({ signal }) => api.listReturns(query, { signal }),
-    enabled: from !== null,
-    staleTime: 15_000,
-  });
+  const list = useQueue(query, { enabled: from !== null });
   const prefetch = usePrefetchCase();
   const items = list.data?.items ?? [];
   const index = items.findIndex((i) => i.return_id === returnId);
@@ -258,7 +248,7 @@ function CaseScreen({ card, sentMessage, refetch }: CaseScreenProps) {
     });
     showRecompute(response, []);
   };
-  const onDisputeDone = (response: DisputeResponse) => {
+  const onDisputeDone = (response: LinkDisputeResponse) => {
     const also = response.affected_return_ids.filter((id) => id !== card.return_id);
     noticeStore.set({
       returnId: card.return_id,
@@ -275,6 +265,25 @@ function CaseScreen({ card, sentMessage, refetch }: CaseScreenProps) {
   };
 
   const selectRef = useCallback((ref: Pick<EntityRef, 'kind' | 'id'>) => {
+    const shown = cardRef.current;
+    // The decision panel is the authority (rule 1): "Go to the decision panel" and a cited decision
+    // or return of this card land on the rail; another version or return opens its own page.
+    if (ref.kind === 'decision' && ref.id !== shown.decision.decision_id) {
+      void navigate(`/returns/${encodeURIComponent(shown.return_id)}/versions/${encodeURIComponent(ref.id)}`);
+      return;
+    }
+    if (ref.kind === 'return' && ref.id !== shown.return_id) {
+      void navigate(`/returns/${encodeURIComponent(ref.id)}`);
+      return;
+    }
+    if (ref.kind === 'decision' || ref.kind === 'return') {
+      const rail = document.querySelector<HTMLElement>('[data-decision-rail]');
+      requestAnimationFrame(() => {
+        pulse(rail);
+        rail?.focus({ preventScroll: true });
+      });
+      return;
+    }
     if (ref.kind === 'link') setSelectedLinkId(ref.id);
     const target =
       document.getElementById(refAnchorId(ref)) ??
@@ -284,7 +293,7 @@ function CaseScreen({ card, sentMessage, refetch }: CaseScreenProps) {
       (ref.kind === 'variant' || ref.kind === 'anomaly' ? document.querySelector<HTMLElement>('[data-product-anomaly]') : null);
     // The link row renders after the selection: pulse on the next frame.
     requestAnimationFrame(() => pulse(document.getElementById(refAnchorId(ref)) ?? target));
-  }, []);
+  }, [navigate]);
 
   const ui: CaseUi = {
     card,

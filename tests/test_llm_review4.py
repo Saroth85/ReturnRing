@@ -14,6 +14,7 @@ probes, beyond the review; some of them were already caught on b9a7b87.
 from __future__ import annotations
 
 import itertools
+import os
 import re
 from decimal import Decimal
 from typing import Any
@@ -72,8 +73,14 @@ def test_u1_the_failing_hypothesis_example_is_replayed() -> None:
 
 
 def test_u1_property_tests_are_derandomized_without_a_database() -> None:
-    assert settings.default.derandomize is True
-    assert settings.default.database is None
+    """The "ci" profile, loaded unless HYPOTHESIS_PROFILE names another one, is derandomized and
+    has no example database. The guard reads the profile, not the loaded settings, so the suite
+    also runs under HYPOTHESIS_PROFILE=explore (round 5, finding V6)."""
+    ci = settings.get_profile("ci")
+    assert ci.derandomize is True
+    assert ci.database is None
+    if os.environ.get("HYPOTHESIS_PROFILE", "ci") == "ci":
+        assert settings.default.derandomize is True
 
 
 # ---- U2: the current return keeps the terms of its order (rule 3) ------------------------------
@@ -81,6 +88,11 @@ def test_u1_property_tests_are_derandomized_without_a_database() -> None:
 KEEPS: dict[Lang, str] = {
     "en": "This return keeps the terms of your order.",
     "it": "Questo reso mantiene le condizioni del tuo ordine.",
+}
+# Round 5, findings V7 and V8: with the free size exchange of the decision.
+KEEPS_EXCHANGE: dict[Lang, str] = {
+    "en": "This return keeps the terms of your order, and the size exchange is free.",
+    "it": "Questo reso mantiene le condizioni del tuo ordine, e il cambio taglia è gratuito.",
 }
 RESTRICTIVE_NAMES = sorted(n for n in SCENARIOS if n.startswith(("Q3", "Q4")))
 
@@ -90,7 +102,8 @@ def test_u2_q3_and_q4_say_the_current_return_keeps_its_terms(lang: Lang) -> None
     for base, name, refund in itertools.product(SWEEP_BASES, RESTRICTIVE_NAMES, (None, REFUND)):
         ctx = context_of(decided(name, base, refund)[1])
         body = mandatory_body(ctx, lang)
-        assert body[1] == KEEPS[lang], (base, name, refund)
+        keeps = KEEPS_EXCHANGE if "free_size_exchange:true" in ctx.lever_ids else KEEPS
+        assert body[1] == keeps[lang], (base, name, refund)
 
 
 @pytest.mark.parametrize("lang", LANGS)
@@ -98,7 +111,8 @@ def test_u2_q3_and_q4_say_the_current_return_keeps_its_terms(lang: Lang) -> None
 def test_u2_guard_other_kinds_have_no_keep_sentence(name: str, lang: Lang) -> None:
     for base, refund in itertools.product(SWEEP_BASES, (None, REFUND)):
         ctx = context_of(decided(name, base, refund)[1])
-        assert KEEPS[lang] not in mandatory_body(ctx, lang)
+        body = mandatory_body(ctx, lang)
+        assert KEEPS[lang] not in body and KEEPS_EXCHANGE[lang] not in body
 
 
 @pytest.mark.parametrize("lang", LANGS)
@@ -169,27 +183,25 @@ U4_BASES = [
 def test_u4_terms_without_a_restriction_use_the_neutral_sentence(
     name: str, base: ReturnTerms, refund: Decimal | None, lang: Lang
 ) -> None:
+    """Since round 5 (findings V7 and V8) the benefit is stated in the current-return sentence,
+    so a benefit alone leaves no {terms} and the notice names the next orders."""
     decision, expected = decided(name, base, refund)
     ctx = context_of(expected)
-    assert "transparency_notice:true" in ctx.lever_ids and "terms" in ctx.placeholders
+    assert "transparency_notice:true" in ctx.lever_ids and "terms" not in ctx.placeholders
     final = render_selection(default_selection(ctx), decision, base, lang, refund)
-    for phrase in ("will have new return terms", "These terms", "nuove condizioni"):
+    for phrase in ("will have these return terms", "These terms", "avranno queste condizioni"):
         assert phrase not in final
     assert "Queste condizioni tengono" not in final
-    neutral = {
-        "en": "For your next orders the return terms are these:",
-        "it": "Per i tuoi prossimi ordini le condizioni di reso sono queste:",
-    }
     notice = {
-        "en": "The return terms of your next orders take into account the returns",
-        "it": "Le condizioni di reso dei tuoi prossimi ordini tengono conto dei resi",
+        "en": "The return terms of your next orders take into account your previous returns.",
+        "it": "Le condizioni di reso dei tuoi prossimi ordini tengono conto dei tuoi resi",
     }
-    assert neutral[lang] in final and notice[lang] in final
+    assert KEEPS_EXCHANGE[lang] in final and notice[lang] in final
 
 
 @pytest.mark.parametrize("lang", LANGS)
 def test_u4_the_restrictive_sentence_comes_only_with_a_restriction(lang: Lang) -> None:
-    restrictive = {"en": "will have new return terms", "it": "avranno nuove condizioni"}
+    restrictive = {"en": "will have these return terms", "it": "avranno queste condizioni"}
     for base, name in itertools.product(SWEEP_BASES, RESTRICTIVE_NAMES):
         decision, expected = decided(name, base)
         body = " ".join(mandatory_body(context_of(expected), lang))

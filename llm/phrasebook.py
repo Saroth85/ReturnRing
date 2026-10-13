@@ -15,13 +15,17 @@ the message in Italian and in English:
 - The mandatory body is built by code from the engine decision and is never chosen by the
   model: the return registration with {deadline} (and {amount} when known), in Q3 and Q4 the
   sentence that this return keeps the terms of its order (rule 3, spec 8.6; round 4, finding
-  U2), the {terms} sentence when the terms of future orders change, the standard-terms sentence
-  for insufficient evidence, the transparency notice (Q3, Q4) and the guarantee registration.
-  The {terms} sentence presents new terms as a consequence of past returns only when a
-  restrictive lever has a phrase; a benefit alone (a free size exchange) gets the neutral
-  sentence (round 4, finding U4). The notice always refers to future orders: after the
-  restrictive {terms} sentence it says "these terms", otherwise it names the next orders, so it
-  never reads as if the current refund depended on past returns (rule 3; round 3, finding T1).
+  U2), with the free size exchange when the decision grants it, since it holds for the current
+  return too (round 5, findings V7 and V8), the {terms} sentence when the terms of future orders
+  change, the standard-terms sentence for insufficient evidence, the transparency notice (Q3,
+  Q4) and the guarantee registration. In Q3 and Q4, {terms} lists only restrictions (the free
+  size exchange is in the current-return sentence), introduced as "these return terms", not
+  "new" ones: code compares with the merchant base, not with the customer's own order (finding
+  V9). The {terms} sentence presents new terms as a consequence of past returns only when a
+  restrictive lever has a phrase (round 4, finding U4). The notice always refers to future
+  orders: after the restrictive {terms} sentence it says "these terms", otherwise it names the
+  next orders, so it never reads as if the current refund depended on past returns (rule 3;
+  round 3, finding T1).
 - `selection_problems` lists why a selection is refused: an unknown or repeated id, an id in the
   wrong slot, an id not allowed for the decision, two sentences that ask for a reply, a "thanks
   again" closing without a thanks opening (round 3, finding T4), or more than two extras in Q3
@@ -268,12 +272,15 @@ _TERMS: dict[str, dict[Lang, str]] = {
         "it": "Per i tuoi prossimi ordini ti offriamo condizioni di reso migliori: {terms}.",
         "en": "For your next orders we are glad to offer you better return terms: {terms}.",
     },
+    # The decision, without a comparison code does not make: {terms} is computed against the
+    # merchant base, not the customer's own order, so the terms are "these", not "new" (round 5,
+    # finding V9).
     "restrictive": {
         "it": (
-            "I tuoi prossimi ordini avranno nuove condizioni di reso, mostrate prima di ogni "
-            "acquisto: {terms}."
+            "I tuoi prossimi ordini avranno queste condizioni di reso, mostrate prima "
+            "dell'acquisto: {terms}."
         ),
-        "en": "Your next orders will have new return terms, shown before each purchase: {terms}.",
+        "en": "Your next orders will have these return terms, shown before each purchase: {terms}.",
     },
     "other": {
         "it": "Per i tuoi prossimi ordini le condizioni di reso sono queste: {terms}.",
@@ -293,6 +300,19 @@ _KEEPS: dict[Lang, str] = {
     "it": "Questo reso mantiene le condizioni del tuo ordine.",
     "en": "This return keeps the terms of your order.",
 }
+# The free size exchange of a Q3 or Q4 decision holds for every order, the current one included
+# (scope all_orders, policy/engine.with_all_orders_levers), so the current-return sentence says
+# so and {terms} leaves it out: it is never read as a next-order term caused by past returns, nor
+# as missing from this return (round 5, findings V7 and V8). This clause is code text, like a
+# template field: `phrase_problems` reads it as one.
+SIZE_EXCHANGE_NOW: dict[Lang, str] = {
+    "it": ", e il cambio taglia è gratuito",
+    "en": ", and the size exchange is free",
+}
+_KEEPS_EXCHANGE: dict[Lang, str] = {
+    lang: _KEEPS[lang].removesuffix(".") + SIZE_EXCHANGE_NOW[lang] + "." for lang in _KEEPS
+}
+_FREE_SIZE_EXCHANGE = "free_size_exchange:true"
 # Levers whose {terms} phrase restricts. In a decision that requires terms (Q3, Q4) the window
 # lever only shortens the window (policy/engine.levers_for); a free or priority size exchange is a
 # benefit that holds for every order (round 4, finding U4).
@@ -307,19 +327,15 @@ _RESTRICTIVE_TERMS = (
 # orders only. Right after the {terms} sentence, "these terms" are the terms of the next orders;
 # alone (the base already lacks what Q3 or Q4 would withdraw) it names the next orders, so it
 # never reads as if the current refund depended on past returns (rule 3; round 3, finding T1).
+# Round 5: "your previous returns", shorter, so Q3 and Q4 keep 120 words with the free size
+# exchange in the current-return sentence.
 _NOTICE_AFTER_TERMS: dict[Lang, str] = {
-    "it": "Queste condizioni tengono conto dei resi dei tuoi ordini precedenti.",
-    "en": "These terms take into account the returns on your previous orders.",
+    "it": "Queste condizioni tengono conto dei tuoi resi precedenti.",
+    "en": "These terms take into account your previous returns.",
 }
 _NOTICE: dict[Lang, str] = {
-    "it": (
-        "Le condizioni di reso dei tuoi prossimi ordini tengono conto dei resi dei tuoi ordini "
-        "precedenti."
-    ),
-    "en": (
-        "The return terms of your next orders take into account the returns on your previous "
-        "orders."
-    ),
+    "it": "Le condizioni di reso dei tuoi prossimi ordini tengono conto dei tuoi resi precedenti.",
+    "en": "The return terms of your next orders take into account your previous returns.",
 }
 
 
@@ -451,7 +467,8 @@ def mandatory_body(ctx: MessageContext, lang: Lang) -> list[str]:
     registered = _REGISTERED_AMOUNT if "amount" in ctx.placeholders else _REGISTERED
     body = [registered[lang]]
     if ctx.kind in RESTRICTIVE_KINDS:
-        body.append(_KEEPS[lang])
+        keeps = _KEEPS_EXCHANGE if _FREE_SIZE_EXCHANGE in ctx.lever_ids else _KEEPS
+        body.append(keeps[lang])
     style = _terms_style(ctx) if "terms" in ctx.placeholders else ""
     if style:
         body.append(_TERMS[style][lang])
@@ -492,9 +509,12 @@ def render_selection(
 def phrase_problems(text: str, lang: Lang) -> list[tuple[str, str]]:
     """The checks a customer text must pass, as (check, found) pairs: no number or unit, no legal,
     terms or decision wording, no banned term, no character outside the allowlist, not the other
-    language. Placeholders are removed first. Run by the tests on every phrasebook sentence,
+    language. Placeholders, and the code clause of the free size exchange of the current return
+    (`SIZE_EXCHANGE_NOW`), are removed first. Run by the tests on every phrasebook sentence,
     every body sentence and every pair of parts that can stand side by side in a message."""
     body = strip_placeholders(text)
+    for clause in SIZE_EXCHANGE_NOW.values():
+        body = body.replace(clause, " ")
     checks = (
         ("LITERAL_NUMBER", literal_numbers(body, lang)),
         ("LITERAL_UNIT", literal_units(body)),

@@ -164,7 +164,7 @@ def test_retry_codes_are_sent_as_feedback(server: FakeServer) -> None:
     client(server.url).complete(CASE, retry_codes=("BANNED_TERM", "TOO_LONG"))
     feedback = server.requests[0]["body"]["messages"][-1]
     assert feedback["role"] == "user"
-    assert "BANNED_TERM, TOO_LONG" in feedback["content"]
+    assert "BANNED_TERM; TOO_LONG" in feedback["content"]
 
 
 def test_usage_is_optional(server: FakeServer) -> None:

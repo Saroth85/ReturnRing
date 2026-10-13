@@ -3,8 +3,9 @@
 The case is serialized as JSON; the customer's own text is inside it, escaped, between
 <customer_text> delimiters. After the case come the phrasebook sentences allowed for this case,
 by id with their English text, and the coherence rules of the selection: the model picks ids,
-code writes the customer message (llm/phrasebook.py). Retry feedback carries validator codes
-only, never text. A test keeps SYSTEM_PROMPT equal to the text of spec 19.D.
+code writes the customer message (llm/phrasebook.py). Retry feedback carries the validator codes,
+where each was found and the words it matched in the model's own previous answer (round 5,
+finding V17), never case text. A test keeps SYSTEM_PROMPT equal to the text of spec 19.D.
 """
 
 from __future__ import annotations
@@ -84,10 +85,13 @@ def user_message(case: Mapping[str, Any]) -> str:
 
 
 def retry_message(codes: Sequence[str]) -> str:
+    """The feedback of a regeneration: the validator codes, each with where it was found and the
+    words of the previous answer it matched (llm/validator.retry_feedback)."""
     return (
-        "Your previous answer was rejected by the validator with these codes: "
-        + ", ".join(codes)
-        + ". Write a new answer that follows every rule."
+        "Your previous answer was rejected by the validator: "
+        + "; ".join(codes)
+        + ". After each code come the words of your previous answer it matched. Write a new "
+        "answer that follows every rule and does not repeat them."
     )
 
 

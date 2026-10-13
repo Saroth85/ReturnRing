@@ -27,7 +27,10 @@
   scale suffix). A number in a clause about a record (a link, a cluster by its id or reference
   name, an order, the case) must be a value of that record, and a number next to a field word
   ("7 linked accounts", "weight 0.6") that field. Adversarial review of 13 Oct, finding 7; round
-  2, finding R4; round 3, findings T6, T9 and T12 to T16; round 4, findings U13 to U19.
+  2, finding R4; round 3, findings T6, T9 and T12 to T16; round 4, findings U13 to U19. Since
+  round 5 (findings V12, V13, V18; ADR-14 decision 11) correct answers on the golden cases must
+  keep the model path: a factor is named by its feature, "7 vs 3" binds the first number to the
+  record of the clause and the second to the other one, "weight (0.98)" is a label's value.
 """
 
 from __future__ import annotations
@@ -1106,9 +1109,11 @@ def _summary(tb: ToolBox) -> tuple[str, list[Ref]]:
         f"({case.nature} data, as of {case.as_of})."
     ]
     lines += [f"- Score factor {f.feature} = {f.value:g}: {f.phrase}" for f in factors]
+    # No first person: "I can also answer ... which terms applied" reads as a claimed action to
+    # the answer check (round 5, finding V13).
     lines.append(
-        "I can also answer which evidence supports the link, how this case differs from a "
-        "reference cluster, and which terms applied when the order was bought."
+        "Other questions answered here: which evidence supports the link, how this case differs "
+        "from a reference cluster, and which terms applied when the order was bought."
     )
     return "\n".join(lines), []
 
@@ -1207,8 +1212,9 @@ _RECORD_KINDS = {
 # disputed link", "the cluster") or several ("the links", "linked accounts"). A clause with only
 # a kind word is scoped to the records of that kind (round 3, finding T14). A singular kind word
 # with two or more records of that kind read names none of them ("the cluster" after R-MARCO and
-# F-ROSSI), except "link", which may be any one link of the cluster, and "order", which is the
-# case's order (round 4, finding U16).
+# F-ROSSI), except "link" and "factor", which may be any one link of the cluster or factor of the
+# score, and "order", which is the case's order (round 4, finding U16; round 5, finding V13).
+# "Score" is not a kind word: in an answer it nearly always means the risk score.
 _KIND_WORDS: dict[str, tuple[str, bool]] = {
     "case": ("case", True),
     "caso": ("case", True),
@@ -1229,10 +1235,11 @@ _KIND_WORDS: dict[str, tuple[str, bool]] = {
     "legami": ("link", False),
     "factor": ("factor", True),
     "factors": ("factor", False),
-    "score": ("factor", True),
+    "fattore": ("factor", True),
+    "fattori": ("factor", False),
     "policy": ("policy", True),
 }
-_ANY_ONE = frozenset({"link"})  # kinds whose singular word may stand for any one record
+_ANY_ONE = frozenset({"link", "factor"})  # kinds whose singular word may stand for any one record
 # Kinds whose singular word is the case's own record when several were read: "the order" of a
 # return case is the returned order (the orders of the customer are all read at once).
 _CASE_DEFAULT = frozenset({"order"})
@@ -1371,7 +1378,8 @@ def _records(value: Any, found: list[_Record], references: Mapping[str, str]) ->
         fields: list[tuple[str, Decimal]] = []
         _own_fields(value, key, fields)
         accounts = (value.get("account_a"), value.get("account_b")) if kind == "link" else ()
-        record_id = str(value[key]) if key.endswith("_id") else None
+        # A factor is named by its feature ("cluster_welcome_coupons = 7"): round 5, V13.
+        record_id = str(value[key]) if key.endswith("_id") or kind == "factor" else None
         refers = (value.get("cluster_id"), value.get("order_id")) if kind == "case" else ()
         found.append(
             _Record(
@@ -1414,6 +1422,8 @@ def _cue_after(rest: str) -> str | None:
 
 def _cue_before(text: str) -> str | None:
     tokens = re.findall(r"[^\W\d_]+|[^\w\s]", text)
+    if tokens[-1:] == ["("]:  # "linked accounts (3)": the parenthesis right before the number
+        tokens = tokens[:-1]
     end, skipped = len(tokens), 0
     while end > 0 and tokens[end - 1] in _CUE_FILLERS and skipped < 2:
         end, skipped = end - 1, skipped + 1
@@ -1474,22 +1484,31 @@ class _Marked:
             out = strip_tokens(out, [name], tokens[name])
         self.plain = fold(strip_tokens(out, evidence.ids))
         self.words = words(self.plain)
-        found = re.findall(r"\bqz([ra])([a-z]+)\b", self.plain)
-        self.named: list[_Record] = []
-        for kind, code in found:
-            if kind == "r":
-                record = evidence.records[_decode(code)]
-                if record not in self.named:
-                    self.named.append(record)
-        present = {accounts[_decode(code)] for kind, code in found if kind == "a"}
-        for record in evidence.records:
-            if record.aliases and set(record.aliases) <= present and record not in self.named:
-                self.named.append(record)
         letters = " ".join(self.words)
+        # The records named, in the order of their names in the clause: an id or reference
+        # name, the two accounts of a link (at the first of them), "the case cluster", "the
+        # returned order" (round 5, finding V12: "This case's cluster has more linked accounts
+        # than the Rossi family" names R-MARCO first).
+        at: list[tuple[int, _Record]] = []
+        first_account: dict[str, int] = {}
+        for match in re.finditer(r"\bqz([ra])([a-z]+)\b", letters):
+            kind, code = match.groups()
+            if kind == "r":
+                at.append((match.start(), evidence.records[_decode(code)]))
+            else:
+                first_account.setdefault(accounts[_decode(code)], match.start())
+        for record in evidence.records:
+            if record.aliases and set(record.aliases) <= set(first_account):
+                at.append((min(first_account[a] for a in record.aliases), record))
         for kind, pattern in (("cluster", _CASE_CLUSTER_RE), ("order", _CASE_ORDER_RE)):
             own = evidence.case_record(kind)
-            if own is not None and pattern.search(letters) and own not in self.named:
-                self.named.append(own)
+            phrase = pattern.search(letters)
+            if own is not None and phrase is not None:
+                at.append((phrase.start(), own))
+        self.named: list[_Record] = []
+        for _, record in sorted(at, key=lambda item: item[0]):
+            if record not in self.named:
+                self.named.append(record)
 
     def record_token(self, word: str, evidence: _Evidence) -> _Record | None:
         match = re.fullmatch(r"qzr([a-z]+)", word)
@@ -1618,15 +1637,37 @@ def _versus_pair(marked: _Marked, numbers: Sequence[tuple[Decimal, int, int]]) -
     return _VERSUS_RE.match(between) is not None
 
 
-def _clause_grounded(marked: _Marked, before: str, scope: _Scope, evidence: _Evidence) -> bool:
+def _other_record(record: _Record, seen: Sequence[_Record], evidence: _Evidence) -> _Record | None:
+    """The record a "vs" compares `record` with: the one other record of its kind named earlier
+    in the sentence, else the one other record of its kind read (round 5, finding V12)."""
+    for pool in (seen, evidence.records):
+        others = [r for r in pool if r.kind == record.kind and r is not record]
+        unique = list({id(r): r for r in others}.values())
+        if len(unique) == 1:
+            return unique[0]
+    return None
+
+
+def _clause_grounded(
+    marked: _Marked,
+    before: str,
+    scope: _Scope,
+    evidence: _Evidence,
+    seen: Sequence[_Record] = (),
+) -> bool:
     numbers = signed_numbers(marked.plain)
     if _versus_pair(marked, numbers) and not marked.named:
         (first, start, _), (second, _, end) = numbers
         field = _cue_after(marked.plain[end:]) or _cue_before(before + marked.plain[:start])
+        pair: tuple[_Record, _Record] | None = None
         if len(scope.order) == 2:
-            first_record, second_record = scope.order
-            return scope.grounds(first, field, evidence, first_record) and scope.grounds(
-                second, field, evidence, second_record
+            pair = (scope.order[0], scope.order[1])
+        elif len(scope.order) == 1:
+            other = _other_record(scope.order[0], seen, evidence)
+            pair = (scope.order[0], other) if other is not None else None
+        if pair is not None:
+            return scope.grounds(first, field, evidence, pair[0]) and scope.grounds(
+                second, field, evidence, pair[1]
             )
         return scope.grounds(first, field, evidence) and scope.grounds(second, field, evidence)
     for value, start, end in numbers:
@@ -1670,7 +1711,10 @@ def grounded_in(
     clusters) grounds no number (rounds 3 and 4, findings T14, U16 and U17)."""
     evidence = _evidence(results, case_id, references)
     text = strip_tokens(strip_list_markers(answer), evidence.ids)
-    if number_modifiers(text) or number_words(text, "en", skip=ANSWER_SKIPPED_NUMBER_WORDS):
+    labelled = strip_tokens(strip_list_markers(answer), evidence.ids, " qzid ")
+    if number_modifiers(text, labelled) or number_words(
+        text, "en", skip=ANSWER_SKIPPED_NUMBER_WORDS
+    ):
         return False
     if roman_numerals(text):
         return False
@@ -1699,6 +1743,7 @@ def _sentence_grounded(
     """The clauses of a sentence, in order; `keep` goes on with the scope of the sentence before
     (a pronoun), `listed` with the scope of the header for every clause (a list line)."""
     before = ""
+    seen: list[_Record] = []  # the records named so far in the sentence, in order
     parts = _GROUNDING_CLAUSE_RE.split(sentence)
     for clause, separator in zip(parts[::2], [*parts[1::2], ""], strict=True):
         marked = _Marked(clause, evidence)
@@ -1710,7 +1755,8 @@ def _sentence_grounded(
             marked = _Marked(piece, evidence) if len(pieces) > 1 else marked
             scope.update(marked, evidence, keep or listed)
             keep = False
-            if not _clause_grounded(marked, before, scope, evidence):
+            seen += [r for r in marked.named if r not in seen]
+            if not _clause_grounded(marked, before, scope, evidence, seen):
                 return False
             before += marked.plain + " "
         before += separator

@@ -3,10 +3,11 @@
 Status: accepted, 13 Oct 2026; amended the same day after the second round of the adversarial
 review (decision 8, the customer phrasebook) and after the third (decision 9, operator statements
 without levers), and on 13 Oct after the fourth (decision 10, the last hardening round before the
-demo). Changes `contracts/json/llm_case.schema.json`, `contracts/json/llm_output.schema.json`,
+demo) and after the fifth (decision 11, precision over recall, the closing round). Changes `contracts/json/llm_case.schema.json`, `contracts/json/llm_output.schema.json`,
 their examples, `llm/` and spec sections 8.7, 8.8, 19.B, 19.C and 19.D. Resolves review findings
 LLM-1 to LLM-14 of 12 Oct (US-304, US-305), findings R1 to R8 of the second adversarial review of
-13 Oct, findings T1 to T16 of the third and findings U1 to U19 of the fourth.
+13 Oct, findings T1 to T16 of the third, findings U1 to U19 of the fourth and findings V1 to V18
+of the fifth.
 
 ## Context
 
@@ -422,6 +423,128 @@ levers and every cited fact from code; the agent has no write tool; and every re
 needs a human approver with a reason in the audit log (rule 5). A statement or answer that
 slips through can mislead a reviewer, not change a decision or a customer's rights.
 
+### 11. Precision over recall for the operator's free text: the closing round (amendment, round 5)
+
+The fifth round (findings V1 to V18, a re-review of 5d27259) closes the LLM layer. It found that
+round 4 had over-blocked correct output on the golden cases and had dropped some catches of
+b9a7b87. The maintainer's direction for this round: operator statements and agent answers are
+free text read by a person who also sees the engine decision, so their checks must be high
+precision. A check that rejects realistic, correct Gemma output on the golden cases is a worse
+defect than a contrived paraphrase that slips through.
+
+- **The corpus is the guard.** `tests/test_llm_corpus.py` holds correct operator statements
+  (OBSERVED, SCORE, HYPOTHESIS, in English, as the prompt of spec 19.D asks) on the golden cases
+  of spec 16: Giulia (Q1, returns for size), Marco (Q4, a ring of 7 linked accounts), the Rossi
+  family, the Rossi family with a shared card, Elena (a defect on the guarantee path) and a case
+  with insufficient evidence; and correct agent answers to the three US-702 questions and to
+  "what is this case about", in English and Italian, plain and bulleted. It has every
+  over-blocked example quoted in V3, V4, V5, V11 to V14 and V16 to V18, and a second batch
+  written apart from the review probes. Every statement must validate (also eight at a time, as
+  one explanation), every answer must keep the model path (`source="model"`), and so must the
+  mock agent's answers on every golden case and question, every template, and every phrase of
+  the API's feature table and of the test factors with its own fact. A check is added only if
+  the whole corpus still passes; when a check rejects a corpus item, the check is narrowed.
+  Measured on the second batch: 48 of 52 statements and 19 of 20 answers pass; the five rejected
+  write numbers in words ("two sizes", "the second factor", "Two links") or attribute the accounts
+  to people ("may belong to members of one family"), as the rules intend, and the retry feedback
+  names the word.
+- **High-precision catches kept or added.** Each one has probes in `tests/test_llm_review5.py`.
+  - V1: case, cluster and quadrant ids are read as a space again, so "Q4 (42.1)" and "R-MARCO –
+    42.1 EUR" are what they look like, and the property oracle of LLM-03 agrees with the
+    validator. Metric names leave a label word, transparent after a number ("42.1 value_eur_12m
+    k" is "42.1 k") and allowed before a number or "(" only after a word that is not a
+    comparator, or "by" ("driven by cluster_welcome_coupons (7)"). The falsifying examples are
+    `@example`s; 30 seeds of 3,000 random examples each found no failure.
+  - V2: a control verb (control, run, manage, operate, own; gestire, controllare, possedere,
+    amministrare) whose object is the accounts is flagged whatever the subject ("They control",
+    "The family runs", "Marco gestisce"), and so is its passive with any agent but an identifier
+    or the merchant ("run by them", "gestiti da Marco"; "controlled by a shared device" passes).
+  - V10: a person noun with is, are, remains... and same or identical ("the person is the same",
+    "the account holder is the same for C-MARCO-1 and C-MARCO-2"), duplicate accounts, clones and
+    multi-accounting are banned terms; "the customer's address is the same" is not.
+  - V15: flag, monitor, scrutiny, caution, "no further action", "can be closed" and "warrants a
+    review" are topics of a statement (regenerate); predatory, throwaway and burner are banned
+    terms, and so are farming and harvesting in a text about accounts or coupons, and "gaming"
+    anything ("gaming the welcome coupons").
+- **Narrowed rules (the over-blocks).**
+  - Ownership (V3, V18): the generic subject rule takes a person noun and a verb of possession
+    or use from a short list (has, holds, uses, logs into, set up, registered, opened; usa, ha
+    creato...), followed directly by the accounts, determiners and numbers aside; it runs clause
+    by clause (split at , ; :) on the forms without digits read as letters. So "The customer's
+    cluster has 7 linked accounts", "For this customer, 7 linked accounts share a device", "The
+    customer belongs to a cluster of 7 linked accounts", "A person should review the linked
+    accounts" and "The customer has no linked accounts" pass, while "The customer has the linked
+    accounts" and "The customer has 7 linked accounts" do not. Italian possessives count only
+    before the accounts or as their predicate ("i suoi account", "sono suoi"; "il cluster ... i
+    suoi legami" passes); "behind" only before the accounts, them or a cluster; "in the name" only
+    with a possessive or "of".
+  - Topics (V4, V17): keep, kept, remains, available, offered, paid, gone, still and "no longer"
+    are topics only within three words of a lever noun (coupons, codes, shipping, refund,
+    exchange, swaps, window, terms, perks...): "the cluster keeps its welcome coupons" is a
+    topic, "the customer kept the S", "no photo is available" and "the item no longer fits" are
+    not. "Tight" and "tough" are no longer restrictions (tighter, tightened, tougher are); the
+    withdrawal path, the right of withdrawal, "later orders", "size guide", "shipped to", coupon
+    use, codes used, an order with a coupon, "expensive" and a closed return window are
+    observations; "crook" is a whole word ("a crooked seam" passes).
+  - Levels (V5, V11): a negation counts only within the two words before the level word ("not
+    high", "isn't high"; not "high (0.87): an estimate, not a cause"); margin, profit and spend
+    are whole words ("marginally" is not a margin); "over the period" is not "above"; a level word
+    that sizes a contribution ("a significant contributor", "a small effect", "contributes
+    little") is not a level of the score.
+  - Grounding (V16, V17): after the ")" that closes a "(" opened right before the number, and
+    right after a number that follows a metric name, a contribution verb from a short list is
+    allowed ("returns_90d (4) contributes", "returns_90d = 4 raises the score"); "by" before a
+    count after a participle of use ("used by 7 linked accounts"); "less" is a sign only right
+    before a number; "payment" and "shared" may stand before a count noun.
+  - Missing evidence (V14): `build_case` raises CaseError for an item that does not pass the
+    statement checks (a number in digits, words or Roman numerals, a topic, a banned term), so
+    the model can say what is missing, as the prompt asks: "too few orders observed", not "fewer
+    than 3 orders observed". The pipeline phrases of the API branch ("Fewer than 4 order lines
+    observed") must be reworded when the branches merge.
+  - Agent (V12, V13, V18): a number in parentheses right after a word is the value of a label,
+    not an accounting sign ("weight (0.98)"), and "meno" is a sign only right before a number;
+    the records a clause names are ordered by where their names stand ("this case's cluster ...
+    than the Rossi family"); in "7 vs 3" with one record in scope, the first number is that
+    record's and the second the other record of its kind named in the sentence, or else the one
+    other record of that kind read; a factor is named by its feature, "factor" may stand for any
+    one factor, and "score" is not a kind word; the mock summary has no first person ("Other
+    questions answered here: ...").
+- **Retry feedback (V17).** The second call gets each code with where it was found and the words
+  the validator matched in the model's own answer ("TERMS_TOPIC in operator_explanation[2]:
+  keeps its welcome coupons"), never case text; a character outside the allowlist is written as
+  its code point. The model can avoid the word instead of guessing.
+- **Customer message (V7, V8, V9).** In Q3 and Q4, when the decision grants the free size
+  exchange (scope all_orders, so it also holds for the current return), the current-return
+  sentence says so: "This return keeps the terms of your order, and the size exchange is free."
+  ("Questo reso mantiene le condizioni del tuo ordine, e il cambio taglia è gratuito."), and
+  {terms} leaves it out, so it is never a next-order term caused by past returns, nor missing
+  from this return. The cluster coupon block has no {terms} phrase when the base has no discount
+  codes; a benefit alone now leaves no {terms} and the notice names the next orders. The
+  restrictive sentence says "these return terms" ("queste condizioni"), not "new" ones: {terms}
+  is computed against the merchant base, not the customer's own order. This changes the {terms}
+  field (`llm/messages.term_phrases` and `available_placeholders` take the base), not the
+  schemas; the golden example is unchanged, since the Navigli base has the free size exchange.
+  To keep 120 words, the notice says "your previous returns" ("i tuoi resi precedenti") and the
+  Italian {terms} sentence "prima dell'acquisto". The tests sweep the 48 bases, every Q3 and Q4
+  scenario, both refund variants and three order snapshots (the base, a former Q4 snapshot, a
+  former Q1 snapshot).
+- **Profile guard (V6).** The guard test reads `settings.get_profile("ci")`, so the whole suite
+  also runs under `HYPOTHESIS_PROFILE=explore`.
+
+The residual risk is accepted, and why. Precision first means some paraphrases pass: a proper
+name or pronoun with a verb of use rather than control ("Marco uses the linked accounts"), a verb
+of possession outside the list, a same-person claim in words the patterns do not have, a period
+converted into words without a digit ("returned a week after delivery", when the fact is 6 days),
+a rank or a decision in words not on the lists. This is acceptable because of where the text
+goes. Operator statements and agent answers reach only the operator, never the customer; the
+interface labels them as a Gemma draft and shows the engine decision, its levers and every cited
+fact from code beside them; the agent has no write tool; the customer message is built from
+reviewed sentences and code fields only; and every restrictive action (Q3, Q4) needs a person who
+approves it, with a reason and a review date in the audit log (rule 5). A paraphrase that slips
+through can mislead a reviewer for a moment; it cannot change a decision, a lever or a customer's
+rights. A check that rejects correct output, instead, sends the case to the template and hides
+the explanation the operator needs, on exactly the cases shown in the demo.
+
 ## Consequences
 
 - `llm_case.json` is produced by `llm.case.build_case` for the golden Q4 decision, and a test
@@ -460,13 +583,13 @@ slips through can mislead a reviewer, not change a decision or a customer's righ
 - Decision 9 adds the code TERMS_TOPIC and removes the `policy` fact entity (contract change).
 - Spec 19.D shows the prompt of the phrasebook task, with the topic rule, and the prompt test
   compares it with `llm/prompts.SYSTEM_PROMPT` line for line again.
-- Word counts: the message has at most 120 words before the clause, in Italian, for Q4 on a
+- Word counts: the message has at most 119 words before the clause, in Italian, for Q4 on a
   base without free size exchange and with a known refund (English: at most 116). This is what
   `tests/test_llm_review3.py` measures over 48 merchant bases (windows of 14, 30 and 45 days,
   every combination of the four boolean terms), every decision kind, with and without a known
   refund and every allowed selection (at most two extras in Q3 and Q4 since decision 10, which
-  adds the sentence that this return keeps its terms). The limit of spec 8.7 holds, with no
-  margin left for longer sentences. The clause comes on top (the guarantee clause alone is about 75 words), so
+  adds the sentence that this return keeps its terms, with the free size exchange since decision
+  11). The limit of spec 8.7 holds, with one word of margin. The clause comes on top (the guarantee clause alone is about 75 words), so
   no claim is made about the length with the clause.
 - Known limits:
   - the customer message is safe by construction only as far as the phrasebook is: a new
@@ -478,13 +601,16 @@ slips through can mislead a reviewer, not change a decision or a customer's righ
     allowlist, the topic check and grounding on cited facts in their context and on record
     fields. A paraphrase they miss reaches the operator, not the customer, and the operator
     approves every restrictive action;
-  - the topic check over-blocks by design: "window", "quick", "shipped", "expensive", "declining"
-    or "accepted" in an observation make the statement regenerate, then the template; since
-    decision 10 so do "future", "available", "remains", "keeps", "offered", "priority", "money",
-    "paid", "tight", "reliable", "safe" and "quadrant" without a label. The grounding context does
-    too: a verb right after a number ("0.87 suggests") is not a function word, and a unit of
-    another kind anywhere in the statement ("7 linked accounts, created on different days",
-    citing only the cluster size) makes it ungrounded;
+  - the topic check still over-blocks some words: "window", "quick", "declining" or "accepted" in
+    an observation make the statement regenerate (with the word in the feedback since decision
+    11), then the template; so do "future", "priority", "money", "safe" or "reliable" about the
+    customer, and "quadrant" without a label. Since decision 11, "available", "remains", "keeps",
+    "offered" and "paid" count only next to a lever noun, and "shipped", "expensive" and "tight"
+    not at all. The grounding context does too: a verb right after a number ("0.87 suggests") is
+    not a function word, except a contribution verb after "(N)" or after a metric name, and a
+    unit of another kind anywhere in the statement ("7 linked accounts, created on different
+    days", citing only the cluster size) makes it ungrounded; numbers and ranks in words ("two
+    sizes", "the second factor") are never grounded;
   - the agent's question check is a heuristic. A clitic glued to a noun-like imperative
     ("Segnale più forte?") is refused, and so is a write verb that opens a clause as an idiom
     ("Hold on, what is the deadline?"). A write verb after a subject is a statement ("What if you

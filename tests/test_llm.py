@@ -443,8 +443,12 @@ _SIGN_WORDS |= {"lost", "unprofitable", "lossmaking"}
     fact_ids=st.lists(st.sampled_from([*FACT_VALUES, "F99"]), max_size=4),
     label=st.sampled_from(["OBSERVED", "SCORE", "HYPOTHESIS"]),
 )
-# Every failing example found so far (round 4, finding U1): a closing parenthesis hid a scale.
+# Every failing example found so far (round 4, finding U1): a closing parenthesis hid a scale;
+# (round 5, finding V1) an identifier read as a word grounded an accounting or signed number.
 @example(tokens=["risk", "(42.1)", "mil"], fact_ids=["F2"], label="OBSERVED")
+@example(tokens=["Q4", "– 42.1"], fact_ids=["F2"], label="OBSERVED")
+@example(tokens=["Q4", "(42.1)"], fact_ids=["F2"], label="OBSERVED")
+@example(tokens=["R-MARCO", "– 42.1", "EUR"], fact_ids=["F2"], label="OBSERVED")
 def test_llm03_every_number_after_the_validator_is_a_cited_fact(
     tokens: list[str], fact_ids: list[str], label: str
 ) -> None:

@@ -152,11 +152,48 @@ _MONTHS: dict[Lang, tuple[str, ...]] = {
 }
 
 
-def term_phrases(levers: Sequence[LeverObject], lang: Lang) -> list[str]:
-    """Fixed phrases for the future-order terms of the levers, without repeats."""
+# Lever values that restrict future orders (policy/legal_guard.is_restrictive): a shorter window
+# is checked against the base.
+_RESTRICTIVE_VALUES = frozenset(
+    {
+        ("free_return_shipping", False),
+        ("instant_refund", False),
+        ("coupons_enabled", False),
+        ("cluster_coupons_disabled", True),
+        ("transparency_notice", True),
+    }
+)
+
+
+def restricts(levers: Sequence[LeverObject], base: ReturnTerms | None = None) -> bool:
+    """The levers restrict future orders: a restrictive value, or a window shorter than the
+    base (when the base is given)."""
+    for lever in levers:
+        if (lever["id"], lever["value"]) in _RESTRICTIVE_VALUES:
+            return True
+        window = base.return_window_days if base is not None else 0
+        if lever["id"] == "return_window_days" and int(lever["value"]) < window:
+            return True
+    return False
+
+
+def term_phrases(
+    levers: Sequence[LeverObject], lang: Lang, base: ReturnTerms | None = None
+) -> list[str]:
+    """Fixed phrases for the future-order terms of the levers, without repeats. In a decision
+    that restricts, a lever whose scope is all_orders (the free size exchange) holds for the
+    current return too, so the current-return sentence states it and {terms} leaves it out; the
+    cluster coupon block has no phrase when the base already has no discount codes (round 5,
+    findings V7 and V8)."""
+    restrictive = restricts(levers, base)
     phrases: list[str] = []
     for lever in levers:
         value = lever["value"]
+        if restrictive and lever["scope"] == "all_orders":
+            continue
+        redundant = base is not None and not base.coupons_enabled
+        if lever["id"] == "cluster_coupons_disabled" and redundant:
+            continue
         if lever["id"] == "return_window_days":
             phrase: str | None = _WINDOW[lang].format(days=value)
         else:
@@ -168,13 +205,16 @@ def term_phrases(levers: Sequence[LeverObject], lang: Lang) -> list[str]:
 
 
 def available_placeholders(
-    path: str, levers: Sequence[LeverObject], refund_known: bool
+    path: str,
+    levers: Sequence[LeverObject],
+    refund_known: bool,
+    base: ReturnTerms | None = None,
 ) -> frozenset[Placeholder]:
     """Placeholders whose value code can fill for a decision: {terms} when the levers change
     the terms of future orders, {deadline} on the withdrawal path, {amount} on the withdrawal
     path when the refund amount is known."""
     names: set[Placeholder] = set()
-    if term_phrases(levers, "en"):
+    if term_phrases(levers, "en", base):
         names.add("terms")
     if path == Path.WITHDRAWAL.value:
         names.add("deadline")
@@ -201,10 +241,10 @@ def template_fields(
 ) -> dict[str, str]:
     """Values of the available placeholders, written by code (rule 10)."""
     levers = decision.levers.to_contract(base)
-    available = available_placeholders(decision.path.value, levers, refund_eur is not None)
+    available = available_placeholders(decision.path.value, levers, refund_eur is not None, base)
     fields: dict[str, str] = {}
     if "terms" in available:
-        fields["terms"] = "; ".join(term_phrases(levers, lang))
+        fields["terms"] = "; ".join(term_phrases(levers, lang, base))
     if "deadline" in available:
         fields["deadline"] = format_date(decision.refund_due_by, lang)
     if refund_eur is not None and "amount" in available:
@@ -214,7 +254,7 @@ def template_fields(
 
 def requires_terms(decision: Decision, base: ReturnTerms) -> bool:
     levers = decision.levers.to_contract(base)
-    return is_restrictive(decision.levers, base) and bool(term_phrases(levers, "en"))
+    return is_restrictive(decision.levers, base) and bool(term_phrases(levers, "en", base))
 
 
 def render(

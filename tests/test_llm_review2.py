@@ -353,7 +353,9 @@ R4_ANSWERS = [
     "The cluster R-MARCO has 7 linked accounts that look like frօud.",
     # R7: signs and parentheses
     "Link L-101 has 4 shared events and weight - 0.98.",
-    "Link L-101 has weight (0.98).",
+    # "(0.98)" right after a word is the value of a label since round 5 (finding V12), so the
+    # accounting sign is probed after a colon.
+    "Link L-101 has weight: (0.98).",
 ]
 
 

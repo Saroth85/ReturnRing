@@ -856,7 +856,10 @@ def test_quadrant_positions() -> None:
         ("Promo codes are enabled.", ["promo", "enabl"]),
         ("Stricter return terms apply.", ["strict", "terms"]),
         ("Si applicano limitazioni ai prossimi ordini.", ["prossimi ordini", "limitazion"]),
-        ("The customer loses instant refund.", ["loses", "instant", "refund"]),
+        (
+            "The customer loses instant refund.",
+            ["loses instant refund", "loses", "instant", "refund"],
+        ),
         ("Instant refund is withheld.", ["instant", "refund", "withh"]),
         ("Return shipping is charged.", ["ship", "charged"]),
         ("The merchant policy applies.", ["policy"]),
@@ -864,7 +867,7 @@ def test_quadrant_positions() -> None:
         ("Customers get their money back at once.", ["money back", "money"]),
         (
             "Postage is prepaid; perks and privileges stay.",
-            ["postage", "prepaid", "perk", "privileg"],
+            ["perks and privileges stay", "postage", "prepaid", "perk", "privileg"],
         ),
         ("The customer is repaid with store credit.", ["store credit", "repaid"]),
         ("The return is approved.", ["approv"]),
@@ -873,7 +876,7 @@ def test_quadrant_positions() -> None:
         # Round 4, finding U6: the state and scope of a lever
         ("Welcome coupons are disabled.", ["disabl"]),
         ("No welcome coupon on future orders.", ["no welcome coupon", "futur"]),
-        ("Size swaps are no longer offered.", ["no longer", "swap", "offer"]),
+        ("Size swaps are no longer offered.", ["swaps are no longer"]),
         ("The case sits in the generous quadrant.", ["quadrant"]),
         ("The case sits in quadrant Q4.", []),
         ("The 7 linked accounts share a shipping address.", []),

@@ -4,10 +4,14 @@ Gemma writes connective text with placeholders; amounts, terms and deadlines are
 filled by code, and the legal clause is fixed text appended by code.
 
 One placeholder grammar serves both the validator and `render`:
-- the only tokens are {terms}, {amount} and {deadline};
+- the only tokens are {terms}, {amount}, {deadline} and {deduction};
 - any other brace, bracket or angle character is rejected (also full-width forms, after NFKC);
 - a placeholder is accepted only if its value is available for the decision;
 - {terms} is required when the decision has restrictive levers and terms to show.
+
+{deduction} (round 4 of the API review, finding E17) is the amount withheld for a
+diminished-value claim. Only the mandatory body written by code uses it: the llm_case never offers
+it, because the model chooses phrasebook ids and writes no customer text (ADR-14 decision 8).
 """
 
 from __future__ import annotations
@@ -26,9 +30,9 @@ from llm.text import Lang
 from policy.legal_guard import is_restrictive
 from policy.types import Decision, Path, ReturnTerms
 
-Placeholder = Literal["terms", "amount", "deadline"]
-PLACEHOLDERS: tuple[Placeholder, ...] = ("terms", "amount", "deadline")
-_TOKEN_RE = re.compile(r"\{(terms|amount|deadline)\}")
+Placeholder = Literal["terms", "amount", "deadline", "deduction"]
+PLACEHOLDERS: tuple[Placeholder, ...] = ("terms", "amount", "deadline", "deduction")
+_TOKEN_RE = re.compile(r"\{(terms|amount|deadline|deduction)\}")
 _STRAY_RE = re.compile(r"[{}\[\]<>]")
 
 PlaceholderProblemCode = Literal["PLACEHOLDER_SYNTAX", "PLACEHOLDER_UNAVAILABLE", "TERMS_MISSING"]
@@ -187,6 +191,26 @@ def format_date(day: date, lang: Lang) -> str:
     return f"{day.day} {_MONTHS[lang][day.month - 1]} {day.year}"
 
 
+# Days read with a vowel in Italian (uno, otto, undici) take the elided article: "l'11 ottobre".
+_IT_ELIDED_DAYS = frozenset({1, 8, 11})
+
+
+def format_deadline(day: date, lang: Lang) -> str:
+    """The refund deadline as the {deadline} field: "12 October 2026" in English, and in Italian
+    with its article, which depends on how the day is read ("il 12 ottobre 2026", "l'11 ottobre
+    2026"), so that "previsto per {deadline}" is correct on every day (round 4, finding E22)."""
+    text = format_date(day, lang)
+    if lang == "en":
+        return text
+    return f"l'{text}" if day.day in _IT_ELIDED_DAYS else f"il {text}"
+
+
+def has_deduction(decision: Decision) -> bool:
+    """A diminished-value claim withholds part of the refund of a withdrawal: the {deduction}
+    field states it (the guarantee path never has a claim, policy/legal_guard.py)."""
+    return decision.diminished_value_claim is not None and decision.path is Path.WITHDRAWAL
+
+
 def format_amount(amount: Decimal, lang: Lang) -> str:
     if not amount.is_finite() or amount < 0:
         raise MessageError(f"Refund amount must be a non-negative number, got {amount!r}")
@@ -206,9 +230,12 @@ def template_fields(
     if "terms" in available:
         fields["terms"] = "; ".join(term_phrases(levers, lang))
     if "deadline" in available:
-        fields["deadline"] = format_date(decision.refund_due_by, lang)
+        fields["deadline"] = format_deadline(decision.refund_due_by, lang)
     if refund_eur is not None and "amount" in available:
         fields["amount"] = format_amount(refund_eur, lang)
+    claim = decision.diminished_value_claim
+    if claim is not None and has_deduction(decision):
+        fields["deduction"] = format_amount(claim.amount_eur, lang)
     return fields
 
 

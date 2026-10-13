@@ -28,7 +28,10 @@
     "rule_version": "coupon-rule-v1",
     "application_id": "CRA-000031",
     "review_at": "2026-12-27",
-    "text": "Coupons are paused for the linked accounts of this cluster until the review date"
+    "text": {
+      "it": "Su questo ordine i codici sconto non sono utilizzabili. Queste condizioni tengono conto dei resi dei tuoi ordini precedenti.",
+      "en": "Discount codes cannot be used on this order. These terms take into account the returns on your previous orders."
+    }
   },
   "terms_snapshot_id": "TS-CHK-000982",
   "terms_source": "DEC-000102-1",

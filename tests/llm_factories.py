@@ -11,7 +11,14 @@ from typing import Any
 from llm.case import ClusterSummary, ScoreFactor, build_case
 from llm.decision import ExpectedDecision, serialize_decision
 from policy.engine import decide
-from policy.types import CaseScores, Decision, EvidenceQuality, ReturnReason, ReturnRequest
+from policy.types import (
+    CaseScores,
+    Decision,
+    DiminishedValueClaim,
+    EvidenceQuality,
+    ReturnReason,
+    ReturnRequest,
+)
 from tests.factories import BASE, THRESHOLDS, TODAY, request, scores
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -68,10 +75,16 @@ def make(
     customer_text: str | None = "Non mi sta bene.",
     refund_eur: Decimal | None = None,
     return_id: str = "RET-1",
+    claim_eur: Decimal | None = None,
 ) -> Built:
+    """The engine decision of a scenario, its llm_case and the expected decision. `claim_eur`
+    attaches a diminished-value claim confirmed at the warehouse (the {deduction} field)."""
     s = SCENARIOS[name]
     req = replace(s.request, return_id=return_id)
     decision = decide(req, s.scores, BASE, THRESHOLDS, TODAY)
+    if claim_eur is not None:
+        claim = DiminishedValueClaim(claim_eur, ("PH-1",), confirmed_by="ahmed", rule_id="DV-1")
+        decision = replace(decision, diminished_value_claim=claim)
     case = build_case(
         decision,
         req,

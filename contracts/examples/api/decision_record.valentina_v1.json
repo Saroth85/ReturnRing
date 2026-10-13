@@ -52,6 +52,16 @@
           "nature": "synthetic"
         }
       },
+      "line_price": {
+        "value": 89.9,
+        "unit": "eur",
+        "provenance": {
+          "origin": "Contract example: Navigli Fashion synthetic shop, generator seed 42",
+          "period_start": "2025-10-01",
+          "period_end": "2026-09-30",
+          "nature": "synthetic"
+        }
+      },
       "photo_evidence_ids": [
         "PH-000014"
       ],

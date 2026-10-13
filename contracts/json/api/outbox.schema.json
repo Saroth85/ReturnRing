@@ -53,7 +53,7 @@
     },
     "OutboxMessage": {
       "additionalProperties": false,
-      "description": "A message in the simulated outbox (spec 4: no real email), sent after a person acted: the\nphrasebook ids, the template fields of its language, the refund the {amount} field states\n(null when the refund amount is not known), and the body llm.phrasebook.render_selection\ncomposed for the decision acted on, ending with the fixed legal clause it requires. The\nmodels that hold the decision check the body against it (check_outbox_message).",
+      "description": "A message in the simulated outbox (spec 4: no real email), sent after a person acted: the\nsubject (llm.phrasebook.subject), the phrasebook ids, the template fields of its language,\nthe refund the {amount} field states with the {deduction} that leaves it (both null without\na diminished-value claim), and the body llm.phrasebook.render_selection composed for the\ndecision acted on, ending with the fixed legal clause it requires. The models that hold the\ndecision check the body against it (check_outbox_message).",
       "properties": {
         "message_id": {
           "maxLength": 96,
@@ -258,7 +258,7 @@
     },
     "TemplateFields": {
       "additionalProperties": false,
-      "description": "The values code fills into the placeholders of one language (ADR-08, rule 10):\nllm.messages.template_fields of the decision. A placeholder the decision does not have\n({amount} without a known refund, {terms} when the future terms do not change) is null.",
+      "description": "The values code fills into the placeholders of one language (ADR-08, rule 10):\nllm.messages.template_fields of the decision. A placeholder the decision does not have\n({amount} without a known refund, {terms} when the future terms do not change, {deduction}\nwithout a diminished-value claim) is null. {deadline} carries its article in Italian (\"il\n12 ottobre 2026\", \"l'11 ottobre 2026\").",
       "properties": {
         "terms": {
           "anyOf": [
@@ -298,12 +298,26 @@
             }
           ],
           "title": "Deadline"
+        },
+        "deduction": {
+          "anyOf": [
+            {
+              "maxLength": 300,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Deduction"
         }
       },
       "required": [
         "terms",
         "amount",
-        "deadline"
+        "deadline",
+        "deduction"
       ],
       "title": "TemplateFields",
       "type": "object"

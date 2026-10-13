@@ -40,9 +40,9 @@
         "value": 0.66,
         "unit": "probability",
         "provenance": {
-          "origin": "Contract example: risk model risk-xgb-0.1.0 on decision-time features of the synthetic shop",
+          "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
           "period_start": "2025-10-01",
-          "period_end": "2026-09-30",
+          "period_end": "2026-09-29",
           "nature": "synthetic"
         }
       },
@@ -90,7 +90,7 @@
         "value": 0.41,
         "unit": "probability",
         "provenance": {
-          "origin": "Contract example: risk model risk-xgb-0.1.0 on decision-time features of the synthetic shop",
+          "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
           "period_start": "2025-10-01",
           "period_end": "2026-09-30",
           "nature": "synthetic"
@@ -139,7 +139,7 @@
       "superseded_by": null,
       "created_at": "2026-09-30T18:40:00Z",
       "as_of": "2026-09-30T18:40:00Z",
-      "decided_on": "2026-09-29",
+      "decided_on": "2026-09-30",
       "state": "proposed",
       "path": "withdrawal",
       "evidence_quality": "sufficient",
@@ -228,7 +228,7 @@
         "provenance": {
           "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
           "period_start": "2025-10-01",
-          "period_end": "2026-09-29",
+          "period_end": "2026-09-30",
           "nature": "synthetic"
         }
       },
@@ -258,7 +258,6 @@
         "created_at": "2026-09-30T18:40:50Z",
         "latency_ms": 14
       },
-      "tone": "warm",
       "decision_echo": {
         "path": "withdrawal",
         "quadrant": "Q1",
@@ -267,6 +266,64 @@
           "priority_size_exchange:true"
         ]
       },
+      "case_facts": [
+        {
+          "id": "F1",
+          "entity": "customer",
+          "metric": "risk_score",
+          "value": 0.41,
+          "period": "as of 2026-09-30",
+          "nature": "synthetic"
+        },
+        {
+          "id": "F2",
+          "entity": "customer",
+          "metric": "value_eur_12m",
+          "value": 433.75,
+          "period": "12 months to 2026-09-30",
+          "nature": "synthetic"
+        },
+        {
+          "id": "F3",
+          "entity": "customer",
+          "metric": "cluster_size",
+          "value": 1,
+          "period": "as of 2026-09-30",
+          "nature": "synthetic"
+        },
+        {
+          "id": "F4",
+          "entity": "customer",
+          "metric": "changed_mind_share",
+          "value": 1,
+          "period": "as of 2026-09-30",
+          "nature": "synthetic"
+        },
+        {
+          "id": "F5",
+          "entity": "customer",
+          "metric": "residual_z",
+          "value": 0.6,
+          "period": "as of 2026-09-30",
+          "nature": "synthetic"
+        },
+        {
+          "id": "F6",
+          "entity": "return",
+          "metric": "days_since_delivery",
+          "value": 4,
+          "period": "2026-09-25/2026-09-29",
+          "nature": "synthetic"
+        },
+        {
+          "id": "F7",
+          "entity": "policy",
+          "metric": "return_window_days",
+          "value": 60,
+          "period": "orders from 2026-09-30",
+          "nature": "synthetic"
+        }
+      ],
       "explanation": [
         {
           "label": "SCORE",
@@ -280,7 +337,7 @@
               "entity": "customer",
               "metric": "risk_score",
               "value": 0.41,
-              "period": "as of 2026-09-29",
+              "period": "as of 2026-09-30",
               "nature": "synthetic"
             }
           ]
@@ -294,10 +351,10 @@
           "facts": [
             {
               "id": "F3",
-              "entity": "cluster",
+              "entity": "customer",
               "metric": "cluster_size",
               "value": 1,
-              "period": "as of 2026-09-29",
+              "period": "as of 2026-09-30",
               "nature": "synthetic"
             }
           ]
@@ -314,7 +371,7 @@
               "entity": "customer",
               "metric": "changed_mind_share",
               "value": 1,
-              "period": "as of 2026-09-29",
+              "period": "as of 2026-09-30",
               "nature": "synthetic"
             }
           ]
@@ -331,7 +388,7 @@
               "entity": "customer",
               "metric": "residual_z",
               "value": 0.6,
-              "period": "as of 2026-09-29",
+              "period": "as of 2026-09-30",
               "nature": "synthetic"
             }
           ]
@@ -348,24 +405,7 @@
               "entity": "customer",
               "metric": "value_eur_12m",
               "value": 433.75,
-              "period": "12 months to 2026-09-29",
-              "nature": "synthetic"
-            }
-          ]
-        },
-        {
-          "label": "OBSERVED",
-          "fact_ids": [
-            "F3"
-          ],
-          "text": "Linked accounts in the cluster: 1.",
-          "facts": [
-            {
-              "id": "F3",
-              "entity": "cluster",
-              "metric": "cluster_size",
-              "value": 1,
-              "period": "as of 2026-09-29",
+              "period": "12 months to 2026-09-30",
               "nature": "synthetic"
             }
           ]
@@ -406,7 +446,8 @@
             "fields": {
               "terms": "reso entro 60 giorni dalla consegna; cambio taglia con priorità",
               "amount": null,
-              "deadline": "13 ottobre 2026"
+              "deadline": "il 13 ottobre 2026",
+              "deduction": null
             },
             "text": "Ciao, grazie per averci scritto. Abbiamo registrato la tua richiesta di reso e il rimborso è previsto per il 13 ottobre 2026. Per i tuoi prossimi ordini ti offriamo condizioni di reso migliori: reso entro 60 giorni dalla consegna; cambio taglia con priorità. Siamo felici di averti tra i nostri clienti."
           },
@@ -415,7 +456,8 @@
             "fields": {
               "terms": "returns within 60 days of delivery; priority size exchange",
               "amount": null,
-              "deadline": "13 October 2026"
+              "deadline": "13 October 2026",
+              "deduction": null
             },
             "text": "Hello, thank you for writing to us. We have registered your return request and your refund is due by 13 October 2026. For your next orders we are glad to offer you better return terms: returns within 60 days of delivery; priority size exchange. We are happy to have you with us."
           }
@@ -424,14 +466,15 @@
       "provenance": {
         "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
         "period_start": "2025-10-01",
-        "period_end": "2026-09-29",
+        "period_end": "2026-09-30",
         "nature": "synthetic"
       }
     },
     "coupon_application": null,
     "audit_entry_ids": [
-      7,
-      8
+      47,
+      48,
+      49
     ],
     "provenance": {
       "origin": "Contract example: risk model risk-xgb-0.1.0 on decision-time features of the synthetic shop",

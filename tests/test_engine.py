@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import timedelta
+from decimal import Decimal
 
 import pytest
 
@@ -15,7 +17,16 @@ from policy.engine import (
     quadrant_for,
 )
 from policy.legal_guard import is_restrictive
-from policy.types import DecisionState, EvidenceQuality, Path, Quadrant, ReturnReason
+from policy.types import (
+    CaseScores,
+    DecisionState,
+    EvidenceQuality,
+    Levers,
+    Path,
+    Quadrant,
+    ReturnReason,
+    ReturnTerms,
+)
 from tests.factories import BASE, THRESHOLDS, TODAY, request, scores
 
 
@@ -32,25 +43,58 @@ def test_quadrant_for(risk: float, value: str, expected: Quadrant) -> None:
     assert quadrant_for(scores(risk=risk, value=value), THRESHOLDS) is expected
 
 
-def test_lever_table_matches_spec() -> None:
-    q1 = levers_for(Quadrant.Q1, BASE, has_cluster=False)
-    assert q1.future_terms.return_window_days == 60 and q1.future_terms.instant_refund
-    assert not q1.transparency_notice and not is_restrictive(q1, BASE)
+# UNIT-04: the lever table of docs/spec.md section 8.6 for the Navigli base, cell by cell.
+# Columns of ReturnTerms: window days, free return shipping, instant refund, free size exchange,
+# individual coupons. Q4 blocks the coupons of the whole cluster only when there is a cluster.
+SPEC_8_6 = {
+    Quadrant.Q1: Levers(
+        ReturnTerms(60, True, True, True, True),
+        cluster_coupons_disabled=False,
+        transparency_notice=False,
+        size_advice=True,
+        priority_size_exchange=True,
+    ),
+    Quadrant.Q2: Levers(
+        ReturnTerms(30, True, True, True, True),
+        cluster_coupons_disabled=False,
+        transparency_notice=False,
+        size_advice=True,
+    ),
+    Quadrant.Q3: Levers(
+        ReturnTerms(30, True, False, True, True),
+        cluster_coupons_disabled=False,
+        transparency_notice=True,
+        size_advice=True,
+    ),
+    Quadrant.Q4: Levers(
+        ReturnTerms(14, False, False, True, False),
+        cluster_coupons_disabled=True,
+        transparency_notice=True,
+        size_advice=True,
+    ),
+}
 
-    q2 = levers_for(Quadrant.Q2, BASE, has_cluster=False)
-    assert q2.future_terms == BASE and not is_restrictive(q2, BASE)
 
-    q3 = levers_for(Quadrant.Q3, BASE, has_cluster=True)
-    assert not q3.future_terms.instant_refund and q3.future_terms.free_return_shipping
-    assert q3.transparency_notice and not q3.cluster_coupons_disabled
+@pytest.mark.parametrize("quadrant", list(Quadrant))
+def test_unit04_lever_table_matches_spec_cell_by_cell(quadrant: Quadrant) -> None:
+    assert levers_for(quadrant, BASE, has_cluster=True) == SPEC_8_6[quadrant]
 
-    q4 = levers_for(Quadrant.Q4, BASE, has_cluster=True)
-    assert q4.future_terms.return_window_days == 14
-    assert not q4.future_terms.free_return_shipping and not q4.future_terms.instant_refund
-    assert q4.cluster_coupons_disabled and q4.transparency_notice
 
-    for lev in (q1, q2, q3, q4):
-        assert lev.future_terms.free_size_exchange
+def test_review_days_is_90() -> None:
+    assert REVIEW_DAYS == 90  # US-607 design hypothesis, D-15
+
+
+@pytest.mark.parametrize(
+    ("risk", "value", "expected"),
+    [
+        (0.5, "150", Quadrant.Q3),  # both thresholds are inclusive
+        (0.5, "149.99", Quadrant.Q4),
+        (0.4999, "150", Quadrant.Q1),
+        (0.4999, "149.99", Quadrant.Q2),
+    ],
+)
+def test_quadrant_threshold_boundaries(risk: float, value: str, expected: Quadrant) -> None:
+    assert quadrant_for(scores(risk=risk, value=value), THRESHOLDS) is expected
 
 
 def test_q4_without_cluster_blocks_only_individual_coupons() -> None:
@@ -146,7 +190,74 @@ def test_lever_ids_list_only_the_differences_from_base() -> None:
         "transparency_notice:true",
     ]
     assert levers_for(Quadrant.Q2, BASE, has_cluster=False).lever_ids(BASE) == []
+    q1 = levers_for(Quadrant.Q1, BASE, has_cluster=False)
+    assert q1.lever_ids(BASE) == ["return_window_days:60", "priority_size_exchange:true"]
     from dataclasses import replace
 
     no_exchange = replace(q4, future_terms=replace(q4.future_terms, free_size_exchange=False))
     assert "free_size_exchange:false" in no_exchange.lever_ids(BASE)
+
+
+@pytest.mark.parametrize("quadrant_scores", [(0.9, "500"), (0.9, "20")])
+def test_q3_and_q4_need_approval_and_review_with_any_base(
+    quadrant_scores: tuple[float, str],
+) -> None:
+    # A base already at the legal minimum: Q4 changes no term, yet it still needs approval.
+    minimum = ReturnTerms(14, False, False, True, False)
+    risk, value = quadrant_scores
+    d = decide(request(terms=minimum), scores(risk, value), minimum, THRESHOLDS, TODAY)
+    assert d.quadrant in (Quadrant.Q3, Quadrant.Q4)
+    assert d.requires_approval and d.review_on == TODAY + timedelta(days=REVIEW_DAYS)
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        CaseScores(float("nan"), Decimal("800"), EvidenceQuality.SUFFICIENT),
+        CaseScores(float("inf"), Decimal("800"), EvidenceQuality.SUFFICIENT),
+        CaseScores(-0.1, Decimal("800"), EvidenceQuality.SUFFICIENT),
+        CaseScores(1.1, Decimal("800"), EvidenceQuality.SUFFICIENT),
+        CaseScores(0.1, Decimal("NaN"), EvidenceQuality.SUFFICIENT),
+        CaseScores(0.1, Decimal("Infinity"), EvidenceQuality.SUFFICIENT),
+    ],
+)
+def test_invalid_scores_stop_the_engine(bad: CaseScores) -> None:
+    with pytest.raises(PolicyError):
+        decide(request(), bad, BASE, THRESHOLDS, TODAY)
+
+
+def test_invalid_scores_never_block_the_guarantee_or_insufficient_paths() -> None:
+    nan = CaseScores(float("nan"), Decimal("NaN"), EvidenceQuality.SUFFICIENT)
+    d = decide(request(ReturnReason.DEFECTIVE), nan, BASE, THRESHOLDS, TODAY)
+    assert d.path is Path.GUARANTEE
+    low = replace(nan, evidence_quality=EvidenceQuality.INSUFFICIENT)
+    assert decide(request(), low, BASE, THRESHOLDS, TODAY).quadrant is None
+
+
+@pytest.mark.parametrize("approver", ["", "   ", "\t"])
+def test_approve_rejects_a_blank_approver(approver: str) -> None:
+    req = request()
+    d = decide(req, scores(0.95, "15"), BASE, THRESHOLDS, TODAY)
+    with pytest.raises(PolicyError):
+        approve(d, req, BASE, approver=approver)
+
+
+def test_approve_strips_the_approver_name() -> None:
+    req = request()
+    d = decide(req, scores(0.95, "15"), BASE, THRESHOLDS, TODAY)
+    assert approve(d, req, BASE, approver="  sara ").approver == "sara"
+
+
+def test_approve_only_a_proposed_decision() -> None:
+    req = request()
+    d = decide(req, scores(0.95, "15"), BASE, THRESHOLDS, TODAY)
+    for state in (DecisionState.REJECTED, DecisionState.APPROVED):
+        with pytest.raises(PolicyError):
+            approve(replace(d, state=state), req, BASE, approver="sara")
+
+
+def test_approve_without_a_coupon_rule() -> None:
+    req = request()
+    d = decide(req, scores(0.9, "500"), BASE, THRESHOLDS, TODAY)  # Q3, no cluster
+    assert d.coupon_rule is None
+    assert approve(d, req, BASE, approver="sara").coupon_rule is None

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import timedelta
+from decimal import Decimal
 
 from policy.types import (
     NON_CONFORMITY_REASONS,
@@ -16,6 +17,7 @@ from policy.types import (
     EvidenceQuality,
     Levers,
     Path,
+    Quadrant,
     ReturnRequest,
     ReturnTerms,
 )
@@ -23,6 +25,7 @@ from policy.types import (
 LEGAL_WITHDRAWAL_DAYS = 14  # Directive 2011/83/EU, art. 9
 LEGAL_REFUND_DAYS = 14  # Directive 2011/83/EU, art. 13
 MAX_REVIEW_DAYS = 180  # restrictions are never permanent (US-607)
+APPROVAL_QUADRANTS = frozenset({Quadrant.Q3, Quadrant.Q4})  # spec 8.6: always a human approval
 
 
 @dataclass(frozen=True)
@@ -32,8 +35,17 @@ class Violation:
 
 
 def is_restrictive(levers: Levers, base: ReturnTerms) -> bool:
-    """A decision is restrictive if it is less generous than the merchant base policy."""
-    return levers.future_terms.is_less_generous_than(base) or levers.cluster_coupons_disabled
+    """Restrictive: less generous than the merchant base, a cluster coupon block, or the
+    return-rate notice, which tells a customer they are treated differently."""
+    return (
+        levers.future_terms.is_less_generous_than(base)
+        or levers.cluster_coupons_disabled
+        or levers.transparency_notice
+    )
+
+
+def _blank(value: str | None) -> bool:
+    return value is None or not value.strip()
 
 
 def check(decision: Decision, request: ReturnRequest, base: ReturnTerms) -> list[Violation]:
@@ -65,12 +77,13 @@ def check(decision: Decision, request: ReturnRequest, base: ReturnTerms) -> list
     if decision.evidence_quality is EvidenceQuality.INSUFFICIENT and restrictive:
         v.append(Violation("INSUFFICIENT_EVIDENCE_RESTRICTED", "No restriction without evidence"))
 
-    if restrictive and not decision.requires_approval:
-        v.append(Violation("APPROVAL_MISSING", "Restrictive decision not flagged for approval"))
-    if restrictive and decision.state is DecisionState.APPROVED and not decision.approver:
-        v.append(Violation("APPROVAL_MISSING", "Restrictive decision approved without approver"))
+    needs_approval = restrictive or decision.quadrant in APPROVAL_QUADRANTS
+    if needs_approval and not decision.requires_approval:
+        v.append(Violation("APPROVAL_MISSING", "Q3, Q4 or restriction not flagged for approval"))
+    if needs_approval and decision.state is DecisionState.APPROVED and _blank(decision.approver):
+        v.append(Violation("APPROVAL_MISSING", "Decision approved without an approver"))
 
-    if restrictive:
+    if needs_approval:
         if decision.review_on is None:
             v.append(Violation("REVIEW_MISSING", "Restriction without review date"))
         elif not (
@@ -82,16 +95,24 @@ def check(decision: Decision, request: ReturnRequest, base: ReturnTerms) -> list
 
     if decision.levers.cluster_coupons_disabled:
         rule = decision.coupon_rule
-        if rule is None or not rule.rule_version:
+        if rule is None or _blank(rule.rule_version):
             v.append(Violation("COUPON_RULE_MISSING", "Cluster coupon block without a rule"))
-        elif decision.state is DecisionState.APPROVED and not rule.confirmed_by:
+        elif decision.state is DecisionState.APPROVED and _blank(rule.confirmed_by):
             v.append(Violation("COUPON_CONFIRMATION_MISSING", "Rule applied without confirmation"))
 
     claim = decision.diminished_value_claim
     if claim is not None:
         if decision.path is Path.GUARANTEE:
             v.append(Violation("CLAIM_ON_GUARANTEE", "No diminished-value claim on a defect"))
-        if not claim.photo_evidence_ids or not claim.confirmed_by or not claim.rule_id:
+        missing = (
+            not claim.photo_evidence_ids
+            or any(_blank(photo) for photo in claim.photo_evidence_ids)
+            or _blank(claim.confirmed_by)
+            or _blank(claim.rule_id)
+        )
+        if missing:
             v.append(Violation("CLAIM_WITHOUT_EVIDENCE", "Claim needs photo, confirmation, rule"))
+        if not claim.amount_eur.is_finite() or claim.amount_eur <= Decimal(0):
+            v.append(Violation("CLAIM_AMOUNT_INVALID", "Claim amount must be a positive number"))
 
     return v

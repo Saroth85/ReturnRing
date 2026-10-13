@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -114,3 +115,18 @@ def test_render_rejects_unknown_or_missing_placeholders() -> None:
         render_customer_message("Refund {refund}.", {}, "en", None)
     with pytest.raises(MessageError):
         render_customer_message("Due {deadline}.", {}, "en", None)
+
+
+def _spec_clause(prefix: str) -> str:
+    """The approved clause, read from docs/spec.md appendix 19.C (the source of truth)."""
+    spec = (Path(__file__).resolve().parents[1] / "docs" / "spec.md").read_text(encoding="utf-8")
+    section = spec[spec.index("### C. Clausola legale fissa") :]
+    line = next(x for x in section.splitlines() if x.startswith(prefix))
+    return line.removeprefix(prefix)
+
+
+def test_leg06_withdrawal_clause_is_the_approved_text() -> None:
+    assert clause("withdrawal", "it") == _spec_clause("IT — ")
+    assert clause("withdrawal", "en") == _spec_clause("EN — ")
+    assert clause("withdrawal", "it").count("14 giorni") == 2
+    assert clause("withdrawal", "en").count("14 days") == 2

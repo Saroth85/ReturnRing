@@ -83,8 +83,9 @@ class Levers:
 
     future_terms: ReturnTerms
     cluster_coupons_disabled: bool
-    transparency_notice: bool
+    transparency_notice: bool  # return-rate notice: Q3 and Q4 only, a restriction
     size_advice: bool
+    priority_size_exchange: bool = False  # Q1 only: free size exchange "with priority"
 
     def lever_ids(self, base: ReturnTerms) -> list[str]:
         """Stable identifiers of the levers that differ from the merchant base policy."""
@@ -104,6 +105,8 @@ class Levers:
             ids.append("cluster_coupons_disabled:true")
         if self.transparency_notice:
             ids.append("transparency_notice:true")
+        if self.priority_size_exchange:
+            ids.append("priority_size_exchange:true")
         return ids
 
 

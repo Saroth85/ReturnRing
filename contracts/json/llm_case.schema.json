@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Case sent to Gemma (already decided)",
+  "title": "Case sent to Gemma (already decided), contract v2 (ADR-14)",
   "type": "object",
   "required": [
     "case_id",
@@ -9,14 +9,16 @@
     "evidence_quality",
     "quadrant",
     "levers",
-    "risk",
-    "value_eur",
+    "placeholders",
+    "facts",
     "policy_text"
   ],
   "additionalProperties": false,
   "properties": {
     "case_id": {
-      "type": "string"
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
     },
     "languages": {
       "type": "array",
@@ -26,7 +28,9 @@
           "en"
         ]
       },
-      "minItems": 1
+      "minItems": 1,
+      "maxItems": 2,
+      "uniqueItems": true
     },
     "path": {
       "enum": [
@@ -43,9 +47,11 @@
     "missing_evidence": {
       "description": "US-307: evidence that is missing, in plain words; required when evidence is insufficient",
       "type": "array",
+      "maxItems": 10,
       "items": {
         "type": "string",
-        "minLength": 1
+        "minLength": 1,
+        "maxLength": 200
       }
     },
     "quadrant": {
@@ -59,6 +65,7 @@
     },
     "levers": {
       "type": "array",
+      "maxItems": 9,
       "items": {
         "type": "object",
         "required": [
@@ -300,12 +307,97 @@
         ]
       }
     },
+    "placeholders": {
+      "description": "Placeholders the customer message may use (available) and must use (required); code fills them (rule 10)",
+      "type": "object",
+      "required": [
+        "available",
+        "required"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "available": {
+          "type": "array",
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "terms",
+              "amount",
+              "deadline"
+            ]
+          }
+        },
+        "required": {
+          "type": "array",
+          "maxItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "terms"
+            ]
+          }
+        }
+      }
+    },
+    "facts": {
+      "description": "US-305: the only numbers the operator explanation may use, built by code; a statement cites them by id",
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "entity",
+          "metric",
+          "value",
+          "period",
+          "nature"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^F[1-9][0-9]?$"
+          },
+          "entity": {
+            "enum": [
+              "customer",
+              "return",
+              "order",
+              "cluster",
+              "policy"
+            ]
+          },
+          "metric": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,63}$"
+          },
+          "value": {
+            "type": "number"
+          },
+          "period": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "nature": {
+            "enum": [
+              "real",
+              "synthetic",
+              "simulated"
+            ]
+          }
+        }
+      }
+    },
     "risk": {
       "type": "object",
       "required": [
         "score",
         "top_factors"
       ],
+      "additionalProperties": false,
       "properties": {
         "score": {
           "type": "number",
@@ -321,7 +413,22 @@
               "feature",
               "value",
               "phrase"
-            ]
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "feature": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_]{0,63}$"
+              },
+              "value": {
+                "type": "number"
+              },
+              "phrase": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            }
           }
         }
       }
@@ -330,16 +437,48 @@
       "type": "number"
     },
     "cluster": {
-      "type": [
-        "object",
-        "null"
-      ]
+      "type": "object",
+      "required": [
+        "id",
+        "size",
+        "shared"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 2
+        },
+        "shared": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "card",
+              "email",
+              "device",
+              "address",
+              "phone",
+              "ip_prefix"
+            ]
+          }
+        }
+      }
     },
     "policy_text": {
-      "type": "string"
+      "type": "string",
+      "maxLength": 4000
     },
     "customer_text": {
-      "type": "string"
+      "description": "Customer free text as data: escaped, between delimiters",
+      "type": "string",
+      "maxLength": 10100,
+      "pattern": "^<customer_text>[^<>]*</customer_text>$"
     }
   },
   "allOf": [
@@ -367,7 +506,33 @@
           },
           "levers": {
             "maxItems": 0
+          },
+          "placeholders": {
+            "properties": {
+              "required": {
+                "maxItems": 0
+              }
+            }
           }
+        },
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "risk"
+              ]
+            },
+            {
+              "required": [
+                "value_eur"
+              ]
+            },
+            {
+              "required": [
+                "cluster"
+              ]
+            }
+          ]
         }
       }
     },
@@ -389,6 +554,67 @@
           },
           "levers": {
             "maxItems": 0
+          },
+          "placeholders": {
+            "properties": {
+              "available": {
+                "maxItems": 0
+              },
+              "required": {
+                "maxItems": 0
+              }
+            }
+          }
+        },
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "risk"
+              ]
+            },
+            {
+              "required": [
+                "value_eur"
+              ]
+            },
+            {
+              "required": [
+                "cluster"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "path",
+          "evidence_quality"
+        ],
+        "properties": {
+          "path": {
+            "const": "withdrawal"
+          },
+          "evidence_quality": {
+            "const": "sufficient"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "risk",
+          "value_eur"
+        ],
+        "properties": {
+          "quadrant": {
+            "enum": [
+              "Q1",
+              "Q2",
+              "Q3",
+              "Q4"
+            ]
           }
         }
       }

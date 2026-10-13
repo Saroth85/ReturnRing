@@ -22,7 +22,7 @@ module = ["pyarrow.*", "pandas.*"]  # no type information shipped (pandas-stubs 
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = ["sklearn.*"]  # scikit-learn ships no type information
+module = ["xgboost.*", "sklearn.*", "scipy.*"]  # models (phase 2): no type information shipped
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

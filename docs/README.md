@@ -8,3 +8,7 @@
   (`us-201-propensity.md`: `python -m ml.propensity --raw data/raw --out artifacts`).
 - `synthetic-store.md` — the Navigli Fashion generator (US-102..US-105): calibration, behaviours,
   golden cases, out-of-distribution scenario, measured numbers.
+- `customer-features.md` — decision-time customer features, the product/cohort reference model, the
+  return residual, customer value and evidence quality (US-205, US-206, US-209).
+- `results/` — measured results, each file rewritten from the data by the command named at its top
+  (`results/customer-quantities.md`: `python -m ml.reference.report`).

@@ -1,0 +1,11 @@
+{
+  "code": "legal_guard",
+  "message": "The override violates the legal guard (policy/legal_guard.py)",
+  "violations": [
+    {
+      "code": "GUARANTEE_RESTRICTED",
+      "message": "Guarantee path is never scored or restricted"
+    }
+  ],
+  "request_id": "req-000120"
+}

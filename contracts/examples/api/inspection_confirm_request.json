@@ -1,0 +1,19 @@
+{
+  "inspector": "ahmed",
+  "observations": [
+    {
+      "item": "tag_attached",
+      "observation": "no"
+    },
+    {
+      "item": "visible_damage",
+      "observation": "yes"
+    },
+    {
+      "item": "photo_quality",
+      "observation": "yes"
+    }
+  ],
+  "apply_compensation": true,
+  "note": null
+}

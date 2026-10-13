@@ -16,3 +16,4 @@
 | ADR-12 | [Rule 15 covers the repository, not pulled images](ADR-12-container-licences.md) | ROCm and vLLM images ship GPL and other licences and are never redistributed |
 | ADR-13 | [Data contracts v2](ADR-13-data-contracts-v2.md) | A row holds only facts known at its available_at; one lever vocabulary; every file carries contract version and provenance. Amendment 3: customer features, value and evidence tables. Amendment 4: scores/request_scores and two checks on scores/scores |
 | ADR-14 | [LLM contracts v2](ADR-14-llm-contracts-v2.md) | Numbers in an explanation are grounded on code-built facts the statement cites; one placeholder grammar; no scores on guarantee or insufficient-evidence cases |
+| ADR-15 | [API and persistence contract](ADR-15-api-and-persistence-contract.md) | One generated contract for the API and the UI: pydantic models, JSON Schemas, OpenAPI, tested examples and PostgreSQL tables with named CHECKs |

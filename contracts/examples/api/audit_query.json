@@ -1,0 +1,12 @@
+{
+  "return_id": "RET-000102",
+  "decision_id": null,
+  "actor": null,
+  "action": null,
+  "entity_type": null,
+  "since": null,
+  "until": null,
+  "format": "csv",
+  "page": 1,
+  "page_size": 50
+}

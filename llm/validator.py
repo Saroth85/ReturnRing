@@ -318,7 +318,11 @@ def _check_statement(
         errors.append(_issue(Code.MISSING_FACT, where, "a SCORE statement cites a fact"))
     if statement.label == "OBSERVED" and any(f.metric in SCORE_METRICS for f in cited):
         errors.append(_issue(Code.LABEL_MISMATCH, where, "a model score is not an observation"))
-    text = strip_tokens(statement.text, identifiers, f" {IDENTIFIER_PLACEHOLDER} ")
+    # Case, cluster and quadrant ids are read as a space, metric names as a label word (round 5,
+    # finding V1): "Q4 (42.1)" is "(42.1)", "driven by cluster_welcome_coupons (7)" is "driven by
+    # metric (7)".
+    labelled = strip_tokens(statement.text, metrics, f" {IDENTIFIER_PLACEHOLDER} ")
+    text = strip_tokens(labelled, identifiers)
     ungrounded = grounding_problems(text, [(f.metric, f.value) for f in cited])
     ungrounded += other_numeric_characters(text)
     ungrounded += number_words(text, "en", skip=PRONOUN_NUMBERS)
@@ -349,6 +353,27 @@ def _check_explanation(
     if language_of(" ".join(s.text for s in statements)) == "it":
         errors.append(_issue(Code.WRONG_LANGUAGE, "operator_explanation", "English expected"))
     return errors
+
+
+# Retry feedback (round 5, finding V17): each code with where it was found and the words the
+# validator matched in the model's own answer ("TERMS_TOPIC in operator_explanation[2]: kept"), so
+# the second call can avoid them. The details are the model's own words (folded) or validator
+# text, never case text; a character outside the allowlist is written as its code point.
+MAX_FEEDBACK_CHARS = 120
+
+
+def retry_feedback(errors: Sequence[ValidationIssue]) -> tuple[str, ...]:
+    """The retry feedback of a rejected answer, one item per error, without repeats."""
+    items: list[str] = []
+    for error in errors:
+        detail = error.detail
+        if error.code is Code.SCRIPT:
+            detail = " ".join(f"U+{ord(ch):04X}" for ch in detail)
+        detail = " ".join(detail.split())[:MAX_FEEDBACK_CHARS]
+        item = f"{error.code.value} in {error.where}" + (f": {detail}" if detail else "")
+        if item not in items:
+            items.append(item)
+    return tuple(items)
 
 
 def _check_sentences(ids: Sequence[str], expected: ExpectedDecision) -> list[ValidationIssue]:
@@ -387,5 +412,6 @@ __all__ = [
     "ValidationIssue",
     "ValidationResult",
     "check_case",
+    "retry_feedback",
     "validate",
 ]

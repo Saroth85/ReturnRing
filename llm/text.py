@@ -1,5 +1,5 @@
 """Lexical checks on model text (docs/spec.md 8.7; review findings LLM-1, LLM-5, LLM-6, LLM-10 and
-the adversarial reviews of 13 Oct, rounds 1 to 4).
+the adversarial reviews of 13 Oct, rounds 1 to 5).
 
 Standard library only. Word checks run on folded forms of the text, so look-alike letters,
 invisible characters, accents, dashes and letter spacing do not hide a word:
@@ -16,7 +16,10 @@ invisible characters, accents, dashes and letter spacing do not hide a word:
 
 Most checks are blocklists: they reduce risk, they do not prove a text is safe. The validator
 applies them to the text Gemma still writes (operator statements, agent answers); the tests apply
-them to every sentence of the customer phrasebook (llm/phrasebook.py). Three checks are
+them to every sentence of the customer phrasebook (llm/phrasebook.py). On the operator's free
+text they are tuned for precision (round 5, ADR-14 decision 11): the operator also sees the
+engine decision, so rejecting correct output is worse than missing a contrived paraphrase, and
+every check must let the must-accept corpus of tests/test_llm_corpus.py pass. Three checks are
 allowlists instead (round 2, finding R5; round 3, findings T7, T9 and T11):
 
 - `foreign_characters`: on the raw text, before NFKC, only printable ASCII, the Italian accented
@@ -254,18 +257,29 @@ BANNED_STEMS: tuple[str, ...] = (
     "crimin",
     "illegal",
     "illegit",
-    "crook",
     "swindl",
     "grifter",
     "sockpuppet",
     "alterego",
+    # Round 5, finding V15: verdicts on the accounts ("predatory", "throwaway", "burner accounts").
+    "predator",
+    "throwaway",
+    "burner",
 )
-# Verdicts as whole words ("sham", not "shampoo") and phrases (round 4, findings U7 and U8).
-BANNED_WORDS = frozenset({"sham", "shams"})
+# Verdicts as whole words ("sham", not "shampoo"; "crook", not "a crooked seam") and phrases
+# (round 4, findings U7 and U8; round 5, findings V4, V10 and V15): duplicate accounts, clones,
+# multi-accounting, gaming anything.
+BANNED_WORDS = frozenset({"sham", "shams", "crook", "crooks"})
 _BANNED_PHRASES = re.compile(
     r"\bserial returns?(?:er|ers|ing)?\b|\bbad actors?\b|\bsock puppets?\b|\balter egos?\b"
-    r"|\bgam(?:e|es|ed|ing) the (?:system|rules|policy|returns?)\b"
+    r"|\bgam(?:e|es|ed|ing) the (?:system|rules|policy|returns?)\b|\bgam(?:es|ed|ing) the [a-z]+"
+    r"|\bduplicat\w* (?:accounts?|profil\w*|identit\w*|users?|customers?)\b"
+    r"|\baccounts?\b(?: [a-z]+){0,3} duplicates?\b|\bmulti ?accounting\b|\bclon(?:e|es|ed|ing)\b"
 )
+# Farming and harvesting, in a sentence about accounts or coupons ("account farming", "created to
+# farm welcome coupons"): round 5, finding V15.
+_FARMING_RE = re.compile(r"\b(?:farm|farms|farmed|farming|farmer|farmers|harvest\w*)\b")
+_FARMED_RE = re.compile(r"\b(?:accounts?|coupons?|codes?|vouchers?|profil\w*|clusters?|offers?)\b")
 # Innocent fashion and retail words that share a stem: scambio (exchange), scamosciato (suede),
 # scampolo (remnant), scamiciato (pinafore dress), truffle (a colour); "wardrobe" is not a stem
 # above, and "fake fur" (or leather, suede, pearls) is a material.
@@ -309,6 +323,15 @@ _SAME_PERSON_RES: tuple[re.Pattern[str], ...] = (
     ),
     # "the linked accounts share an owner", "condividono un titolare"
     re.compile(rf"\bshar(?:e|es|ed|ing) (?:(?:a|an|one|the same|the) )?(?:{_PERSON_NOUNS})\b"),
+    # "the person is the same", "the account holder is the same for both" (round 5, V10)
+    re.compile(
+        rf"\b(?:{_PERSON_NOUNS})\b(?: (?:here|there|also|too|involved|again|behind|of|across|in|on"
+        r"|for|both|all|these|those|the|linked|accounts?|account|them|it|dietro|degli|dei|di))"
+        r"{0,3} (?:is|are|was|were|seems?|appears?|looks?|remains?|stays?|e|sono|era|erano|sembra"
+        r"|sembrano|resta|rimane) (?:(?:always|still|clearly|probably|likely|really|just|all"
+        r"|sempre|chiaramente|probabilmente|forse) )*(?:(?:the|lo|la|il|l) )?(?:same|identical"
+        r"|selfsame|stess[aeoi]|medesim[aeoi]|identic[aoi])\b"
+    ),
     re.compile(
         rf"\bcondivid\w* (?:(?:un|una|uno|il|lo|la|lo stesso|la stessa) )?(?:{_PERSON_NOUNS})\b"
     ),
@@ -319,85 +342,156 @@ _ONE_PERSON_RE = re.compile(rf"\bun[ao]? (?:{_PERSON_NOUNS})\b")
 _ACCOUNTS_RE = re.compile(r"\b(?:accounts?|profil[oi]|collegat[oaie]|linked)\b")
 _SENTENCE_RE = re.compile(r"[.!?;:\n]+")
 # Ownership and identity in a statement about the linked accounts (round 2, finding R3; round 3,
-# finding T6; round 4, finding U7). The check runs on the whole statement, split only at . ! ?
-# and line breaks (a dot between two letters joins a word), and on every letter form, so ":", ";"
-# and inner joiners ("con-trols", "man.ages") hide nothing. Instead of a list of verbs, a
-# relation rule: a person or role noun is flagged when it is the subject of a verb whose object is
-# the accounts ("the customer holds / uses / logs into / set up the linked accounts"), the agent
-# of a passive about them ("registered to the customer", "opened by the customer"), their
-# predicate ("the linked accounts are the customer's"), a role of them ("the owner of the
-# linked accounts", "il titolare degli account") or a possessive before them ("the customer's
-# other linked accounts", "his linked accounts"). Owning, belonging to anything but a cluster,
-# tracing back, being behind them, aliases, alter egos and sock puppets are flagged too.
-# Intransitive verbs are not ("the linked accounts operate from a shared address", "orders from
-# the linked accounts ran in rapid succession", "controlled by a shared device"), nor "its own",
-# "their own" or a participle without a person ("accounts created within 9 days").
+# finding T6; round 4, finding U7; round 5, findings V2, V3, V10 and V18). The checks run on each
+# sentence that talks about the accounts (split only at . ! ? and line breaks: a dot between two
+# letters joins a word), clause by clause (split at , ; :), on every letter form, so inner joiners
+# ("con-trols", "man.ages") hide nothing. Precision first (ADR-14 decision 11):
+# - a control verb whose object is the accounts, whatever the subject ("they / the family / Marco
+#   controls, runs, manages, operates, owns the linked accounts", "gestisce", "controlla"), and
+#   its passive with any agent but an identifier ("run by them", "gestiti da Marco"; "controlled
+#   by a shared device" passes);
+# - a person noun as the subject of a verb of possession or use from a short list, followed
+#   directly by the accounts (determiners and numbers aside): "the customer holds / has / uses /
+#   logs into / set up the linked accounts", "il cliente usa gli account"; checked on the forms
+#   without digits read as letters, so "7 linked accounts" never reads as a verb "t". A negation
+#   ("has no linked accounts", "non ha account collegati") or any other word between the verb and
+#   the accounts ("the customer's cluster has 7 linked accounts", "is in a cluster of",
+#   "should review the linked accounts") is not a claim;
+# - a person or group noun, or a pronoun, as the agent of a passive about the accounts
+#   ("registered to the customer", "opened by the household"), their predicate ("the linked
+#   accounts are the customer's"), a role of them ("the owner of the linked accounts"), a
+#   possessive before them ("the customer's other linked accounts", "his linked accounts", "i suoi
+#   account"), "in the customer's name", "belongs to" anything but a cluster or group, "traces back
+#   to", "behind the accounts", aliases, alter egos and sock puppets.
+# Intransitive uses pass ("the linked accounts operate from a shared address", "orders from the
+# linked accounts ran in rapid succession"), and so do "its own", "their own", "differ in name" and
+# Italian possessives of a cluster ("il cluster R-MARCO ... i suoi legami").
 _OWNERSHIP_SENTENCE_RE = re.compile(r"[!?\n]+|(?<![^\W\d_])\.+|\.+(?![^\W\d_])")
+_CLAUSE_RE = re.compile(r"[,;:]+")
 _LINKED_RE = re.compile(
     r"\b(?:accounts|linked|collegat[oaie]|profili|clusters?"
     r"|(?:gli|degli|questi|tutti gli) account)\b"
 )
 _OWNERS = (
     "customers?|clients?|users?(?! agents?\\b)|persons?|people|individuals?|buyers?|shoppers?"
-    "|consumers?|purchasers?|owners?|holders?|proprietors?|someone|somebody|he|she"
+    "|consumers?|purchasers?|owners?|holders?|proprietors?|someone|somebody|whoever|he|she"
     "|client[ei]|utent[ei]|person[ae]|titolar[ei]|intestatari[oae]?|proprietari[oae]?"
-    "|acquirent[ei]|individu[oi]|soggett[oi]|qualcuno"
+    "|acquirent[ei]|individu[oi]|soggett[oi]|qualcuno|chi"
 )
+# Agents of a passive: the owners, and groups and pronouns ("run by them", "opened by the family").
+_AGENTS = f"{_OWNERS}|they|them|famil(?:y|ies)|households?|part(?:y|ies)|entit(?:y|ies)|loro"
+_AGENTS += "|famigli[ae]|nucle[oi]"
 _ROLES = (
     "owners?|holders?|proprietors?|controllers?|creators?|operators?|managers?|titolar[ei]"
     "|proprietari[oae]?|intestatari[oae]?|gestor[ei]|creator[ei]"
 )
+_NUMBER_WORDS = (
+    "one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|due|tre|quattro|cinque|sei"
+    "|sette|otto|nove|dieci"
+)
+_DETERMINERS = (
+    "the|all|these|those|both|of|its|his|her|their|other|several|multiple|many|every|each|a|an"
+    "|any|some|same|gli|degli|i|tutti|tutte|questi|quegli|altri|dei|agli|negli|sugli|ai|un|uno|una"
+    f"|piu|diversi|vari|molti|{_NUMBER_WORDS}"
+)
+_ACCOUNT_ADJECTIVES = (
+    "linked|other|connected|related|additional|extra|secondary|multiple|several|different"
+    "|separate|collegati|altri"
+)
 _THE_ACCOUNTS = (
-    r"(?:(?:the|all|these|those|both|of|its|his|her|their|other|several|multiple|many|every"
-    r"|each|gli|degli|i|tutti|tutte|questi|quegli|altri|dei|agli|negli|sugli) )*"
-    r"(?:linked |other |collegati )?(?:accounts?|profil[oi])\b|\bthem\b"
+    rf"(?:(?:{_DETERMINERS}) )*(?:(?:{_ACCOUNT_ADJECTIVES}) )?(?:accounts?|profil[oi])\b"
 )
-# Words that end the verb phrase between a person and the accounts: conjunctions, prepositions of
-# a mere relation, linking and sharing verbs, membership ("the customer and the linked accounts
-# share a card", "the customer is linked to the accounts", "is one of the linked accounts").
-_NOT_VERB_PHRASE = (
-    "and|or|nor|but|while|whereas|than|as|like|with|from|via|across|between|among|about|at|by"
-    "|vs|versus|unlike|similar|linked|connected|related|shares?|shared|sharing|e|ed|o|ma|con|da"
-    "|tra|fra|come|mentre|oppure|collegat[oaie]|condivid\\w*|one|part|members?|among"
+_CONTROL_VERBS = (
+    r"controls?|controlled|controlling|runs?|ran|running|manages?|managed|managing|operates?"
+    r"|operated|operating|owns?|owned|owning|administers?|administered|gestisc\w*|gestiv\w*"
+    r"|gestit\w*|controll\w*|possied\w*|possed\w*|amministr\w*"
 )
-_VERB_PHRASE = (
-    rf"(?!(?:{_NOT_VERB_PHRASE}|s|of)\b)[a-z]+(?: (?!(?:{_NOT_VERB_PHRASE})\b)[a-z]+){{0,3}}"
+_CONTROL_PARTICIPLES = (
+    r"controlled|managed|run|operated|owned|administered|gestit[oaie]|controllat[oaie]"
+    r"|possedut[oaie]|amministrat[oaie]"
 )
-_PARTICIPLE = (
-    r"[a-z]+(?:ed|en|able|ible|at[oaie]|it[oaie]|ut[oaie]|ert[oaie]|ess[oaie]|os[oaie])"
-    r"|run|held|made|built|kept|set up|signed up"
+# What may control the accounts without a claim about a person: an identifier or the merchant.
+_NOT_AGENTS = (
+    r"devices?|address\w*|cards?|links?|identifiers?|ids?|ip|phones?|emails?|e mails?|cookies?"
+    r"|fingerprints?|dispositiv\w*|indirizz\w*|cart[ae]|legam\w*|collegament\w*|identificativ\w*"
+    r"|telefon\w*|merchant|store|shop|team|warehouse|system|model|engine|negozio|magazzino"
 )
-_AGENT_ARTICLES = "the|this|that|a|an|one|same|il|lo|la|l|un|una|uno|stesso|stessa"
+_ARTICLES = (
+    r"the|a|an|one|same|shared|single|common|il|lo|la|l|un|una|uno|stesso|stessa|condivis\w*"
+)
 _GROUPS = "clusters?|groups?|rings?|networks?|components?|sets?|graphs?|communit(?:y|ies)"
+_PASSIVE_BY = r"by|da|dal|dalla|dallo|dai|dagli|dall"
+# Verbs of possession or use with a person as subject (a short list: "review", "resemble" or
+# "belong to a cluster" are not claims).
+_OWNER_VERBS = (
+    r"has|have|had|holds?|held|holding|uses?|used|using|utili[sz]e[sd]?|utili[sz]ing|creates?"
+    r"|created|creating|opens?|opened|opening|registers?|registered|registering|maintains?"
+    r"|maintained|keeps?|kept|handles?|handled|possess(?:es|ed)?|accesses|accessed|accessing"
+    r"|access|controls?|runs?|ran|manages?|managed|operates?|operated|owns?|owned|juggles?"
+    r"|juggled|employs?|employed|makes?|made|builds?|built|switches between|switched between"
+    r"|rotates between|rotated between|logs? (?:into|in to|onto|on to)|logged (?:into|in to|onto"
+    r"|on to)|sets? up|setting up|signs? up|signed up|usa|usano|utilizza|utilizzano|ha|hanno"
+    r"|possiede|possiedono|detiene|detengono|crea|creano|apre|aprono|registra|registrano"
+    r"|mantiene|mantengono|accede a|accedono a|creato|aperto|registrato|usato|utilizzato"
+)
+_AUXILIARIES = (
+    r"has|have|had|ha|hanno|aveva|avevano|will|would|can|could|may|might|must|does|did|do|also"
+    r"|still|probably|likely|clearly|apparently|actually|just|really|evidently|then|e|sono|era"
+    r"|is|are|was|were"
+)
 _OWNERSHIP_RE = re.compile(
-    r"(?<!its )(?<!their )(?<!your )(?<!his )(?<!her )(?<!our )(?<!my )\bown(?:s|ed|ing)?\b"
-    # subject of a verb whose object is the accounts
-    rf"|\b(?:{_OWNERS}) {_VERB_PHRASE} (?:{_THE_ACCOUNTS})"
-    # agent of a passive about the accounts
-    rf"|\b(?:accounts?|profil[oi])\b(?: [a-z]+){{0,6}} (?:{_PARTICIPLE}) (?:by|to|da|dal|dalla"
-    rf"|dallo|dai|dagli|al|alla|allo|ai|agli) (?:(?:{_AGENT_ARTICLES}) )?(?:{_OWNERS})\b(?! s\b)"
+    # a control verb with the accounts as object, whatever the subject (V2)
+    rf"\b(?:{_CONTROL_VERBS}) (?:(?:{_THE_ACCOUNTS})|them\b)"
+    # its passive, with any agent but an identifier or the merchant (V2)
+    rf"|\b(?:accounts?|profil[oi]|them)\b(?: [a-z]+){{0,4}} (?:{_CONTROL_PARTICIPLES})"
+    rf" (?:{_PASSIVE_BY}) (?!(?:(?:{_ARTICLES}) )*(?:{_NOT_AGENTS})\b)[a-z]+"
+    r"|(?<!its )(?<!their )(?<!your )(?<!his )(?<!her )(?<!our )(?<!my )\bown(?:s|ed|ing)?\b"
+    # the agent of a passive about the accounts
+    r"|\b(?:accounts?|profil[oi])\b(?: [a-z]+){0,6} (?:[a-z]+(?:ed|en|able|ible|at[oaie]|it[oaie]"
+    r"|ut[oaie]|ert[oaie]|ess[oaie]|os[oaie])|held|made|built|kept|set up|signed up) (?:by|to|da"
+    r"|dal|dalla|dallo|dai|dagli|al|alla|allo|ai|agli) (?:(?:the|this|that|a|an|one|same|il|lo|la"
+    rf"|l|un|una|uno|stesso|stessa) )?(?:{_AGENTS})\b(?! s\b)"
     # predicate of the accounts
     rf"|\b(?:accounts?|profil[oi])\b(?: [a-z]+){{0,3}} (?:are|is|were|was|seem|appear|sono|e"
     r"|erano|era|sembrano) (?:(?:all|both|each|just|simply|really|clearly|probably|likely|in fact"
     rf"|actually|basically|tutti|tutte) )*(?:(?:the|a|an|one|del|della|dello|dell|di|il|la|lo) )?"
     rf"(?:{_OWNERS})\b"
-    # a role of the accounts, a possessive before them
+    # a role of the accounts, a possessive before them, in the name of
     rf"|\b(?:{_ROLES}) (?:of|di|degli|dei|del|della|delle) (?:{_THE_ACCOUNTS})"
-    rf"|\b(?:{_OWNERS}) s (?:[a-z]+ ){{0,2}}accounts\b|\b(?:his|her) (?:[a-z]+ ){{0,2}}accounts\b"
-    rf"|\bin (?:(?:the|his|her|their) )?(?:(?:{_OWNERS}) s )?name\b|\ba (?:suo|loro) nome\b"
-    r"|\ba nome (?:del|della|di)\b|\bproprieta\b|\bproprietari\w*|\bproprietors?\b"
+    rf"|\bin charge of (?:{_THE_ACCOUNTS})|\bresponsabil[ei] (?:di|degli|dei) (?:{_THE_ACCOUNTS})"
+    rf"|\b(?:{_OWNERS}) s (?:(?:{_ACCOUNT_ADJECTIVES}|{_NUMBER_WORDS}|own) ){{0,2}}(?:accounts"
+    rf"|profiles|profili)\b"
+    rf"|\b(?:his|her) (?:(?:{_ACCOUNT_ADJECTIVES}|{_NUMBER_WORDS}|own) ){{0,2}}accounts\b"
+    rf"|\bin (?:his|her|their|the (?:{_OWNERS})(?: s)?|(?:{_OWNERS}) s) name\b|\bin the name of\b"
+    r"|\ba (?:suo|loro) nome\b|\ba nome (?:del|della|di)\b|\bproprieta\b|\bproprietari\w*"
+    r"|\bproprietors?\b"
     r"|\bbelong(?:s|ed|ing)? to\b(?! ?$| (?:(?:the|a|an|this|that|these|those|same|one"
     rf"|different|another|other|separate) )*(?:{_GROUPS})\b)"
     r"|\b(?:trace[sd]?|tracing|leads?|led|leading) back\b|\btraceable to\b|\btraced to\b"
     rf"|\baccounts? (?:[a-z]+ )?of (?:the|this|that|a|one) (?:{_PERSON_NOUNS})\b"
-    r"|\b(?:behind|dietro|aliases|alias|alts?|puppets?)\b|\bunder (?:[a-z]+ ){0,3}control\b"
+    rf"|\bbehind (?:(?:{_DETERMINERS}) )*(?:(?:{_ACCOUNT_ADJECTIVES}) )?(?:accounts?|profil\w*"
+    rf"|them|(?:{_GROUPS})\b(?! (?:s|score|scores|size|risk|rate|returns?)\b))\b"
+    r"|\bdietro (?:(?:a|ad|agli|gli|questi|tutti|i|ai|al|il|lo|la) )*(?:account|profil\w*"
+    r"|cluster)\b"
+    r"|\b(?:aliases|alias|alts?|puppets?)\b|\bunder (?:[a-z]+ ){0,3}control\b"
     r"|\b(?:yours|theirs|hers|mine)\b"
-    r"|\b(?:tuoi|tue|suoi|sue|vostri|vostre|miei|mie)\b|\b(?:tutti|tutte) di\b"
-    r"|\b(?:del|dello|della|dell) (?:cliente|utente|persona|titolare|consumatore|consumatrice"
-    r"|acquirente|compratore|compratrice|proprietari[oa])\b"
-    r"|\b(?:appartien\w*|appartengono|apparten\w+|possedut[oaie]|possied\w+|intestat[oaie]"
-    r"|riconducibil\w+)\b"
+    # Italian possessives of the accounts, not of a cluster ("i suoi legami"): V18
+    r"|\b(?:tuoi|tue|suoi|sue|vostri|vostre|miei|mie|loro)(?= (?:(?:altri|diversi|vari|molti"
+    r"|nuovi|vecchi) )?(?:account|profil[oi])\b)"
+    r"|\b(?:sono|siano|sembrano|erano)(?: [a-z]+){0,2} (?:tuoi|tue|suoi|sue|vostri|vostre|miei"
+    r"|mie)\b|\b(?:tutti|tutte) di\b"
+    r"|\b(?:account|profil[oi])\b(?: [a-z]+){0,2} (?:del|dello|della|dell) (?:cliente|utente"
+    r"|persona|titolare|consumatore|consumatrice|acquirente|compratore|compratrice"
+    r"|proprietari[oa])\b"
+    r"|\b(?:appartien\w*|appartengono|apparten\w+)\b(?! (?:(?:a|al|allo|alla|ai|agli|all|lo|la"
+    r"|il|stesso|stessa|un|uno|una|altro|altri|diversi|diverso) )*(?:cluster|grupp[oi]|ret[ei]"
+    r"|anell[oi]|insiem[ei])\b)"
+    r"|\b(?:possedut[oaie]|possied\w+|intestat[oaie]|riconducibil\w+)\b"
     r"|\bfa(?:nno)? capo\b|\b(?:creat|apert)[oaie] da\b"
+)
+# A person as the subject of a verb of possession or use whose object follows it directly (V3).
+_SUBJECT_RE = re.compile(
+    rf"\b(?:{_OWNERS}) (?:(?:{_AUXILIARIES}) ){{0,2}}(?:{_OWNER_VERBS}) (?:{_THE_ACCOUNTS})"
 )
 
 
@@ -410,9 +504,13 @@ def _same_person(text: str) -> list[str]:
         if _ACCOUNTS_RE.search(form):
             _add(found, (m.group() for m in _ONE_PERSON_RE.finditer(form)))
     for sentence in _OWNERSHIP_SENTENCE_RE.split(unicodedata.normalize("NFKC", text)):
-        for form in forms(sentence, leet=True):
-            if _LINKED_RE.search(form):
+        if not any(_LINKED_RE.search(form) for form in forms(sentence, leet=True)):
+            continue
+        for clause in _CLAUSE_RE.split(sentence):
+            for form in forms(clause, leet=True):
                 _add(found, (m.group().strip() for m in _OWNERSHIP_RE.finditer(form)))
+            for form in forms(clause):
+                _add(found, (m.group().strip() for m in _SUBJECT_RE.finditer(form)))
     return found
 
 
@@ -422,6 +520,8 @@ def banned_terms(text: str) -> list[str]:
     found: list[str] = []
     for form in forms(text, leet=True):
         _add(found, (m.group() for m in _BANNED_PHRASES.finditer(form)))
+        if _FARMED_RE.search(form):
+            _add(found, (m.group() for m in _FARMING_RE.finditer(form)))
         form = _ALLOWED_BANNED_PHRASES.sub(" ", form)
         hits = _stem_hits(
             form,
@@ -567,14 +667,18 @@ def terms_wording(text: str) -> list[str]:
 
 # ---- Topics of the operator statements (round 3, findings T7 and T8; round 4, finding U6) -----
 
-# Restrictions in words; "limited" alone is left out ("limited evidence" is a plain observation).
+# Restrictions in words; "limited" alone is left out ("limited evidence" is a plain observation),
+# and so are "tight" and "tough" ("the dress is too tight"), "withdrawal path" and "right of
+# withdrawal" (round 5, finding V4).
 RESTRICTION_STEMS: tuple[str, ...] = (
     "restrict",
     "restrizion",
     "restritt",
     "strict",
-    "tight",
-    "tough",
+    "tighter",
+    "tighten",
+    "tougher",
+    "toughen",
     "harsh",
     "limitation",
     "limitazion",
@@ -586,27 +690,23 @@ RESTRICTION_STEMS: tuple[str, ...] = (
     "withdr",
 )
 # The state of a lever and its scope (round 4, finding U6): every lever is about future orders
-# and every fact about the past, so "future", "enabled", "available", "keeps", "remains",
-# "paused", "offered", "eligible" and "priority" are topics, whatever they qualify.
+# and every fact about the past, so "future", "enabled", "paused", "eligible" and "priority" are
+# topics, whatever they qualify. Keeps, remains, available, offered, paid, gone and "no longer"
+# are topics only next to a lever noun (`_LEVER_STATE_RE`): "the customer kept the S", "no photo
+# is available" and "the item no longer fits" are observations (round 5, findings V4 and V17).
 LEVER_STATE_STEMS: tuple[str, ...] = (
     "futur",
     "enabl",
     "disabl",
-    "avail",
-    "unavail",
-    "keep",
-    "remain",
     "paus",
-    "offer",
     "eligib",
     "priorit",
     "payout",
-    "swap",
     "loyalt",
     "reward",
 )
 # The terms stems of the customer gate, restrictions, refunds and their paraphrases (repay,
-# reimburse, postage, prepaid, payouts, money, pay), promotions and perks, levers and terms, the
+# reimburse, postage, prepaid, payouts, money), promotions and perks, levers and terms, the
 # state and scope of a lever.
 OPERATOR_TOPIC_STEMS: tuple[str, ...] = (
     TERMS_STEMS
@@ -616,30 +716,72 @@ OPERATOR_TOPIC_STEMS: tuple[str, ...] = (
     + ("privileg", "concession", "lever", "condizion", "transparenc", "trasparenz")
 )
 OPERATOR_TOPIC_WORDS = TERMS_WORDS | word_set(
-    "terms termini leva leve policy policies limit limits lose loses charged kept gone money pay "
-    "pays "
-    "paid paying payer"
+    "terms termini leva leve policy policies limit limits lose loses charged money payer"
+)
+# Decisions and verdicts an operator statement never states (round 5, finding V15): flag,
+# monitor, scrutiny, caution, "no further action", "can be closed", "warrants a review".
+STATEMENT_DECISION_WORDS = word_set(
+    "flag flags flagged flagging monitor monitors monitored monitoring scrutiny scrutinise "
+    "scrutinize scrutinised scrutinized scrutinising scrutinizing caution cautions cautioned"
+)
+_STATEMENT_DECISION_RE = re.compile(
+    r"\bno (?:further )?action\b|\bcan be closed\b|\bwarrant(?:s|ed|ing)? (?:a |an )?(?:[a-z]+ )?"
+    r"(?:review|check|look)\b"
 )
 # Observed phrases that share a stem with a lever word: the welcome coupons of a cluster are
-# data, not the coupons lever (round 3, finding T7); a free-text reason, a shipping address. The
-# state words above are checked as well, so "welcome coupons are disabled" is still a topic.
+# data, not the coupons lever (round 3, finding T7); a free-text reason, a shipping address,
+# orders shipped to an address, coupons and codes used, an order with a coupon, an expensive
+# item, a closed return window of past order lines, the withdrawal path (round 5, findings V4
+# and V17). The state words are checked first (`_LEVER_STATE_RE`), so "welcome coupons are
+# disabled" or "the cluster keeps its welcome coupons" are still topics.
 _OPERATOR_ALLOWED_PHRASES = re.compile(
     r"\bfeel free\b|\bwelcome coupons?\b|\bfree ?text\b|\bin terms of\b"
     r"|\bin (?:quick|rapid) succession\b|\bshipping ?address(?:es)?\b"
-    r"|\bindirizz[oi] di spedizione\b"
+    r"|\bindirizz[oi] di spedizione\b|\bship(?:ped|s|ping)? to\b|\bshipped\b|\bshipments?\b"
+    r"|\bcoupons? (?:use|usage|uses|used|redemptions?|redeemed|history|sequence|pattern)\b"
+    r"|\b(?:used|redeemed|redeeming|using|use of|usage of|redemption of)(?: (?:the|a|an|their"
+    r"|its|each|one|same|welcome|first))* coupons?\b"
+    r"|\b(?:promo\w*|referral|discount|welcome)(?:(?: and | or | )(?:promo\w*|referral|discount"
+    r"|welcome))* (?:codes?|coupons?|vouchers?) (?:used|redeemed)\b"
+    r"|\borders? (?:with|using) (?:a |an )?(?:coupons?|codes?|vouchers?)\b"
+    r"|\b(?:in)?expensive(?:ly)?\b|\bclosed return windows?\b"
+    r"|\breturn windows? (?:has |have |had )?(?:closed|ended|expired)\b"
+    r"|\bwithdrawal path\b|\bright of withdrawal\b|\bwithdrawal rights?\b"
 )
 _OPERATOR_PHRASES = re.compile(
-    r"\b(?:size|sizing|fit) (?:advice|guidance|guides?|help|tips?|recommendations?)\b"
+    r"\b(?:size|sizing|fit) (?:advice|guidance|help|tips?|recommendations?)\b"
     r"|\bconsigli[oi]? (?:di |sulla |per la )?taglia\b|\bmoney back\b"
     r"|\bstore credit\b|\bgift cards?\b|\breturns? periods?\b|\bsend\w* (?:[a-z]+ ){0,2}back\b"
     # the scope of a lever (round 4, finding U6)
-    r"|\bfrom now on\b|\bgoing forward\b|\bno longer\b|\bd ora in poi\b|\bnon piu\b"
-    r"|\b(?:next|upcoming|subsequent|later) (?:orders?|purchases?)\b|\bhenceforth\b"
+    r"|\bfrom now on\b|\bgoing forward\b|\bd ora in poi\b"
+    r"|\b(?:next|upcoming) (?:orders?|purchases?)\b|\bhenceforth\b"
     r"|\bhereafter\b|\bfrom here on\b|\bprossim[oi] (?:ordin[ei]|acquist[oi])\b"
     # the state of a lever, and a welcome coupon withheld
     r"|\b(?:switch|switches|switched|switching|turn|turns|turned|turning) (?:off|on)\b"
     r"|\b(?:is|are|was|were|be|been|being|stays?|stayed|now|get|gets|got|go|goes|went) off\b"
     r"|\b(?:no|without|zero|lose|loses|lost|losing|denied|deny) welcome coupons?\b"
+    # who pays for returns
+    r"|\bpa(?:y|ys|id|ying) (?:for )?(?:the |their |his |her |own |any )*(?:returns?|return"
+    r" shipping)\b"
+)
+# A state word next to a lever noun, in either order, within three words (round 5, findings V4
+# and V17): "the cluster keeps its welcome coupons", "welcome coupons remain available", "size
+# changes are no longer offered", "coupons are gone".
+_STATE_WORDS = (
+    r"keep|keeps|kept|keeping|retain\w*|remain\w*|stay|stays|stayed|staying|avail\w*|unavail\w*"
+    r"|offer|offers|offered|offering|lose|loses|lost|losing|gone|still|pay|pays|paid|paying"
+    r"|no longer|non piu|disponibil\w*|mantien\w*|mantengono|rimane|rimangono|resta|restano"
+    r"|offert\w*|tolt\w*"
+)
+_LEVER_NOUNS = (
+    r"coupons?|vouchers?|discounts?|codes?|shipping|postage|refunds?|exchanges?|swaps?"
+    r"|size changes?|windows?|terms|conditions|perks?|benefits?|privileges?|rewards?|services?"
+    r"|advice|guidance"
+    r"|sconti|sconto|codici|spedizion\w*|rimbors\w*|cambi|cambio|condizioni|vantaggi"
+)
+_LEVER_STATE_RE = re.compile(
+    rf"\b(?:{_STATE_WORDS})(?: [a-z]+){{0,2}} (?:{_LEVER_NOUNS})\b"
+    rf"|\b(?:{_LEVER_NOUNS})(?: [a-z]+){{0,2}} (?:{_STATE_WORDS})\b"
 )
 # The word "quadrant" without a label next to it describes a place in the matrix in words ("the
 # generous quadrant", "the last quadrant"): round 4, finding U5. A label next to it is read by
@@ -664,7 +806,8 @@ def unlabelled_quadrants(text: str, *, none_assigned: bool = False) -> list[str]
 def operator_topics(text: str, *, no_quadrant: bool = False) -> list[str]:
     """Words of a topic an operator statement never talks about: levers and return terms (the
     stems of the customer gate, refunds, promotions, "terms", "policy"), restrictions, the state
-    and scope of a lever (enabled, available, future orders, no longer), decision words, the
+    and scope of a lever (enabled, future orders; available, kept or no longer next to a lever
+    noun), decision words (also flag, monitor, scrutiny, caution, "no further action"), the
     risk and value levels of the quadrant, places in the matrix and "quadrant" without a label.
     The interface shows the engine decision and its levers from code, so the statement has
     nothing to say about them (round 3, finding T7; round 4, findings U5 and U6). Metric names
@@ -673,6 +816,9 @@ def operator_topics(text: str, *, no_quadrant: bool = False) -> list[str]:
     found: list[str] = []
     for form in forms(text, leet=True):
         _add(found, (m.group() for m in _OPERATOR_PHRASES.finditer(form)))
+        _add(found, (m.group() for m in _LEVER_STATE_RE.finditer(form)))
+        _add(found, (m.group() for m in _STATEMENT_DECISION_RE.finditer(form)))
+        _add(found, [word for word in form.split() if word in STATEMENT_DECISION_WORDS])
         form = _OPERATOR_ALLOWED_PHRASES.sub(" ", form)
         _add(found, _terms_hits(form, OPERATOR_TOPIC_STEMS, OPERATOR_TOPIC_WORDS))
         _add(found, _decision_hits(form))
@@ -1066,26 +1212,37 @@ _SCALED_RE = re.compile(
 _SIGNED_RE = re.compile(
     r"\(\s*[0-9]+(?:[.,][0-9]+)*\s*\)|[±∓]\s*[0-9]|[0-9][-−➖˗‐‑‒–—―⁻](?![0-9a-z])"
 )
-# Round 3, finding T11: losing, costs, short, arrears, in passivo, in rimessa, less, deducted,
-# written off.
+# Round 3, finding T11: losing, costs, short, arrears, in passivo, in rimessa, deducted, written
+# off. "Less" is a sign right before a number only ("less 42.1 EUR"), not anywhere ("contributes
+# less to the score": round 5, finding V17); in an agent answer, which may be Italian, so is
+# "meno" ("meno 3", not "meno carte distinte": finding V12).
+_SIGN_BEFORE_RE = re.compile(r"\b(?:less|meno)\s*[0-9]")
 _SIGN_WORDS_RE = re.compile(
     r"\b(?:minus|meno|negativ[eoai]|loss|losses|lossmaking|perdit[ae]|deficit|disavanz[oi]"
     r"|in the red|in rosso|owed|owes|owing|debit(?! cards?\b)|debits|debts?|debit[oi]"
     r"|shortfall|lost|unprofitable|lose|loses|losing|cost|costs|costing|short|arrears"
-    r"|passiv[oaie]|rimessa|less|deduct\w*|written off|writes? off|writeoffs?)\b"
+    r"|passiv[oaie]|rimessa|deduct\w*|written off|writes? off|writeoffs?)\b"
 )
 
 
-def number_modifiers(text: str) -> list[str]:
+def number_modifiers(text: str, labelled: str | None = None) -> list[str]:
     """Scale suffixes, unit words and signs around numbers, and sign words in a text with a
-    number; empty when every number is plain."""
+    number; empty when every number is plain. In `labelled` (the same text with identifiers
+    read as a word), a number in parentheses right after a word is a label's value, not an
+    accounting sign ("weight (0.98)", "returns_90d (4)": round 5, finding V12)."""
     found: list[str] = []
-    patterns = ((fold(text), _SUFFIXED_RE), (fold(text, " "), _SCALED_RE), (fold(text), _SIGNED_RE))
-    for folded, pattern in patterns:
+    patterns = ((fold(text), _SUFFIXED_RE), (fold(text, " "), _SCALED_RE))
+    for folded, pattern in (*patterns, (fold(text, " "), _SIGN_BEFORE_RE)):
         _add(found, (m.group().strip() for m in pattern.finditer(folded)))
+    signed = fold(labelled if labelled is not None else text)
+    for match in _SIGNED_RE.finditer(signed):
+        label = match.group().startswith("(") and signed[: match.start()].rstrip()[-1:].isalpha()
+        if not label:
+            _add(found, [match.group().strip()])
     if _NUMBER_RE.search(fold(text)):
         for form in forms(text):
-            _add(found, (m.group() for m in _SIGN_WORDS_RE.finditer(form)))
+            words_ = (m.group() for m in _SIGN_WORDS_RE.finditer(form))
+            _add(found, (word for word in words_ if word != "meno"))
     return found
 
 
@@ -1133,21 +1290,42 @@ _COUNT_NOUNS = word_set(
     "cards card devices device addresses address coupons coupon welcome purchases purchase resi "
     "reso ordini ordine articoli articolo collegati eventi carte"
 )
-# The word a stripped identifier leaves in a statement (round 4, finding U10): "driven by
-# cluster_welcome_coupons (7)" is read as "driven by id (7)", so "(7)" follows a word, not "by".
-IDENTIFIER_PLACEHOLDER = "id"
+# The word a stripped metric name leaves in a statement (round 4, finding U10; round 5, finding
+# V1): "driven by cluster_welcome_coupons (7)" is read as "driven by metric (7)". The placeholder
+# is a label, not a function word: after a number it is transparent ("42.1 value_eur_12m k" is
+# "42.1 k"), and before a number or "(" it is allowed only after a word that is not a comparator
+# (but "by"). Case, cluster and quadrant ids are stripped to a space, so "Q4 (42.1)" is "(42.1)".
+IDENTIFIER_PLACEHOLDER = "metric"
 _FUNCTION_AFTER = word_set(
     "and or but in on at of for from to with over across during since as is are was were be "
     "been has have had the this that these those which who while so because after before later "
     "earlier ago out e o ma di del della nel nella con da che su"
-) | {IDENTIFIER_PLACEHOLDER}
+)
+# Verbs a closed parenthesis around the number may be followed by: "returns_90d (4) contributes
+# to the score", "Recent returns (4) push the score up" (round 5, finding V16), and so may a
+# number right after a metric name ("returns_90d = 4 raises the score"). An allowlist, so an
+# unknown scale word ("(42.1) lakh") stays ungrounded.
+_CONTRIBUTION_AFTER = word_set(
+    "contribute contributes contributed contributing drive drives drove driving add adds added "
+    "push pushes pushed raise raises raised weigh weighs weighed explain explains explained "
+    "dominate dominates dominated lead leads led lift lifts lifted lower lowers lowered increase "
+    "increases increased reduce reduces reduced affect affects affected shape shapes shaped "
+    "count counts counted matter matters mattered"
+)
+# Participles a count may follow with "by" ("the welcome coupons used by 7 linked accounts"):
+# round 5, finding V17. Elsewhere "by" is a comparator ("short by 7").
+_BY_PARTICIPLES = word_set(
+    "used shared redeemed created opened placed made returned linked connected joined held"
+)
 # After a function word right after a number, these make it a comparator ("6 days or more").
 _AFTER_STOPS = word_set(
     "more less fewer so least most average each every above below over under higher lower "
     "longer shorter up plus"
 )
 # Adjectives a count noun may follow ("5 recent returns", "9 distinct cards").
-_COUNT_ADJECTIVES = word_set("recent previous past prior distinct different separate unique active")
+_COUNT_ADJECTIVES = word_set(
+    "recent previous past prior distinct different separate unique active payment shared"
+)
 _RATE_WORDS = word_set("per a an every weekly monthly daily yearly annually hourly times x apiece")
 _COMPARATORS = word_set(
     "about around approximately approx roughly nearly almost circa over under above below beyond "
@@ -1234,20 +1412,56 @@ def _spaced(tokens: Sequence[_Token], index: int) -> bool:
     )
 
 
-def _before_ok(tokens: Sequence[_Token], index: int, kind: UnitKind) -> bool:
+def _comparator_at(tokens: Sequence[_Token], index: int) -> bool:
+    """A comparator, or "of", "to", "than" right after one ("in excess of", "close to")."""
+    token = tokens[index]
+    linked = (
+        token.text in _COMPARATOR_LINKS and index > 0 and tokens[index - 1].text in _COMPARATORS
+    )
+    return token.text in _COMPARATORS or linked
+
+
+def _placeholder_ok(tokens: Sequence[_Token], index: int) -> bool:
+    """A metric placeholder before a number or "(": at the start, after a separator, or after a
+    word that is not a comparator ("driven by metric (7)" passes, "about metric 42.1" does not)."""
+    if index == 0:
+        return True
+    before = tokens[index - 1]
+    if before.word:
+        return before.text == "by" or not _comparator_at(tokens, index - 1)
+    return before.text in _SEPARATORS or before.text == "(" or before.dash
+
+
+def _counted(tokens: Sequence[_Token], number: int) -> bool:
+    """A count noun after the number, past up to two adjectives ("7 linked accounts")."""
+    noun = number + 1
+    while noun < min(len(tokens), number + 3) and tokens[noun].text in _COUNT_ADJECTIVES:
+        noun += 1
+    return noun < len(tokens) and tokens[noun].text in _COUNT_NOUNS
+
+
+def _before_ok(tokens: Sequence[_Token], index: int, kind: UnitKind, number: int) -> bool:
     if index < 0:
         return True
     token = tokens[index]
+    if token.text == IDENTIFIER_PLACEHOLDER:
+        return _placeholder_ok(tokens, index)
     if token.word:
         if kind == "days" and token.text in _WITHIN:
             return True
-        if token.text in _COMPARATOR_LINKS and index > 0 and tokens[index - 1].text in _COMPARATORS:
-            return False
-        return token.text not in _COMPARATORS and (
+        by_count = kind == "count" and token.text == "by" and _counted(tokens, number)
+        if by_count and index > 0 and tokens[index - 1].text in _BY_PARTICIPLES:
+            return True
+        return not _comparator_at(tokens, index) and (
             token.text not in _ANY_UNIT or token.text in _UNITS[kind]
         )
     if token.text == "(":
-        return index > 0 and tokens[index - 1].word and tokens[index - 1].text not in _COMPARATORS
+        if index == 0:
+            return False
+        label = tokens[index - 1]
+        if label.text == IDENTIFIER_PLACEHOLDER:
+            return _placeholder_ok(tokens, index - 1)
+        return label.word and label.text not in _COMPARATORS
     return token.text in _SEPARATORS or token.dash or token.text in _UNITS[kind]
 
 
@@ -1256,21 +1470,39 @@ def _comparing(tokens: Sequence[_Token], index: int) -> bool:
     return index + 1 < len(tokens) and tokens[index + 1].text in _AFTER_STOPS
 
 
-def _end_ok(tokens: Sequence[_Token], index: int) -> bool:
+def _end_ok(tokens: Sequence[_Token], index: int, opened: bool, verbs: bool = False) -> bool:
+    """What follows a number (or its unit) is allowed. A closing parenthesis and a metric
+    placeholder are transparent ("(42.1) mil" is "42.1 mil": round 4, finding U1; "42.1
+    value_eur_12m k" is "42.1 k": round 5, finding V1). A contribution verb is allowed after the
+    ")" that closes a "(" opened right before the number (finding V16), and right after a number
+    that follows a metric name (`verbs`)."""
     if index >= len(tokens):
         return True
     token = tokens[index]
-    if token.text == ")":  # transparent: "(42.1) mil" is "42.1 mil" (round 4, finding U1)
-        return _end_ok(tokens, index + 1)
+    if token.text == IDENTIFIER_PLACEHOLDER:
+        return _end_ok(tokens, index + 1, opened, verbs)
+    if token.text == ")":
+        return _end_ok(tokens, index + 1, opened, verbs or opened)
     if token.word:
+        if verbs and token.text in _CONTRIBUTION_AFTER:
+            return True
         return token.text in _FUNCTION_AFTER and not _comparing(tokens, index)
     return token.text in _CLOSERS or (token.dash and token.start > tokens[index - 1].end)
 
 
-def _after_ok(tokens: Sequence[_Token], index: int, kind: UnitKind) -> bool:
+def _labelled(tokens: Sequence[_Token], before: int) -> bool:
+    """A number right after a metric name, also after "=" or ":" ("returns_90d = 4")."""
+    if before >= 1 and tokens[before].text in ("=", ":"):
+        before -= 1
+    return before >= 0 and tokens[before].text == IDENTIFIER_PLACEHOLDER
+
+
+def _after_ok(
+    tokens: Sequence[_Token], index: int, kind: UnitKind, opened: bool, labelled: bool
+) -> bool:
     following = index + 1
     if following < len(tokens) and tokens[following].text in _UNITS[kind]:
-        return _end_ok(tokens, following + 1)
+        return _end_ok(tokens, following + 1, opened, labelled)
     if kind == "count":
         noun = following
         while noun < min(len(tokens), following + 2) and tokens[noun].text in _COUNT_ADJECTIVES:
@@ -1283,7 +1515,7 @@ def _after_ok(tokens: Sequence[_Token], index: int, kind: UnitKind) -> bool:
             after = tokens[noun]
             comparing = after.text in _FUNCTION_AFTER and _comparing(tokens, noun)
             return after.text not in _RATE_WORDS and not comparing
-    return _end_ok(tokens, following)
+    return _end_ok(tokens, following, opened, labelled)
 
 
 def _unit_conflicts(text: str, tokens: Sequence[_Token], kinds: set[UnitKind]) -> list[str]:
@@ -1323,9 +1555,14 @@ def grounding_problems(text: str, cited: Sequence[tuple[str, Decimal]]) -> list[
         values.append(value)
         kinds = {unit_kind(metric) for metric, fact in cited if fact == value}
         grounded |= kinds
+        opened = before >= 0 and tokens[before].text == "("
+        labelled = _labelled(tokens, before)
         if not kinds:
             problems.append(str(value))
-        elif not any(_before_ok(tokens, before, k) and _after_ok(tokens, index, k) for k in kinds):
+        elif not any(
+            _before_ok(tokens, before, k, index) and _after_ok(tokens, index, k, opened, labelled)
+            for k in kinds
+        ):
             last = tokens[min(index + 2, len(tokens) - 1)]
             problems.append(folded[tokens[max(before, 0)].start : last.end])
     if values:
@@ -1413,8 +1650,11 @@ _SAFE = word_set(
 )
 _VALUABLE = word_set("valuable profitable lucrative prezioso preziosa redditizio redditizia")
 _UNPROFITABLE = word_set("unprofitable lossmaking")
-# The customer value in other words: margin, profit, spend (round 4, finding U5).
-_VALUE_MEASURES: tuple[str, ...] = ("margin", "profit", "spend", "spent", "margine", "margini")
+# The customer value in other words: margin, profit, spend (round 4, finding U5), as whole words
+# ("marginally" is not a margin: round 5, finding V5).
+_VALUE_MEASURES = word_set(
+    "margin margins profit profits profitability spend spending spent margine margini redditivita"
+)
 # Middle levels, read as a level of unknown side ("?"), never as the engine's level.
 _LEVEL_MID = word_set(
     "moderate moderately medium mid middling borderline intermediate moderato moderata medio "
@@ -1422,6 +1662,19 @@ _LEVEL_MID = word_set(
 )
 _NEGATIONS = word_set(
     "not never non hardly barely scarcely neither nor cannot mai nemmeno neanche mica"
+)
+# How large a contribution to the score is, not the level of the score (round 5, finding V11): a
+# level word followed within two words by one of these nouns ("a significant contributor", "a
+# small effect", "a substantial part"), or right after one of these verbs ("contributes little").
+_CONTRIBUTION_NOUNS = word_set(
+    "contribution contributions contributor contributors factor factors driver drivers weight "
+    "weights effect effects impact impacts part parts share shares influence influences signal "
+    "signals role number count amount proportion fraction portion contributo contributi fattore "
+    "fattori peso effetto parte quota"
+)
+_CONTRIBUTION_VERBS = word_set(
+    "contributes contribute contributed adds add added weighs weigh weighed counts count matters "
+    "matter contribuisce contribuiscono pesa pesano"
 )
 _SCORES = word_set("score scores punteggio punteggi")
 # "The value of the order", "a high-value item": the value of something else than the customer.
@@ -1435,36 +1688,80 @@ _DAMAGE_WORDS = word_set("damage damages error errors mistake mistakes danno dan
 # does not end a clause ("The risk score (0.87) is low").
 _LEVEL_CLAUSE_RE = re.compile(r"([.!?;\n]+|\b(?:and|but|while|whereas|e|ma|mentre)\b)")
 _CARRY_SEPARATORS = frozenset({"and", "e"})
+# "Over the period" is the period of a fact, not "above" (round 5, finding V5).
+_PERIOD_WORDS = word_set("period year months weeks days time")
 
 
-def _negated(tokens: Sequence[str]) -> bool:
-    """A negation in the clause: not, never, non, hardly, far from, "n't" ("isn't", "can't")."""
-    pairs = list(zip(tokens, tokens[1:], strict=False))
+def _negated_at(tokens: Sequence[str], index: int) -> bool:
+    """A negation that governs the word at `index`: not, never, non, hardly, "n't" or "far from"
+    within the two words before it ("not high", "not very high", "isn't high", "far from high").
+    A negation elsewhere in the clause ("high (0.87): an estimate, not a cause") does not count
+    (round 5, finding V5)."""
+    before = list(tokens[max(0, index - 2) : index])
+    pairs = list(zip(before, before[1:], strict=False))
     return (
-        any(t in _NEGATIONS for t in tokens)
+        any(t in _NEGATIONS for t in before)
         or ("far", "from") in pairs
         or any(second == "t" and first.endswith("n") for first, second in pairs)
     )
 
 
+def _describes_contribution(tokens: Sequence[str], index: int) -> bool:
+    """A level word that says how large a contribution is (round 5, finding V11)."""
+    after = tokens[index + 1 : index + 3]
+    before = tokens[index - 1] if index > 0 else ""
+    return any(t in _CONTRIBUTION_NOUNS for t in after) or before in _CONTRIBUTION_VERBS
+
+
+def _above(tokens: Sequence[str], index: int) -> bool:
+    """A word for "above", not "over the period" (round 5, finding V5)."""
+    following = tokens[index + 1 : index + 3]
+    period = (
+        tokens[index] == "over"
+        and following[:1] == ["the"]
+        and following[1:]
+        and (following[1] in _PERIOD_WORDS)
+    )
+    return tokens[index] in _ABOVE and not period
+
+
 def _level(tokens: Sequence[str]) -> str | None:
     """The level a clause names: high, low, "?" (a threshold without a side, both levels, a
-    middle level or a negated level) or None (no level)."""
+    middle level or a negated level) or None (no level). Words that size a contribution are
+    left out ("a significant contributor to the risk score")."""
     threshold = any(t in _THRESHOLDS for t in tokens)
-    high = any(t in _LEVEL_HIGH for t in tokens) or (threshold and any(t in _ABOVE for t in tokens))
-    low = any(t in _LEVEL_LOW for t in tokens) or (threshold and any(t in _BELOW for t in tokens))
-    mid = any(t in _LEVEL_MID for t in tokens)
-    if not (high or low or mid or threshold):
+    words_: dict[str, list[int]] = {"high": [], "low": [], "mid": []}
+    for index, token in enumerate(tokens):
+        if _describes_contribution(tokens, index):
+            continue
+        if token in _LEVEL_HIGH or (threshold and _above(tokens, index)):
+            words_["high"].append(index)
+        elif token in _LEVEL_LOW or (threshold and token in _BELOW):
+            words_["low"].append(index)
+        elif token in _LEVEL_MID:
+            words_["mid"].append(index)
+    high, low = bool(words_["high"]), bool(words_["low"])
+    if not (high or low or words_["mid"] or threshold):
         return None
-    if mid or high == low or _negated(tokens):
+    negated = any(_negated_at(tokens, i) for i in words_["high"] + words_["low"])
+    if words_["mid"] or high == low or negated:
         return "?"
     return "high" if high else "low"
 
 
+# Nouns of the evidence a word like "reliable" may qualify without naming a level of the customer
+# ("a reliable estimate", "safe data"): round 5.
+_EVIDENCE_NOUNS = word_set(
+    "estimate estimates model models data evidence signal signals link links score scores "
+    "measure measures figure figures result results history information source sources "
+    "indicator indicators sample samples comparison conclusion stima stime dati modello"
+)
+
+
 def _implied_levels(tokens: Sequence[str]) -> list[tuple[str, str, str]]:
     """Levels a word implies: "risky" (high risk), "safe" (low risk), "profitable" (high value);
-    of unknown side when the clause is negated."""
-    negated = _negated(tokens)
+    of unknown side when a negation governs the word ("not safe"); none when the word qualifies
+    the evidence ("a reliable estimate")."""
     found: list[tuple[str, str, str]] = []
     for words_, kind, axis, level in (
         (_RISKY, "axis", "risk", "high"),
@@ -1472,7 +1769,13 @@ def _implied_levels(tokens: Sequence[str]) -> list[tuple[str, str, str]]:
         (_VALUABLE, "score", "value", "high"),
         (_UNPROFITABLE, "score", "value", "low"),
     ):
-        if any(t in words_ for t in tokens):
+        hits = [
+            i
+            for i, t in enumerate(tokens)
+            if t in words_ and not set(tokens[i + 1 : i + 2]) & _EVIDENCE_NOUNS
+        ]
+        if hits:
+            negated = any(_negated_at(tokens, i) for i in hits)
             _add(found, [(kind, axis, "?" if negated else level)])
     return found
 
@@ -1498,7 +1801,7 @@ def _clause_axes(tokens: Sequence[str]) -> list[tuple[str, str]]:
         elif token in ("value", "valore"):
             if not other_value and not any(t in _SCORES for t in tokens):
                 _add(found, [("axis", "value")])
-        elif token.startswith(_VALUE_MEASURES) and not other_value:
+        elif token in _VALUE_MEASURES and not other_value:
             _add(found, [("score", "value")])
     return found
 

@@ -53,7 +53,9 @@ def serialize_decision(
         evidence_quality=decision.evidence_quality.value,
         quadrant=decision.quadrant.value if decision.quadrant is not None else None,
         lever_ids=tuple(format_lever_id(x["id"], x["value"]) for x in levers),
-        placeholders=available_placeholders(decision.path.value, levers, refund_eur is not None),
+        placeholders=available_placeholders(
+            decision.path.value, levers, refund_eur is not None, base
+        ),
         requires_terms=requires_terms(decision, base),
         restrictive=is_restrictive(decision.levers, base),
     )

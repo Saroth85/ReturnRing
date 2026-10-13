@@ -31,7 +31,9 @@ COUPONS = ScoreFactor(
 # period is shown with the fact, never written in the phrase (round 4, finding U10).
 RETURNS_90D = ScoreFactor("returns_90d", 5, "5 recent returns")
 DAYS = ScoreFactor("days_since_delivery", 6, "returned 6 days after delivery", "return")
-MISSING = ("fewer than 3 orders observed", "no identifier on file")
+# Missing evidence items pass the statement checks, so a model may restate them: no bare number
+# (round 5, finding V14).
+MISSING = ("too few orders observed", "no identifier on file")
 
 
 @dataclass(frozen=True)
@@ -63,6 +65,50 @@ SCENARIOS: dict[str, Scenario] = {
     ),
 }
 
+# The golden cases of spec 16 (round 5): Giulia (Q1, returns for size), Marco (Q4, a ring of 7
+# linked accounts), the Rossi family (Q1, a shared address), the Rossi family with a shared card,
+# Elena (a defect on the guarantee path) and a case with insufficient evidence.
+GOLDEN_SCENARIOS: dict[str, Scenario] = {
+    "giulia": Scenario(
+        request(),
+        scores(0.18, "350"),
+        (
+            ScoreFactor("returns_90d", 4, "4 recent returns"),
+            ScoreFactor("size_returns", 3, "3 returns for size"),
+        ),
+    ),
+    "marco": Scenario(request(), scores(0.87, "42.10", cluster="R-MARCO"), (COUPONS, DAYS), MARCO),
+    "rossi": Scenario(
+        request(),
+        scores(0.22, "260", cluster="F-ROSSI"),
+        (
+            ScoreFactor("returns_90d", 2, "2 recent returns"),
+            ScoreFactor(
+                "n_distinct_cards",
+                3,
+                "3 distinct payment cards across the linked accounts",
+                "cluster",
+            ),
+        ),
+        ClusterSummary("F-ROSSI", 3, ("address",)),
+    ),
+    "rossi_card": Scenario(
+        request(),
+        scores(0.34, "180", cluster="F-ROSSI-CARD"),
+        (
+            ScoreFactor(
+                "n_distinct_cards",
+                2,
+                "2 distinct payment cards across the linked accounts",
+                "cluster",
+            ),
+        ),
+        ClusterSummary("F-ROSSI-CARD", 3, ("address", "card")),
+    ),
+    "elena": Scenario(request(ReturnReason.DEFECTIVE), scores(0.3, "68.05")),
+    "missing": Scenario(request(), scores(0.6, "50", INSUFFICIENT), missing=MISSING),
+}
+
 
 @dataclass(frozen=True)
 class Built:
@@ -80,9 +126,9 @@ def make(
     return_id: str = "RET-1",
     base: ReturnTerms = BASE,
 ) -> Built:
-    """The scenario decided on a merchant base (the Navigli base by default); the order was
-    bought under that base."""
-    s = SCENARIOS[name]
+    """The scenario (or golden scenario) decided on a merchant base (the Navigli base by
+    default); the order was bought under that base."""
+    s = SCENARIOS[name] if name in SCENARIOS else GOLDEN_SCENARIOS[name]
     req = replace(s.request, return_id=return_id, order_terms=base)
     decision = decide(req, s.scores, base, THRESHOLDS, TODAY)
     case = build_case(

@@ -22,7 +22,17 @@ from typing import Any, Literal
 
 from contracts.parquet import IDENTIFIER_KINDS, is_forbidden_feature
 from llm.decision import serialize_decision
-from llm.text import LANGS, Lang
+from llm.text import (
+    LANGS,
+    PRONOUN_NUMBERS,
+    Lang,
+    banned_terms,
+    grounding_problems,
+    number_words,
+    operator_topics,
+    other_numeric_characters,
+    roman_numerals,
+)
 from policy.types import CaseScores, Decision, EvidenceQuality, Path, ReturnRequest, ReturnTerms
 
 Nature = Literal["real", "synthetic", "simulated"]
@@ -88,6 +98,17 @@ def wrap_customer_text(text: str) -> str:
     )[:MAX_CUSTOMER_CHARS]
     escaped = clean.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     return f"<customer_text>{_TAG_RE.sub('customer text', escaped)}</customer_text>"
+
+
+def missing_evidence_problems(item: str) -> list[str]:
+    """Why a missing-evidence item could not be restated in an operator statement, as the prompt
+    asks ("say what is missing"): a number in digits, words or Roman numerals (no fact grounds
+    it), a topic of the statement check or a banned term (round 5, finding V14). Empty when the
+    item can be copied into a statement as it is."""
+    problems = grounding_problems(item, [])
+    problems += other_numeric_characters(item) + roman_numerals(item)
+    problems += number_words(item, "en", skip=PRONOUN_NUMBERS)
+    return problems + operator_topics(item) + banned_terms(item)
 
 
 def _text(value: str, what: str, limit: int) -> str:
@@ -166,9 +187,11 @@ def build_case(
     if missing_evidence:
         if len(missing_evidence) > MAX_MISSING_EVIDENCE:
             raise CaseError(f"At most {MAX_MISSING_EVIDENCE} missing evidence items")
-        case["missing_evidence"] = [
-            _text(item, "missing evidence", MAX_ITEM_CHARS) for item in missing_evidence
-        ]
+        for item in missing_evidence:
+            problems = missing_evidence_problems(_text(item, "missing evidence", MAX_ITEM_CHARS))
+            if problems:
+                raise CaseError(f"Missing evidence {item!r} fails the statement checks: {problems}")
+        case["missing_evidence"] = list(missing_evidence)
     case["quadrant"] = expected.quadrant
     case["levers"] = levers
     case["placeholders"] = {

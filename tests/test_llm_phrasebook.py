@@ -76,25 +76,19 @@ SWEEP = tuple(
     for flags in itertools.product((True, False), repeat=4)
 )
 NOTICE_AFTER_TERMS = {
-    "it": "Queste condizioni tengono conto dei resi dei tuoi ordini precedenti.",
-    "en": "These terms take into account the returns on your previous orders.",
+    "it": "Queste condizioni tengono conto dei tuoi resi precedenti.",
+    "en": "These terms take into account your previous returns.",
 }
 RESTRICTIVE_TERMS = {
     "it": (
-        "I tuoi prossimi ordini avranno nuove condizioni di reso, mostrate prima di ogni "
-        "acquisto: {terms}."
+        "I tuoi prossimi ordini avranno queste condizioni di reso, mostrate prima "
+        "dell'acquisto: {terms}."
     ),
-    "en": "Your next orders will have new return terms, shown before each purchase: {terms}.",
+    "en": "Your next orders will have these return terms, shown before each purchase: {terms}.",
 }
 NOTICE_ALONE = {
-    "it": (
-        "Le condizioni di reso dei tuoi prossimi ordini tengono conto dei resi dei tuoi ordini "
-        "precedenti."
-    ),
-    "en": (
-        "The return terms of your next orders take into account the returns on your previous "
-        "orders."
-    ),
+    "it": "Le condizioni di reso dei tuoi prossimi ordini tengono conto dei tuoi resi precedenti.",
+    "en": "The return terms of your next orders take into account your previous returns.",
 }
 
 

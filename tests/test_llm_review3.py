@@ -107,8 +107,8 @@ def test_t1_a_notice_alone_never_reads_as_about_the_current_refund(
     final = render_selection(default_selection(ctx), decision, base, lang, refund)
     assert "These terms" not in final and "Queste condizioni" not in final
     future = {
-        "it": "Le condizioni di reso dei tuoi prossimi ordini tengono conto dei resi",
-        "en": "The return terms of your next orders take into account the returns",
+        "it": "Le condizioni di reso dei tuoi prossimi ordini tengono conto dei tuoi resi",
+        "en": "The return terms of your next orders take into account your previous returns",
     }
     assert future[lang] in final
 

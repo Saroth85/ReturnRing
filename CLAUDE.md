@@ -14,7 +14,7 @@ and drafts messages; a human approves restrictive actions. Full spec: docs/spec.
    orders and are shown at checkout (terms snapshot). Enforced by policy/legal_guard.py, 100% test coverage.
 4. Defect or non-conformity returns go to the guarantee path before scoring. No restrictive lever applies.
 5. Every restrictive action (Q3, Q4) needs a human approver in the audit log, and a review date.
-6. Forbidden features: gender, country, names, raw identifiers. Customer value never feeds the risk score.
+6. Forbidden features: gender, country, age, names, raw identifiers. Customer value never feeds the risk score.
 7. Every feature must be computable at decision time: filter available_at <= decision_time. No future events.
 8. The residual uses the product/cohort reference model, never the personalized predictor.
 9. Never count the refund owed to the consumer as a saving. Economic outputs are net benefit with explicit,

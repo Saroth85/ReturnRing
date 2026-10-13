@@ -22,7 +22,7 @@ Decisioni non negoziabili, valide per tutto il progetto:
 2. Nessuna API esterna a runtime: Claude Code è uno strumento di sviluppo, mai una dipendenza del prodotto.
 3. Il diritto di recesso di 14 giorni non viene mai negato; le leve riguardano solo le concessioni oltre il minimo di legge e valgono dagli ordini successivi.
 4. Ogni azione restrittiva richiede l'approvazione di una persona (articolo 22 GDPR).
-5. Genere e paese sono esclusi da ogni punteggio; l'esclusione da sola non basta, e gli errori si misurano anche su clienti nuovi, famiglie e gruppi con pochi dati.
+5. Genere, paese ed età sono esclusi da ogni punteggio (ADR-11); l'esclusione da sola non basta, e gli errori si misurano anche su clienti nuovi, famiglie e gruppi con pochi dati.
 6. Interfaccia, README, video e slide in inglese; messaggi ai clienti in italiano e inglese.
 7. Nessuna riga di codice prima del kickoff di lunedì 12 ottobre alle 17:00.
 8. Il valore si misura come beneficio netto con ipotesi esplicite: il rimborso dovuto al consumatore non è mai contato come risparmio.
@@ -124,7 +124,7 @@ La ricerca accademica conferma il rischio opposto, quello di colpire i clienti b
 | [Direttiva 2011/83/UE, art. 14(2)](https://www.legislation.gov.uk/eudr/2011/83/article/14) | Il consumatore risponde solo della diminuzione di valore da manipolazione eccessiva | Trattenuta solo all'ispezione, con evidenza fotografica e conferma umana |
 | GDPR, art. 22 | Niente decisioni solo automatizzate con effetti significativi | Ogni azione restrittiva richiede approvazione dell'operatore |
 | GDPR, art. 5 e 13–15 | Minimizzazione, trasparenza sulla logica del trattamento | Feature minime, spiegazione disponibile in linguaggio chiaro, registro di audit |
-| Non discriminazione | Nessun trattamento diverso per caratteristiche protette | Genere e paese esclusi dai punteggi di rischio e di policy |
+| Non discriminazione | Nessun trattamento diverso per caratteristiche protette | Genere, paese ed età esclusi dai punteggi di rischio e di policy (ADR-11) |
 | Direttiva (UE) 2019/771, conformità dei beni | Il venditore risponde dei difetti di conformità, con rimedi senza costi per il consumatore | I resi per difetto seguono il percorso di garanzia e restano fuori dallo scoring di abuso |
 
 Questa tabella non è una consulenza legale. La promessa corretta è «vincoli espliciti e decisioni verificabili, con validazione normativa prima dell'uso reale»: nessun controllo software certifica da solo la conformità.
@@ -225,7 +225,7 @@ Definition of Done valida per ogni storia: test verdi in modalità CPU e mock, c
 
 | ID | Storia | Criteri di accettazione | Priorità | Stato |
 | --- | --- | --- | --- | --- |
-| US-201 | Come sistema voglio la probabilità di reso per articolo appresa su ASOS | XGBoost su GPU con F1 ≥ 0,75 sul test ASOS (paper: 0,774); probabilità calibrate; solo feature disponibili al momento della decisione | Must | Da fare |
+| US-201 | Come sistema voglio la probabilità di reso per articolo appresa su ASOS | XGBoost su GPU valutato con i due protocolli di ADR-10: protocollo del paper (F1 ≥ 0,75 sul test ASOS, paper: 0,774) solo per benchmark e confronto; protocollo ReturnRing, l'unico usato dal prodotto, che batte la migliore regola leave-one-out a una feature su F1 ed entropia incrociata; probabilità calibrate; solo feature disponibili al momento della decisione | Must | Da fare |
 | US-202 | Come giudice voglio il confronto GraphSAGE contro XGBoost su AMD | F1 GraphSAGE e tempi CPU e MI300X su ASOS; presentato come benchmark del compito ASOS, non come prova sui ring | Should | Da fare |
 | US-203 | Come sistema voglio proporre collegamenti tra account con le loro evidenze | Ogni legame con tipo, data e frequenza; nodi molto comuni pesati meno; precision ≥ 0,90 e recall ≥ 0,80 sui ring; famiglia Rossi, anche con carta condivisa, mai in Q3 o Q4 | Must | Da fare |
 | US-204 | Come sistema voglio il rischio di abuso per cliente e per reso | Stessi split per regole, XGBoost, grafo e GraphSAGE; feature vietate assenti (test); SHAP top 3 presentato come contributo al punteggio, non come causa | Must | Da fare |
@@ -311,7 +311,7 @@ Diciassette requisiti non funzionali, ciascuno con una soglia misurabile e il te
 | NFR-01 | Legale | Il recesso entro 14 giorni non è mai negato; trattenute solo dopo ispezione | Zero violazioni su tutte le combinazioni di policy | LEG-01, LEG-02 |
 | NFR-02 | GDPR art. 22 | Nessuna azione restrittiva senza approvazione umana | 100% delle azioni restrittive con approvatore registrato | LEG-03, audit |
 | NFR-03 | Privacy | Solo dati anonimizzati o sintetici; gli hash identificativi sono trattati come dati personali pseudonimi, con accessi e conservazione definiti; nessun dato esce dal droplet | Zero chiamate di rete in uscita a runtime | SEC-02 (egress) |
-| NFR-04 | Equità | Genere e paese esclusi dai punteggi; l'esclusione non basta, quindi i falsi positivi si misurano anche su clienti nuovi, famiglie e gruppi con pochi dati | Scarto massimo 5 punti percentuali tra segmenti | FAIR-01, FAIR-02 |
+| NFR-04 | Equità | Genere, paese ed età esclusi dai punteggi (ADR-11); l'esclusione non basta, quindi i falsi positivi si misurano anche su clienti nuovi, famiglie e gruppi con pochi dati | Scarto massimo 5 punti percentuali tra segmenti | FAIR-01, FAIR-02 |
 | NFR-05 | Spiegabilità | Ogni decisione ha 3 fattori, numeri e testo | 100% dei casi in coda | MOD-05, LLM-03 |
 | NFR-06 | Prestazioni | Scoring di un reso (senza LLM) | p95 ≤ 200 ms | PERF-01 |
 | NFR-07 | Prestazioni | Messaggio di Gemma generato al volo, in streaming | p95 ≤ 12 s; coda pre-generata in batch, apertura istantanea | PERF-02, B3 |
@@ -343,9 +343,9 @@ Il progetto usa due livelli di dati: il comportamento di reso reale di ASOS, con
 | Dimensioni (test) | Circa 820.000 clienti, 410.000 varianti, 1,5 milioni di acquisti |
 | Feature | Tasso medio di reso, quote dei motivi di reso, storico di acquisti e resi per cliente e variante; ID anonimizzati |
 | Distorsione nota | Contiene solo clienti con almeno un reso: le statistiche non rappresentano tutta la clientela ASOS |
-| Escluso dai punteggi | Genere e paese (solo statistiche descrittive) |
+| Escluso dai punteggi | Genere, paese ed età (solo statistiche descrittive; ADR-11) |
 
-ASOS supporta il modello di reso, non il rilevamento degli abusi: quello si valuta su scenari sintetici e va verificato in un pilota. Tre usi, in ordine di importanza: addestrare la probabilità di reso per articolo (US-201), misurare XGBoost e GraphSAGE sulla MI300X (B1, B2), calibrare il generatore. Lo schema esatto delle colonne non è descritto nel paper e va verificato lunedì (domanda aperta D-03). Il dataset non va nel repo: uno script lo scarica e ne verifica il checksum.
+ASOS supporta il modello di reso, non il rilevamento degli abusi: quello si valuta su scenari sintetici e va verificato in un pilota. Tre usi, in ordine di importanza: addestrare la probabilità di reso per articolo (US-201), misurare XGBoost e GraphSAGE sulla MI300X (B1, B2), calibrare il generatore. Lo schema esatto, verificato il 12 ottobre, è in ADR-10: le feature aggregate di clienti e prodotti sono calcolate su una finestra che contiene le etichette, quindi si usano due protocolli di valutazione (D-03 risolta). Il dataset non va nel repo: uno script lo scarica e ne verifica il checksum.
 
 ### Livello sintetico: Navigli Fashion
 
@@ -393,7 +393,7 @@ Componenti con un ruolo solo ciascuno: i modelli statistici stimano probabilità
 
 ### 8.1 Probabilità di reso per articolo
 
-Classificazione degli archi cliente–variante del grafo ASOS: per ogni acquisto, la probabilità che venga restituito. Feature del paper per cliente e variante, senza genere e paese. Modello amd\_xgboost con istogramma su GPU e gli iperparametri pubblicati come punto di partenza (profondità 4, learning rate 0,1, gamma 1, lambda 2, early stopping a 5). Calibrazione isotonica sul 10% di validazione.
+Classificazione degli archi cliente–variante del grafo ASOS: per ogni acquisto, la probabilità che venga restituito. Feature per cliente e variante secondo i due protocolli di ADR-10, senza genere, paese ed età. Modello amd\_xgboost con istogramma su GPU e gli iperparametri pubblicati come punto di partenza (profondità 4, learning rate 0,1, gamma 1, lambda 2, early stopping a 5). Calibrazione isotonica sul 10% di validazione.
 
 Metriche: F1, precision, recall ed entropia incrociata per il confronto con il paper (XGBoost 0,774, GNN 0,792), errore di calibrazione atteso per l'uso nel residuo. Nel negozio sintetico il modello vede clienti con feature calcolate con le stesse definizioni: lo scarto di distribuzione è un rischio dichiarato (R-07).
 
@@ -640,7 +640,7 @@ Lo stack è interamente open source con licenze permissive, compatibile con il v
 | --- | --- | --- | --- | --- |
 | Hardware | AMD Instinct MI300X, 192 GB | Droplet AMD Developer Cloud | — | 1,99 $/ora, immagine Quick Start con vLLM |
 | Serving LLM | vLLM | Immagine vllm/vllm-openai-rocm, tag da bloccare lunedì (PyPI: 0.31.0) | Apache-2.0 | La wheel ROCm richiede ROCm 7.2.1 |
-| Modello | Gemma 4 31B-it | Hugging Face | Apache 2.0 secondo la [pagina di ACT II](https://lablab.ai/ai-hackathons/amd-developer-hackathon-act-ii) | Verificare se il download richiede un token (D-05) |
+| Modello | Gemma 4 31B-it | Hugging Face | Apache 2.0 secondo la [pagina di ACT II](https://lablab.ai/ai-hackathons/amd-developer-hackathon-act-ii) | Non gated, nessun token necessario (D-05) |
 | GBM su GPU | amd\_xgboost | 3.2.0 da PyPI AMD | Apache-2.0 | ROCm 7.2.3, 7.1.1 o 7.0.2, Ubuntu 24.04 |
 | GBM su CPU | xgboost | Bloccato a 3.2.x | Apache-2.0 | Stessa versione del training per leggere i modelli salvati |
 | GNN | DGL per ROCm | Immagine rocm/dgl | Apache-2.0 (repo ROCm/dgl) | GraphSAGE, GAT, GCN supportati su MI300X |
@@ -742,8 +742,8 @@ Quattro casi d'oro sempre presenti (Giulia, il ring di Marco, la famiglia Rossi 
 | LEG-04 | Nessuna restrizione retroattiva sull'ordine in corso | Le condizioni dello snapshot vincono sempre | CPU |
 | LEG-05 | Indennizzo solo con evidenza e conferma | Rifiutato senza foto o senza conferma | CPU |
 | LEG-06 | Clausola legale presente e identica | Confronto esatto col testo approvato | CPU |
-| MOD-01 | Probabilità di reso su ASOS (XGBoost) | F1 ≥ 0,75 sul test ASOS | GPU |
-| MOD-02 | GraphSAGE su ASOS | F1 ≥ 0,78 | GPU |
+| MOD-01 | Probabilità di reso su ASOS (XGBoost) | Protocollo ReturnRing: batte la baseline leave-one-out su F1 ed entropia incrociata; protocollo del paper: F1 ≥ 0,75 (ADR-10) | GPU |
+| MOD-02 | GraphSAGE su ASOS | F1 ≥ 0,78 con il protocollo del paper; riportato anche con il protocollo ReturnRing (ADR-10) | GPU |
 | MOD-03 | Cluster di account | Precision ≥ 0,90, recall ≥ 0,80 sui ring | CPU |
 | MOD-04 | Ablazione A0–A4 | Report completo sugli stessi split, regressioni comprese; nessuna soglia di non regressione | GPU |
 | MOD-05 | Spiegazioni | 3 fattori SHAP per il 100% dei casi; nessuna feature vietata | CPU |
@@ -977,7 +977,7 @@ Comando di reset dei dati e dei casi d'oro; schede del browser già aperte nell'
 | --- | --- |
 | Perché non basta un assistente generico come Copilot? | Le decisioni vengono da modelli statistici sui dati del merchant; il LLM spiega soltanto; il modello è open e gira sul suo hardware |
 | I dati sono finti? | ASOS supporta il modello di reso (1,4 milioni di acquisti reali); il rilevamento degli abusi è valutato su scenari sintetici dichiarati e va verificato in un pilota |
-| Non è discriminatorio? | Genere e paese esclusi, ma l'esclusione non basta: misuriamo i falsi positivi su clienti nuovi, famiglie e gruppi con pochi dati; approvazione umana e scadenza delle restrizioni |
+| Non è discriminatorio? | Genere, paese ed età esclusi, ma l'esclusione non basta: misuriamo i falsi positivi su clienti nuovi, famiglie e gruppi con pochi dati; approvazione umana e scadenza delle restrizioni |
 | È legale in Europa? | Vincoli integrati e tracciabili: il recesso non è mai negato, i difetti seguono la garanzia, le leve riguardano solo le concessioni oltre la legge e valgono dagli ordini successivi; approvazione umana per l'art. 22; da validare con un legale |
 | Che differenza c'è con Forter o Riskified? | Anche loro premiano i clienti affidabili; noi mostriamo la decisione nel contesto di prodotto ed evidenze, policy verificabili per ordine e il modello sull'infrastruttura del merchant |
 | Perché AMD? | 192 GB su una GPU tengono insieme LLM, GNN e GBM; AMD Finance toolkit per lo scoring; costo per decisione misurato |
@@ -1063,9 +1063,9 @@ Quindici questioni: una è già risolta (Evolus escluso), sei si chiudono al Q&A
 | --- | --- | --- | --- | --- |
 | D-01 | Per quanto deve restare attivo l'URL della demo, e i giudici lo provano? | Q&A su Discord | Oct 12, 2026 | Aperta |
 | D-02 | Come sono ripartiti i 5.000 $ di AMD e i 5.000 $ di Google | Q&A su Discord | Oct 12, 2026 | Aperta |
-| D-03 | Schema esatto delle colonne di ASOS GraphReturns, e quali feature del cliente sono calcolate su periodi successivi | Download e profilo (US-101) | Oct 12, 2026 | Aperta |
+| D-03 | Schema esatto delle colonne di ASOS GraphReturns, e quali feature del cliente sono calcolate su periodi successivi | Download e profilo (US-101) | Oct 12, 2026 | Risolta il 12 ottobre: ADR-10 |
 | D-04 | Regole su codice preesistente e strumenti AI di sviluppo | Q&A e Rule Book lablab | Oct 12, 2026 | Aperta |
-| D-05 | Gemma 4 su Hugging Face richiede token o accettazione delle condizioni? | Spike SPK-G7 | Oct 12, 2026 | Aperta |
+| D-05 | Gemma 4 su Hugging Face richiede token o accettazione delle condizioni? | Spike SPK-G7 | Oct 12, 2026 | Risolta il 12 ottobre: su Hugging Face il modello non è gated e ha licenza Apache-2.0 |
 | D-06 | Ci saranno GPU dedicate on-site a Milano? | Q&A su Discord | Oct 12, 2026 | Aperta |
 | D-07 | Durata e formato del pitch dal vivo (portatile proprio, proiettore, rete) | Q&A e organizzatori di SmartCityLab | Oct 12, 2026 | Aperta |
 | D-08 | Esiste un dato europeo equivalente al benchmark Appriss? | Ricerca mirata | Oct 16, 2026 | Aperta |
@@ -1102,7 +1102,7 @@ and drafts messages; a human approves restrictive actions. Full spec: docs/spec.
    orders and are shown at checkout (terms snapshot). Enforced by policy/legal_guard.py, 100% test coverage.
 4. Defect or non-conformity returns go to the guarantee path before scoring. No restrictive lever applies.
 5. Every restrictive action (Q3, Q4) needs a human approver in the audit log, and a review date.
-6. Forbidden features: gender, country, names, raw identifiers. Customer value never feeds the risk score.
+6. Forbidden features: gender, country, age, names, raw identifiers. Customer value never feeds the risk score.
 7. Every feature must be computable at decision time: filter available_at <= decision_time. No future events.
 8. The residual uses the product/cohort reference model, never the personalized predictor.
 9. Never count the refund owed to the consumer as a saving. Economic outputs are net benefit with explicit,
@@ -1292,6 +1292,7 @@ Rules:
 
 | Data | Modifica | Dove |
 | --- | --- | --- |
+| 13 ott 2026 | Due protocolli di valutazione su ASOS (D-03); età esclusa dai punteggi; D-05 risolta | 1, 3, 5, 6, 7, 8.1, 12, 16, 18, 19.A, ADR-10, ADR-11 |
 | 12 ott 2026 | KPI riformulato come beneficio netto; il rimborso dovuto non è mai un risparmio | 1, 3, 8.10, 16, 17 |
 | 12 ott 2026 | Residuo calcolato su un riferimento di prodotto e coorte | 8.1, 8.2, US-206, MOD-09 |
 | 12 ott 2026 | Regola temporale event\_at e available\_at, split nel tempo | 7, 8.4, NFR-15, MOD-08 |

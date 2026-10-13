@@ -49,7 +49,7 @@ Golden groups: is their cluster exactly their accounts?
 | main | R-MARCO | 7 | 1 | 0 | 0 | yes | 11.0 | 3 | 1.00 | 0.903 | 0.57 |
 | main | F-ROSSI | 3 | 1 | 0 | 0 | yes | 1382.0 | 3 | 0.00 | 0.222 | 0.33 |
 | main | F-ROSSI-CARD | 3 | 1 | 0 | 0 | yes | 1224.3 | 2 | 0.00 | 0.250 | 0.50 |
-| ood | F-OOD-HARD | 5 | 1 | 0 | 0 | yes | 7.3 | 1 | 1.00 | 0.190 | 0.50 |
+| ood | F-OOD-HARD | 5 | 1 | 0 | 0 | yes | 7.3 | 1 | 1.00 | 0.250 | 0.50 |
 
 Most used common addresses, main (values not shown: pseudonymous data):
 
@@ -87,31 +87,31 @@ main (composition by ground-truth behaviour):
 
 | Cluster | Size | Composition | Groups | Unrelated pairs | Creation spread (days) | Distinct cards | Welcome coupons per account | Return rate | Strong-identifier share |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| CL-06c3dc46e03f | 9 | promo_ring 9 | 1 | 0 | 8.3 | 5 | 1.00 | 0.967 | 0.38 |
-| CL-0d45cbdb22b8 | 9 | promo_ring 9 | 1 | 0 | 5.6 | 4 | 1.00 | 0.934 | 0.57 |
-| CL-1ee018b5c1b1 | 9 | promo_ring 9 | 1 | 0 | 3.0 | 5 | 1.00 | 0.870 | 0.57 |
+| CL-06c3dc46e03f | 9 | promo_ring 9 | 1 | 0 | 8.3 | 5 | 1.00 | 0.966 | 0.38 |
+| CL-0d45cbdb22b8 | 9 | promo_ring 9 | 1 | 0 | 5.6 | 4 | 1.00 | 0.937 | 0.57 |
+| CL-1ee018b5c1b1 | 9 | promo_ring 9 | 1 | 0 | 3.0 | 5 | 1.00 | 0.875 | 0.57 |
 | CL-38a17d335a3e | 9 | promo_ring 9 | 1 | 0 | 11.8 | 7 | 1.00 | 0.967 | 0.57 |
-| CL-67d5f8aa90e7 | 9 | promo_ring 9 | 1 | 0 | 7.3 | 4 | 1.00 | 0.986 | 0.50 |
-| CL-6c9734dc45eb | 9 | promo_ring 9 | 1 | 0 | 11.6 | 4 | 1.00 | 0.875 | 0.50 |
+| CL-67d5f8aa90e7 | 9 | promo_ring 9 | 1 | 0 | 7.3 | 4 | 1.00 | 0.967 | 0.50 |
+| CL-6c9734dc45eb | 9 | promo_ring 9 | 1 | 0 | 11.6 | 4 | 1.00 | 0.870 | 0.50 |
 | CL-8eb0b85dcd9c | 9 | promo_ring 9 | 1 | 0 | 10.9 | 6 | 1.00 | 0.952 | 0.43 |
-| CL-a7c3f0c9aff7 | 9 | promo_ring 9 | 1 | 0 | 8.3 | 5 | 1.00 | 0.929 | 0.38 |
-| CL-b0445e9bdb16 | 9 | promo_ring 9 | 1 | 0 | 3.9 | 7 | 1.00 | 0.938 | 0.50 |
-| CL-c2f76aea0d2f | 9 | promo_ring 9 | 1 | 0 | 5.3 | 5 | 1.00 | 0.938 | 0.40 |
+| CL-a7c3f0c9aff7 | 9 | promo_ring 9 | 1 | 0 | 8.3 | 5 | 1.00 | 0.928 | 0.38 |
+| CL-b0445e9bdb16 | 9 | promo_ring 9 | 1 | 0 | 3.9 | 7 | 1.00 | 0.934 | 0.50 |
+| CL-c2f76aea0d2f | 9 | promo_ring 9 | 1 | 0 | 5.3 | 5 | 1.00 | 0.934 | 0.40 |
 
 ood (composition by ground-truth behaviour):
 
 | Cluster | Size | Composition | Groups | Unrelated pairs | Creation spread (days) | Distinct cards | Welcome coupons per account | Return rate | Strong-identifier share |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| CL-586590b2af58 | 5 | shared_benign 5 | 1 | 0 | 7.3 | 1 | 1.00 | 0.190 | 0.50 |
-| CL-01830d64c135 | 4 | shared_benign 4 | 1 | 0 | 1084.3 | 3 | 0.50 | 0.375 | 0.50 |
-| CL-038ecbd24a6e | 4 | shared_benign 4 | 1 | 0 | 823.8 | 2 | 0.00 | 0.235 | 0.50 |
-| CL-053dd7db227b | 4 | shared_benign 4 | 1 | 0 | 2.8 | 1 | 1.00 | 0.143 | 0.50 |
-| CL-0726c06a847f | 4 | shared_benign 4 | 1 | 0 | 1355.1 | 3 | 0.00 | 0.233 | 0.50 |
-| CL-0c49d42f2f87 | 4 | shared_benign 4 | 1 | 0 | 1611.6 | 4 | 0.25 | 0.158 | 0.50 |
-| CL-0d9cbbbd6ae9 | 4 | shared_benign 4 | 1 | 0 | 1342.5 | 4 | 0.00 | 0.302 | 0.50 |
-| CL-141058cc9aa0 | 4 | shared_benign 4 | 1 | 0 | 1433.4 | 4 | 0.00 | 0.172 | 0.33 |
-| CL-1d6f87654753 | 4 | shared_benign 4 | 1 | 0 | 688.4 | 3 | 0.00 | 0.324 | 0.33 |
-| CL-28cb806cdee1 | 4 | shared_benign 4 | 1 | 0 | 1178.5 | 4 | 0.00 | 0.146 | 0.33 |
+| CL-586590b2af58 | 5 | shared_benign 5 | 1 | 0 | 7.3 | 1 | 1.00 | 0.250 | 0.50 |
+| CL-01830d64c135 | 4 | shared_benign 4 | 1 | 0 | 1084.3 | 3 | 0.50 | 0.348 | 0.50 |
+| CL-038ecbd24a6e | 4 | shared_benign 4 | 1 | 0 | 823.8 | 2 | 0.00 | 0.206 | 0.50 |
+| CL-053dd7db227b | 4 | shared_benign 4 | 1 | 0 | 2.8 | 1 | 1.00 | 0.273 | 0.50 |
+| CL-0726c06a847f | 4 | shared_benign 4 | 1 | 0 | 1355.1 | 3 | 0.00 | 0.267 | 0.50 |
+| CL-0c49d42f2f87 | 4 | shared_benign 4 | 1 | 0 | 1611.6 | 4 | 0.25 | 0.109 | 0.50 |
+| CL-0d9cbbbd6ae9 | 4 | shared_benign 4 | 1 | 0 | 1342.5 | 4 | 0.00 | 0.289 | 0.50 |
+| CL-141058cc9aa0 | 4 | shared_benign 4 | 1 | 0 | 1433.4 | 4 | 0.00 | 0.200 | 0.33 |
+| CL-1d6f87654753 | 4 | shared_benign 4 | 1 | 0 | 688.4 | 3 | 0.00 | 0.219 | 0.33 |
+| CL-28cb806cdee1 | 4 | shared_benign 4 | 1 | 0 | 1178.5 | 4 | 0.00 | 0.143 | 0.33 |
 
 ## Cluster features by cluster type
 
@@ -119,11 +119,11 @@ Medians over the clusters of each type (type from the ground truth). The graph p
 
 | Scenario | Type | Clusters | Size | Creation spread (days) | Cards per account | Welcome coupons per account | Return rate | Strong-identifier share |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| main | ring | 40 | 7.0 | 6.4 | 0.62 | 1.00 | 0.948 | 0.50 |
-| main | family | 261 | 3.0 | 811.3 | 1.00 | 0.00 | 0.233 | 0.33 |
+| main | ring | 40 | 7.0 | 6.4 | 0.62 | 1.00 | 0.950 | 0.50 |
+| main | family | 261 | 3.0 | 811.3 | 1.00 | 0.00 | 0.237 | 0.33 |
 | main | mixed | 0 | n/a | n/a | n/a | n/a | n/a | n/a |
-| ood | ring | 40 | 2.0 | 25.1 | 1.00 | 0.88 | 0.720 | 1.00 |
-| ood | family | 252 | 3.0 | 671.9 | 0.67 | 0.00 | 0.216 | 0.50 |
+| ood | ring | 40 | 2.0 | 25.1 | 1.00 | 0.88 | 0.712 | 1.00 |
+| ood | family | 252 | 3.0 | 671.9 | 0.67 | 0.00 | 0.220 | 0.50 |
 | ood | mixed | 0 | n/a | n/a | n/a | n/a | n/a | n/a |
 
 ## Hub pruning against the brute force

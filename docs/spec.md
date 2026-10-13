@@ -387,7 +387,9 @@ Contratti versione 2 (ADR-13), in `contracts/`. Ogni file Parquet porta nei meta
 | truth/labels.parquet, truth/variants.parquet | generator | solo job offline di addestramento e valutazione | behaviour, ring\_id, family\_id, scenario; base\_return\_rate, defective, defect\_reason, defect\_start, defect\_end |
 | features/links.parquet | graph | risk, API (US-203, US-302, US-310) | customer\_a, customer\_b, kinds, weight, weight\_decayed, first/last\_shared\_at, n\_shared\_events, max\_sharers, disputed |
 | features/clusters.parquet | graph | risk | customer\_id, cluster\_id, cluster\_size, shared\_strong\_ids, welcome\_coupons, n\_distinct\_cards, creation\_spread\_days, welcome\_coupons\_per\_account, cluster\_return\_rate, strong\_id\_share |
-| features/customer\_features.parquet | features | risk, value | tassi, quote motivi, residuo, tempi di reso |
+| features/customer\_features.parquet | features | risk | conteggi, tassi sulle righe assestate, quote motivi, tempi di reso, anzianità dell'account, coupon, residuo R e z con la versione del riferimento (ADR-13, emendamento 3) |
+| features/customer\_value.parquet | features | policy, simulatore | value\_eur (V\_c di 8.5) e componenti, finestra, versione delle ipotesi; mai letto dal rischio |
+| features/evidence\_quality.parquet | features | policy, API | evidence\_quality, osservazioni (anche con account collegati), completezza degli identificatori, coerenza dei motivi, evidenze mancanti, versione delle soglie |
 | scores/scores.parquet | risk, value | policy, API | customer\_id, risk, evidence\_quality, value\_eur, quadrant, shap\_top3, model\_version |
 | decisions, audit\_log, outbox (PostgreSQL) | API | UI, export | decision\_id, return\_id, path, evidence\_quality, alternatives, levers, requires\_approval, approver, review\_at, rules\_version, model\_versions, llm\_output, created\_at |
 | features/product\_anomalies.parquet | anomalies | API, attività di catalogo | variant\_id, reason, week, observed, expected, z, n, status (open, task\_opened, resolved) |
@@ -1327,6 +1329,7 @@ Rules for every text:
 | Data | Modifica | Dove |
 | --- | --- | --- |
 | 13 ott 2026 | Contratti LLM v2: fatti costruiti dal codice e citati dalla spiegazione, segnaposto disponibili e richiesti, nessun punteggio nei casi di garanzia o con dati insufficienti; clausola di garanzia proposta (art. 13 della direttiva 2019/771); prompt adattato | 8.7, 19.B, 19.C, 19.D, ADR-14 |
+| 13 ott 2026 | Feature cliente al momento della decisione, riferimento di prodotto e coorte, residuo, valore e qualità dell'evidenza; tabelle customer\_value ed evidence\_quality | 7, ADR-13 (emendamento 3), docs/customer-features.md |
 | 13 ott 2026 | Contratti dati v2: consegne e stati del reso come eventi separati, catalogo varianti, legami, ground truth delle varianti e scenario, contratti ASOS e di calibrazione, catalogo delle leve, metadati di provenienza; regola 12 precisata | 7, 19.A, ADR-13 |
 | 13 ott 2026 | Due protocolli di valutazione su ASOS (D-03); età esclusa dai punteggi; D-05 risolta | 1, 3, 5, 6, 7, 8.1, 12, 16, 18, 19.A, ADR-10, ADR-11 |
 | 12 ott 2026 | KPI riformulato come beneficio netto; il rimborso dovuto non è mai un risparmio | 1, 3, 8.10, 16, 17 |

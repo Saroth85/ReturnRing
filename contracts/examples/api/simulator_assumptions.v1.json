@@ -21,7 +21,8 @@
         "abandonment_margin_lost_eur": 240.0,
         "incremental_margin_eur": 0.0,
         "version": "assumptions-v1",
-        "basis": "simulated"
+        "basis": "simulated",
+        "based_on": null
       },
       "components": [
         {
@@ -158,7 +159,8 @@
             "abandonment_margin_lost_eur": 240.0,
             "incremental_margin_eur": 0.0,
             "version": "assumptions-v1",
-            "basis": "simulated"
+            "basis": "simulated",
+            "based_on": null
           },
           "components": [
             {
@@ -294,8 +296,9 @@
             "error_cost_eur": 100.0,
             "abandonment_margin_lost_eur": 240.0,
             "incremental_margin_eur": 0.0,
-            "version": "assumptions-v1",
-            "basis": "simulated"
+            "version": "assumptions-v1/logistics_halved",
+            "basis": "simulated",
+            "based_on": "assumptions-v1"
           },
           "components": [
             {
@@ -431,8 +434,9 @@
             "error_cost_eur": 100.0,
             "abandonment_margin_lost_eur": 480.0,
             "incremental_margin_eur": 0.0,
-            "version": "assumptions-v1",
-            "basis": "simulated"
+            "version": "assumptions-v1/abandonment_doubled",
+            "basis": "simulated",
+            "based_on": "assumptions-v1"
           },
           "components": [
             {
@@ -568,8 +572,9 @@
             "error_cost_eur": 100.0,
             "abandonment_margin_lost_eur": 480.0,
             "incremental_margin_eur": 0.0,
-            "version": "assumptions-v1",
-            "basis": "simulated"
+            "version": "assumptions-v1/both",
+            "basis": "simulated",
+            "based_on": "assumptions-v1"
           },
           "components": [
             {
@@ -714,7 +719,8 @@
           "abandonment_margin_lost_eur": 240.0,
           "incremental_margin_eur": 0.0,
           "version": "assumptions-v1",
-          "basis": "simulated"
+          "basis": "simulated",
+          "based_on": null
         },
         "components": [
           {
@@ -851,7 +857,8 @@
               "abandonment_margin_lost_eur": 240.0,
               "incremental_margin_eur": 0.0,
               "version": "assumptions-v1",
-              "basis": "simulated"
+              "basis": "simulated",
+              "based_on": null
             },
             "components": [
               {
@@ -987,8 +994,9 @@
               "error_cost_eur": 100.0,
               "abandonment_margin_lost_eur": 240.0,
               "incremental_margin_eur": 0.0,
-              "version": "assumptions-v1",
-              "basis": "simulated"
+              "version": "assumptions-v1/logistics_halved",
+              "basis": "simulated",
+              "based_on": "assumptions-v1"
             },
             "components": [
               {
@@ -1124,8 +1132,9 @@
               "error_cost_eur": 100.0,
               "abandonment_margin_lost_eur": 480.0,
               "incremental_margin_eur": 0.0,
-              "version": "assumptions-v1",
-              "basis": "simulated"
+              "version": "assumptions-v1/abandonment_doubled",
+              "basis": "simulated",
+              "based_on": "assumptions-v1"
             },
             "components": [
               {
@@ -1261,8 +1270,9 @@
               "error_cost_eur": 100.0,
               "abandonment_margin_lost_eur": 480.0,
               "incremental_margin_eur": 0.0,
-              "version": "assumptions-v1",
-              "basis": "simulated"
+              "version": "assumptions-v1/both",
+              "basis": "simulated",
+              "based_on": "assumptions-v1"
             },
             "components": [
               {

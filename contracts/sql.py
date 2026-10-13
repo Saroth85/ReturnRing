@@ -10,11 +10,18 @@ Conventions:
   (for example ck_decisions_approved_restriction).
 - A CHECK passes when its expression is unknown (NULL); every rule below compares nullable
   columns with IS NULL / IS NOT NULL first, so a missing value cannot slip through.
+- Every CHECK is one rule, written so that a row breaking one rule breaks one CHECK: a rule on
+  a state is an implication ("state <> 'x' OR ..."), so an unknown state fails only the
+  vocabulary CHECK. PostgreSQL reports the first violated CHECK in name order and SQLite the
+  first in table order; with one violated CHECK both name the same one.
 - Enumerations are strings with a CHECK on the vocabularies of contracts/vocab.py and
   policy/types.py.
-- JSON columns are JSONB on PostgreSQL. Levers are stored as lists of {id, value, scope} objects
+- JSON columns are JSONB on PostgreSQL. A Python None is SQL NULL, never the JSON null, so the
+  IS NULL rules see it. Levers are stored as lists of {id, value, scope} objects
   (contracts/levers.py), terms as {return_window_days, free_return_shipping, instant_refund,
   free_size_exchange, coupons_enabled}.
+- Timestamps are TIMESTAMP WITH TIME ZONE. UtcDateTime refuses a naive datetime, stores UTC
+  and reads back a timezone-aware UTC datetime on both databases (SQLite has no time zones).
 - audit_log, simulator_assumptions and coupon_rules are append-only: triggers refuse UPDATE and
   DELETE (and TRUNCATE on PostgreSQL). A new version is a new row.
 
@@ -25,6 +32,7 @@ with policy.legal_guard and the validators of apps/api/schemas.py.
 from __future__ import annotations
 
 from collections.abc import Iterable
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import (
@@ -45,13 +53,14 @@ from sqlalchemy import (
     String,
     Table,
     Text,
+    TypeDecorator,
     UniqueConstraint,
     event,
     false,
     true,
 )
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Dialect, Engine
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from contracts.vocab import (
@@ -62,6 +71,7 @@ from contracts.vocab import (
     CATALOG_TASK_STATUSES,
     CLAUSE_KINDS,
     COUPON_APPLICATION_STATES,
+    DECISION_AUDIT_ACTIONS,
     DECISION_STATUSES,
     EVIDENCE_KINDS,
     GENERATION_KINDS,
@@ -93,9 +103,33 @@ NAMING_CONVENTION = {
 }
 metadata = MetaData(naming_convention=NAMING_CONVENTION)
 
-JSONDoc = JSON().with_variant(JSONB(), "postgresql")
+
+class UtcDateTime(TypeDecorator[datetime]):
+    """TIMESTAMP WITH TIME ZONE that only takes aware datetimes, stores them in UTC and reads them
+    back aware in UTC: SQLite keeps no offset, so its naive results are UTC by construction."""
+
+    impl = DateTime(timezone=True)
+    cache_ok = True
+
+    def process_bind_param(self, value: datetime | None, dialect: Dialect) -> datetime | None:
+        if value is None:
+            return None
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError(f"a timestamp needs a timezone (UTC), got the naive {value!r}")
+        return value.astimezone(UTC)
+
+    def process_result_value(self, value: datetime | None, dialect: Dialect) -> datetime | None:
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
+
+
+# none_as_null: a Python None is stored as SQL NULL, so CHECKs written with IS NULL see it.
+JSONDoc = JSON(none_as_null=True).with_variant(JSONB(none_as_null=True), "postgresql")
 Money = Numeric(12, 2)
-TS = DateTime(timezone=True)
+TS = UtcDateTime()
 Id = String(96)
 ActorColumn = String(32)
 
@@ -185,9 +219,8 @@ llm_generations = Table(
     _check(one_of("tone", TONES, nullable=True), "tone"),
     _check("attempts >= 0 AND attempts <= 2", "attempts_range"),
     _check(
-        "(generation_path = 'llm' AND attempts = 1)"
-        " OR (generation_path = 'llm_regenerated' AND attempts = 2)"
-        " OR generation_path = 'template'",
+        "(generation_path <> 'llm' OR attempts = 1)"
+        " AND (generation_path <> 'llm_regenerated' OR attempts = 2)",
         "path_attempts",
     ),
     _check("llm_mode <> 'mock' OR served_from = 'live'", "mock_is_live"),
@@ -330,9 +363,9 @@ decisions = Table(
     UniqueConstraint("return_id", "version", name="uq_decisions_return_version"),
     _check("version >= 1", "version_positive"),
     _check(
-        "(version = 1 AND supersedes_decision_id IS NULL AND revision_trigger = 'initial')"
-        " OR (version > 1 AND supersedes_decision_id IS NOT NULL"
-        " AND revision_trigger <> 'initial')",
+        "(version <> 1 OR (supersedes_decision_id IS NULL AND revision_trigger = 'initial'))"
+        " AND (version <= 1 OR (supersedes_decision_id IS NOT NULL"
+        " AND revision_trigger <> 'initial'))",
         "version_chain",
     ),
     _check(one_of("revision_trigger", REVISION_TRIGGERS), "revision_trigger"),
@@ -357,16 +390,12 @@ decisions = Table(
         " OR state NOT IN ('proposed', 'approved') OR requires_approval",
         "q3_q4_need_approval",
     ),
-    # US-607: every restriction has a review date, after the decision
+    # US-607: every restriction has a review date, after the decision, and nothing else has one
     _check("NOT requires_approval OR review_at IS NOT NULL", "restriction_has_review"),
+    _check("review_at IS NULL OR requires_approval", "review_only_restriction"),
     _check("review_at IS NULL OR review_at > decided_on", "review_after_decision"),
-    # rule 5: an approved restrictive decision has an approver and a review date
-    _check(
-        "state NOT IN ('approved', 'overridden') OR NOT requires_approval"
-        f" OR ({person('approver')} AND approved_at IS NOT NULL AND review_at IS NOT NULL)",
-        "approved_restriction",
-    ),
-    # a person acted exactly when the state is not proposed
+    # rule 5: a person acted exactly when the state is not proposed. With the two review CHECKs
+    # above, an approved or overridden restriction has a person as approver and a review date.
     _check(
         "(state = 'proposed' AND approver IS NULL AND approved_at IS NULL)"
         f" OR (state <> 'proposed' AND {person('approver')} AND approved_at IS NOT NULL)",
@@ -374,13 +403,19 @@ decisions = Table(
     ),
     # US-306: an override (and a rejection) has a reason and a category; an approval has none
     _check(
-        "(state IN ('overridden', 'rejected')"
-        f" AND {present('override_reason', MIN_REASON_CHARS)} AND override_category IS NOT NULL)"
-        " OR (state IN ('proposed', 'approved')"
-        " AND override_reason IS NULL AND override_category IS NULL)",
+        "(state NOT IN ('overridden', 'rejected')"
+        f" OR ({present('override_reason', MIN_REASON_CHARS)}"
+        " AND override_category IS NOT NULL))"
+        " AND (state IN ('overridden', 'rejected')"
+        " OR (override_reason IS NULL AND override_category IS NULL))",
         "override_has_reason",
     ),
     _check("state <> 'rejected' OR NOT requires_approval", "rejected_not_restrictive"),
+    # US-607: a version created by a review lifts the restriction (action lift)
+    _check(
+        "revision_trigger <> 'review' OR (state = 'overridden' AND NOT requires_approval)",
+        "review_lifts",
+    ),
     _check(
         "coupon_application_id IS NULL OR coupon_rule_version IS NOT NULL",
         "coupon_application_has_rule",
@@ -415,9 +450,9 @@ coupon_rule_applications = Table(
     _check("reversible", "always_reversible"),  # no permanent label (US-607)
     # US-402, LEG-09: an application is a proposal an operator confirms
     _check(
-        "(state = 'proposed' AND confirmed_by IS NULL AND confirmed_at IS NULL)"
-        f" OR (state IN ('confirmed', 'reversed') AND {person('confirmed_by')}"
-        " AND confirmed_at IS NOT NULL)",
+        "(state <> 'proposed' OR (confirmed_by IS NULL AND confirmed_at IS NULL))"
+        " AND (state NOT IN ('confirmed', 'reversed')"
+        f" OR ({person('confirmed_by')} AND confirmed_at IS NOT NULL))",
         "confirmed_by_person",
     ),
     _check(
@@ -475,6 +510,13 @@ audit_log = Table(
         f" OR {present('reason', MIN_REASON_CHARS)}",
         "reason_required",
     ),
+    # US-604: the entries about a decision version, and only those, have entity_type decision
+    _check(
+        f"(entity_type = 'decision' AND action IN ({_sql_list(sorted(DECISION_AUDIT_ACTIONS))}))"
+        " OR (entity_type <> 'decision'"
+        f" AND action NOT IN ({_sql_list(sorted(DECISION_AUDIT_ACTIONS))}))",
+        "decision_entity",
+    ),
 )
 Index(None, audit_log.c.return_id)
 Index(None, audit_log.c.at)
@@ -488,6 +530,7 @@ outbox = Table(
     Column("customer_id", Id, nullable=False),
     Column("lang", String(2), nullable=False),
     Column("subject", String(300), nullable=False),
+    Column("connective_text", Text, nullable=False),  # placeholders only (rule 10)
     Column("body", Text, nullable=False),  # rendered text, legal clause included
     Column("legal_clause_kind", String(16)),
     Column("template_fields", JSONDoc, nullable=False),
@@ -499,11 +542,25 @@ outbox = Table(
     _check(one_of("legal_clause_kind", CLAUSE_KINDS, nullable=True), "legal_clause_kind"),
     _check(one_of("status", OUTBOX_STATUSES), "status"),
     _check(present("body"), "body"),
+    _check(present("connective_text"), "connective_text"),
     _check(person("created_by"), "created_by_person"),  # a message leaves after a person acts
 )
 Index(None, outbox.c.return_id)
 
 # ---- Checkout: terms snapshots shown and confirmed (ADR-05, US-403, E2E-02) -------------------
+
+TERM_COLUMNS = (
+    "return_window_days",
+    "free_return_shipping",
+    "instant_refund",
+    "free_size_exchange",
+    "coupons_enabled",
+)
+SAME_AS_BASE = " AND ".join(f"{c} = base_{c}" for c in TERM_COLUMNS)
+LESS_GENEROUS = " OR ".join(
+    ["return_window_days < base_return_window_days"]
+    + [f"(base_{c} AND NOT {c})" for c in TERM_COLUMNS[1:]]
+)
 
 terms_snapshots = Table(
     "terms_snapshots",
@@ -519,6 +576,14 @@ terms_snapshots = Table(
     Column("instant_refund", Boolean, nullable=False),
     Column("free_size_exchange", Boolean, nullable=False),
     Column("coupons_enabled", Boolean, nullable=False),
+    # the merchant base terms when the snapshot was shown, and the review date of the decision
+    # that produced the terms (US-607)
+    Column("base_return_window_days", Integer, nullable=False),
+    Column("base_free_return_shipping", Boolean, nullable=False),
+    Column("base_instant_refund", Boolean, nullable=False),
+    Column("base_free_size_exchange", Boolean, nullable=False),
+    Column("base_coupons_enabled", Boolean, nullable=False),
+    Column("review_at", Date),
     Column("coupon_application_id", Id, ForeignKey("coupon_rule_applications.application_id")),
     Column("cart", JSONDoc, nullable=False),
     Column("shown_at", TS, nullable=False),
@@ -533,9 +598,18 @@ terms_snapshots = Table(
     _check("confirmed_at IS NULL OR confirmed_at >= shown_at", "confirmed_after_shown"),
     _check(
         "(source = 'base' AND source_decision_id IS NULL AND quadrant_at_purchase IS NULL)"
-        " OR (source <> 'base' AND source_decision_id = source"
-        " AND quadrant_at_purchase IS NOT NULL)",
+        " OR (source <> 'base' AND source_decision_id IS NOT NULL"
+        " AND source_decision_id = source AND quadrant_at_purchase IS NOT NULL)",
         "source",
+    ),
+    # base terms are exactly the merchant base terms (US-403)
+    _check(f"source <> 'base' OR ({SAME_AS_BASE})", "base_terms"),
+    _check("source <> 'base' OR review_at IS NULL", "base_no_review"),
+    # terms less generous than the base come from a decision with a review date (US-607);
+    # LESS_GENEROUS mirrors policy.types.ReturnTerms.is_less_generous_than (a test checks it)
+    _check(
+        f"NOT ({LESS_GENEROUS}) OR (source <> 'base' AND review_at IS NOT NULL)",
+        "restriction_has_review",
     ),
 )
 Index(None, terms_snapshots.c.customer_id)

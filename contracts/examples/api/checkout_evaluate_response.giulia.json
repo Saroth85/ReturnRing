@@ -26,6 +26,13 @@
     "free_size_exchange": true,
     "coupons_enabled": true
   },
+  "base_terms": {
+    "return_window_days": 30,
+    "free_return_shipping": true,
+    "instant_refund": true,
+    "free_size_exchange": true,
+    "coupons_enabled": true
+  },
   "coupon_eligible": true,
   "coupon_block": null,
   "terms_snapshot_id": "TS-CHK-000981",

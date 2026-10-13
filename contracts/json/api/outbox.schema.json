@@ -4,7 +4,7 @@
   "$defs": {
     "OutboxMessage": {
       "additionalProperties": false,
-      "description": "A message in the simulated outbox (spec 4: no real email).",
+      "description": "A message in the simulated outbox (spec 4: no real email): the connective text, the\ntemplate fields, and the body render_customer_message makes of them with the legal clause.",
       "properties": {
         "message_id": {
           "maxLength": 96,
@@ -47,6 +47,15 @@
           "minLength": 1,
           "title": "Subject",
           "type": "string"
+        },
+        "connective_text": {
+          "maxLength": 900,
+          "minLength": 1,
+          "title": "Connective Text",
+          "type": "string"
+        },
+        "fields": {
+          "$ref": "#/$defs/TemplateFields"
         },
         "body": {
           "maxLength": 4000,
@@ -112,6 +121,8 @@
         "customer_id",
         "lang",
         "subject",
+        "connective_text",
+        "fields",
         "body",
         "legal_clause_kind",
         "generation_id",
@@ -120,6 +131,51 @@
         "created_at"
       ],
       "title": "OutboxMessage",
+      "type": "object"
+    },
+    "TemplateFields": {
+      "additionalProperties": false,
+      "description": "Values the code fills into the message placeholders (ADR-08): never written by the LLM.",
+      "properties": {
+        "terms": {
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Terms",
+          "type": "string"
+        },
+        "amount": {
+          "anyOf": [
+            {
+              "maxLength": 300,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Amount"
+        },
+        "deadline": {
+          "anyOf": [
+            {
+              "maxLength": 300,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Deadline"
+        }
+      },
+      "required": [
+        "terms",
+        "amount",
+        "deadline"
+      ],
+      "title": "TemplateFields",
       "type": "object"
     }
   },

@@ -138,7 +138,7 @@
     },
     "ExplanationStatement": {
       "additionalProperties": false,
-      "description": "A statement of the operator explanation: observed data, a score contribution or a\nhypothesis to verify, with entity, metric, value and period when it cites a number (US-305).",
+      "description": "A statement of the operator explanation: observed data, a score contribution or a\nhypothesis to verify (US-305). A statement whose text has a digit names the entity, the\nmetric, the value and the period it cites, and the value appears in the text.",
       "properties": {
         "label": {
           "enum": [

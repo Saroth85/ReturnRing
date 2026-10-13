@@ -277,7 +277,95 @@
     }
   },
   "additionalProperties": false,
-  "description": "POST /api/returns/{return_id}/decision (spec 19.B, plus decision_id and the category).\n\napprove: confirm the proposal (levers, if sent, must equal it: 409 otherwise); override:\nreplace the levers, with a reason and a category, checked by the legal guard (422); reject:\ndiscard the proposal (no lever applies, the order's terms stay; the return itself is never\nrefused), with a reason and a category. Every action sends one message to the outbox.",
+  "allOf": [
+    {
+      "else": {
+        "properties": {
+          "override_reason": {
+            "type": "null"
+          },
+          "override_category": {
+            "type": "null"
+          }
+        }
+      },
+      "if": {
+        "properties": {
+          "action": {
+            "enum": [
+              "override",
+              "reject",
+              "lift"
+            ]
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "then": {
+        "properties": {
+          "override_reason": {
+            "type": "string"
+          },
+          "override_category": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "override_reason",
+          "override_category"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "enum": [
+              "override"
+            ]
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "then": {
+        "properties": {
+          "levers": {
+            "type": "array"
+          }
+        },
+        "required": [
+          "levers"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "enum": [
+              "reject",
+              "lift"
+            ]
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "then": {
+        "properties": {
+          "levers": {
+            "type": "null"
+          }
+        }
+      }
+    }
+  ],
+  "description": "POST /api/returns/{return_id}/decision (spec 19.B, plus decision_id and the category).\n\napprove: confirm the proposal (levers, if sent, must equal it: 409 otherwise); override:\nreplace the levers, with a reason and a category, checked by the legal guard (422); reject:\ndiscard the proposal (no lever applies, the order's terms stay; the return itself is never\nrefused), with a reason and a category. The three act on a proposed version.\n\nlift (US-607): end an approved or overridden restriction, before or at its review date (a\nreview, or a rectification the customer asked for), with a reason and a category. It creates\nthe next version (trigger review), overridden to the standard levers; 409 if the version\nnamed is not a restriction. Every action sends one message to the outbox.",
   "properties": {
     "decision_id": {
       "maxLength": 96,
@@ -290,7 +378,8 @@
       "enum": [
         "approve",
         "override",
-        "reject"
+        "reject",
+        "lift"
       ],
       "title": "Action",
       "type": "string"
@@ -318,6 +407,7 @@
         {
           "maxLength": 1000,
           "minLength": 3,
+          "pattern": "\\S[\\s\\S]+\\S",
           "type": "string"
         },
         {
@@ -335,6 +425,7 @@
             "customer_context",
             "linked_accounts_explained",
             "policy_exception",
+            "periodic_review",
             "other"
           ],
           "type": "string"

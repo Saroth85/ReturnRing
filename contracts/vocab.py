@@ -18,6 +18,7 @@ Role = Literal["operator", "manager", "warehouse", "system"]
 ROLES: tuple[Role, ...] = get_args(Role)
 SYSTEM_ACTOR = "system"  # the only actor with the role "system"; never an approver (rule 5)
 DEMO_USERS: dict[str, Role] = {"sara": "operator", "luca": "manager", "ahmed": "warehouse"}
+DEMO_ROLES: tuple[Role, ...] = ("operator", "manager", "warehouse")  # the roles people hold
 ACTOR_PATTERN = r"^[a-z][a-z0-9._-]{1,31}$"
 
 # ---- Languages and fixed legal text (llm/legal_clause.py holds the text) ----------------------
@@ -33,18 +34,26 @@ CLAUSE_KINDS: tuple[ClauseKind, ...] = get_args(ClauseKind)
 # operator replaced the proposed levers with others, with a reason (US-306).
 DecisionStatus = Literal["proposed", "approved", "overridden", "rejected"]
 DECISION_STATUSES: tuple[DecisionStatus, ...] = get_args(DecisionStatus)
-DecisionAction = Literal["approve", "override", "reject"]
+# approve, override and reject act on a proposed version; lift ends a restriction that was
+# approved or overridden, before or at its review date: a new version with the standard levers
+# (US-607: review and rectification on request).
+DecisionAction = Literal["approve", "override", "reject", "lift"]
 DECISION_ACTIONS: tuple[DecisionAction, ...] = get_args(DecisionAction)
 OverrideCategory = Literal[
     "evidence_disagreement",
     "customer_context",
     "linked_accounts_explained",
     "policy_exception",
+    "periodic_review",  # a restriction reviewed at its review date (US-607)
     "other",
 ]
 OVERRIDE_CATEGORIES: tuple[OverrideCategory, ...] = get_args(OverrideCategory)
-# Why a new version of a decision exists (F7: both versions stay in the log).
-RevisionTrigger = Literal["initial", "evidence_added", "link_disputed", "scores_refreshed"]
+# Why a new version of a decision exists (F7: every version stays in the log). review: a person
+# reviewed a restriction and lifted it (action lift); scores_refreshed: the engine ran again on
+# new scores, for example at a review date.
+RevisionTrigger = Literal[
+    "initial", "evidence_added", "link_disputed", "scores_refreshed", "review"
+]
 REVISION_TRIGGERS: tuple[RevisionTrigger, ...] = get_args(RevisionTrigger)
 MIN_REASON_CHARS = 3  # an override, a rejection, a dispute or a reversal needs a real reason
 
@@ -120,6 +129,7 @@ AuditAction = Literal[
     "decision_approved",
     "decision_overridden",
     "decision_rejected",
+    "restriction_lifted",
     "case_recomputed",
     "draft_generated",
     "draft_regenerated",
@@ -151,12 +161,25 @@ AuditEntityType = Literal[
     "simulator_assumptions",
 ]
 AUDIT_ENTITY_TYPES: tuple[AuditEntityType, ...] = get_args(AuditEntityType)
+# The actions about a decision version: exactly the entries with entity_type "decision", whose
+# before and after are typed decision states (US-604).
+DECISION_AUDIT_ACTIONS: frozenset[AuditAction] = frozenset(
+    {
+        "decision_proposed",
+        "decision_approved",
+        "decision_overridden",
+        "decision_rejected",
+        "restriction_lifted",
+        "case_recomputed",
+    }
+)
 # Actions only a person may take (rule 5, GDPR art. 22): never logged with the system role.
 HUMAN_ONLY_ACTIONS: frozenset[AuditAction] = frozenset(
     {
         "decision_approved",
         "decision_overridden",
         "decision_rejected",
+        "restriction_lifted",
         "evidence_added",
         "link_disputed",
         "inspection_confirmed",
@@ -172,6 +195,7 @@ REASON_REQUIRED_ACTIONS: frozenset[AuditAction] = frozenset(
     {
         "decision_overridden",
         "decision_rejected",
+        "restriction_lifted",
         "evidence_added",
         "link_disputed",
         "coupon_rule_application_reversed",

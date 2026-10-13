@@ -16,6 +16,13 @@
     "free_size_exchange": true,
     "coupons_enabled": false
   },
+  "base_terms": {
+    "return_window_days": 30,
+    "free_return_shipping": true,
+    "instant_refund": true,
+    "free_size_exchange": true,
+    "coupons_enabled": true
+  },
   "coupon_eligible": false,
   "coupon_block": {
     "rule_version": "coupon-rule-v1",

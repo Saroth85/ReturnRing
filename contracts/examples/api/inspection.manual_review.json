@@ -43,5 +43,11 @@
     "validator_errors": [],
     "created_at": "2026-09-30T18:41:00Z",
     "latency_ms": 19
+  },
+  "provenance": {
+    "origin": "Contract example: vision checklist of the mock model on a synthetic photo (declared confidences)",
+    "period_start": "2025-10-01",
+    "period_end": "2026-09-30",
+    "nature": "synthetic"
   }
 }

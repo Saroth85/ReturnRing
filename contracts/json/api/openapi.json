@@ -3,7 +3,7 @@
   "info": {
     "title": "ReturnRing API",
     "description": "Contract of the ReturnRing API (ADR-15). Every response carries the headers X-ReturnRing-Mode (live or cached) and X-Request-Id.",
-    "version": "1.0.0"
+    "version": "1.1.0"
   },
   "paths": {
     "/healthz": {
@@ -182,6 +182,22 @@
             }
           },
           {
+            "name": "review_due",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Review Due"
+            }
+          },
+          {
             "name": "q",
             "in": "query",
             "required": false,
@@ -322,8 +338,8 @@
         "tags": [
           "returns"
         ],
-        "summary": "Approve, override with a reason, or reject the proposal",
-        "description": "Approve, override with a reason, or reject the proposal. Stories: US-303, US-306, US-607.",
+        "summary": "Approve, override or reject the proposal with a reason; lift a restriction",
+        "description": "Approve, override or reject the proposal with a reason; lift a restriction. Stories: US-303, US-306, US-607.",
         "operationId": "post__api_returns_return_id_decision_api_returns__return_id__decision_post",
         "parameters": [
           {
@@ -400,6 +416,59 @@
         }
       }
     },
+    "/api/decisions/{decision_id}": {
+      "get": {
+        "tags": [
+          "decisions"
+        ],
+        "summary": "One decision version, latest or earlier: inputs, alternatives, outcome, versions",
+        "description": "One decision version, latest or earlier: inputs, alternatives, outcome, versions. Stories: US-604.",
+        "operationId": "get__api_decisions_decision_id_api_decisions__decision_id__get",
+        "parameters": [
+          {
+            "name": "decision_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Decision Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DecisionRecord"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
     "/api/returns/{return_id}/regenerate": {
       "post": {
         "tags": [
@@ -440,6 +509,16 @@
               }
             }
           },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -459,6 +538,16 @@
               }
             },
             "description": "Conflict"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
           },
           "422": {
             "content": {
@@ -512,6 +601,16 @@
                 }
               }
             }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
           },
           "404": {
             "content": {
@@ -585,6 +684,16 @@
                 }
               }
             }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
           },
           "404": {
             "content": {
@@ -1163,6 +1272,7 @@
                       "decision_approved",
                       "decision_overridden",
                       "decision_rejected",
+                      "restriction_lifted",
                       "case_recomputed",
                       "draft_generated",
                       "draft_regenerated",
@@ -1854,6 +1964,16 @@
               }
             }
           },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
           "404": {
             "description": "Not Found",
             "content": {
@@ -1866,6 +1986,16 @@
           },
           "429": {
             "description": "Too Many Requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
             "content": {
               "application/json": {
                 "schema": {
@@ -2478,6 +2608,19 @@
               "realized"
             ],
             "title": "Basis"
+          },
+          "based_on": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Based On"
           }
         },
         "additionalProperties": false,
@@ -2496,12 +2639,70 @@
           "abandonment_margin_lost_eur",
           "incremental_margin_eur",
           "version",
-          "basis"
+          "basis",
+          "based_on"
         ],
         "title": "Assumptions",
-        "description": "A versioned assumption set. basis is policy.simulator's nature: simulated or realized."
+        "description": "An assumption set; basis is policy.simulator's nature: simulated or realized.\n\nOne label, one set of values. A stored version (GET and PUT /api/simulator/assumptions) has\n`based_on` null. Any other set (the alternatives of a case, a week of KPIs, a sensitivity\nscenario) has its own label in `version` and names in `based_on` the stored version whose\nunit costs it uses: the alternatives of a decision version are labelled\n\"<decision_id>/<alternative kind>\", a sensitivity scenario \"<version>/<scenario>\"."
       },
       "AuditEntry": {
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "entity_type": {
+                  "const": "decision"
+                }
+              },
+              "required": [
+                "entity_type"
+              ]
+            },
+            "then": {
+              "properties": {
+                "action": {
+                  "enum": [
+                    "case_recomputed",
+                    "decision_approved",
+                    "decision_overridden",
+                    "decision_proposed",
+                    "decision_rejected",
+                    "restriction_lifted"
+                  ]
+                },
+                "before": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/DecisionAuditState"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "after": {
+                  "$ref": "#/components/schemas/DecisionAuditState"
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "action": {
+                  "not": {
+                    "enum": [
+                      "case_recomputed",
+                      "decision_approved",
+                      "decision_overridden",
+                      "decision_proposed",
+                      "decision_rejected",
+                      "restriction_lifted"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        ],
         "properties": {
           "entry_id": {
             "type": "integer",
@@ -2535,6 +2736,7 @@
               "decision_approved",
               "decision_overridden",
               "decision_rejected",
+              "restriction_lifted",
               "case_recomputed",
               "draft_generated",
               "draft_regenerated",
@@ -2610,7 +2812,8 @@
               {
                 "type": "string",
                 "maxLength": 1000,
-                "minLength": 3
+                "minLength": 3,
+                "pattern": "\\S[\\s\\S]+\\S"
               },
               {
                 "type": "null"
@@ -2620,6 +2823,9 @@
           },
           "before": {
             "anyOf": [
+              {
+                "$ref": "#/components/schemas/DecisionAuditState"
+              },
               {
                 "additionalProperties": true,
                 "type": "object"
@@ -2632,6 +2838,9 @@
           },
           "after": {
             "anyOf": [
+              {
+                "$ref": "#/components/schemas/DecisionAuditState"
+              },
               {
                 "additionalProperties": true,
                 "type": "object"
@@ -2720,7 +2929,7 @@
           "request_id"
         ],
         "title": "AuditEntry",
-        "description": "One row of the append-only audit log (US-604)."
+        "description": "One row of the append-only audit log (US-604).\n\nThe entries about a decision version (entity_type decision, actions DECISION_AUDIT_ACTIONS)\ncarry a typed before and after (DecisionAuditState). approve, override and reject change a\nproposed version; restriction_lifted and case_recomputed create the next version."
       },
       "AuditPage": {
         "properties": {
@@ -3170,7 +3379,7 @@
           "provenance"
         ],
         "title": "CaseCard",
-        "description": "GET /api/returns/{return_id}: everything Sara needs to decide one return (US-302)."
+        "description": "GET /api/returns/{return_id}: everything Sara needs to decide one return (US-302).\n\nThe decision is the latest version of the case. provenance covers the plain numbers of item,\nrequest and product_anomaly.trend (weekly sales and returns of the shop); every other section\ncarries its own provenance or Metrics."
       },
       "CaseSnapshot": {
         "properties": {
@@ -3314,6 +3523,7 @@
             "type": "string",
             "maxLength": 1000,
             "minLength": 3,
+            "pattern": "\\S[\\s\\S]+\\S",
             "title": "Note"
           },
           "created_by": {
@@ -3412,6 +3622,7 @@
             "type": "string",
             "maxLength": 1000,
             "minLength": 3,
+            "pattern": "\\S[\\s\\S]+\\S",
             "title": "Note"
           },
           "author": {
@@ -3463,7 +3674,8 @@
               {
                 "type": "string",
                 "maxLength": 1000,
-                "minLength": 3
+                "minLength": 3,
+                "pattern": "\\S[\\s\\S]+\\S"
               },
               {
                 "type": "null"
@@ -3702,6 +3914,9 @@
           "terms": {
             "$ref": "#/components/schemas/Terms"
           },
+          "base_terms": {
+            "$ref": "#/components/schemas/Terms"
+          },
           "coupon_eligible": {
             "type": "boolean",
             "title": "Coupon Eligible"
@@ -3770,6 +3985,7 @@
           "quadrant",
           "lines",
           "terms",
+          "base_terms",
           "coupon_eligible",
           "coupon_block",
           "terms_snapshot_id",
@@ -4074,6 +4290,7 @@
             "type": "string",
             "maxLength": 1000,
             "minLength": 3,
+            "pattern": "\\S[\\s\\S]+\\S",
             "title": "Reason"
           }
         },
@@ -4305,7 +4522,8 @@
               {
                 "type": "string",
                 "maxLength": 1000,
-                "minLength": 3
+                "minLength": 3,
+                "pattern": "\\S[\\s\\S]+\\S"
               },
               {
                 "type": "null"
@@ -4505,6 +4723,145 @@
         "title": "CustomerMessageView",
         "description": "A customer message: connective text from the LLM (placeholders only), template fields from\ncode, the fixed legal clause appended by code, and the text the customer receives."
       },
+      "DecisionAuditState": {
+        "properties": {
+          "decision_id": {
+            "type": "string",
+            "maxLength": 96,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:~-]*$",
+            "title": "Decision Id"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Version"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "proposed",
+              "approved",
+              "overridden",
+              "rejected"
+            ],
+            "title": "State"
+          },
+          "quadrant": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Quadrant"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "risk": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Risk"
+          },
+          "lever_ids": {
+            "items": {
+              "type": "string",
+              "maxLength": 64,
+              "minLength": 3
+            },
+            "type": "array",
+            "title": "Lever Ids"
+          },
+          "requires_approval": {
+            "type": "boolean",
+            "title": "Requires Approval"
+          },
+          "review_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review At"
+          },
+          "approver": {
+            "anyOf": [
+              {
+                "not": {
+                  "const": "system"
+                },
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9._-]{1,31}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approver"
+          },
+          "override_category": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "evidence_disagreement",
+                  "customer_context",
+                  "linked_accounts_explained",
+                  "policy_exception",
+                  "periodic_review",
+                  "other"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Override Category"
+          },
+          "coupon_application_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 96,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:~-]*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Coupon Application Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "decision_id",
+          "version",
+          "state",
+          "quadrant",
+          "risk",
+          "lever_ids",
+          "requires_approval",
+          "review_at",
+          "approver",
+          "override_category",
+          "coupon_application_id"
+        ],
+        "title": "DecisionAuditState",
+        "description": "The before and after of an audit entry about a decision version (entity_type decision):\nwhat changed, with the id that serves the whole version (GET /api/decisions/{decision_id})."
+      },
       "DecisionCounts": {
         "properties": {
           "total": {
@@ -4570,6 +4927,20 @@
       },
       "DecisionInputs": {
         "properties": {
+          "order_id": {
+            "type": "string",
+            "maxLength": 96,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:~-]*$",
+            "title": "Order Id"
+          },
+          "customer_id": {
+            "type": "string",
+            "maxLength": 96,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:~-]*$",
+            "title": "Customer Id"
+          },
           "reason": {
             "$ref": "#/components/schemas/ReturnReason"
           },
@@ -4637,6 +5008,8 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
+          "order_id",
+          "customer_id",
           "reason",
           "delivered_on",
           "notice_on",
@@ -4649,9 +5022,125 @@
           "thresholds"
         ],
         "title": "DecisionInputs",
-        "description": "The inputs given to policy.engine.decide, kept for audit (US-604) and re-runnable."
+        "description": "The inputs given to policy.engine.decide, kept for audit (US-604) and re-runnable: the\nreturn request (with order_id and customer_id), the scores, the terms and the thresholds."
+      },
+      "DecisionRecord": {
+        "properties": {
+          "decision": {
+            "$ref": "#/components/schemas/DecisionView"
+          },
+          "alternatives": {
+            "items": {
+              "$ref": "#/components/schemas/Alternative"
+            },
+            "type": "array",
+            "maxItems": 3,
+            "minItems": 1,
+            "title": "Alternatives"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/Provenance"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "decision",
+          "alternatives",
+          "provenance"
+        ],
+        "title": "DecisionRecord",
+        "description": "GET /api/decisions/{decision_id}: one version of a case's decision as stored, the latest\nor an earlier one (US-604): the engine inputs, the alternatives with their net benefits, the\nhuman outcome, the versions of rules, models and assumptions, and the version that superseded\nit. The audit log names these ids (DecisionAuditState)."
       },
       "DecisionRequest": {
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "action": {
+                  "enum": [
+                    "override",
+                    "reject",
+                    "lift"
+                  ]
+                }
+              },
+              "required": [
+                "action"
+              ]
+            },
+            "then": {
+              "properties": {
+                "override_reason": {
+                  "type": "string"
+                },
+                "override_category": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "override_reason",
+                "override_category"
+              ]
+            },
+            "else": {
+              "properties": {
+                "override_reason": {
+                  "type": "null"
+                },
+                "override_category": {
+                  "type": "null"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "action": {
+                  "enum": [
+                    "override"
+                  ]
+                }
+              },
+              "required": [
+                "action"
+              ]
+            },
+            "then": {
+              "properties": {
+                "levers": {
+                  "type": "array"
+                }
+              },
+              "required": [
+                "levers"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "action": {
+                  "enum": [
+                    "reject",
+                    "lift"
+                  ]
+                }
+              },
+              "required": [
+                "action"
+              ]
+            },
+            "then": {
+              "properties": {
+                "levers": {
+                  "type": "null"
+                }
+              }
+            }
+          }
+        ],
         "properties": {
           "decision_id": {
             "type": "string",
@@ -4665,7 +5154,8 @@
             "enum": [
               "approve",
               "override",
-              "reject"
+              "reject",
+              "lift"
             ],
             "title": "Action"
           },
@@ -4691,7 +5181,8 @@
               {
                 "type": "string",
                 "maxLength": 1000,
-                "minLength": 3
+                "minLength": 3,
+                "pattern": "\\S[\\s\\S]+\\S"
               },
               {
                 "type": "null"
@@ -4708,6 +5199,7 @@
                   "customer_context",
                   "linked_accounts_explained",
                   "policy_exception",
+                  "periodic_review",
                   "other"
                 ]
               },
@@ -4735,7 +5227,7 @@
           "approver"
         ],
         "title": "DecisionRequest",
-        "description": "POST /api/returns/{return_id}/decision (spec 19.B, plus decision_id and the category).\n\napprove: confirm the proposal (levers, if sent, must equal it: 409 otherwise); override:\nreplace the levers, with a reason and a category, checked by the legal guard (422); reject:\ndiscard the proposal (no lever applies, the order's terms stay; the return itself is never\nrefused), with a reason and a category. Every action sends one message to the outbox."
+        "description": "POST /api/returns/{return_id}/decision (spec 19.B, plus decision_id and the category).\n\napprove: confirm the proposal (levers, if sent, must equal it: 409 otherwise); override:\nreplace the levers, with a reason and a category, checked by the legal guard (422); reject:\ndiscard the proposal (no lever applies, the order's terms stay; the return itself is never\nrefused), with a reason and a category. The three act on a proposed version.\n\nlift (US-607): end an approved or overridden restriction, before or at its review date (a\nreview, or a rectification the customer asked for), with a reason and a category. It creates\nthe next version (trigger review), overridden to the standard levers; 409 if the version\nnamed is not a restriction. Every action sends one message to the outbox."
       },
       "DecisionResult": {
         "properties": {
@@ -4756,7 +5248,8 @@
           "audit_entry",
           "outbox_message"
         ],
-        "title": "DecisionResult"
+        "title": "DecisionResult",
+        "description": "The outcome of POST .../decision: the version acted on (or, for a lift, the new version),\nits audit entry and its outbox message."
       },
       "DecisionThresholds": {
         "properties": {
@@ -4800,10 +5293,54 @@
             "minimum": 1.0,
             "title": "Version"
           },
+          "revision_trigger": {
+            "type": "string",
+            "enum": [
+              "initial",
+              "evidence_added",
+              "link_disputed",
+              "scores_refreshed",
+              "review"
+            ],
+            "title": "Revision Trigger"
+          },
+          "supersedes": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 96,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:~-]*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supersedes"
+          },
+          "superseded_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 96,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:~-]*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Superseded By"
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
             "title": "Created At"
+          },
+          "as_of": {
+            "type": "string",
+            "format": "date-time",
+            "title": "As Of"
           },
           "decided_on": {
             "type": "string",
@@ -4931,7 +5468,8 @@
               {
                 "type": "string",
                 "maxLength": 1000,
-                "minLength": 3
+                "minLength": 3,
+                "pattern": "\\S[\\s\\S]+\\S"
               },
               {
                 "type": "null"
@@ -4948,6 +5486,7 @@
                   "customer_context",
                   "linked_accounts_explained",
                   "policy_exception",
+                  "periodic_review",
                   "other"
                 ]
               },
@@ -5022,7 +5561,11 @@
           "decision_id",
           "return_id",
           "version",
+          "revision_trigger",
+          "supersedes",
+          "superseded_by",
           "created_at",
+          "as_of",
           "decided_on",
           "state",
           "path",
@@ -5051,7 +5594,7 @@
           "generation_id"
         ],
         "title": "DecisionView",
-        "description": "A decision version: the engine's proposal and the human outcome (spec 8.6, US-303/306).\n\nlevers are the levers of the current state: the proposal while proposed or approved, the\noperator's levers when overridden, none when rejected. requires_approval refers to them.\nin_force says whether they apply to future orders now."
+        "description": "A decision version: the engine's proposal and the human outcome (spec 8.6, US-303/306).\n\nlevers are the levers of the current state: the proposal while proposed or approved, the\noperator's levers when overridden, none when rejected. requires_approval and review_at refer\nto them: a restriction needs a person and has a review date, and nothing else has one.\n\nin_force says whether the levers apply to future orders at as_of (the time the view was\nserved): approved, overridden, or proposed without a need for approval; never once a later\nversion supersedes this one; never from the review date on (US-607: a restriction lapses\nunless a person renews it with a new decision). A version created by a review (trigger\nreview, action lift) is overridden to the standard levers.\n\nEvery view passes policy.legal_guard under to_policy_decision (ADR-15 section 8)."
       },
       "DraftView": {
         "properties": {
@@ -5292,6 +5835,7 @@
             "type": "string",
             "maxLength": 1000,
             "minLength": 3,
+            "pattern": "\\S[\\s\\S]+\\S",
             "title": "Note"
           },
           "target_link_ids": {
@@ -5438,7 +5982,7 @@
           "period"
         ],
         "title": "ExplanationStatement",
-        "description": "A statement of the operator explanation: observed data, a score contribution or a\nhypothesis to verify, with entity, metric, value and period when it cites a number (US-305)."
+        "description": "A statement of the operator explanation: observed data, a score contribution or a\nhypothesis to verify (US-305). A statement whose text has a digit names the entity, the\nmetric, the value and the period it cites, and the value appears in the text."
       },
       "FairnessDimensionReport": {
         "properties": {
@@ -5978,6 +6522,9 @@
           },
           "generation": {
             "$ref": "#/components/schemas/GenerationInfo"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/Provenance"
           }
         },
         "additionalProperties": false,
@@ -5998,7 +6545,8 @@
           "confirmed_observations",
           "confirmed_by",
           "confirmed_at",
-          "generation"
+          "generation",
+          "provenance"
         ],
         "title": "InspectionView"
       },
@@ -6341,6 +6889,7 @@
             "type": "string",
             "maxLength": 1000,
             "minLength": 3,
+            "pattern": "\\S[\\s\\S]+\\S",
             "title": "Reason"
           },
           "author": {
@@ -6368,11 +6917,43 @@
         "title": "LinkDisputeInfo"
       },
       "LinkDisputeRequest": {
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "return_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "return_id"
+              ]
+            },
+            "then": {
+              "properties": {
+                "decision_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "decision_id"
+              ]
+            },
+            "else": {
+              "properties": {
+                "decision_id": {
+                  "type": "null"
+                }
+              }
+            }
+          }
+        ],
         "properties": {
           "reason": {
             "type": "string",
             "maxLength": 1000,
             "minLength": 3,
+            "pattern": "\\S[\\s\\S]+\\S",
             "title": "Reason"
           },
           "author": {
@@ -6396,6 +6977,20 @@
               }
             ],
             "title": "Return Id"
+          },
+          "decision_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 96,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:~-]*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision Id"
           }
         },
         "additionalProperties": false,
@@ -6404,7 +6999,8 @@
           "reason",
           "author"
         ],
-        "title": "LinkDisputeRequest"
+        "title": "LinkDisputeRequest",
+        "description": "A dispute of a link (US-310). From a case card it names the case and the decision version\nshown (409 stale_decision if a newer one exists); its recompute is returned."
       },
       "LinkDisputeResponse": {
         "properties": {
@@ -6430,6 +7026,9 @@
                 "type": "null"
               }
             ]
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/Provenance"
           }
         },
         "additionalProperties": false,
@@ -6437,7 +7036,8 @@
         "required": [
           "link",
           "affected_return_ids",
-          "recompute"
+          "recompute",
+          "provenance"
         ],
         "title": "LinkDisputeResponse"
       },
@@ -6550,9 +7150,16 @@
             "title": "Display Name"
           },
           "risk": {
-            "type": "number",
-            "maximum": 1.0,
-            "minimum": 0.0,
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Risk"
           },
           "value_eur": {
@@ -6611,7 +7218,7 @@
           "welcome_coupons"
         ],
         "title": "MatrixPoint",
-        "description": "One scored customer: what the browser simulator needs to move the thresholds (ADR-04)."
+        "description": "One scored customer: what the browser simulator needs to move the thresholds (ADR-04).\nWith insufficient evidence there is no risk and no quadrant: the point stays outside the\nmatrix (US-307)."
       },
       "MatrixThresholds": {
         "properties": {
@@ -7031,6 +7638,15 @@
             "minLength": 1,
             "title": "Subject"
           },
+          "connective_text": {
+            "type": "string",
+            "maxLength": 900,
+            "minLength": 1,
+            "title": "Connective Text"
+          },
+          "fields": {
+            "$ref": "#/components/schemas/TemplateFields"
+          },
           "body": {
             "type": "string",
             "maxLength": 4000,
@@ -7097,6 +7713,8 @@
           "customer_id",
           "lang",
           "subject",
+          "connective_text",
+          "fields",
           "body",
           "legal_clause_kind",
           "generation_id",
@@ -7105,7 +7723,7 @@
           "created_at"
         ],
         "title": "OutboxMessage",
-        "description": "A message in the simulated outbox (spec 4: no real email)."
+        "description": "A message in the simulated outbox (spec 4: no real email): the connective text, the\ntemplate fields, and the body render_customer_message makes of them with the legal clause."
       },
       "OutboxResponse": {
         "properties": {
@@ -7139,6 +7757,7 @@
               "customer_context",
               "linked_accounts_explained",
               "policy_exception",
+              "periodic_review",
               "other"
             ],
             "title": "Category"
@@ -7560,6 +8179,22 @@
             "type": "array",
             "title": "Lever Ids"
           },
+          "review_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review At"
+          },
+          "review_due": {
+            "type": "boolean",
+            "title": "Review Due"
+          },
           "risk": {
             "anyOf": [
               {
@@ -7617,6 +8252,8 @@
           "state",
           "requires_approval",
           "lever_ids",
+          "review_at",
+          "review_due",
           "risk",
           "value",
           "expected_net_benefit",
@@ -7666,6 +8303,9 @@
             "type": "string",
             "format": "date-time",
             "title": "As Of"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/Provenance"
           }
         },
         "additionalProperties": false,
@@ -7676,7 +8316,8 @@
           "page",
           "page_size",
           "sort",
-          "as_of"
+          "as_of",
+          "provenance"
         ],
         "title": "QueueResponse"
       },
@@ -7843,6 +8484,9 @@
             "type": "array",
             "minItems": 1,
             "title": "Audit Entry Ids"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/Provenance"
           }
         },
         "additionalProperties": false,
@@ -7856,7 +8500,8 @@
           "after",
           "decision",
           "draft",
-          "audit_entry_ids"
+          "audit_entry_ids",
+          "provenance"
         ],
         "title": "RecomputeResponse",
         "description": "A case recomputed after evidence or a dispute: a new decision version (F7)."
@@ -8099,7 +8744,8 @@
               "initial",
               "evidence_added",
               "link_disputed",
-              "scores_refreshed"
+              "scores_refreshed",
+              "review"
             ],
             "title": "Trigger"
           },
@@ -8121,15 +8767,12 @@
           "risk": {
             "anyOf": [
               {
-                "type": "number",
-                "maximum": 1.0,
-                "minimum": 0.0
+                "$ref": "#/components/schemas/Metric"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Risk"
+            ]
           },
           "lever_ids": {
             "items": {
@@ -8164,7 +8807,7 @@
           "state"
         ],
         "title": "RevisionSummary",
-        "description": "A version of the case's decision (F7: the log keeps every version)."
+        "description": "A version of the case's decision (F7: the log keeps every version); GET\n/api/decisions/{decision_id} serves the whole version (US-604)."
       },
       "RiskView": {
         "properties": {
@@ -8226,6 +8869,9 @@
             "maxLength": 64,
             "minLength": 1,
             "title": "Model Version"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/Provenance"
           }
         },
         "additionalProperties": false,
@@ -8239,7 +8885,8 @@
           "residual_note",
           "favourable",
           "unfavourable",
-          "model_version"
+          "model_version",
+          "provenance"
         ],
         "title": "RiskView"
       },
@@ -8665,6 +9312,21 @@
           "terms": {
             "$ref": "#/components/schemas/Terms"
           },
+          "base_terms": {
+            "$ref": "#/components/schemas/Terms"
+          },
+          "review_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review At"
+          },
           "shown_at": {
             "type": "string",
             "format": "date-time",
@@ -8692,11 +9354,13 @@
           "source",
           "quadrant_at_purchase",
           "terms",
+          "base_terms",
+          "review_at",
           "shown_at",
           "confirmed_at"
         ],
         "title": "TermsSnapshotView",
-        "description": "Terms shown at checkout and stored with the order (ADR-05). order_id is null while the\nsnapshot is shown and not confirmed (POST /api/checkout/evaluate)."
+        "description": "Terms shown at checkout and stored with the order (ADR-05). order_id is null while the\nsnapshot is shown and not confirmed (POST /api/checkout/evaluate). base_terms are the\nmerchant base terms when the snapshot was shown; review_at is the review date of the\nrestriction in force that produced the terms, if any."
       },
       "ValueView": {
         "properties": {

@@ -20,7 +20,7 @@
     }
   },
   "additionalProperties": false,
-  "description": "Query string of GET /api/returns; list filters repeat the parameter (?quadrant=Q3&...).",
+  "description": "Query string of GET /api/returns; list filters repeat the parameter (?quadrant=Q3&...).\n\nreview_due=true keeps the cases whose latest decision is an approved or overridden\nrestriction at or past its review date (US-607): it no longer applies (in_force false) and\nwaits for a person to renew it with a new decision or to lift it. q matches a part of the\nreturn, order or customer id or of the display name, ignoring case.",
   "properties": {
     "state": {
       "anyOf": [
@@ -102,6 +102,18 @@
       ],
       "default": null,
       "title": "Requires Approval"
+    },
+    "review_due": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Review Due"
     },
     "q": {
       "anyOf": [

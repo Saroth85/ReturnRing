@@ -126,6 +126,7 @@
         {
           "maxLength": 1000,
           "minLength": 3,
+          "pattern": "\\S[\\s\\S]+\\S",
           "type": "string"
         },
         {

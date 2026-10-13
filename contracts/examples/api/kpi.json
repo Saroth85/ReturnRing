@@ -15,8 +15,9 @@
       "error_cost_eur": 23.0,
       "abandonment_margin_lost_eur": 55.0,
       "incremental_margin_eur": 37.0,
-      "version": "assumptions-v1",
-      "basis": "simulated"
+      "version": "kpi/2026-09-21",
+      "basis": "simulated",
+      "based_on": "assumptions-v1"
     },
     "components": [
       {

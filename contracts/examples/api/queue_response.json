@@ -21,6 +21,8 @@
         "cluster_coupons_disabled:true",
         "transparency_notice:true"
       ],
+      "review_at": "2026-12-27",
+      "review_due": false,
       "risk": {
         "value": 0.87,
         "unit": "probability",
@@ -69,6 +71,8 @@
       "state": "proposed",
       "requires_approval": false,
       "lever_ids": [],
+      "review_at": null,
+      "review_due": false,
       "risk": null,
       "value": {
         "value": 68.05,
@@ -111,6 +115,8 @@
         "return_window_days:60",
         "priority_size_exchange:true"
       ],
+      "review_at": null,
+      "review_due": false,
       "risk": {
         "value": 0.12,
         "unit": "probability",
@@ -146,11 +152,64 @@
       "draft_status": "ready"
     },
     {
+      "return_id": "RET-000088",
+      "order_id": "ORD-004015",
+      "customer_id": "C-15077",
+      "display_name": "Lorenzo Ricci",
+      "requested_at": "2026-06-29T12:12:00Z",
+      "reason": "changed_mind",
+      "path": "withdrawal",
+      "evidence_quality": "sufficient",
+      "quadrant": "Q3",
+      "decision_id": "DEC-000088-1",
+      "state": "approved",
+      "requires_approval": true,
+      "lever_ids": [
+        "instant_refund:false",
+        "transparency_notice:true"
+      ],
+      "review_at": "2026-09-27",
+      "review_due": true,
+      "risk": {
+        "value": 0.68,
+        "unit": "probability",
+        "provenance": {
+          "origin": "Contract example: risk model risk-xgb-0.1.0 on decision-time features of the synthetic shop",
+          "period_start": "2025-10-01",
+          "period_end": "2026-09-30",
+          "nature": "synthetic"
+        }
+      },
+      "value": {
+        "value": 219.05,
+        "unit": "eur",
+        "provenance": {
+          "origin": "Contract example: customer value, 12-month net margin (spec 8.5) of the synthetic shop",
+          "period_start": "2025-10-01",
+          "period_end": "2026-09-30",
+          "nature": "synthetic"
+        }
+      },
+      "expected_net_benefit": {
+        "value": 13.5,
+        "unit": "eur",
+        "provenance": {
+          "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+          "period_start": "2026-10-01",
+          "period_end": "2027-09-30",
+          "nature": "simulated"
+        }
+      },
+      "linked_account_count": 0,
+      "variant_anomaly": false,
+      "draft_status": "ready"
+    },
+    {
       "return_id": "RET-000107",
       "order_id": "ORD-005507",
       "customer_id": "C-11872",
       "display_name": "Andrea Ferri",
-      "requested_at": "2026-09-28T13:00:00Z",
+      "requested_at": "2026-09-28T12:12:00Z",
       "reason": "size",
       "path": "withdrawal",
       "evidence_quality": "sufficient",
@@ -162,6 +221,8 @@
         "return_window_days:60",
         "priority_size_exchange:true"
       ],
+      "review_at": null,
+      "review_due": false,
       "risk": {
         "value": 0.22,
         "unit": "probability",
@@ -173,7 +234,7 @@
         }
       },
       "value": {
-        "value": 264.1,
+        "value": 276.05,
         "unit": "eur",
         "provenance": {
           "origin": "Contract example: customer value, 12-month net margin (spec 8.5) of the synthetic shop",
@@ -201,7 +262,7 @@
       "order_id": "ORD-005508",
       "customer_id": "C-17305",
       "display_name": "Martina Gallo",
-      "requested_at": "2026-09-29T13:00:00Z",
+      "requested_at": "2026-09-29T12:12:00Z",
       "reason": "changed_mind",
       "path": "withdrawal",
       "evidence_quality": "sufficient",
@@ -213,6 +274,8 @@
         "instant_refund:false",
         "transparency_notice:true"
       ],
+      "review_at": "2026-12-28",
+      "review_due": false,
       "risk": {
         "value": 0.71,
         "unit": "probability",
@@ -224,7 +287,7 @@
         }
       },
       "value": {
-        "value": 342.8,
+        "value": 239.55,
         "unit": "eur",
         "provenance": {
           "origin": "Contract example: customer value, 12-month net margin (spec 8.5) of the synthetic shop",
@@ -252,7 +315,7 @@
       "order_id": "ORD-005402",
       "customer_id": "C-10233",
       "display_name": "Chiara Esposito",
-      "requested_at": "2026-09-29T12:00:00Z",
+      "requested_at": "2026-09-29T11:12:00Z",
       "reason": "changed_mind",
       "path": "withdrawal",
       "evidence_quality": "sufficient",
@@ -264,6 +327,8 @@
         "instant_refund:false",
         "transparency_notice:true"
       ],
+      "review_at": "2026-12-28",
+      "review_due": false,
       "risk": {
         "value": 0.66,
         "unit": "probability",
@@ -299,6 +364,47 @@
       "draft_status": "ready"
     },
     {
+      "return_id": "RET-000112",
+      "order_id": "ORD-005512",
+      "customer_id": "C-18120",
+      "display_name": "Francesca Moretti",
+      "requested_at": "2026-09-30T12:12:00Z",
+      "reason": "wrong_item",
+      "path": "guarantee",
+      "evidence_quality": "sufficient",
+      "quadrant": null,
+      "decision_id": "DEC-000112-1",
+      "state": "proposed",
+      "requires_approval": false,
+      "lever_ids": [],
+      "review_at": null,
+      "review_due": false,
+      "risk": null,
+      "value": {
+        "value": 78.45,
+        "unit": "eur",
+        "provenance": {
+          "origin": "Contract example: customer value, 12-month net margin (spec 8.5) of the synthetic shop",
+          "period_start": "2025-10-01",
+          "period_end": "2026-09-30",
+          "nature": "synthetic"
+        }
+      },
+      "expected_net_benefit": {
+        "value": 1.33,
+        "unit": "eur",
+        "provenance": {
+          "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+          "period_start": "2026-10-01",
+          "period_end": "2027-09-30",
+          "nature": "simulated"
+        }
+      },
+      "linked_account_count": 0,
+      "variant_anomaly": false,
+      "draft_status": "ready"
+    },
+    {
       "return_id": "RET-000103",
       "order_id": "ORD-005301",
       "customer_id": "C-ROSSI-2",
@@ -312,6 +418,8 @@
       "state": "proposed",
       "requires_approval": false,
       "lever_ids": [],
+      "review_at": null,
+      "review_due": false,
       "risk": {
         "value": 0.18,
         "unit": "probability",
@@ -360,6 +468,8 @@
       "state": "proposed",
       "requires_approval": false,
       "lever_ids": [],
+      "review_at": null,
+      "review_due": false,
       "risk": {
         "value": 0.34,
         "unit": "probability",
@@ -408,6 +518,8 @@
       "state": "proposed",
       "requires_approval": false,
       "lever_ids": [],
+      "review_at": null,
+      "review_due": false,
       "risk": null,
       "value": {
         "value": 18.95,
@@ -438,7 +550,7 @@
       "order_id": "ORD-005510",
       "customer_id": "C-14502",
       "display_name": "Valentina Greco",
-      "requested_at": "2026-09-26T13:00:00Z",
+      "requested_at": "2026-09-26T12:12:00Z",
       "reason": "changed_mind",
       "path": "withdrawal",
       "evidence_quality": "sufficient",
@@ -447,6 +559,8 @@
       "state": "proposed",
       "requires_approval": false,
       "lever_ids": [],
+      "review_at": null,
+      "review_due": false,
       "risk": {
         "value": 0.31,
         "unit": "probability",
@@ -458,7 +572,7 @@
         }
       },
       "value": {
-        "value": 88.2,
+        "value": 44.37,
         "unit": "eur",
         "provenance": {
           "origin": "Contract example: customer value, 12-month net margin (spec 8.5) of the synthetic shop",
@@ -486,7 +600,7 @@
       "order_id": "ORD-005511",
       "customer_id": "C-16634",
       "display_name": "Simone Rizzo",
-      "requested_at": "2026-09-27T13:00:00Z",
+      "requested_at": "2026-09-27T12:12:00Z",
       "reason": "changed_mind",
       "path": "withdrawal",
       "evidence_quality": "sufficient",
@@ -495,6 +609,8 @@
       "state": "proposed",
       "requires_approval": false,
       "lever_ids": [],
+      "review_at": null,
+      "review_due": false,
       "risk": {
         "value": 0.28,
         "unit": "probability",
@@ -506,46 +622,7 @@
         }
       },
       "value": {
-        "value": 120.5,
-        "unit": "eur",
-        "provenance": {
-          "origin": "Contract example: customer value, 12-month net margin (spec 8.5) of the synthetic shop",
-          "period_start": "2025-10-01",
-          "period_end": "2026-09-30",
-          "nature": "synthetic"
-        }
-      },
-      "expected_net_benefit": {
-        "value": 0.0,
-        "unit": "eur",
-        "provenance": {
-          "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
-          "period_start": "2026-10-01",
-          "period_end": "2027-09-30",
-          "nature": "simulated"
-        }
-      },
-      "linked_account_count": 0,
-      "variant_anomaly": false,
-      "draft_status": "ready"
-    },
-    {
-      "return_id": "RET-000112",
-      "order_id": "ORD-005512",
-      "customer_id": "C-18120",
-      "display_name": "Francesca Moretti",
-      "requested_at": "2026-09-30T13:00:00Z",
-      "reason": "wrong_item",
-      "path": "guarantee",
-      "evidence_quality": "sufficient",
-      "quadrant": null,
-      "decision_id": "DEC-000112-1",
-      "state": "proposed",
-      "requires_approval": false,
-      "lever_ids": [],
-      "risk": null,
-      "value": {
-        "value": 77.6,
+        "value": 61.2,
         "unit": "eur",
         "provenance": {
           "origin": "Contract example: customer value, 12-month net margin (spec 8.5) of the synthetic shop",
@@ -569,9 +646,15 @@
       "draft_status": "ready"
     }
   ],
-  "total": 12,
+  "total": 13,
   "page": 1,
   "page_size": 25,
   "sort": "-expected_net_benefit",
-  "as_of": "2026-09-30T18:00:00Z"
+  "as_of": "2026-09-30T18:00:00Z",
+  "provenance": {
+    "origin": "Contract example: account graph graph-0.1.0 (spec 8.3) of the synthetic shop",
+    "period_start": "2025-10-01",
+    "period_end": "2026-09-30",
+    "nature": "synthetic"
+  }
 }

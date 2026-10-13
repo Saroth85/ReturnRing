@@ -1,10 +1,10 @@
 # ADR-15: API and persistence contract
 
-Status: accepted, 13 Oct 2026. API contract version `1.0.0`. Covers spec section 9 (API table,
-flows F1 to F7), the stories of E3, E4, E5, E6, E7 and E9, NFR-16 and CLAUDE.md rules 1, 3, 4, 5,
-9, 10, 11 and 12. Changes `contracts/` (new `contracts/vocab.py`, `contracts/sql.py`,
-`contracts/json/api/`, `contracts/examples/api/`), removes two v1 API schemas, and adds
-`apps/api/schemas.py` and two scripts.
+Status: accepted, 13 Oct 2026; amended the same day after review (section 9). API contract
+version `1.1.0`. Covers spec section 9 (API table, flows F1 to F7), the stories of E3, E4, E5,
+E6, E7 and E9, NFR-16 and CLAUDE.md rules 1, 3, 4, 5, 9, 10, 11 and 12. Changes `contracts/` (new
+`contracts/vocab.py`, `contracts/sql.py`, `contracts/json/api/`, `contracts/examples/api/`),
+removes two v1 API schemas, and adds `apps/api/schemas.py` and two scripts.
 
 ## Context
 
@@ -30,19 +30,22 @@ meet only at integration, two days before the deadline.
 | Models | `apps/api/schemas.py` | Pydantic v2, `extra="forbid"` everywhere; the source of truth |
 | Vocabularies | `contracts/vocab.py` | Literals shared by the models and the SQL CHECKs (contracts/ must not import apps/) |
 | JSON Schemas | `contracts/json/api/<model>.schema.json` | `python -m scripts.export_api_schemas`: requests and queries in validation mode, responses in serialization mode (every response field required) |
-| Endpoint table | `contracts/json/api/endpoints.json` | `ENDPOINTS` of the models module: method, path, query, request, response, status, media type, errors, stories |
+| Endpoint table | `contracts/json/api/endpoints.json` | `ENDPOINTS` of the models module: method, path, query, request, response, status, media type, errors, roles, stories |
 | OpenAPI | `contracts/json/api/openapi.json` | Same models and routes, from a stub FastAPI app: for TypeScript codegen and mock servers |
 | Examples | `contracts/examples/api/<model>.<variant>.json` | `python -m scripts.build_api_examples`: golden cases and an example for every endpoint |
-| Mock routes | `contracts/examples/api/index.json` | Which example answers which request (method, concrete path, request, query, status) |
+| Mock routes | `contracts/examples/api/index.json` | Which example answers which request (method, concrete path, query, request, scenario, status) |
 | Tables | `contracts/sql.py` | SQLAlchemy 2.1 Core, PostgreSQL (asyncpg) and SQLite (aiosqlite) |
 
 Rules on these files:
 
 - **Generated, never edited.** Tests fail when a committed schema or example differs from a fresh
   export (`--check` modes).
-- **Structural and semantic checks.** The JSON Schemas are structural. The model validators add
-  the semantic rules: the engine invariants, net benefit equal to `policy.simulator`, the legal
-  clause, the draft echo, quadrant totals and the agent event order.
+- **Structural and semantic checks.** The JSON Schemas are structural, with `if`/`then` rules
+  where a field depends on another (a reason for override, reject and lift; the typed audit
+  payload of a decision entry; the `decision_id` of a dispute from a case). The model validators
+  add the semantic rules: the engine invariants, `policy.legal_guard` on every decision, net
+  benefit equal to `policy.simulator`, the legal clause, the draft echo, the template fields,
+  quadrant totals and the agent event order.
 - **Every example passes both** its model and its JSON Schema. Each mutation in
   `tests/test_api_schemas.py` breaks one rule and must be rejected.
 
@@ -55,55 +58,83 @@ Rules on these files:
   - An anomaly id is `variant_id~reason~week` (`anomaly_id()`).
 - **Money.** A JSON number in EUR with at most 2 decimals. The API computes in `Decimal`.
   `Metric` accepts a `Decimal` and converts it.
+- **Reasons.** A reason (override, rejection, lift, dispute, reversal, notes) has at least 3
+  characters once trimmed; the JSON Schema says it with a pattern.
 - **Figures (rule 11, US-906, NFR-16).**
   - Every figure the UI shows is a `Metric {value, unit, provenance}`. This covers scores, rates,
-    counts, euros, net benefit, thresholds, KPIs, fairness gaps, benchmark and telemetry numbers.
+    counts, euros, net benefit, thresholds, KPIs, fairness gaps, benchmark and telemetry numbers,
+    and the risk of each decision revision.
   - `provenance` is `{origin, period_start, period_end, nature}`, with nature one of real,
     synthetic or simulated: the fields of `contracts.io.Provenance`.
   - Units: eur, usd, count (integer), expected_count, ratio, probability, percent,
     percentage_points, z_score, score, days, seconds, milliseconds, tokens_per_second, gib, watts.
     Ranges are checked per unit.
   - A plain number is allowed only as an attribute of a record (an order's price, a link's
-    weight) inside a section that carries its own `provenance`, which then covers it.
+    weight, a SHAP value, a model confidence) inside a section that carries its own `provenance`,
+    which then covers it:
+
+    | Section | Its `provenance` covers |
+    | --- | --- |
+    | `QueueResponse` | `linked_account_count` of the items |
+    | `CaseCard` | item, request and `product_anomaly.trend` (the shop's weekly sales and returns) |
+    | `RiskView` | `top_factors`: feature values and SHAP contributions |
+    | `LinkedAccountsView`, `OrderHistory`, `ProductAnomaliesResponse` | accounts and links, orders, trends |
+    | `RecomputeResponse` | the before and after snapshots |
+    | `LinkDisputeResponse` | the disputed link |
+    | `InspectionView` | the declared model confidences of the checklist |
+    | `DecisionRecord` | the engine inputs of the decision (scores, thresholds) |
+    | `CheckoutEvaluateResponse`, `PortfolioMatrix` (`points_provenance`) | line probabilities, points |
 - **Levers.**
   - Levers are the `{id, value, scope}` objects of `contracts/levers.py` (ADR-13). A list holds the
     differences from the standard levers on the merchant base, in catalogue order. The `Lever`
-    schema is the catalogue schema, and a test checks it.
+    schema is the catalogue schema (`lever_json_schema()`), and a test checks it.
   - `levers_from_policy` and `to_policy_levers` convert between this list and `policy.types.Levers`.
   - `lever_ids` is the `"id:value"` form.
+- **Assumption sets (US-602).** One label, one set of values. A stored version (`assumptions-v1`)
+  has `based_on` null. Every other set has its own label and names in `based_on` the stored
+  version whose unit costs (per return, per undue discount, per hour) it uses with exactly those
+  values (`check_unit_costs`; `Assumptions.derive` builds one):
+  - the alternatives of a decision version: `<decision_id>/<alternative kind>`; all the
+    alternatives of a decision are based on its `assumptions_version`;
+  - the week of the KPIs: `kpi/<week>`;
+  - a sensitivity scenario: `<version>/<scenario>`, whose unit costs change on purpose.
 - **Headers.** Every response carries `X-ReturnRing-Mode: live|cached` (US-901) and
   `X-Request-Id`, which the audit log also stores (NFR-12).
 - **Errors.** Every non-2xx body is `ErrorResponse {code, message, violations, request_id}`.
+  `endpoints.json` lists the error statuses of each endpoint.
 
   | Status | `code` | When |
   | --- | --- | --- |
   | 422 | `invalid_request` | The body, path or query is invalid; pydantic errors become `violations` |
   | 422 | `legal_guard` | `policy.legal_guard` refused the decision; `violations` carries its codes |
   | 404 | `not_found` | |
-  | 409 | `conflict` | Already decided, already confirmed, or "approve" sent with levers different from the proposal |
+  | 409 | `conflict` | Already decided, already confirmed, "approve" sent with levers different from the proposal, "lift" on a version that is not a restriction |
   | 409 | `stale_decision` | The `decision_id` sent is not the latest version of the case |
-  | 403 | `forbidden_role` | See the role table |
+  | 403 | `forbidden_role` | The actor's role is not among the endpoint's `roles` (section 5) |
   | 429 | `rate_limited` | Agent endpoint only |
-  | 503 | `llm_unavailable` | Only where no template or cache exists |
+  | 503 | `llm_unavailable` | Regeneration and the agent only: no template or cache can answer them |
 - **Pages and order.**
   - Pages are 1-based (`page`, `page_size`); `total` counts after the filters.
   - The queue sorts by `-expected_net_benefit` by default, ties by `return_id`. List filters
-    repeat the parameter (`?quadrant=Q3&quadrant=Q4`).
-- **Concurrency.** Every action on a case names the `decision_id` it was shown. Only the latest
-  version of a return can be acted on.
+    repeat the parameter (`?quadrant=Q3&quadrant=Q4`). `QueueQuery.matches` is the reference
+    meaning of the filters.
+- **Concurrency.** Every action on a case names the `decision_id` it was shown, a dispute from a
+  case included. Only the latest version of a return can be acted on.
 
 ### 3. Endpoints
 
 Spec 9 plus what the stories need: `GET /api/outbox` (spec 4, the visible outbox), catalogue-task
-list and update (US-606 follow-up), coupon rules (US-402, US-607) and checkout confirm (US-403).
+list and update (US-606 follow-up), coupon rules (US-402, US-607), checkout confirm (US-403) and
+the decision history (US-604).
 
 | Method and path | Query or body → response | Stories |
 | --- | --- | --- |
 | GET /healthz | → `healthz_response` | US-001 |
 | GET /readyz | → `readyz_response` (mode, label "Precomputed on AMD MI300X" when cached, component checks, versions) | US-901 |
-| GET /api/returns | `queue_query` → `queue_response` | US-301 |
+| GET /api/returns | `queue_query` → `queue_response` | US-301, 607 |
 | GET /api/returns/{return_id} | → `case_card` | US-302..305, 307..309 |
 | POST /api/returns/{return_id}/decision | `decision_request` → `decision_result` | US-303, 306, 607 |
+| GET /api/decisions/{decision_id} | → `decision_record` | US-604 |
 | POST /api/returns/{return_id}/regenerate | `regenerate_request` → `regenerate_response` | US-304, 305 |
 | POST /api/returns/{return_id}/evidence | `evidence_request` → `recompute_response` | US-310 |
 | POST /api/links/{link_id}/dispute | `link_dispute_request` → `link_dispute_response` | US-310, 203 |
@@ -128,10 +159,27 @@ list and update (US-606 follow-up), coupon rules (US-402, US-607) and checkout c
 
 ### 4. Semantics by area
 
+**Return intake (flow F1, step 1; ADR-03).** There is no HTTP endpoint for a new return. The
+simulated shop adapter is a module of the API process: it writes the `return_requests` row
+(source `adapter`) and calls the API's intake function in the same process. The demo reset
+(US-903) calls the same function for the open returns of the synthetic store (source `store`).
+The intake function, and only it, triggers the decision:
+
+1. it chooses the path, reads the latest scores and the evidence quality, runs
+   `policy.engine.decide()` and `policy.legal_guard`;
+2. it writes version 1 of the decision (trigger `initial`) and the `decision_proposed` audit
+   entry with the system actor;
+3. it puts the case in the generation queue. In live mode a worker of the API sends the queue to
+   vLLM in batches (ADR-03); the nightly pipeline (F4) pre-generates the drafts of every open
+   return; in cached mode the drafts come from the demo cache. Until a draft passes the validator
+   the case shows `draft_status: pending`.
+
 **Queue and case card (US-301, US-302, US-307, US-308).**
 
-- A queue item shows path and quadrant badges, the state, `requires_approval`, the lever ids, risk,
-  value, expected net benefit, the number of linked accounts, `variant_anomaly` and `draft_status`.
+- A queue item shows path and quadrant badges, the state, `requires_approval`, the lever ids,
+  `review_at` and `review_due`, risk, value, expected net benefit, the number of linked
+  accounts, `variant_anomaly` and `draft_status`.
+- Every queued return has a case card. The card shows the latest version of the decision.
 - The case card holds:
   - the returned item and the request (`customer_text` is data, never instructions);
   - the evidence quality: three components (`observations`, `identifier_completeness`,
@@ -157,20 +205,34 @@ list and update (US-606 follow-up), coupon rules (US-402, US-607) and checkout c
 
 **Decisions (spec 8.6, US-303, US-306, US-607).**
 
-- **`DecisionView`** holds the engine inputs (`inputs`, re-runnable for US-604) and the engine
-  output: path, evidence quality, quadrant, `proposed_levers`, `requires_approval`,
-  `current_return_terms`, `refund_due_by` (notice + 14 days), `review_at` and the coupon rule
-  application. It adds the human outcome.
+- **`DecisionView`** is one version of a case's decision. It holds the engine inputs (`inputs`,
+  with the order and the customer: re-runnable for US-604) and the engine output: path, evidence
+  quality, quadrant, `proposed_levers`, `requires_approval`, `current_return_terms`,
+  `refund_due_by` (notice + 14 days), `review_at` and the coupon rule application. It adds the
+  human outcome and the version chain: `version`, `revision_trigger`, `supersedes`,
+  `superseded_by`, and `as_of`, the time the view was served.
 - **States.** `proposed`, `approved`, `overridden`, `rejected`. The last three are the policy
   `DecisionState` values plus `overridden`.
 - **`levers` are the levers of the current state.** They are the proposal while proposed or
-  approved, the operator's choice when overridden, and none when rejected. `requires_approval` and
-  `future_terms` refer to them.
-- **`in_force`** is true when the levers apply to future orders now. That means approved or
-  overridden, or proposed without a need for approval: the Q1 upgrade of Giulia applies by itself
-  and stays in the log.
+  approved, the operator's choice when overridden, and none when rejected. `requires_approval`,
+  `review_at` and `future_terms` refer to them: `requires_approval` is exactly "restrictive
+  levers, or Q3 and Q4 while the engine's levers stand", and a review date exists exactly for a
+  restriction.
+- **`in_force`** is true when the levers apply to future orders at `as_of`: approved or
+  overridden, or proposed without a need for approval (the Q1 upgrade of Giulia applies by
+  itself and stays in the log). It is false once a later version supersedes the view, and from
+  the review date on: a restriction lapses unless a person renews it with a new decision
+  (US-607: no permanent label).
+- **The legal guard runs on every view** (rules 3 to 5). `to_policy_decision(view)` gives the
+  policy `Decision` and `ReturnRequest` the view stands for, with this exact mapping:
+  - `proposed` and `approved` stay; `overridden` becomes `APPROVED` (a person took it);
+    `rejected` stays `REJECTED`;
+  - the quadrant is the engine's while its levers stand (proposed, approved) and `None` once a
+    person replaced them (overridden, rejected): the guard judges the levers chosen;
+  - levers, `requires_approval`, review date and approver are those of the current state; when
+    approved or overridden, the approver has confirmed the coupon rule application.
 - **`POST .../decision`** takes the body of spec 19.B plus `decision_id` and `override_category`,
-  and `message` is required.
+  and `message` is required. `approve`, `override` and `reject` act on a proposed version:
   - `approve` confirms the proposal. Levers, if sent, must equal it. The approver also confirms
     the cluster coupon application (`policy.engine.approve`).
   - `override` sets other levers with a reason (at least 3 characters) and a category. The
@@ -178,22 +240,40 @@ list and update (US-606 follow-up), coupon rules (US-402, US-607) and checkout c
     need a review date.
   - `reject` discards the proposal, with a reason and a category: no lever applies, the order's
     terms stay, and the return itself is never refused (rule 3).
+  - `lift` (US-607) ends an approved or overridden restriction, before or at its review date: at
+    the review (category `periodic_review`) or as a rectification the customer asked for. It
+    takes a reason and a category and no levers. It creates the next version (trigger `review`),
+    overridden to the standard levers, which supersedes the restriction; the earlier version stays
+    in the log. 409 `conflict` if the version named is not a restriction.
   - Every action writes one audit entry and one outbox message. The message has the chosen
     language. `message.text` optionally replaces the connective text; placeholders only. The API
     fills the template fields and appends the fixed legal clause.
   - The clause is the guarantee clause on the guarantee path, the withdrawal clause when the levers
     are restrictive, and none otherwise (`required_clause`).
   - An override never becomes training data: training uses the synthetic labels (spec 8.4).
+- **Review (US-607).** `QueueQuery.review_due=true` lists the cases whose latest decision is an
+  approved or overridden restriction at or past its review date; `QueueItem.review_due` marks
+  them. A person renews the restriction (a new decision) or lifts it.
 - **Draft.** `DraftView` echoes the decision shown (rule 1). Its explanation is a list of
-  statements labelled `OBSERVED`, `SCORE` or `HYPOTHESIS`, with entity, metric, value and period;
-  there is no `SCORE` on the guarantee path.
-- **Messages.** Each message carries its connective text (placeholders only, no digits, no
-  accusatory term, at most 120 words), the template fields, the clause kind and the exact
-  `llm.messages.render_customer_message` output.
+  statements labelled `OBSERVED`, `SCORE` or `HYPOTHESIS`. A statement whose text has a digit
+  names its entity, metric, value and period, and the value appears in the text (US-305); there
+  is no `SCORE` on the guarantee path.
+- **Messages and template fields (rule 10, ADR-08).** The renderers live in the contract:
+  `deadline_text`, `terms_text`, `amount_text` and `template_fields(decision, lang)`, which
+  gives the terms of the decision's future orders, its refund deadline and the amount of its
+  diminished-value claim. A draft message and an outbox message have exactly these fields. Each
+  message carries its connective text (placeholders only, no digits, no accusatory term, at most
+  120 words), the fields, the clause kind and the exact `llm.messages.render_customer_message`
+  output (`rendered_text` in a draft, `body` in the outbox).
 - **`GenerationInfo`** gives the validator path: `llm`, `llm_regenerated` or `template`. It also
   gives `llm_mode` (vllm or mock) and `served_from` (live or cached).
 - **Regeneration** returns plain JSON, not a stream: the validator checks the whole output before
   the UI sees it. It takes no free-text instruction (NFR-11).
+
+**Decision history (US-604).** `GET /api/decisions/{decision_id}` serves any version, the latest
+or an earlier one, as `DecisionRecord {decision, alternatives, provenance}`: the inputs, the
+alternatives with their net benefits, the outcome, the versions of rules, models and assumptions,
+and `superseded_by`. The audit entries about a decision name these ids.
 
 **Recompute (US-310, F7).**
 
@@ -201,8 +281,10 @@ list and update (US-606 follow-up), coupon rules (US-402, US-607) and checkout c
   names the links it explains. Those links leave the cluster features.
 - `customer_contact` and `other` are recorded but change no feature.
 - A dispute marks the link (one dispute per link) and recomputes every open case of the cluster.
-- The response holds the before and after `CaseSnapshot`, the new decision version (version + 1)
-  and its regenerated draft.
+  A dispute sent from a case card names the case and the `decision_id` shown.
+- The response holds the before and after `CaseSnapshot`, the new decision version (version + 1,
+  trigger `evidence_added` or `link_disputed`, superseding the one before) and its regenerated
+  draft.
 - Earlier versions keep their state for the audit. Only the latest is actionable, and the
   in-force levers of a customer are those of its latest in-force version.
 
@@ -212,8 +294,12 @@ list and update (US-606 follow-up), coupon rules (US-402, US-607) and checkout c
   - `size_advice` is structured: `specific` with a size, `measurement_guide`, or
     `no_reliable_recommendation`. It is present exactly when `p_return >= p_return_threshold`;
   - the terms carry `coupons_enabled`;
-  - it adds `terms_source` (base or a decision id), `review_at`, `coupon_block`, `shown_at`,
-    `model_version` and one `provenance` for its numbers.
+  - it adds `base_terms`, `terms_source` (base or a decision id), `review_at`, `coupon_block`,
+    `shown_at`, `model_version` and one `provenance` for its numbers.
+- **Terms and their source.** `terms_source: base` shows exactly the base terms, with no review
+  date and no quadrant. Terms less generous than the base come from a decision in force and carry
+  its review date. The terms snapshot follows the same rules and stores the base terms and the
+  review date; the database checks them.
 - **The API stores the shown terms** before it answers, as a `terms_snapshots` row with no order.
   `/confirm` binds that row to the new order, so the terms shown are the terms stored.
 
@@ -227,7 +313,7 @@ list and update (US-606 follow-up), coupon rules (US-402, US-607) and checkout c
 - `/confirm` recomputes the claim from the confirmed observations and an approved rule. A claim
   needs confirmed visible damage, never vision alone.
 - The claim is attached to the decision (`diminished_value_claim`, checked by the legal guard) and
-  sent with its motivation.
+  sent with its motivation; the message's `amount` field is the claim amount.
 
 **Matrix and simulator (US-601, US-602, ADR-04).**
 
@@ -235,7 +321,9 @@ list and update (US-606 follow-up), coupon rules (US-402, US-607) and checkout c
   cluster, returns and welcome coupons. It also returns the thresholds as Metrics with their basis,
   and quadrant totals computed on the points (the validator recomputes them with
   `policy.engine.quadrant_for`).
-- Insufficient evidence stays outside the quadrants. About 20,000 points: the API gzips responses.
+- Insufficient evidence stays outside the quadrants: such a point has no risk and no quadrant.
+  A customer with a case card has the risk, value, cluster, returns and coupons of the card.
+  About 20,000 points: the API gzips responses.
 - Assumption sets are versioned. A PUT creates the next version from `base_version` (409 if it is
   not current). The response holds the net benefit, the four sensitivity scenarios of
   `policy.simulator.sensitivity`, and the history.
@@ -253,6 +341,12 @@ list and update (US-606 follow-up), coupon rules (US-402, US-607) and checkout c
 - `audit_log` is append-only.
 - Actions in `HUMAN_ONLY_ACTIONS` are never logged with the system role. The actions in
   `REASON_REQUIRED_ACTIONS` carry a reason.
+- The entries about a decision version have `entity_type: decision` and an action of
+  `DECISION_AUDIT_ACTIONS`: `decision_proposed`, `decision_approved`, `decision_overridden`,
+  `decision_rejected`, `restriction_lifted` and `case_recomputed`. Their `before` and `after`
+  are `DecisionAuditState` (id, version, state, quadrant, risk, lever ids, approval flag, review
+  date, approver, category, coupon application): approve, override and reject change a proposed
+  version; a lift and a recompute create the next version.
 - CSV export uses `AUDIT_CSV_COLUMNS`, with JSON cells for `before`, `after` and `model_versions`.
 
 **Agent (US-701, US-702, spec 8.8).**
@@ -281,11 +375,12 @@ list and update (US-606 follow-up), coupon rules (US-402, US-607) and checkout c
 ### 5. Roles (spec 4: three demo users, no authentication)
 
 `DEMO_USERS`: sara (operator), luca (manager), ahmed (warehouse). Actor fields take a lowercase
-id and never `system` for a human act (rule 5). The API answers 403 `forbidden_role` otherwise.
+id and never `system` for a human act (rule 5). Each endpoint lists its `roles`; the API answers
+403 `forbidden_role` otherwise. The checkout is called by the simulated shop, with no role check.
 
 | Action | Operator | Manager | Warehouse |
 | --- | --- | --- | --- |
-| Approve, override, reject; regenerate; evidence; dispute; ask the agent | yes | yes | no |
+| Approve, override, reject, lift; regenerate; evidence; dispute; ask the agent | yes | yes | no |
 | Create and confirm inspections | no | no | yes |
 | Create and update catalogue tasks | yes | yes | no |
 | New coupon rule version; PUT simulator assumptions | no | yes | no |
@@ -297,44 +392,63 @@ id and never `system` for a human act (rule 5). The API answers 403 `forbidden_r
 Tables:
 
 - `return_requests`;
-- `decisions`: one row per version, with the engine inputs and outputs, the human outcome and the
-  versions;
-- `audit_log`, `outbox`;
-- `terms_snapshots`: shown, then confirmed;
+- `decisions`: one row per version, with the engine inputs and outputs, the alternatives, the
+  human outcome, the version chain and the versions;
+- `audit_log`, `outbox` (with the connective text, the template fields and the rendered body);
+- `terms_snapshots`: shown, then confirmed; with the base terms and the review date;
 - `evidence_additions`, `link_disputes`, `inspections`, `catalog_tasks`;
 - `simulator_assumptions` and `coupon_rules`: versioned, with a `seq` chain;
 - `coupon_rule_applications`;
 - `llm_generations`.
 
-`tests/test_sql_contract.py` maps every `DecisionView` of the examples to a `decisions` row.
+Column types:
 
-Named CHECK constraints (`ck_<table>_<rule>`) carry the invariants that SQL can see:
+- **Timestamps** are `UtcDateTime`: TIMESTAMP WITH TIME ZONE that refuses a naive datetime,
+  stores UTC and reads back an aware UTC datetime on both databases, so rows validate as API
+  models.
+- **JSON** columns are JSONB on PostgreSQL and store a Python `None` as SQL NULL
+  (`none_as_null`), so the `IS NULL` rules of the CHECKs see it.
+
+`tests/test_sql_contract.py` maps every `DecisionView` and `TermsSnapshotView` of the examples to
+a row.
+
+Named CHECK constraints (`ck_<table>_<rule>`) carry the invariants that SQL can see. Each CHECK
+is one rule, and a rule on a state is written as an implication, so a row that breaks one rule
+breaks exactly one CHECK. PostgreSQL reports the first violated CHECK in name order and SQLite in
+table order; with one violated CHECK both name the same one. The tests prove it: each invalid row
+is refused with its CHECK, and accepted once that one CHECK is removed.
 
 | Rule | Constraints |
 | --- | --- |
 | The guarantee path is unscored and unrestricted (rule 4) | `ck_decisions_guarantee_unscored` |
 | Insufficient evidence has no quadrant (US-307) | `ck_decisions_insufficient_no_quadrant` |
 | Q3 and Q4 need approval (rule 5) | `ck_decisions_q3_q4_need_approval` |
-| A restriction has a review date after the decision (US-607) | `ck_decisions_restriction_has_review`, `ck_decisions_review_after_decision` |
-| An approved restrictive decision has a person as approver and a review date | `ck_decisions_approved_restriction`, `ck_decisions_acted_has_approver` |
+| A restriction, and only a restriction, has a review date after the decision (US-607) | `ck_decisions_restriction_has_review`, `ck_decisions_review_only_restriction`, `ck_decisions_review_after_decision` |
+| A person acted exactly when the state is not proposed; with the review rules, an approved or overridden restriction has a person as approver and a review date (rule 5) | `ck_decisions_acted_has_approver` |
 | An override or rejection has a reason and a category, an approval none | `ck_decisions_override_has_reason` |
+| A version created by a review lifts the restriction (US-607) | `ck_decisions_review_lifts` |
+| Version 1 is initial; later versions supersede another | `ck_decisions_version_chain` |
 | Applying the coupon rule to a cluster needs a person's confirmation and stays reversible (LEG-09) | `ck_coupon_rule_applications_confirmed_by_person`, `ck_coupon_rule_applications_always_reversible` |
 | The general coupon rule is approved by a person | `ck_coupon_rules_approved_by_person` |
 | Compensation needs a photo, a confirmation and a rule (LEG-05) | `ck_inspections_compensation_evidence` |
 | No proposal when unsure (US-503) | `ck_inspections_unsure_no_proposal` |
 | No window below 14 days (LEG-01) | `ck_terms_snapshots_window_legal` |
 | A snapshot gets its order at confirmation, not before | `ck_terms_snapshots_confirmed_with_order` |
+| Base terms are the base terms, with no review date; less generous terms come from a decision with a review date (US-403, US-607) | `ck_terms_snapshots_base_terms`, `ck_terms_snapshots_base_no_review`, `ck_terms_snapshots_restriction_has_review` |
 | Human actions are never logged as the system | `ck_audit_log_human_action` |
 | Reasons where the log needs them | `ck_audit_log_reason_required` |
+| Decision entries, and only they, are about a decision | `ck_audit_log_decision_entity` |
 | Every simulator input is non-negative; there is no refund column (rule 9) | `ck_simulator_assumptions_non_negative` |
 
 - **Append-only tables.** `audit_log`, `simulator_assumptions` and `coupon_rules` refuse UPDATE
   and DELETE through triggers, plus TRUNCATE on PostgreSQL.
 - **What the database cannot see.** JSON content and cross-table rules (levers against the legal
-  guard, the draft echo) are checked by the API with `policy.legal_guard` and the model validators.
+  guard, the draft echo, the template fields) are checked by the API with `policy.legal_guard` and
+  the model validators.
 - **SQLite.** `enable_sqlite_foreign_keys(engine)` runs before `create_all`.
 - **Tests.** `tests/test_sql_contract.py` runs on SQLite. With `RETURNRING_TEST_POSTGRES_URL` it
-  also runs on PostgreSQL; otherwise the PostgreSQL DDL is compiled and inspected.
+  also runs on PostgreSQL (run on PostgreSQL 16.15 for this ADR); otherwise the PostgreSQL DDL
+  is compiled and inspected.
 
 ### 7. Examples (mock data of the UI)
 
@@ -347,35 +461,75 @@ Named CHECK constraints (`ck_<table>_<rule>`) carry the invariants that SQL can 
   - `case_card.rossi` and `case_card.rossi_card`: Q2, a card shared only in the second;
   - `case_card.elena`: guarantee path on V-JKT-DEF, no quadrant, free return shipping, an
     anomaly with its catalogue task.
-- **The other demo examples.**
-  - `case_card.insufficient`: an insufficient-evidence case (US-307).
-  - The override, the legal-guard refusal, the evidence and dispute recomputes, both checkouts,
-    the inspections and the agent streams (the three questions of US-702 and a refused write).
-- **How they are built.** By code from `policy.engine`, `policy.simulator` and
-  `llm.messages`. Every provenance is synthetic or simulated and starts with "Contract example: ".
-  Golden cases are never accuracy (US-906).
-- **`index.json`** maps each request to its example for a mock server. Drafts in examples are
-  `llm_mode: mock`: hand-written stand-ins, not Gemma output.
+- **A card for every other queued return.** `case_card.insufficient` (US-307), `chiara` (Q3
+  through a card shared once; disputed), `andrea` (Q1; rejected), `martina` (Q3; overridden),
+  `valentina` (Q2; inspected with a claim), `simone` (Q2; manual review), `francesca` (wrong
+  item: guarantee) and `lorenzo` (a Q3 restriction approved in June, past its review date:
+  lapsed and due for review; lifted in `decision_result.lift`).
+- **The other demo examples.** The override, the rejection, the lift, the legal-guard refusal,
+  the evidence and dispute recomputes, two earlier versions served by
+  `GET /api/decisions/{decision_id}`, the queue filtered for approval and for review, both
+  checkouts, the inspections and the agent streams (the three questions of US-702 and a refused
+  write).
+- **How they are built.** By code from `policy.engine`, `policy.simulator`, `llm.messages` and
+  the renderers of `apps/api/schemas.py`. Every provenance is synthetic or simulated and starts
+  with "Contract example: ". Golden cases are never accuracy (US-906). A matrix point of a
+  customer with a card is that card.
+- **`index.json`** maps each request to its example for a mock server: method, concrete path,
+  query example, request example and `scenario`. The scenario is `default` unless the request
+  names another one in the `X-Mock-Scenario` header (for example `stale_decision`, `cached`). Drafts
+  in examples are `llm_mode: mock`: hand-written stand-ins, not Gemma output.
 
 ### 8. Changes to earlier contracts
 
 - **Removed v1 files.** `contracts/json/decision_request.schema.json`,
   `contracts/json/checkout_evaluate_response.schema.json` and their examples are removed. They
   are superseded by the generated `contracts/json/api/` files. The lever schema of
-  `api/decision_request` stays the catalogue schema, so ADR-13's test now reads it from there.
+  `api/decision_request` stays the catalogue schema, so ADR-13's test now reads it from there;
+  the tests that an override needs a reason and that the checkout window never goes below 14 days
+  run against the generated schemas.
 - **Spec 19.B decision body.** Adds `decision_id` and `override_category`. `message` is required.
-  The actions are approve, override and reject; "edit" is gone, because editing the message is
-  `message.text` and editing levers is an override.
+  The actions are approve, override, reject and lift; "edit" is gone, because editing the message
+  is `message.text` and editing levers is an override.
 - **Spec 19.B checkout response.** See section 4.
 - **Policy types.** `policy.types.DecisionState` is unchanged. The API state `overridden` maps to
-  an approved policy decision with the operator's levers when the legal guard runs.
+  an approved policy decision on the operator's levers without the engine's quadrant, and
+  `rejected` to a rejected one without it (`to_policy_decision`, section 4). The first version of
+  this ADR kept the quadrant, and the guard then refused the contract's own override of a Q3
+  proposal to the standard levers (`APPROVAL_MISSING`).
+
+### 9. Amendments after review (13 Oct 2026, contract 1.1.0)
+
+| Finding | Change |
+| --- | --- |
+| JSON null in nullable JSON columns broke the inspection CHECKs | `none_as_null` on JSON and JSONB |
+| SQLite read timestamps back naive | `UtcDateTime` |
+| The documented override mapping failed the legal guard | `to_policy_decision`; the guard runs in `DecisionView` |
+| Restrictions never lapsed or came up for review (US-607) | trigger `review`, action `lift`, `review_at` and `review_due` in the queue, lapse at the review date |
+| Earlier decision versions could not be served (US-604) | `GET /api/decisions/{decision_id}`; version chain on `DecisionView`; typed audit payloads |
+| Some CHECKs failed together, and PostgreSQL named another one | one rule per CHECK, implications; tests prove exactly one CHECK per invalid row |
+| Plain numbers without a covering provenance | provenance on the queue, recompute, dispute, inspection, risk view and decision record; revision risk is a Metric |
+| Restrictive checkout terms without a decision or review | `base_terms`, `review_at` on snapshots; model rules and CHECKs |
+| Insufficient matrix points carried a risk | `risk` null exactly then |
+| Rossi matrix values differed from their cards | matrix points of carded customers come from the cards |
+| Statements with numbers but no entity, metric, value or period | the digit rule |
+| Template fields not tied to the decision | the renderers in the contract; fields checked in drafts, results and the outbox |
+| 403 and 503 missing from the endpoint table | `roles` per endpoint; 403 and 503 declared |
+| Assumption labels did not identify the values | labelled derived sets with `based_on` |
+| Ambiguous mock routes | `scenario` key; a card for every queued return; manual review routed |
+| The decision schema accepted an override without a reason | JSON Schema `if`/`then` |
+| A dispute did not name the decision shown | `decision_id` with `return_id` |
+| Flow F1 step 1 had no contract | section 4, "Return intake" |
 
 ## Consequences
 
 - **Phase 4 (API).**
   - Implement the routes of `ENDPOINTS` with these models (`response_model`, query models with
-    `Annotated[Model, Query()]`). Map pydantic errors to `ErrorResponse`, and set the two headers.
-  - Use `contracts/sql.py` for the state.
+    `Annotated[Model, Query()]`). Map pydantic errors to `ErrorResponse`, set the two headers,
+    and check the role of the actor against `roles`.
+  - Use `contracts/sql.py` for the state, `to_policy_decision` before writing a decision, and
+    `template_fields` for every message.
+  - Implement the intake function of section 4 for the shop adapter and the demo reset.
   - Replace the current shapes of `/readyz` and `/api/simulator/assumptions` in
     `apps/api/main.py`, and update `tests/test_api.py`.
   - A test can compare the app's OpenAPI paths to `ENDPOINTS`.
@@ -383,7 +537,7 @@ Named CHECK constraints (`ck_<table>_<rule>`) carry the invariants that SQL can 
   - Generate types from `contracts/json/api/openapi.json` (or the per-model schemas). Serve
     `contracts/examples/api/` through `index.json`.
   - Show the provenance of every `Metric`, the cached label, and "Illustrative, not measured" on
-    illustrative benchmarks.
+    illustrative benchmarks. Show `review_due` and the lapsed state of a restriction.
 - **Alignment with parallel work.**
   - The agent tool names and the statement structure (phase 3, `llm/`) must match `AgentTool` and
     `ExplanationStatement`. Otherwise the API parses `LABEL: text` segments of
@@ -391,6 +545,8 @@ Named CHECK constraints (`ck_<table>_<rule>`) carry the invariants that SQL can 
   - The golden account ids `C-ROSSI-1..3` and `C-ROSSI-CARD-1..3`, and the opaque cluster ids,
     must match the generator (phase 1) and the graph (phase 2).
   - The evidence-quality components and their thresholds (D-15) come from phase 2.
+  - The lever rules come from `contracts/levers.py` (`lever_json_schema()`, `format_lever_id`):
+    a change there reaches the API schemas at the next export.
 - **Regeneration after a model change.** Run `python -m scripts.export_api_schemas` and
   `python -m scripts.build_api_examples`; the tests say when.
 - No new dependency. Persistence uses the pinned sqlalchemy, greenlet and asyncpg; the tests use

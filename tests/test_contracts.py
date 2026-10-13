@@ -44,6 +44,7 @@ NAMES = ["llm_case", "llm_output", "calibration"]
 # into contracts/json/api/ and tested in tests/test_api_schemas.py (ADR-15).
 API_DECISION = "api/decision_request"
 API_DECISION_EXAMPLE = "api/decision_request.marco_approve"
+API_CHECKOUT = "api/checkout_evaluate_response"
 
 
 def schema_of(name: str) -> dict[str, Any]:
@@ -68,6 +69,40 @@ def test_json_schema_is_valid_and_example_conforms(name: str) -> None:
     schema = schema_of(name)
     Draft202012Validator.check_schema(schema)
     Draft202012Validator(schema).validate(example_of(name))
+
+
+@pytest.mark.parametrize("action", ["override", "reject", "lift"])
+def test_override_requires_a_reason(action: str) -> None:
+    """US-306: the JSON Schema of the decision body itself refuses an override, a rejection or a
+    lift without a reason and a category, and an override without levers."""
+    body = example_of("api/decision_request.override")
+    body.update(action=action, levers=[] if action == "override" else None)
+    assert not errors(API_DECISION, body)
+    for key in ("override_reason", "override_category"):
+        assert errors(API_DECISION, {**body, key: None}), key
+        assert errors(API_DECISION, {k: v for k, v in body.items() if k != key}), key
+    assert errors(API_DECISION, {**body, "override_reason": "   "})
+    assert errors(API_DECISION, {"action": action, "approver": "sara"})
+    if action == "override":
+        assert errors(API_DECISION, {**body, "levers": None})
+        assert errors(API_DECISION, {k: v for k, v in body.items() if k != "levers"})
+    else:
+        lever = {"id": "instant_refund", "value": False, "scope": "future_orders"}
+        assert errors(API_DECISION, {**body, "levers": [lever]})
+
+
+def test_approve_takes_no_reason_in_the_decision_schema() -> None:
+    body = example_of(API_DECISION_EXAMPLE)
+    assert not errors(API_DECISION, body)
+    assert errors(API_DECISION, {**body, "override_reason": "why not"})
+    assert errors(API_DECISION, {**body, "override_category": "other"})
+
+
+def test_future_window_never_below_14_in_checkout_contract() -> None:
+    example = example_of("api/checkout_evaluate_response.marco")
+    assert not errors(API_CHECKOUT, example)
+    example["terms"]["return_window_days"] = 7
+    assert errors(API_CHECKOUT, example)
 
 
 # ---- Lever catalogue (POL-7, CON-05) -----------------------------------------------------------

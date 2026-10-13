@@ -27,8 +27,8 @@
         "label": "OBSERVED",
         "text": "C-GIULIA kept 5 of 11 items in 12 months; 5 of her 6 returns were for size.",
         "entity": "C-GIULIA",
-        "metric": "returned_lines",
-        "value": "6 of 11",
+        "metric": "kept_lines",
+        "value": "5 of 11",
         "period": "2025-10-01 to 2026-09-30"
       },
       {

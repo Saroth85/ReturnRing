@@ -38,7 +38,7 @@
         }
       },
       "value_eur": {
-        "value": 18239.17,
+        "value": 18251.12,
         "unit": "eur",
         "provenance": {
           "origin": "Contract example: customer value, 12-month net margin (spec 8.5) of the synthetic shop",
@@ -48,7 +48,7 @@
         }
       },
       "returns_12m": {
-        "value": 190,
+        "value": 189,
         "unit": "count",
         "provenance": {
           "origin": "Contract example: Navigli Fashion synthetic shop, generator seed 42",
@@ -71,7 +71,7 @@
         }
       },
       "value_eur": {
-        "value": 27324.08,
+        "value": 27185.05,
         "unit": "eur",
         "provenance": {
           "origin": "Contract example: customer value, 12-month net margin (spec 8.5) of the synthetic shop",
@@ -81,7 +81,7 @@
         }
       },
       "returns_12m": {
-        "value": 1192,
+        "value": 1189,
         "unit": "count",
         "provenance": {
           "origin": "Contract example: Navigli Fashion synthetic shop, generator seed 42",
@@ -94,7 +94,7 @@
     {
       "quadrant": "Q3",
       "customers": {
-        "value": 2,
+        "value": 3,
         "unit": "count",
         "provenance": {
           "origin": "Contract example: risk model risk-xgb-0.1.0 on decision-time features of the synthetic shop",
@@ -104,7 +104,7 @@
         }
       },
       "value_eur": {
-        "value": 776.55,
+        "value": 892.35,
         "unit": "eur",
         "provenance": {
           "origin": "Contract example: customer value, 12-month net margin (spec 8.5) of the synthetic shop",
@@ -114,7 +114,7 @@
         }
       },
       "returns_12m": {
-        "value": 4,
+        "value": 7,
         "unit": "count",
         "provenance": {
           "origin": "Contract example: Navigli Fashion synthetic shop, generator seed 42",
@@ -183,12 +183,133 @@
     {
       "customer_id": "C-MARCO-1",
       "display_name": "Marco Bianchi",
-      "risk": 0.82,
+      "risk": 0.87,
       "value_eur": 42.1,
       "evidence_quality": "sufficient",
       "quadrant": "Q4",
       "cluster_id": "CL-000417",
       "returns_12m": 6,
+      "welcome_coupons": 1
+    },
+    {
+      "customer_id": "C-ROSSI-2",
+      "display_name": "Paola Rossi",
+      "risk": 0.18,
+      "value_eur": 82.9,
+      "evidence_quality": "sufficient",
+      "quadrant": "Q2",
+      "cluster_id": "CL-000233",
+      "returns_12m": 1,
+      "welcome_coupons": 1
+    },
+    {
+      "customer_id": "C-ROSSI-CARD-2",
+      "display_name": "Paola Rossi",
+      "risk": 0.34,
+      "value_eur": 127.15,
+      "evidence_quality": "sufficient",
+      "quadrant": "Q2",
+      "cluster_id": "CL-000588",
+      "returns_12m": 2,
+      "welcome_coupons": 1
+    },
+    {
+      "customer_id": "C-ELENA",
+      "display_name": "Elena Marchetti",
+      "risk": 0.09,
+      "value_eur": 68.05,
+      "evidence_quality": "sufficient",
+      "quadrant": "Q2",
+      "cluster_id": null,
+      "returns_12m": 2,
+      "welcome_coupons": 1
+    },
+    {
+      "customer_id": "C-10233",
+      "display_name": "Chiara Esposito",
+      "risk": 0.66,
+      "value_eur": 433.75,
+      "evidence_quality": "sufficient",
+      "quadrant": "Q3",
+      "cluster_id": "CL-000731",
+      "returns_12m": 2,
+      "welcome_coupons": 1
+    },
+    {
+      "customer_id": "C-19921",
+      "display_name": "Davide Costa",
+      "risk": null,
+      "value_eur": 18.95,
+      "evidence_quality": "insufficient",
+      "quadrant": null,
+      "cluster_id": null,
+      "returns_12m": 1,
+      "welcome_coupons": 0
+    },
+    {
+      "customer_id": "C-11872",
+      "display_name": "Andrea Ferri",
+      "risk": 0.22,
+      "value_eur": 276.05,
+      "evidence_quality": "sufficient",
+      "quadrant": "Q1",
+      "cluster_id": null,
+      "returns_12m": 1,
+      "welcome_coupons": 1
+    },
+    {
+      "customer_id": "C-17305",
+      "display_name": "Martina Gallo",
+      "risk": 0.71,
+      "value_eur": 239.55,
+      "evidence_quality": "sufficient",
+      "quadrant": "Q3",
+      "cluster_id": null,
+      "returns_12m": 3,
+      "welcome_coupons": 1
+    },
+    {
+      "customer_id": "C-14502",
+      "display_name": "Valentina Greco",
+      "risk": 0.31,
+      "value_eur": 44.37,
+      "evidence_quality": "sufficient",
+      "quadrant": "Q2",
+      "cluster_id": null,
+      "returns_12m": 1,
+      "welcome_coupons": 1
+    },
+    {
+      "customer_id": "C-16634",
+      "display_name": "Simone Rizzo",
+      "risk": 0.28,
+      "value_eur": 61.2,
+      "evidence_quality": "sufficient",
+      "quadrant": "Q2",
+      "cluster_id": null,
+      "returns_12m": 1,
+      "welcome_coupons": 1
+    },
+    {
+      "customer_id": "C-18120",
+      "display_name": "Francesca Moretti",
+      "risk": 0.12,
+      "value_eur": 78.45,
+      "evidence_quality": "sufficient",
+      "quadrant": "Q2",
+      "cluster_id": null,
+      "returns_12m": 1,
+      "welcome_coupons": 1
+    },
+    {
+      "customer_id": "C-15077",
+      "display_name": "Lorenzo Ricci",
+      "risk": 0.68,
+      "value_eur": 219.05,
+      "evidence_quality": "sufficient",
+      "quadrant": "Q3",
+      "cluster_id": null,
+      "returns_12m": 2,
       "welcome_coupons": 1
     },
     {
@@ -269,17 +390,6 @@
       "welcome_coupons": 0
     },
     {
-      "customer_id": "C-ROSSI-2",
-      "display_name": "Paola Rossi",
-      "risk": 0.19,
-      "value_eur": 123.4,
-      "evidence_quality": "sufficient",
-      "quadrant": "Q2",
-      "cluster_id": "CL-000233",
-      "returns_12m": 1,
-      "welcome_coupons": 1
-    },
-    {
       "customer_id": "C-ROSSI-3",
       "display_name": "Sofia Rossi",
       "risk": 0.21,
@@ -302,17 +412,6 @@
       "welcome_coupons": 0
     },
     {
-      "customer_id": "C-ROSSI-CARD-2",
-      "display_name": "Paola Rossi",
-      "risk": 0.35,
-      "value_eur": 123.4,
-      "evidence_quality": "sufficient",
-      "quadrant": "Q2",
-      "cluster_id": "CL-000588",
-      "returns_12m": 2,
-      "welcome_coupons": 1
-    },
-    {
       "customer_id": "C-ROSSI-CARD-3",
       "display_name": "Sofia Rossi",
       "risk": 0.37,
@@ -321,94 +420,6 @@
       "quadrant": "Q2",
       "cluster_id": "CL-000588",
       "returns_12m": 0,
-      "welcome_coupons": 0
-    },
-    {
-      "customer_id": "C-ELENA",
-      "display_name": "Elena Marchetti",
-      "risk": 0.09,
-      "value_eur": 68.05,
-      "evidence_quality": "sufficient",
-      "quadrant": "Q2",
-      "cluster_id": null,
-      "returns_12m": 2,
-      "welcome_coupons": 1
-    },
-    {
-      "customer_id": "C-10233",
-      "display_name": "Chiara Esposito",
-      "risk": 0.66,
-      "value_eur": 433.75,
-      "evidence_quality": "sufficient",
-      "quadrant": "Q3",
-      "cluster_id": "CL-000731",
-      "returns_12m": 2,
-      "welcome_coupons": 1
-    },
-    {
-      "customer_id": "C-11872",
-      "display_name": "Andrea Ferri",
-      "risk": 0.22,
-      "value_eur": 264.1,
-      "evidence_quality": "sufficient",
-      "quadrant": "Q1",
-      "cluster_id": null,
-      "returns_12m": 2,
-      "welcome_coupons": 0
-    },
-    {
-      "customer_id": "C-17305",
-      "display_name": "Martina Gallo",
-      "risk": 0.71,
-      "value_eur": 342.8,
-      "evidence_quality": "sufficient",
-      "quadrant": "Q3",
-      "cluster_id": null,
-      "returns_12m": 2,
-      "welcome_coupons": 0
-    },
-    {
-      "customer_id": "C-19921",
-      "display_name": "Davide Costa",
-      "risk": 0.4,
-      "value_eur": 18.95,
-      "evidence_quality": "insufficient",
-      "quadrant": null,
-      "cluster_id": null,
-      "returns_12m": 2,
-      "welcome_coupons": 0
-    },
-    {
-      "customer_id": "C-14502",
-      "display_name": "Valentina Greco",
-      "risk": 0.31,
-      "value_eur": 88.2,
-      "evidence_quality": "sufficient",
-      "quadrant": "Q2",
-      "cluster_id": null,
-      "returns_12m": 2,
-      "welcome_coupons": 0
-    },
-    {
-      "customer_id": "C-16634",
-      "display_name": "Simone Rizzo",
-      "risk": 0.28,
-      "value_eur": 120.5,
-      "evidence_quality": "sufficient",
-      "quadrant": "Q2",
-      "cluster_id": null,
-      "returns_12m": 2,
-      "welcome_coupons": 0
-    },
-    {
-      "customer_id": "C-18120",
-      "display_name": "Francesca Moretti",
-      "risk": 0.0,
-      "value_eur": 77.6,
-      "evidence_quality": "sufficient",
-      "quadrant": "Q2",
-      "cluster_id": null,
-      "returns_12m": 2,
       "welcome_coupons": 0
     },
     {
@@ -436,7 +447,7 @@
     {
       "customer_id": "C-30014",
       "display_name": null,
-      "risk": 0.372,
+      "risk": null,
       "value_eur": 197.61,
       "evidence_quality": "insufficient",
       "quadrant": null,
@@ -733,7 +744,7 @@
     {
       "customer_id": "C-30203",
       "display_name": null,
-      "risk": 0.176,
+      "risk": null,
       "value_eur": -3.35,
       "evidence_quality": "insufficient",
       "quadrant": null,
@@ -1272,7 +1283,7 @@
     {
       "customer_id": "C-30546",
       "display_name": null,
-      "risk": 0.138,
+      "risk": null,
       "value_eur": 121.9,
       "evidence_quality": "insufficient",
       "quadrant": null,
@@ -1789,7 +1800,7 @@
     {
       "customer_id": "C-30875",
       "display_name": null,
-      "risk": 0.262,
+      "risk": null,
       "value_eur": 89.29,
       "evidence_quality": "insufficient",
       "quadrant": null,
@@ -1844,7 +1855,7 @@
     {
       "customer_id": "C-30910",
       "display_name": null,
-      "risk": 0.212,
+      "risk": null,
       "value_eur": 158.38,
       "evidence_quality": "insufficient",
       "quadrant": null,
@@ -1888,7 +1899,7 @@
     {
       "customer_id": "C-30938",
       "display_name": null,
-      "risk": 0.39,
+      "risk": null,
       "value_eur": 10.71,
       "evidence_quality": "insufficient",
       "quadrant": null,
@@ -2218,7 +2229,7 @@
     {
       "customer_id": "C-31148",
       "display_name": null,
-      "risk": 0.449,
+      "risk": null,
       "value_eur": 156.64,
       "evidence_quality": "insufficient",
       "quadrant": null,
@@ -2372,7 +2383,7 @@
     {
       "customer_id": "C-31246",
       "display_name": null,
-      "risk": 0.352,
+      "risk": null,
       "value_eur": 70.14,
       "evidence_quality": "insufficient",
       "quadrant": null,
@@ -2427,7 +2438,7 @@
     {
       "customer_id": "C-31281",
       "display_name": null,
-      "risk": 0.045,
+      "risk": null,
       "value_eur": 34.74,
       "evidence_quality": "insufficient",
       "quadrant": null,
@@ -2438,7 +2449,7 @@
     {
       "customer_id": "C-31288",
       "display_name": null,
-      "risk": 0.633,
+      "risk": null,
       "value_eur": 66.21,
       "evidence_quality": "insufficient",
       "quadrant": null,
@@ -2537,7 +2548,7 @@
     {
       "customer_id": "C-31351",
       "display_name": null,
-      "risk": 0.154,
+      "risk": null,
       "value_eur": 99.74,
       "evidence_quality": "insufficient",
       "quadrant": null,
@@ -3065,7 +3076,7 @@
     {
       "customer_id": "C-31687",
       "display_name": null,
-      "risk": 0.178,
+      "risk": null,
       "value_eur": 32.79,
       "evidence_quality": "insufficient",
       "quadrant": null,
@@ -3362,7 +3373,7 @@
     {
       "customer_id": "C-31876",
       "display_name": null,
-      "risk": 0.069,
+      "risk": null,
       "value_eur": 68.16,
       "evidence_quality": "insufficient",
       "quadrant": null,
@@ -3428,7 +3439,7 @@
     {
       "customer_id": "C-31918",
       "display_name": null,
-      "risk": 0.115,
+      "risk": null,
       "value_eur": -4.98,
       "evidence_quality": "insufficient",
       "quadrant": null,
@@ -3593,7 +3604,7 @@
     {
       "customer_id": "C-32023",
       "display_name": null,
-      "risk": 0.345,
+      "risk": null,
       "value_eur": 122.52,
       "evidence_quality": "insufficient",
       "quadrant": null,
@@ -3615,7 +3626,7 @@
     {
       "customer_id": "C-32037",
       "display_name": null,
-      "risk": 0.147,
+      "risk": null,
       "value_eur": 21.57,
       "evidence_quality": "insufficient",
       "quadrant": null,
@@ -3692,7 +3703,7 @@
     {
       "customer_id": "C-32086",
       "display_name": null,
-      "risk": 0.063,
+      "risk": null,
       "value_eur": 145.66,
       "evidence_quality": "insufficient",
       "quadrant": null,
@@ -3725,7 +3736,7 @@
     {
       "customer_id": "C-32107",
       "display_name": null,
-      "risk": 0.153,
+      "risk": null,
       "value_eur": 35.58,
       "evidence_quality": "insufficient",
       "quadrant": null,
@@ -4000,7 +4011,7 @@
     {
       "customer_id": "C-32282",
       "display_name": null,
-      "risk": 0.109,
+      "risk": null,
       "value_eur": 113.62,
       "evidence_quality": "insufficient",
       "quadrant": null,
@@ -4066,7 +4077,7 @@
     {
       "customer_id": "C-32324",
       "display_name": null,
-      "risk": 0.227,
+      "risk": null,
       "value_eur": 164.18,
       "evidence_quality": "insufficient",
       "quadrant": null,
@@ -4671,7 +4682,7 @@
     {
       "customer_id": "C-32709",
       "display_name": null,
-      "risk": 0.38,
+      "risk": null,
       "value_eur": 247.66,
       "evidence_quality": "insufficient",
       "quadrant": null,
@@ -5012,7 +5023,7 @@
     {
       "customer_id": "C-32926",
       "display_name": null,
-      "risk": 0.11,
+      "risk": null,
       "value_eur": 61.72,
       "evidence_quality": "insufficient",
       "quadrant": null,
@@ -5628,7 +5639,7 @@
     {
       "customer_id": "C-33318",
       "display_name": null,
-      "risk": 0.038,
+      "risk": null,
       "value_eur": 148.34,
       "evidence_quality": "insufficient",
       "quadrant": null,

@@ -445,6 +445,9 @@
     },
     "generation": {
       "$ref": "#/$defs/GenerationInfo"
+    },
+    "provenance": {
+      "$ref": "#/$defs/Provenance"
     }
   },
   "required": [
@@ -463,7 +466,8 @@
     "confirmed_observations",
     "confirmed_by",
     "confirmed_at",
-    "generation"
+    "generation",
+    "provenance"
   ],
   "title": "InspectionView",
   "type": "object"

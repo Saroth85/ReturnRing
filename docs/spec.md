@@ -627,7 +627,8 @@ F7 — Revisione del caso: Sara aggiunge un'evidenza favorevole o contesta un le
 | --- | --- |
 | GET /api/returns | Coda con filtri per stato e quadrante |
 | GET /api/returns/{id} | Scheda caso: punteggi, fattori, cluster, ordini, bozza di Gemma |
-| POST /api/returns/{id}/decision | Approvazione o modifica con motivazione |
+| POST /api/returns/{id}/decision | Approvazione, modifica o rifiuto con motivazione; revoca di una restrizione (US-607) |
+| GET /api/decisions/{id} | Una versione della decisione, anche precedente: input, alternative, esito (US-604) |
 | POST /api/returns/{id}/regenerate | Nuova bozza in un'altra lingua o tono |
 | POST /api/checkout/evaluate | Probabilità per riga, consiglio di taglia, condizioni dell'ordine |
 | POST /api/inspections | Foto in ingresso, checklist in uscita |
@@ -640,6 +641,8 @@ F7 — Revisione del caso: Sara aggiunge un'evidenza favorevole o contesta un le
 | GET /api/products/anomalies, POST /api/catalog-tasks | Anomalie di prodotto e attività di catalogo |
 | POST /api/returns/{id}/evidence, POST /api/links/{id}/dispute | Evidenza favorevole aggiunta e legame contestato, con ricalcolo |
 | GET e PUT /api/simulator/assumptions | Ipotesi del simulatore economico, versionate |
+
+Il contratto completo (modelli, schemi JSON, errori, ruoli, esempi per il mock della UI) è in ADR-15 e in `contracts/json/api/`; questa tabella ne riassume i percorsi principali.
 
 Integrazione Evolus: esclusa il 12 ottobre per tempo. Se ripresa dopo l'hackathon, va documentato quali dati escono verso la piattaforma, e la frase "i dati restano nel merchant" non vale più senza precisazioni.
 
@@ -1221,6 +1224,8 @@ Risposta di POST /api/checkout/evaluate (esempio):
 }
 ```
 
+Forma vincolante: `contracts/json/api/checkout_evaluate_response.schema.json` (ADR-15), che aggiunge condizioni di base, origine delle condizioni, data di riesame e provenienza.
+
 Corpo di POST /api/returns/{id}/decision:
 
 ```json
@@ -1232,6 +1237,8 @@ Corpo di POST /api/returns/{id}/decision:
   "approver": "sara"
 }
 ```
+
+Forma vincolante: `contracts/json/api/decision_request.schema.json` (ADR-15), che aggiunge `decision_id`, `override_category` e l'azione `lift`; motivazione e categoria obbligatorie per override, rifiuto e revoca.
 
 ### C. Clausola legale fissa (bozza da validare con un legale)
 

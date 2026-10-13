@@ -25,10 +25,10 @@ function Unaffected() {
   return <p className="text-body text-ink-2">{AGENT.errors.unaffected}</p>;
 }
 
-/** The language model is down: the shared notice (its retry countdown is the named LLM_RETRY_SECONDS). */
+/** The language model is down: the shared notice (its retry countdown is marked as a named constant). */
 function LlmDown({ onRetry }: { onRetry?(): void }) {
   return (
-    <div data-constant data-agent-problem="llm_unavailable">
+    <div data-agent-problem="llm_unavailable">
       <LlmUnavailableNotice onRetry={onRetry} />
     </div>
   );

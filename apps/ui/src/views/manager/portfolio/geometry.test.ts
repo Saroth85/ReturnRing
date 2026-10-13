@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import type { PortfolioMatrix } from '@/api/models';
 import { readExample } from '@/test/examples';
-import { convexHull, createScales, nearestIndex, percentile, placeLabels, valueDomain } from './geometry';
+import { convexHull, createScales, nearestIndex, percentile, placeLabels, textBox, valueDomain } from './geometry';
 
 const matrix = readExample<PortfolioMatrix>('portfolio_matrix.json');
 
@@ -74,6 +74,14 @@ describe('placeLabels', () => {
     );
     const sameLine = Math.abs((a?.y ?? 0) - (b?.y ?? 0)) < 14;
     expect(sameLine && a?.anchor === b?.anchor).toBe(false);
+  });
+
+  it('keeps clear of a reserved text such as a threshold label', () => {
+    const reserved = [textBox(10, 194, 'value €185.00', 'start')];
+    const [label] = placeLabels([{ x: 40, y: 200, text: 'Giulia' }], plot, reserved);
+    const box = textBox(label?.x ?? 0, label?.y ?? 0, 'Giulia', label?.anchor ?? 'start');
+    const r = reserved[0]!;
+    expect(box.x0 < r.x1 && r.x0 < box.x1 && box.y0 < r.y1 && r.y0 < box.y1).toBe(false);
   });
 
   it('keeps a label inside the plot near the right edge', () => {

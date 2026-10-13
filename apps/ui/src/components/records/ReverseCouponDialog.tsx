@@ -1,6 +1,7 @@
 import * as Dialog from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
 import { useId, useState } from 'react';
+import { MIN_REASON_CHARS } from '@/api/contract.gen';
 import { isApiError } from '@/api/errors';
 import type { CouponRuleApplication } from '@/api/models';
 import { useReverseCouponApplication } from '@/api/mutations';
@@ -10,8 +11,8 @@ import { DateText, IdText } from '@/components/provenance';
 import { Button } from '@/components/ui';
 import { RECORDS } from './copy';
 
-/** A reason has at least this many characters once trimmed (ADR-15 section 2, "Reasons"). */
-export const MIN_REASON_CHARS = 3;
+/** A reason has at least MIN_REASON_CHARS characters once trimmed (contracts/vocab.py, ADR-15 section 2). */
+export { MIN_REASON_CHARS };
 
 const R = RECORDS.reverse;
 
@@ -58,9 +59,9 @@ export function ReverseCouponDialog({ application, open, onOpenChange, onDone }:
       }}
     >
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-[rgb(20_26_38/0.32)]" />
+        <Dialog.Overlay className="fixed inset-x-0 top-[var(--mode-banner-h,0px)] bottom-0 z-40 bg-[rgb(20_26_38/0.32)]" />
         <Dialog.Content
-          className="fixed top-1/2 left-1/2 z-50 flex max-h-[calc(100vh-2rem)] w-[min(34rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 flex-col gap-3 overflow-y-auto rounded-card border border-border bg-surface p-4 text-ink-1 shadow-overlay"
+          className="fixed top-[calc(50%_+_var(--mode-banner-h,0px)_/_2)] left-1/2 z-50 flex max-h-[calc(100vh_-_2rem_-_var(--mode-banner-h,0px))] w-[min(34rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 flex-col gap-3 overflow-y-auto rounded-card border border-border bg-surface p-4 text-ink-1 shadow-overlay"
           data-reverse-dialog
         >
           <div className="flex items-start justify-between gap-3">

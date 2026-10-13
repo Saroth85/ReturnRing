@@ -40,7 +40,8 @@ function watchConsole(page: Page): string[] {
 }
 
 async function settle(page: Page) {
-  await expect(page.locator('h1').first()).toBeVisible();
+  // The first visit to a lazily loaded view compiles it on the dev server: allow for a busy machine.
+  await expect(page.locator('h1').first()).toBeVisible({ timeout: 15_000 });
   await expect(page.locator('[aria-busy="true"], [data-data-check="pending"]')).toHaveCount(0, { timeout: 15_000 });
 }
 

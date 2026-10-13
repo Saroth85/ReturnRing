@@ -12,6 +12,7 @@ export function GenerationBadge({ generation }: { generation: GenerationInfo }) 
   if (generation.llm_mode === 'mock') parts.push(MESSAGE.generation.mock);
   return (
     <span
+      data-constant
       className="inline-flex flex-wrap items-center gap-1 text-caption text-ink-3"
       data-generation-path={generation.generation_path}
       data-served-from={generation.served_from}

@@ -38,7 +38,7 @@ export function Figure({ metric, label, signed = false, compareTo, size = 'defau
   useEffect(() => noteOrigin(provenance.origin), [provenance.origin]);
 
   return (
-    <span data-figure data-nature={nature} data-unit={metric.unit} className={clsx('inline-flex items-baseline', className)}>
+    <span data-figure data-nature={nature} data-unit={metric.unit} className={clsx('relative inline-flex items-baseline', className)}>
       <ProvenancePopover provenance={provenance} label={label} valueText={valueText} nature={nature}>
         <button
           type="button"

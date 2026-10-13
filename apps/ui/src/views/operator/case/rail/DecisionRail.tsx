@@ -15,6 +15,7 @@ import { ActionBar, type ActionBarProps } from './ActionBar';
 
 const WIDE = '(min-width: 1280px)';
 const BOTTOM_GAP_PX = 12;
+const CORNER_GAP_PX = 6;
 const MIN_RAIL_PX = 320;
 
 /**
@@ -35,7 +36,10 @@ function useFitToViewport(ref: RefObject<HTMLElement | null>): number | undefine
           return;
         }
         const top = Math.max(el.getBoundingClientRect().top, 0);
-        setMaxHeight(Math.max(MIN_RAIL_PX, Math.round(window.innerHeight - top - BOTTOM_GAP_PX)));
+        // The cached or contract-examples corner tag sits at the bottom right: the rail ends above it.
+        const corner = document.querySelector<HTMLElement>('[data-mode-corner]');
+        const gap = corner ? Math.max(BOTTOM_GAP_PX, window.innerHeight - corner.getBoundingClientRect().top + CORNER_GAP_PX) : BOTTOM_GAP_PX;
+        setMaxHeight(Math.max(MIN_RAIL_PX, Math.round(window.innerHeight - top - gap)));
       });
     };
     update();
@@ -157,6 +161,7 @@ export function DecisionRail(props: ActionBarProps) {
     <aside
       ref={railRef}
       aria-label={r.title}
+      tabIndex={-1}
       style={maxHeight ? { maxHeight } : undefined}
       className="flex flex-col rounded-card border border-border bg-surface xl:sticky xl:top-10 xl:overflow-hidden"
       data-decision-rail
@@ -201,9 +206,7 @@ export function DecisionRail(props: ActionBarProps) {
           <span className="text-ink-3">{r.message}</span>
           <span>{OPERATOR.sheets.langs[sendLang]}</span>
           {card.draft ? (
-            <span data-constant>
-              <GenerationBadge generation={card.draft.generation} />
-            </span>
+            <GenerationBadge generation={card.draft.generation} />
           ) : (
             <span className="text-ink-3">{r.noDraft}</span>
           )}

@@ -49,7 +49,7 @@ export function useDrawerTop(active: boolean): number {
     if (!active) return;
     const banner = document.querySelector<HTMLElement>('[data-mode-banner]');
     if (!banner) return;
-    const topBar = banner.parentElement?.querySelector<HTMLElement>(':scope > header') ?? null;
+    const topBar = document.querySelector<HTMLElement>('[data-top-bar]');
     let frame = 0;
     const measure = () => {
       frame = 0;

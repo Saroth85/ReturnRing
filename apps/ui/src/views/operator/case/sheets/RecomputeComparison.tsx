@@ -78,9 +78,9 @@ export function RecomputeComparison({ recompute, alsoRecomputed, versions, onOpe
   return (
     <Dialog.Root open onOpenChange={(open) => !open && onOpenVersion()}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-ink-1/30" />
+        <Dialog.Overlay className="fixed inset-x-0 top-[var(--mode-banner-h,0px)] bottom-0 z-40 bg-ink-1/30" />
         <Dialog.Content
-          className="fixed top-1/2 left-1/2 z-50 flex max-h-[calc(100vh-2rem)] w-[min(56rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 flex-col rounded-card border border-border bg-surface shadow-overlay"
+          className="fixed top-[calc(50%_+_var(--mode-banner-h,0px)_/_2)] left-1/2 z-50 flex max-h-[calc(100vh_-_2rem_-_var(--mode-banner-h,0px))] w-[min(56rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 flex-col rounded-card border border-border bg-surface shadow-overlay"
           data-recompute-comparison
           aria-describedby={undefined}
           ref={contentRef}
@@ -154,9 +154,7 @@ export function RecomputeComparison({ recompute, alsoRecomputed, versions, onOpe
               </p>
               <p className="flex flex-wrap items-center gap-2">
                 <span className="text-ink-3">{r.draft}:</span>
-                <span data-constant>
-                  <GenerationBadge generation={recompute.draft.generation} />
-                </span>
+                <GenerationBadge generation={recompute.draft.generation} />
               </p>
               <p className="flex flex-wrap items-center gap-2">
                 <span className="text-ink-3">{r.auditEntries}:</span>

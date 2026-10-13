@@ -1,6 +1,6 @@
 // Mode banner (US-901, docs/ui-design.md 5.2): live and cached are never confused, and the banner
 // is always there in cached mode.
-import { screen, waitFor, within } from '@testing-library/react';
+import { cleanup, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { metaStore, resetModesSeen } from '@/api/meta';
 import type { ReadyzResponse } from '@/api/models';
@@ -72,6 +72,8 @@ describe('describeMode: the rows of docs/ui-design.md 5.2', () => {
 
 describe('ModeBanner on the mock adapter', () => {
   afterEach(() => {
+    // Unmount first: the stores below notify mounted components outside act().
+    cleanup();
     setScenario('default');
     resetModesSeen();
   });

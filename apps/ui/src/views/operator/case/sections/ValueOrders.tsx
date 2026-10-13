@@ -92,7 +92,7 @@ export function OrdersSection({ card }: { card: CaseCard }) {
             </div>
           </dl>
           <div className="relative overflow-x-auto rounded-control border border-border">
-            <table className="w-full text-dense" data-orders-table>
+            <table className="w-full min-w-[34rem] text-dense" data-orders-table>
               <caption className="sr-only">{t.title}</caption>
               <thead className="bg-surface-2 text-left text-caption text-ink-2">
                 <tr>

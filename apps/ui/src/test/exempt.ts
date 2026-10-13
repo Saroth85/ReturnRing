@@ -16,6 +16,8 @@ export const PROVENANCE_EXEMPT_SELECTOR = [
   '[data-provenance-detail]',
   '[data-mode-banner]',
   '[data-legal-ref]',
+  // Recharts measures label text in a hidden span appended to <body>.
+  '#recharts_measurement_span',
   'script',
   'style',
   'noscript',

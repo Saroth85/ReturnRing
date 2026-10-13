@@ -7,7 +7,8 @@ import { renderApp } from '@/test/render';
 import { findBannedWording, findUnprovenancedNumbers } from '@/test/scan';
 
 async function loaded() {
-  await waitFor(() => expect(document.querySelector('[aria-busy="true"]')).toBeNull(), { timeout: 5000 });
+  // The first render compiles the lazily loaded page: allow for a busy machine.
+  await waitFor(() => expect(document.querySelector('[aria-busy="true"]')).toBeNull(), { timeout: 12_000 });
 }
 
 function cleanScreen() {

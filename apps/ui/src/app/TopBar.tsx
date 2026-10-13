@@ -64,7 +64,7 @@ export function TopBar() {
   const meta = useApiMeta();
   const provenanceMode = useProvenanceMode();
   return (
-    <header className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border bg-surface px-4 py-2">
+    <header data-top-bar className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border bg-surface px-4 py-2">
       <p className="flex flex-wrap items-baseline gap-x-2">
         <Link to="/" className="text-title text-ink-1">
           {APP_NAME}

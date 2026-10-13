@@ -6,7 +6,8 @@
 //   node scripts/gen-contract.mjs --check   exit 1 when the committed file is stale
 //
 // Sources: contracts/json/api/*.schema.json, contracts/json/api/endpoints.json,
-// contracts/examples/api/index.json (scenario names) and contracts/vocab.py (DEMO_USERS).
+// contracts/examples/api/index.json (scenario names) and contracts/vocab.py (DEMO_USERS, the
+// human-only and reason-required audit actions, MIN_REASON_CHARS).
 // Every lookup below names its path in the contract and fails loudly when the path is gone:
 // a contract change then breaks this script, not forty components.
 
@@ -134,6 +135,19 @@ if (!usersMatch) throw new Error('contracts/vocab.py: DEMO_USERS not found');
 const demoUsers = [...usersMatch[1].matchAll(/"([a-z][a-z0-9._-]*)"\s*:\s*"([a-z]+)"/g)].map(([, id, role]) => ({ id, role }));
 if (demoUsers.length === 0) throw new Error('contracts/vocab.py: DEMO_USERS is empty');
 
+/** A frozenset of audit actions in contracts/vocab.py, checked against AuditEntry.action. */
+function vocabActionSet(name, auditActions) {
+  const match = vocab.match(new RegExp(`^${name}:[^=]*=\\s*frozenset\\(\\s*\\{([^}]*)\\}`, 'm'));
+  if (!match) throw new Error(`contracts/vocab.py: ${name} not found`);
+  const values = [...match[1].matchAll(/"([a-z_]+)"/g)].map(([, v]) => v).sort();
+  if (values.length === 0) throw new Error(`contracts/vocab.py: ${name} is empty`);
+  for (const v of values) if (!auditActions.includes(v)) throw new Error(`contracts/vocab.py: ${name} has unknown action ${v}`);
+  return values;
+}
+const minReasonMatch = vocab.match(/^MIN_REASON_CHARS\s*(?::[^=]*)?=\s*(\d+)/m);
+if (!minReasonMatch) throw new Error('contracts/vocab.py: MIN_REASON_CHARS not found');
+const auditActions = enumAt('AuditEntry', 'action');
+
 // ---- output -------------------------------------------------------------------------------
 const constants = [
   ['CONTRACT_VERSION', 'endpoints.json contract_version', endpointsFile.contract_version],
@@ -146,7 +160,7 @@ const constants = [
   ['DECISION_STATES', 'DecisionView.state', enumAt('DecisionView', 'state')],
   ['REVISION_TRIGGERS', 'DecisionView.revision_trigger', enumAt('DecisionView', 'revision_trigger')],
   ['EVIDENCE_KINDS', 'EvidenceRequest.kind', enumAt('EvidenceRequest', 'kind')],
-  ['AUDIT_ACTIONS', 'AuditEntry.action', enumAt('AuditEntry', 'action')],
+  ['AUDIT_ACTIONS', 'AuditEntry.action', auditActions],
   ['LEVER_IDS', 'Lever.id', enumAt('Lever', 'id')],
   ['LEVER_SCOPES', 'Lever.scope', enumAt('Lever', 'scope')],
   ['METRIC_UNITS', 'Metric.unit', enumAt('Metric', 'unit')],
@@ -159,6 +173,10 @@ const constants = [
   ['AGENT_TOOLS', 'ToolCallEvent.tool', enumAt('ToolCallEvent', 'tool')],
   ['ENTITY_REF_KINDS', 'EntityRef.kind', enumAt('EntityRef', 'kind')],
   ['AGENT_MAX_STEPS', 'ToolCallEvent.step maximum', at('ToolCallEvent', 'properties.step').maximum],
+  ['AGENT_QUESTION_MAX_LENGTH', 'AgentAskRequest.question maxLength', at('AgentAskRequest', 'properties.question').maxLength],
+  ['HUMAN_ONLY_ACTIONS', 'contracts/vocab.py HUMAN_ONLY_ACTIONS', vocabActionSet('HUMAN_ONLY_ACTIONS', auditActions)],
+  ['REASON_REQUIRED_ACTIONS', 'contracts/vocab.py REASON_REQUIRED_ACTIONS', vocabActionSet('REASON_REQUIRED_ACTIONS', auditActions)],
+  ['MIN_REASON_CHARS', 'contracts/vocab.py MIN_REASON_CHARS', Number(minReasonMatch[1])],
   ['LEGAL_MINIMUM_WINDOW_DAYS', 'Lever rule: return_window_days minimum', legalMinimumWindowDays()],
   ['MOCK_SCENARIOS', 'contracts/examples/api/index.json scenarios', scenarios],
   ['DEMO_USERS', 'contracts/vocab.py DEMO_USERS', demoUsers],

@@ -9,7 +9,8 @@ import { queryKeys } from './queries';
 /** Never downgrade: a decision with a lower version than the cached one is ignored (11.2). */
 export function mergeDecision(client: QueryClient, returnId: string, decision: DecisionView): void {
   client.setQueryData<CaseCard>(queryKeys.case(returnId), (card) => {
-    if (!card) return card;
+    // An answer about another return (the mock serves the nearest example) is never written here.
+    if (!card || card.return_id !== decision.return_id) return card;
     if (card.decision.decision_id !== decision.decision_id && card.decision.version > decision.version) return card;
     return { ...card, decision };
   });

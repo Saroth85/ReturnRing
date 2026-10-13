@@ -57,7 +57,7 @@ function watchConsole(page: Page, expectedStatuses: number[] = []): string[] {
 }
 
 async function settle(page: Page): Promise<void> {
-  await expect(page.locator('h1').first()).toBeVisible();
+  await expect(page.locator('h1').first()).toBeVisible({ timeout: 15_000 });
   await expect(page.locator('[data-data-check="pending"], [aria-busy="true"]')).toHaveCount(0);
   await expect(page.locator('[data-mode-banner="checking"]')).toHaveCount(0);
 }

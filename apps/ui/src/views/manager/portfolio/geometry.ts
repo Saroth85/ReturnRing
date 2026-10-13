@@ -127,7 +127,7 @@ export interface PlacedLabel {
   anchor: 'start' | 'end';
 }
 
-interface Box {
+export interface Box {
   x0: number;
   y0: number;
   x1: number;
@@ -149,24 +149,29 @@ const OFFSETS: [number, number][] = [
   [-10, -42],
 ];
 
+/** The estimated box of a 12 px SVG text at (x, y) with its anchor. */
+export function textBox(x: number, y: number, text: string, anchor: PlacedLabel['anchor']): Box {
+  const width = text.length * CHAR_WIDTH + 4;
+  return anchor === 'start'
+    ? { x0: x, y0: y - LINE_HEIGHT + 3, x1: x + width, y1: y + 3 }
+    : { x0: x - width, y0: y - LINE_HEIGHT + 3, x1: x, y1: y + 3 };
+}
+
 const overlaps = (a: Box, b: Box) => a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
 
 /**
  * Places annotation labels next to their points without overlapping each other and inside the
  * plot: the first free spot among a few offsets around the point (12 px text, estimated width).
  */
-export function placeLabels(requests: readonly LabelRequest[], plot: Plot): PlacedLabel[] {
-  const placed: Box[] = [];
+export function placeLabels(requests: readonly LabelRequest[], plot: Plot, reserved: readonly Box[] = []): PlacedLabel[] {
+  // Fixed texts of the chart (threshold labels, quadrant names) are avoided like placed labels.
+  const placed: Box[] = [...reserved];
   return requests.map((r) => {
-    const width = r.text.length * CHAR_WIDTH + 4;
     const candidates = OFFSETS.map(([dx, dy]) => {
       const anchor: PlacedLabel['anchor'] = dx < 0 ? 'end' : 'start';
       const x = r.x + dx;
       const y = r.y + dy;
-      const box: Box =
-        anchor === 'start'
-          ? { x0: x, y0: y - LINE_HEIGHT + 3, x1: x + width, y1: y + 3 }
-          : { x0: x - width, y0: y - LINE_HEIGHT + 3, x1: x, y1: y + 3 };
+      const box = textBox(x, y, r.text, anchor);
       const inside = box.x0 >= plot.left && box.x1 <= plot.left + plot.width && box.y0 >= plot.top && box.y1 <= plot.top + plot.height;
       return { label: { x, y, anchor }, box, inside };
     });

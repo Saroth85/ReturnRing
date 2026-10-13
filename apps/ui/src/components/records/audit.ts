@@ -1,36 +1,16 @@
 // Audit log helpers (US-604, ADR-15 section 4 "Audit", docs/ui-design.md 8.7). The action sets
-// mirror contracts/vocab.py (HUMAN_ONLY_ACTIONS, REASON_REQUIRED_ACTIONS); the test keeps them in
-// step with the generated AUDIT_ACTIONS.
+// come from contracts/vocab.py through the generated contract constants.
+import * as Contract from '@/api/contract.gen';
 import type { AuditEntry, AuditQuery } from '@/api/models';
 
 export type AuditAction = AuditEntry['action'];
 export type DecisionAuditState = Extract<NonNullable<AuditEntry['after']>, { decision_id: string; lever_ids: string[] }>;
 
 /** Actions a person takes: never logged with the system role (contracts/vocab.py). */
-export const HUMAN_ONLY_ACTIONS: ReadonlySet<AuditAction> = new Set<AuditAction>([
-  'decision_approved',
-  'decision_overridden',
-  'decision_rejected',
-  'restriction_lifted',
-  'evidence_added',
-  'link_disputed',
-  'inspection_confirmed',
-  'catalog_task_opened',
-  'catalog_task_updated',
-  'coupon_rule_approved',
-  'coupon_rule_application_reversed',
-  'assumptions_updated',
-]);
+export const HUMAN_ONLY_ACTIONS: ReadonlySet<AuditAction> = new Set<AuditAction>(Contract.HUMAN_ONLY_ACTIONS);
 
 /** Actions whose entry carries a reason (contracts/vocab.py). */
-export const REASON_REQUIRED_ACTIONS: ReadonlySet<AuditAction> = new Set<AuditAction>([
-  'decision_overridden',
-  'decision_rejected',
-  'restriction_lifted',
-  'evidence_added',
-  'link_disputed',
-  'coupon_rule_application_reversed',
-]);
+export const REASON_REQUIRED_ACTIONS: ReadonlySet<AuditAction> = new Set<AuditAction>(Contract.REASON_REQUIRED_ACTIONS);
 
 /** The entries about a decision version carry a typed DecisionAuditState (ADR-15). */
 export function isDecisionState(value: AuditEntry['before']): value is DecisionAuditState {

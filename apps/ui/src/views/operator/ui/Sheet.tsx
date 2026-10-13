@@ -48,7 +48,7 @@ export function Sheet({
   return (
     <Dialog.Root open={open} onOpenChange={change} modal={modal}>
       <Dialog.Portal>
-        {modal && <Dialog.Overlay className="fixed inset-0 z-40 bg-ink-1/20" />}
+        {modal && <Dialog.Overlay className="fixed inset-x-0 top-[var(--mode-banner-h,0px)] bottom-0 z-40 bg-ink-1/20" />}
         <Dialog.Content
           data-sheet={name}
           {...(description ? {} : { 'aria-describedby': undefined })}
@@ -72,8 +72,8 @@ export function Sheet({
           }}
           className={
             width === 'record'
-              ? 'fixed top-0 right-0 z-50 flex h-full w-record max-w-full flex-col border-l border-border bg-surface shadow-overlay'
-              : 'fixed top-0 right-0 z-50 flex h-full w-sheet max-w-full flex-col border-l border-border bg-surface shadow-overlay'
+              ? 'fixed top-[var(--mode-banner-h,0px)] right-0 bottom-0 z-50 flex w-record max-w-full flex-col border-l border-border bg-surface shadow-overlay'
+              : 'fixed top-[var(--mode-banner-h,0px)] right-0 bottom-0 z-50 flex w-sheet max-w-full flex-col border-l border-border bg-surface shadow-overlay'
           }
         >
           <div className="flex items-start justify-between gap-2 border-b border-border px-4 py-3">

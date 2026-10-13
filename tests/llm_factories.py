@@ -27,7 +27,9 @@ MARCO = ClusterSummary("R-MARCO", 7, ("device", "address", "card"))
 COUPONS = ScoreFactor(
     "cluster_welcome_coupons", 7, "7 linked accounts each used the welcome coupon", "cluster"
 )
-RETURNS_90D = ScoreFactor("returns_90d", 5, "5 returns in the last 90 days")
+# Factor phrases pass the statement checks with their own fact, so a model may copy them: the
+# period is shown with the fact, never written in the phrase (round 4, finding U10).
+RETURNS_90D = ScoreFactor("returns_90d", 5, "5 recent returns")
 DAYS = ScoreFactor("days_since_delivery", 6, "returned 6 days after delivery", "return")
 MISSING = ("fewer than 3 orders observed", "no identifier on file")
 

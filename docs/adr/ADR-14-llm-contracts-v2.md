@@ -2,10 +2,11 @@
 
 Status: accepted, 13 Oct 2026; amended the same day after the second round of the adversarial
 review (decision 8, the customer phrasebook) and after the third (decision 9, operator statements
-without levers). Changes `contracts/json/llm_case.schema.json`,
-`contracts/json/llm_output.schema.json`, their examples, `llm/` and spec sections 8.7, 8.8, 19.B,
-19.C and 19.D. Resolves review findings LLM-1 to LLM-14 of 12 Oct (US-304, US-305), findings R1 to
-R8 of the second adversarial review of 13 Oct and findings T1 to T16 of the third.
+without levers), and on 13 Oct after the fourth (decision 10, the last hardening round before the
+demo). Changes `contracts/json/llm_case.schema.json`, `contracts/json/llm_output.schema.json`,
+their examples, `llm/` and spec sections 8.7, 8.8, 19.B, 19.C and 19.D. Resolves review findings
+LLM-1 to LLM-14 of 12 Oct (US-304, US-305), findings R1 to R8 of the second adversarial review of
+13 Oct, findings T1 to T16 of the third and findings U1 to U19 of the fourth.
 
 ## Context
 
@@ -273,11 +274,153 @@ return window is reduced to 14 days") and sent them to the template. The maintai
   take into account the returns on your previous orders", so it never reads as if the current
   refund depended on past returns (rule 3). The Italian registration says "al più tardi per il
   {deadline}", a limit like the English "by". Insufficient evidence states the engine decision,
-  "Your next orders keep our standard return terms", not unchanged terms that code cannot know.
+  "Your next orders have our standard return terms" since decision 10 ("keep" claimed unchanged
+  terms that code cannot know).
   A selection has at most one sentence that asks for a reply (HELP_SIZE, CONTACT_REPLY,
   INFO_TERMS, GUARANTEE_PHOTO) and CLOSE_DAY ("Thanks again") only after a thanks opening; the
   prompt lists these rules with the sentences. The word counts below are the ones the tests
   measure.
+
+### 10. The fourth review: the last hardening round before the demo (amendment, round 4)
+
+The fourth round (findings U1 to U19, a re-review of b9a7b87) found one flaky test, three legal
+wording gaps in the customer message and many paraphrases that still passed the free-text checks.
+Each probe of the review is a regression test in `tests/test_llm_review4.py` that fails on b9a7b87,
+and each over-blocked example is a must-accept test there.
+
+- **A deterministic suite (U1).** A closing parenthesis was a closer, so "(42.1) mil", "(42.1)
+  USD" or "(42.1 EUR) per day" were grounded. It is now transparent: what follows it must be
+  allowed after the number. The property test that found it failed only once its example was in
+  the `.hypothesis` database. `tests/conftest.py` loads a pinned Hypothesis profile, "ci", with
+  `derandomize=True` (a seed derived from each test, no example database), so every run tests the
+  same examples, with or without a `.hypothesis` directory. Every failing example found so far is
+  an explicit `@example`. `HYPOTHESIS_PROFILE=explore` runs random examples to look for new ones:
+  24 seeds and a run of 20,000 examples of the grounding property found none.
+- **Customer message (U2, U3, U4; rule 3, spec 8.6).** In Q3 and Q4 the body says, right after the
+  registration, "This return keeps the terms of your order." ("Questo reso mantiene le condizioni
+  del tuo ordine."), so the new terms of the next orders are never read as applying to the current
+  return. To keep 120 words, Q3 and Q4 take at most two extras: `selection_problems` refuses a
+  third, the per-case schema sends `maxItems` 4 for them, and the prompt says so. Insufficient
+  evidence says "Your next orders have our standard return terms." ("hanno", not "keep" or
+  "mantengono"). The {terms} sentence presents new terms as a consequence of past returns ("Your
+  next orders will have new return terms... These terms take into account...") only when a
+  restrictive lever has a phrase; a benefit alone, such as the free size exchange on a base
+  without it, gets the neutral sentence and the notice that names the next orders. The tests sweep
+  the 48 bases, every Q3 and Q4 scenario and both refund variants. The longest message is still
+  120 words in Italian and 116 in English.
+- **Levels (U5).** Numbers become a placeholder word before clauses are split, so "The risk score
+  (0.87) is low" is read. A negation (not, n't, never, far from, hardly) or a middle level
+  (moderate, medium, borderline) is a level of unknown side: TERMS_TOPIC, regenerate, never the
+  engine's level and never the template. An axis without a level carries over "and" ("the risk
+  score and the margin are both low"). The customer value in other words is a measured level like
+  the risk score: margin, profit, spend and "valuable", "profitable" must match the engine's value
+  level (DECISION_ECHO otherwise; "Customer net margin — 42.1 EUR — is low" passes in Q4). "Safe",
+  "trustworthy", "reliable" and "dangerous" are levels of the risk axis (topics), and "quadrant"
+  without a label next to it is a topic ("the generous quadrant"); "no quadrant" is an
+  observation only when the engine assigned none.
+- **Lever paraphrases (U6).** Every lever is about future orders and every fact about the past,
+  so the scope words (future, next or upcoming orders, from now on, going forward, no longer,
+  prossimi ordini, non più) and the state words of a lever (enabled, disabled, available,
+  keeps, remains, paused, offered, eligible, priority, switched or turned on/off, gone) are
+  topics, and so are money, pay, payouts, swaps, loyalty, rewards, "return period", "send back",
+  fit or sizing guidance, tighter, tougher, withdrawn. The observed phrase "welcome coupon(s)" is
+  still removed, but after the phrases that withhold it ("no welcome coupon") and with the state
+  words still checked, so "Welcome coupons are disabled for the cluster" is a topic on every
+  decision kind, guarantee path included, while "7 linked accounts each used the welcome coupon"
+  passes.
+- **Ownership (U7).** The check runs on the whole statement (split only at . ! ? and line breaks,
+  a dot between letters joins a word) and on every letter form, so ":", ";" and inner joiners hide
+  nothing. A relation rule replaces the verb list: a person or role noun is flagged as the
+  subject of a verb whose object is the accounts ("the customer holds / uses / logs into / set up
+  the linked accounts"), as the agent of a passive about them ("registered to", "opened by the
+  customer"), as their predicate ("the linked accounts are the customer's"), as a role of them
+  ("the owner of", "il titolare degli account") or as a possessive before them ("the customer's
+  other linked accounts", "his linked accounts", "in the customer's name", "di sua proprietà").
+  Alias, alter ego, sock puppet, alt, dietro and "under ... control" are flagged too. The bare
+  intransitive verbs are gone: "The linked accounts operate from a shared address" and "...
+  controlled by a shared device" pass.
+- **Verdict words (U8).** wardrobing, serial returner, fake (not "fake fur"), bogus, exploit,
+  misuse, malicious, deceptive, deceive, untrustworthy, bad actor, gaming the system, illicit,
+  illecito, furbetto, approfittatore, impostor, sham (a whole word, not "shampoo"), offender,
+  culprit, criminal, illegal, crook and swindle are banned terms.
+- **Grounding anywhere in the statement (U9, U10).** A unit, currency name, scale word or upper-
+  case ISO 4217 code of another kind than the facts its numbers ground, a currency or percent
+  sign but €, a rate word (per, monthly, average...) and an approximation (give or take, more or
+  less) anywhere in a statement make it ungrounded ("Weeks since delivery: 6", "Customer net
+  margin in USD: 42.1", "CHF 42.1"). A function word after the number followed by more, least,
+  average, each... is a comparator ("or more", "at least", "on average", "for each order"), and
+  so is a comparator before "of", "to" or "than" ("in excess of", "close to"); near, some,
+  estimated, north and upwards join the comparators. In the other direction: a stripped
+  identifier leaves the word "id" ("driven by cluster_welcome_coupons (7)" passes), "within"
+  is allowed before a day count, a count noun may follow two adjectives ("5 recent returns") or
+  "out of", "shipping address" and "free-text" are observed phrases, and the hyphen, the
+  non-breaking hyphen, the thin space and the narrow no-break space join the character
+  allowlist. Every score-factor phrase of the test cases passes the statement checks with its
+  own fact; the returns phrase no longer writes its period ("5 recent returns").
+- **Joiners and numbers in words (U11, U12).** Any run of ASCII punctuation but , ; : ! ?
+  between two letters joins a word ("fr|aud", "fr/aud", "fr{a}ud"), and the letter forms also
+  read ASCII-art letters ("pers()n", "fr/\\ud", "sc^m"). nil, nought, naught, zilch, twain,
+  brace, gross (not "gross margin"), umpteen, pony and monkey are numbers.
+- **Agent questions (U13, U14, U18, U19).** A write word is read as a noun only in a question: a
+  sentence that ends with "?", or after a read word (tell, show, explain, list, what, which...;
+  dimmi, mostrami, quale...) in the question. Otherwise a write word anywhere is a cue, as at
+  0db8c75: "Withhold the refund", "Get this approved", "Set status to Q1", "Reset status" are
+  refused. A participle is an adjective only before a noun ("Show blocked accounts") and a
+  question only in a "?" sentence without a request marker ("Coupons disabled?"; "Can the coupons
+  be turned off?" stays a request). Italian -ate/-ite forms after a state auxiliary or a noun are
+  participles ("Le carte sono state bloccate?"), and a formal imperative counts only before an
+  object ("Rimborsi precedenti?", "Blocchi attivi?" are answered). Clauses also split at but, or,
+  otherwise, else, afterwards, finally, anyway, instead, ma, o, oppure, altrimenti, infine,
+  dopodiché, comunque, invece and brackets; a bare imperative with an object is a request
+  wherever it stands unless a subject, an auxiliary, "to" or a noun marker comes right before it
+  ("..., if none remove L-102"); "why don't you", "perché non (lo) approvi" and "how about
+  approving" are requests. A label before ":" in a question is a topic ("Refund: when is it
+  due?"). Format characters are removed and dot runs and ellipses between letters join a word
+  before the split ("dis…able", "ap.​prove"). New verbs: hold, withhold, delay, postpone, defer,
+  void, clear, pause, decline, refuse, reduce, extend, shorten, reclassify, strip, withdraw,
+  escalate, disabilitare, abilitare, riattivare, scollegare, eseguire, effettuare, pagare,
+  avvisare, notificare, ritardare, trattenere, rinviare; -mente adverbs, pls and do are softeners.
+- **Agent answers (U15, U17, U19).** The first-person test is reversed: "I" or "we" (a real "I",
+  not a digit read as a letter) or "ho", "abbiamo" followed by any past form or participle is an
+  action unless it is a read verb (checked, found, reviewed, consulted; verificato, consultato,
+  letto, visto...): "I've taken", "I put", "Ho chiuso", "Ho messo in pausa", "Ho trattenuto" fall
+  back. So do "by me" (not "not by me"), "let me", "fammi", "procedo a" with a write verb, a
+  clause that opens with a write -ing form before an object ("Switching off coupons"), an Italian
+  first person before an object ("Disattivo subito i coupon"), a causative ("Kindly have coupons
+  disabled"), "don't" or "do not" with a write verb, a proclitic before a formal imperative ("Li
+  disattivi"), the obligations "va" with a participle, bisognerebbe, occorrerebbe, opportuno,
+  "serve" with an infinitive, "it is essential that", "ti chiedo di", "non dimenticare di", and the
+  completions "taken care of", "at your request", "off as of now". List markers ("- ", "* ", "• ",
+  "– ") at the start of a line are removed before every check, so a bullet is neither a minus
+  sign nor a character outside the allowlist.
+- **Agent grounding (U16, U17).** A clause that names two records of one kind is split at and,
+  while, whereas, but, vs, against, e, mentre, ma, contro, rispetto a, and each part binds its
+  numbers to the record it names ("F-ROSSI has 7 linked accounts while R-MARCO has 3" falls
+  back). The reference names are aliases of their cluster ("the Rossi family", "la famiglia
+  Rossi"), "the case cluster" is the case's cluster, "3 in F-ROSSI" binds a number to F-ROSSI and
+  "7 here" to the case cluster. A singular kind word with two records of that kind read ("the
+  cluster" after both clusters) grounds no number, except "order", which is the case's order,
+  and "link", which may be any one link of the cluster as long as every field-bound number comes
+  from the same one ("A link of R-MARCO has weight 0.6 and 4 shared events" falls back); "the
+  disputed link" is the disputed one. A sentence that opens with this, that, the same, questo, quel or lo
+  stesso keeps the scope of the one before, and the list lines under a line that names records
+  and ends with ":" keep its scope; "7 vs 3 linked accounts" under "R-MARCO vs F-ROSSI:" binds 7
+  to R-MARCO and 3 to F-ROSSI. A cue may follow up to two adjectives ("9 distinct linked accounts",
+  "9 payment cards"), "account", "members" and "membri" are size cues, and a cue after "per" is a
+  rate, not a field ("1.0 welcome coupons per account"). The three US-702 questions, in English
+  and Italian, are answered by MockAgent, and by VllmAgent (source "model") when the model gives a
+  correct answer, plain or bulleted, or the mock's own text.
+
+What stays free text, by design. The operator statements and the agent answers are still text
+that Gemma writes, and every check on them is a heuristic: blocklists of words and phrases,
+narrowed by the character allowlist, the topic check, grounding on cited facts in their context
+and on record fields. They will always miss some paraphrase, and they over-block some plain
+wording (see the limits below). What makes this acceptable is where that text goes: an operator
+statement and an agent answer reach the operator, never the customer; the customer message is
+built from reviewed sentences and code fields only; the interface shows the engine decision, its
+levers and every cited fact from code; the agent has no write tool; and every restrictive action
+needs a human approver with a reason in the audit log (rule 5). A statement or answer that
+slips through can mislead a reviewer, not change a decision or a customer's rights.
 
 ## Consequences
 
@@ -321,8 +464,9 @@ return window is reduced to 14 days") and sent them to the template. The maintai
   base without free size exchange and with a known refund (English: at most 116). This is what
   `tests/test_llm_review3.py` measures over 48 merchant bases (windows of 14, 30 and 45 days,
   every combination of the four boolean terms), every decision kind, with and without a known
-  refund and every allowed selection. The limit of spec 8.7 holds, with no margin left for
-  longer sentences. The clause comes on top (the guarantee clause alone is about 75 words), so
+  refund and every allowed selection (at most two extras in Q3 and Q4 since decision 10, which
+  adds the sentence that this return keeps its terms). The limit of spec 8.7 holds, with no
+  margin left for longer sentences. The clause comes on top (the guarantee clause alone is about 75 words), so
   no claim is made about the length with the clause.
 - Known limits:
   - the customer message is safe by construction only as far as the phrasebook is: a new
@@ -335,23 +479,28 @@ return window is reduced to 14 days") and sent them to the template. The maintai
     fields. A paraphrase they miss reaches the operator, not the customer, and the operator
     approves every restrictive action;
   - the topic check over-blocks by design: "window", "quick", "shipped", "expensive", "declining"
-    or "accepted" in an observation make the statement regenerate, then the template. The
-    grounding context does too: a verb right after a number ("0.87 suggests") is not a function
-    word;
-  - the agent's question check is a heuristic. Italian nouns equal to a formal imperative at the
-    start of a clause ("Rimborsi in ritardo?", "Segnale più forte?" with a clitic) are refused;
-    a proclitic before a formal imperative ("Lo approvi") and a request without a write verb
-    ("Coupons off for R-MARCO, thanks") are not caught; a write verb after "the", "a" or a
-    preposition is read as a noun, so "No approve it" (no comma) passes. A request still reaches
-    only a read-only agent with no write tool;
-  - the agent's answer check falls back on some state answers: "I" or "we" with any write form
-    later in the sentence ("We see that the coupons were blocked" passes, "I was told they were
-    disabled" does not), "to be" with a participle, "done";
-  - the field binding of the agent knows six field words; another field written next to a
-    number ("1.0 coupons per account") is grounded on any number of the records in scope, and
-    so is a field word when no record read has that field ("7 linked accounts" copied from a
-    score factor phrase). A clause that names one record and compares it with another ("2900
-    days against 9 days in R-MARCO") is scoped to the record it names, so the answer falls back;
+    or "accepted" in an observation make the statement regenerate, then the template; since
+    decision 10 so do "future", "available", "remains", "keeps", "offered", "priority", "money",
+    "paid", "tight", "reliable", "safe" and "quadrant" without a label. The grounding context does
+    too: a verb right after a number ("0.87 suggests") is not a function word, and a unit of
+    another kind anywhere in the statement ("7 linked accounts, created on different days",
+    citing only the cluster size) makes it ungrounded;
+  - the agent's question check is a heuristic. A clitic glued to a noun-like imperative
+    ("Segnale più forte?") is refused, and so is a write verb that opens a clause as an idiom
+    ("Hold on, what is the deadline?"). A write verb after a subject is a statement ("What if you
+    approve it?" is answered), and a request without a write verb ("Coupons off for R-MARCO,
+    thanks") is not caught. A request still reaches only a read-only agent with no write tool;
+  - the agent's answer check falls back on some plain answers: "I" or "we" with any past form but
+    a read verb ("I noted" is a read, "I was told they were disabled" falls back), a write form
+    later in a first-person sentence, "to be" with a participle, "done", a clause that opens with
+    a write -ing form ("Disabling coupons is a lever of Q4"). Idioms with no write word ("Coupons
+    are now history for R-MARCO") pass;
+  - the field binding of the agent knows six fields; another field written next to a number
+    ("1.0 coupons per account") is grounded on any number of the records in scope, and so is a
+    field word when no record read has that field ("7 linked accounts" copied from a score factor
+    phrase). A clause that names one record and compares it with another ("2900 days against 9
+    days in R-MARCO") is scoped to the record it names, so the answer falls back, and so does an
+    answer that says "the cluster" after both clusters were read, without naming one;
   - Roman numerals are detected only in upper case and with two or more letters; "XL" is left
     out as a size;
   - "sei" and "may" are left out on purpose (a verb and a modal). "day", "giornata" and

@@ -5,25 +5,29 @@
 - At most MAX_TOOL_CALLS tool calls per question, counted by the ToolBox; unknown tools count too.
 - A request to change anything is refused before any tool or model call. Each sentence of the
   question is checked on its own ("What is this case? Approve it." is a request), and so is each
-  clause that opens with a write verb ("Tell me what this case is and approve it"), also with
-  digits read as letters, dashes and dots joined ("appr0ve", "dis-able", "dis.able"), Italian
-  clitics ("Disattivali") and formal imperatives ("Approvi il reso"). A write-verb noun after a
-  determiner or before a noun it qualifies is not a request ("Tell me about the refund",
-  "Refund status?").
+  clause that opens with a write verb ("Tell me what this case is and approve it", "..., but
+  approve it anyway", "(approve it)"), each bare imperative with an object ("..., if none remove
+  L-102") and "why don't you" act, also with digits read as letters, dashes, dots, ellipses and
+  ASCII punctuation joined, format characters removed ("appr0ve", "dis-able", "dis…able"),
+  Italian clitics ("Disattivali", "Li disattivi") and formal imperatives before an object
+  ("Approvi il reso"). A write word is read as a noun only in a question, a sentence that ends
+  with "?" or that follows a read word ("Tell me about the refund", "Refund status?", "Explain
+  refund rules"); a participle before a noun is an adjective ("Show blocked accounts").
 - Every answer lists the evidence consulted, the evidence missing and the ids it cites (orders,
   links, clusters), all collected by code from the tool results, never from the model.
 - MockAgent answers the three questions of US-702 deterministically from tool results only.
-- VllmAgent uses Gemma tool calling with the same tools and limits. An answer is replaced by a
-  list of the evidence consulted when it names a banned term (same-person synonyms and ownership
-  of the linked accounts included), a decision verb (approve, reject, block...), a
-  recommendation, an action (an imperative, an obligation such as "must be disabled" or "make
-  sure", a claim that something was done such as "done", "as requested" or a first-person
-  subject with a write verb), a character outside the allowlist, a number written in letters or
-  Roman numerals, or a number absent from the tool results (integers exactly, decimals possibly
-  rounded to the digits written, no sign flip or scale suffix). A number in a clause about a
-  record (a link, a cluster, an order, the case) must be a value of that record, and a number
-  next to a field word ("7 linked accounts", "weight 0.6") that field. Adversarial review of
-  13 Oct, finding 7; round 2, finding R4; round 3, findings T6, T9 and T12 to T16.
+- VllmAgent uses Gemma tool calling with the same tools and limits. List markers are removed
+  first; an answer is then replaced by a list of the evidence consulted when it names a banned
+  term (same-person synonyms and ownership of the linked accounts included), a decision verb
+  (approve, reject, block...), a recommendation, an action (an imperative, an obligation such as
+  "must be disabled" or "va disattivato", a claim that something was done such as "done", "by
+  me" or a first-person subject with any past form but a read verb), a character outside the
+  allowlist, a number written in letters or Roman numerals, or a number absent from the tool
+  results (integers exactly, decimals possibly rounded to the digits written, no sign flip or
+  scale suffix). A number in a clause about a record (a link, a cluster by its id or reference
+  name, an order, the case) must be a value of that record, and a number next to a field word
+  ("7 linked accounts", "weight 0.6") that field. Adversarial review of 13 Oct, finding 7; round
+  2, finding R4; round 3, findings T6, T9 and T12 to T16; round 4, findings U13 to U19.
 """
 
 from __future__ import annotations
@@ -173,7 +177,7 @@ REFUSAL = (
     "view, with a reason in the audit log."
 )
 
-# ---- Write requests (LLM-07; adversarial review of 13 Oct, finding 7; rounds 2 and 3) ---------
+# ---- Write requests (LLM-07; adversarial review of 13 Oct, finding 7; rounds 2 to 4) ----------
 
 _EN_WRITE_VERBS = (
     "approve reject deny change modify edit update set apply override delete remove add create "
@@ -183,7 +187,8 @@ _EN_WRITE_VERBS = (
     "switch stop toggle activate deactivate suspend revert undo rollback dismiss split notify "
     "accept blacklist shut kill proceed keep freeze unfreeze lock unlock restrict lift release "
     "process drop limit whitelist unban erase purge wipe authorize authorise execute finalize "
-    "finalise validate pay reimburse"
+    "finalise validate pay reimburse hold withhold delay postpone defer void clear pause decline "
+    "refuse reduce extend shorten reclassify strip withdraw escalate"
 )
 _IT_WRITE_VERBS = (
     "approva approvare rifiuta rifiutare nega negare cambia cambiare modifica modificare aggiorna "
@@ -197,7 +202,9 @@ _IT_WRITE_VERBS = (
     "dimentica dimenticare spegni spegnere accendi accendere ferma fermare sospendi sospendere "
     "riducete accetta accettare respingi respingere leva levare procedi procedere mantieni "
     "mantenere autorizza autorizzare emetti emettere rilascia rilasciare congela congelare "
-    "limita limitare riduciamo"
+    "limita limitare riduciamo disabilita disabilitare abilita abilitare riattiva riattivare "
+    "scollega scollegare esegui eseguire effettua effettuare paga pagare avvisa avvisare "
+    "notifica notificare ritarda ritardare trattieni trattenere rinvia rinviare"
 )
 _ITALIAN_INFINITIVES = [w for w in _IT_WRITE_VERBS.split() if w.endswith(("are", "ere", "ire"))]
 _IT_INFINITIVES = frozenset([*_ITALIAN_INFINITIVES, "ridurre"])
@@ -233,16 +240,30 @@ _IT_FIRST_PLURALS = " ".join(_first_plural(w) for w in _ITALIAN_INFINITIVES)
 _WRITE_VERBS = word_set(
     f"{_EN_WRITE_VERBS} {_IT_WRITE_VERBS} {_IT_PLURAL_IMPERATIVES} {_IT_FIRST_PLURALS}"
 )
-# Formal imperatives count only at the start of a clause ("Disattivi i coupon"): elsewhere the
-# same words are often nouns or adjectives ("i coupon sono attivi"). Round 3, finding T12.
+_EN_BASE_FORMS = word_set(_EN_WRITE_VERBS)
+# Italian imperatives in the second person, singular and plural (not the first plurals, which
+# are also "we block": "Perché blocchiamo i coupon?").
+_IT_IMPERATIVES = word_set(
+    " ".join(w for w in _IT_WRITE_VERBS.split() if w not in _IT_INFINITIVES)
+    + " "
+    + _IT_PLURAL_IMPERATIVES
+)
+# Formal imperatives count only at the start of a clause and before an object ("Disattivi i
+# coupon"): elsewhere, or before an adjective or "di", the same words are nouns ("Rimborsi
+# precedenti?", "Blocchi attivi?", "Cambi di carta?"). Rounds 3 and 4, findings T12 and U18.
 _FORMAL_IMPERATIVES = word_set(
     " ".join(_formal(w) for w in _ITALIAN_INFINITIVES)
-    + " tolga faccia mantenga riduca spenga diminuisca"
+    + " tolga faccia mantenga riduca spenga diminuisca trattenga"
 )
 # Third plural subjunctives, an obligation in an answer ("Si disattivino i coupon").
 _SUBJUNCTIVE_PLURALS = word_set(
     " ".join(_formal(w, plural=True) for w in _ITALIAN_INFINITIVES)
-    + " tolgano facciano mantengano riducano spengano diminuiscano"
+    + " tolgano facciano mantengano riducano spengano diminuiscano trattengano"
+)
+# Italian first person singular of the write verbs ("Disattivo subito i coupon"), an action in
+# an answer at the start of a clause (round 4, finding U15).
+_IT_FIRST_SINGULARS = word_set(
+    " ".join(w[:-3] + "o" for w in _ITALIAN_INFINITIVES) + " tolgo spengo metto faccio mantengo"
 )
 # Italian clitic pronouns glued to an imperative or an infinitive ("approvalo", "disattivali",
 # "toglili", "mandagli", "disattivarli"), longest first.
@@ -254,6 +275,7 @@ _CLITICS = tuple(
         key=lambda clitic: (-len(clitic), clitic),
     )
 )
+_PROCLITICS = word_set("lo la li le gli ne glielo gliela glieli gliele")
 
 
 def _write_verb(token: str) -> str | None:
@@ -277,44 +299,67 @@ _OBJECT_VERBS = word_set("okay")
 _DETERMINERS = word_set(
     "the this that these those it them all every il lo la i gli le questo questa questi queste"
 )
-# A write verb or participle right after a determiner or a preposition is a noun or an adjective
-# ("the refund", "the blocked accounts", "il blocco"), and so is one followed by "of" or by a
-# noun it qualifies ("refund status", "merge history"). Italian infinitives stay verbs ("di
-# spegnere", "a disattivare"); the article "i" is left out, since it is also the English pronoun
-# ("Should I approve"). Round 3, finding T16.
+# Objects of an imperative: determiners, pronouns and Italian articles, clitics and a few
+# adverbs that stand between a formal imperative and its object ("Rimborsi subito il cliente").
+_OBJECTS = _DETERMINERS | word_set(
+    "a an my your our his her its their any some both each him me us l un una uno quel quello "
+    "quella quei quegli quelle tutti tutte tutto ne ci mi ti vi lui lei loro subito pure ora "
+    "adesso immediatamente"
+)
+# A write word after a determiner, a preposition or an adjective is a noun ("the refund", "the
+# blocked accounts", "instant refund"), and so is one before a noun of the attributes of a
+# record ("refund status", "refund rules"). Since round 4 (finding U13) this reading holds only
+# in a question: a sentence that ends with "?", or after a read verb or a question word
+# ("Tell me about the refund", "Explain refund rules"). Otherwise a write word is a cue, as at
+# 0db8c75: "Withhold the refund", "Get this approved", "Set status to Q1" are requests.
 _NOUN_MARKERS = word_set(
     "the a an this that these those its their his her my your our any some no about of for on "
     "in with from at into regarding il lo la gli le l un una uno del della dello dei degli "
     "delle dell al alla allo ai agli alle all sul sulla sullo sui sugli sulle nel nella nello "
     "nei negli nelle questo questa questi queste quel quella quello quei quelle suo sua suoi sue "
-    "tuo tua tuoi tue di su con"
+    "tuo tua tuoi tue di su con instant immediate partial full late pending previous past recent "
+    "current last next"
 )
-# Only nouns that are hardly ever the object of a write verb: "Change type" or "Reset count"
-# stay requests.
+# Nouns of the attributes of a record: a write word before one is a noun in a question ("Refund
+# status?", "Refund timeline?"); "Change type" or "Set status to Q1" stay requests.
 _NOUN_HEADS = word_set(
     "status deadline deadlines date dates amount amounts history reason reasons timing details "
-    "detail info information of"
+    "detail info information of timeline timelines window windows rules rule policy policies "
+    "process period time times method methods options terms conditions count number rate log "
+    "logs trail stato scadenza data importo storico motivo dettagli regole tempi termini "
+    "condizioni finestra"
+)
+# Verbs that set a value: never a noun before a head ("Set status", "Change deadline").
+_SETTERS = word_set(
+    "set change update reset edit modify imposta cambia modifica aggiorna reimposta"
+)
+# Nouns a participle may qualify ("Show blocked accounts", "flagged links", "Le carte bloccate").
+_NOUNS = _NOUN_HEADS | word_set(
+    "accounts account links link coupons coupon refunds refund orders order items item returns "
+    "return cards card devices device addresses address flags flag cases case customers customer "
+    "clusters cluster levers lever codes code users profiles entries records transactions "
+    "payments decisions requests messages notices events collegamenti collegamento legami legame "
+    "rimborsi rimborso ordini ordine articoli articolo resi reso carte carta dispositivi "
+    "indirizzi casi caso clienti cliente leve leva codici messaggi"
+)
+# Words that open a read question: a write word after one of them, in the question, may be a noun.
+_READ_WORDS = word_set(
+    "tell show explain list summarize summarise describe display give what which why how who "
+    "when where whose dimmi mostrami spiegami elenca mostra spiega descrivi riassumi quale quali "
+    "cosa perche come chi quando dove"
 )
 
-
-def _noun_use(tokens: Sequence[str], index: int) -> bool:
-    token = tokens[index]
-    if token in _IT_INFINITIVES:
-        return False
-    before = tokens[index - 1] if index > 0 else ""
-    following = tokens[index + 1] if index + 1 < len(tokens) else ""
-    return before in _NOUN_MARKERS or following in _NOUN_HEADS
-
-
 # Past participles ask for a change ("Sara wants coupons disabled") unless a state auxiliary comes
-# right before them ("were disabled", "è stato approvato"): then they describe the case.
+# right before them ("were disabled", "è stato approvato"), a noun right after them ("blocked
+# accounts"), or the sentence is a question with no request marker ("Coupons disabled?").
 _EN_PARTICIPLES = (
     "approved rejected denied changed modified updated overridden deleted removed cancelled "
     "canceled blocked unblocked enabled disabled granted revoked refunded reset lowered raised "
     "reopened flagged unflagged restored merged unlinked banned waived forced bypassed turned "
     "switched stopped toggled activated deactivated suspended reverted dismissed notified "
     "accepted blacklisted okayed killed frozen unfrozen whitelisted unbanned purged wiped erased "
-    "authorized authorised"
+    "authorized authorised held withheld delayed postponed deferred voided cleared paused "
+    "declined refused reduced extended shortened reclassified stripped withdrawn escalated"
 )
 # Italian participles of the -are and -ire verbs ("disattivati", "approvato"), and a few irregular.
 _IT_PARTICIPLES = " ".join(
@@ -326,7 +371,8 @@ _IT_PARTICIPLES = " ".join(
 _IT_IRREGULAR_PARTICIPLES = (
     "rimosso rimossa rimossi rimosse concesso concessa concessi concesse tolto tolta tolti tolte "
     "sospeso sospesa sospesi sospese spento spenta spenti spente respinto respinta respinti "
-    "respinte emesso emessa emessi emesse ridotto ridotta ridotti ridotte"
+    "respinte emesso emessa emessi emesse ridotto ridotta ridotti ridotte trattenuto trattenuta "
+    "trattenuti trattenute messo messa messi messe chiuso chiusa chiusi chiuse"
 )
 _WRITE_PARTICIPLES = word_set(f"{_EN_PARTICIPLES} {_IT_PARTICIPLES} {_IT_IRREGULAR_PARTICIPLES}")
 _STATE_AUXILIARIES = word_set(
@@ -345,15 +391,38 @@ _QUESTION_WORDS = word_set(
 # Auxiliaries open a question only in a sentence that ends with "?": "Have the coupons been
 # disabled?" is a question, "Have the coupons disabled." is a request.
 _AUX_QUESTION_WORDS = word_set("does did is are was were has have had")
-# Sentences end at a terminator that is not a dot between two letters ("dis.able" is one word):
-# round 3, finding T15.
-_QUESTION_SENTENCE_RE = re.compile(r"(?:[^.?!;\n]|(?<=[^\W\d_])\.(?=[^\W\d_]))+[.?!;\n]*")
-# Clauses of a sentence: a write verb that opens one is a request whatever question word came
-# before ("Tell me what this case is and approve it", "What is this case - approve it"). Split
-# before accents are folded, so "è" is not "e". Round 3, finding T12.
-_QUESTION_CLAUSE_RE = re.compile(
-    r"[,:;]|\s[-‐‑‒–—―]+\s|[–—―]|\b(?:and|then|so|also|e|poi|quindi|anche)\b", re.IGNORECASE
+# "Why don't you disable...?", "Perché non lo approvi?": a request (round 4, finding U14).
+_WHY_NOT_RE = re.compile(
+    r"\b(?:why (?:don t|dont|do not|not)(?: you| we)?|perche non(?: (?:lo|la|li|le|gli|ne|ci))?"
+    r"|(?:how|what) about)(?: just)? ([a-z]+)"
 )
+# Sentences end at a terminator that is not a dot between two letters ("dis.able" is one word):
+# round 3, finding T15. Format characters are removed and a run of dots or an ellipsis between
+# two letters becomes one dot before the split ("dis…able", "ap.​prove"): round 4, finding U19.
+_QUESTION_SENTENCE_RE = re.compile(r"(?:[^.?!;\n]|(?<=[^\W\d_])\.(?=[^\W\d_]))+[.?!;\n]*")
+_DOT_RUN_RE = re.compile(r"(?<=[^\W\d_])\.{2,}(?=[^\W\d_])")
+# Clauses of a sentence: a write verb that opens one is a request whatever question word came
+# before ("Tell me what this case is and approve it", "What is this case - approve it", "...,
+# but approve it anyway", "What is this case (approve it)?"). Split before accents are folded, so
+# "è" is not "e". Rounds 3 and 4, findings T12 and U14.
+_QUESTION_CLAUSE_RE = re.compile(
+    r"[,:;()\[\]]|\s[-‐‑‒–—―]+\s|[–—―]|\b(?:and|then|so|also|but|or|otherwise|else|afterwards"
+    r"|finally|anyway|instead|e|poi|quindi|anche|ma|o|oppure|altrimenti|infine|dopodich[eé]"
+    r"|comunque|invece)\b",
+    re.IGNORECASE,
+)
+# A label before ":" at the start of a question ("Refund: when is it due?") is a topic.
+_QUESTION_LABEL_RE = re.compile(r"^\s*[^\W\d_]+\s*:\s*(?=\S)")
+# Words before a bare imperative that do not make it a third-person verb: connectives, softeners,
+# question words. Anything else right before it is a subject ("Which accounts block the card?",
+# "Why do we block it?", "how to approve"). Round 4, finding U14.
+_NOT_SUBJECTS = word_set(
+    "and or but then so also plus otherwise else afterwards finally anyway instead if not no yes "
+    "none just simply now please kindly pls plz ok okay what why how when where whether e o ma "
+    "poi quindi anche oppure altrimenti infine dopodiche comunque invece se non si solo ora "
+    "adesso subito perche come quando dove allora pure"
+)
+_ID_AFTER_RE = r"\s+[a-z]{1,6}-[a-z0-9]"
 
 
 # The agent never recommends a decision (spec 8.8): advice in an answer is not verified.
@@ -368,24 +437,103 @@ def advice(text: str) -> list[str]:
     return [m.group() for m in _ADVICE_RE.finditer(" ".join(words(text)))]
 
 
-def _first_write_cue(tokens: Sequence[str]) -> int | None:
+def _clean(text: str) -> str:
+    """NFKC, format characters removed, runs of dots between two letters made one dot."""
+    normal = unicodedata.normalize("NFKC", text)
+    normal = "".join(ch for ch in normal if unicodedata.category(ch) != "Cf")
+    return _DOT_RUN_RE.sub(".", normal)
+
+
+@dataclass(frozen=True)
+class _Question:
+    """What a sentence of a question says about the write words in it."""
+
+    asked: bool  # it ends with "?"
+    marker: bool  # it has a request marker ("can you", "please")
+    read_before: bool  # a read verb or question word came in an earlier sentence
+    folded: str  # the folded sentence, to find an identifier after a verb
+
+
+def _participle(tokens: Sequence[str], index: int) -> bool:
+    """A participle, also an Italian -ate/-ite form after a state auxiliary or a noun (equal to
+    the plural imperative: "sono state bloccate", "le carte bloccate")."""
+    token = tokens[index]
+    if token not in _WRITE_PARTICIPLES:
+        return False
+    before = tokens[index - 1] if index > 0 else ""
+    return _write_verb(token) is None or before in _STATE_AUXILIARIES or before in _NOUNS
+
+
+def _participle_cue(tokens: Sequence[str], index: int, q: _Question | None) -> bool:
+    """A participle that asks for a change: not after a state auxiliary, not before a noun it
+    qualifies, not in a question without a request marker (unless after "be": "Can the coupons be
+    turned off?")."""
+    before = tokens[index - 1] if index > 0 else ""
+    after = tokens[index + 1] if index + 1 < len(tokens) else ""
+    if before in _STATE_AUXILIARIES or after in _NOUNS:
+        return False
+    return not (q is not None and q.asked and not q.marker and before != "be")
+
+
+def _noun_use(tokens: Sequence[str], index: int, q: _Question | None) -> bool:
+    """A write word read as a noun. In a question (`q`), only in a sentence that ends with "?"
+    or after a read word; in an answer (`q` None), wherever a noun marker or head is next to it."""
+    token = tokens[index]
+    if token in _IT_INFINITIVES:
+        return False
+    if q is not None and not (
+        q.asked or q.read_before or any(t in _READ_WORDS for t in tokens[:index])
+    ):
+        return False
+    before = tokens[index - 1] if index > 0 else ""
+    after = tokens[index + 1] if index + 1 < len(tokens) else ""
+    if before in _NOUN_MARKERS:
+        return True
+    if after not in _NOUN_HEADS or (q is not None and token in _SETTERS):
+        return False
+    value = tokens[index + 2] if index + 2 < len(tokens) else ""
+    return q is None or value not in ("to", "as", "a", "in")
+
+
+def _first_write_cue(tokens: Sequence[str], q: _Question) -> int | None:
     for index, token in enumerate(tokens):
         following = tokens[index + 1] if index + 1 < len(tokens) else ""
-        if _noun_use(tokens, index):
+        if _participle(tokens, index):
+            if _participle_cue(tokens, index, q):
+                return index
             continue
-        if _write_verb(token) is not None:
+        if _write_verb(token) is not None and not _noun_use(tokens, index, q):
             return index
         if token in _OBJECT_VERBS and following in _DETERMINERS:
-            return index
-        if token in _WRITE_PARTICIPLES and (
-            index == 0 or tokens[index - 1] not in _STATE_AUXILIARIES
-        ):
             return index
     return None
 
 
-def _sentence_requests(tokens: Sequence[str], asked: bool) -> bool:
-    cue = _first_write_cue(tokens)
+def _bare_imperative(tokens: Sequence[str], q: _Question) -> bool:
+    """A bare imperative with an object anywhere in the sentence, whatever question word came
+    earlier, unless a subject, an auxiliary, "to" or a noun marker comes right before it ("Which
+    evidence supports the link, if none remove L-102"). Round 4, finding U14."""
+    for index, token in enumerate(tokens):
+        if token not in _EN_BASE_FORMS and token not in _IT_IMPERATIVES:
+            continue
+        after = tokens[index + 1] if index + 1 < len(tokens) else ""
+        has_id = re.search(rf"\b{token}{_ID_AFTER_RE}", q.folded) is not None
+        if after not in _OBJECTS and not has_id:
+            continue
+        before = tokens[index - 1] if index > 0 else ""
+        if index == 0 or before in _NOT_SUBJECTS:
+            return True
+    return False
+
+
+def _sentence_requests(tokens: Sequence[str], q: _Question) -> bool:
+    match = _WHY_NOT_RE.search(" ".join(tokens))
+    verb = match[1] if match else ""
+    if _write_verb(verb) or verb in _FORMAL_IMPERATIVES or verb in _EN_ING_FORMS:
+        return True
+    if _bare_imperative(tokens, q):
+        return True
+    cue = _first_write_cue(tokens, q)
     if cue is None:
         return False
     joined = " ".join(tokens)
@@ -401,7 +549,7 @@ def _sentence_requests(tokens: Sequence[str], asked: bool) -> bool:
         (
             i
             for i in range(cue)
-            if tokens[i] in _QUESTION_WORDS and (asked or tokens[i] not in _AUX_QUESTION_WORDS)
+            if tokens[i] in _QUESTION_WORDS and (q.asked or tokens[i] not in _AUX_QUESTION_WORDS)
         ),
         default=-1,
     )
@@ -410,75 +558,116 @@ def _sentence_requests(tokens: Sequence[str], asked: bool) -> bool:
 
 _SOFTENERS = word_set(
     "please now just simply kindly also then so ok okay go ahead per favore adesso ora quindi "
-    "allora anche subito"
+    "allora anche subito pls plz do better"
 )
 
 
-def _opening_verb(tokens: Sequence[str]) -> str | None:
+def _softener(token: str) -> bool:
+    """A softener, or an Italian adverb in -mente ("Cortesemente approvi il reso")."""
+    return token in _SOFTENERS or (token.endswith("mente") and len(token) > 6)
+
+
+def _opening_verb(tokens: Sequence[str], q: _Question | None = None) -> str | None:
     """The write verb that opens a clause, after softeners: an imperative or an infinitive,
-    also formal or with clitics ("Approvalo", "Disattivi i coupon"); never a noun use."""
+    also with clitics ("Approvalo"), a formal imperative before its object ("Disattivi i
+    coupon") or after a proclitic ("Li disattivi"); never a noun use."""
     start = 0
-    while start < len(tokens) and tokens[start] in _SOFTENERS:
+    while start < len(tokens) and _softener(tokens[start]):
         start += 1
-    if start >= len(tokens) or _noun_use(tokens, start):
+    if start >= len(tokens):
         return None
     token = tokens[start]
     following = tokens[start + 1] if start + 1 < len(tokens) else ""
-    if _write_verb(token) is not None or token in _FORMAL_IMPERATIVES:
+    if token in _PROCLITICS and (following in _FORMAL_IMPERATIVES or _write_verb(following)):
+        return f"{token} {following}"
+    if token in _FORMAL_IMPERATIVES and token not in _WRITE_VERBS:
+        return token if following in _OBJECTS or (q is not None and _has_id(token, q)) else None
+    if _participle(tokens, start) or _noun_use(tokens, start, q):
+        return None
+    if _write_verb(token) is not None:
         return token
     return token if token in _OBJECT_VERBS and following in _DETERMINERS else None
+
+
+def _has_id(token: str, q: _Question) -> bool:
+    return re.search(rf"\b{token}{_ID_AFTER_RE}", q.folded) is not None
 
 
 def is_write_request(question: str) -> bool:
     """True when a sentence of the question asks to change something (or to ignore the rules):
     it names a write verb, or a participle that asks for a change, and no question word comes
     between the last request marker ("can you", "please") and that verb; or a clause of it opens
-    with a write verb, whatever came before ("What is this case, then approve it"). "Why was it
-    disabled?", "Can you tell me why it was disabled?" and "Tell me about the refund" are
-    questions; "Turn off coupons", "Can the coupons be turned off?", "Sara wants coupons
-    disabled", "What is this case? Approve it.", "Disattivali" and "Approvi il reso" are
-    requests. Every letter form is checked: digits read as letters, dashes and dots joined."""
-    text = unicodedata.normalize("NFKC", question)
+    with a write verb, whatever came before ("What is this case, then approve it", "..., but
+    approve it anyway"); or a bare imperative with an object comes anywhere in it, unless a
+    subject comes right before it; or it asks "why don't you" act. "Why was it disabled?", "Can
+    you tell me why it was disabled?", "Tell me about the refund", "Refund timeline?" and "Show
+    blocked accounts" are questions; "Turn off coupons", "Can the coupons be turned off?",
+    "Sara wants coupons disabled", "Withhold the refund", "Get this approved", "Set status to
+    Q1", "Disattivali" and "Approvi il reso" are requests. Every letter form is checked: digits
+    read as letters, dashes, dots and ASCII punctuation joined."""
+    text = _clean(question)
+    read_before = False
     for match in _QUESTION_SENTENCE_RE.finditer(text):
         sentence = match.group()
         asked = "?" in sentence
-        if any(_sentence_requests(form.split(), asked) for form in forms(sentence, leet=True)):
+        if asked:
+            label = _QUESTION_LABEL_RE.match(sentence)
+            rest = sentence[label.end() :] if label else ""
+            if label and words(rest)[:1] and words(rest)[0] in _READ_WORDS:
+                sentence = rest
+        folded = fold(sentence, " ")
+        marker = _REQUEST_MARKERS.search(" ".join(words(sentence))) is not None
+        q = _Question(asked, marker, read_before, folded)
+        if any(_sentence_requests(form.split(), q) for form in forms(sentence, leet=True)):
             return True
+        read_in_sentence = False
         for clause in _QUESTION_CLAUSE_RE.split(sentence):
-            if any(_opening_verb(form.split()) for form in forms(clause, leet=True)):
+            clause_q = dataclasses.replace(q, read_before=read_before or read_in_sentence)
+            if any(_opening_verb(form.split(), clause_q) for form in forms(clause, leet=True)):
                 return True
+            read_in_sentence = read_in_sentence or any(t in _READ_WORDS for t in words(clause))
+        read_before = read_before or read_in_sentence
     return False
 
 
-# ---- Actions in an answer (round 2, finding R4; round 3, findings T13 and T15) ----------------
+# ---- Actions in an answer (round 2, finding R4; rounds 3 and 4, findings T13, T15 and U15) ----
 
 # An answer never acts, asks to act or says it acted: a write verb that opens a clause ("Turn off
-# coupons", "Go ahead and refund", "Disattivali"), a write verb after a modal ("you can
-# disable"), an obligation ("must be disabled", "are to be disabled", "need disabling", "make
-# sure", "sono da disattivare", "si disattivino"), a completion ("Done", "now off", "as
-# requested", "carried out") or a first-person subject with a write verb or participle anywhere
-# after it in the sentence ("I have already disabled", "I went ahead and froze", "Li ho appena
-# disattivati") sends the answer to the fallback.
+# coupons", "Go ahead and refund", "Disattivali", "Li disattivi", "Disattivo subito i coupon",
+# "Switching off coupons"), a write verb after a modal or a softener ("you can disable", "do
+# disable", "don't refund"), "let me" with a write verb, a causative ("have coupons disabled"),
+# an obligation ("must be disabled", "are to be disabled", "need disabling", "make sure", "va
+# disattivato", "bisognerebbe", "serve disattivare", "it is essential that"), a completion
+# ("Done", "now off", "as requested", "carried out", "taken care of", "by me") or a first-person
+# subject with a write form or any past form but a read verb after it ("I have already disabled",
+# "I went ahead and froze", "I've taken", "I put", "Ho chiuso", "Ho messo"; "I checked" and "Ho
+# verificato" are reads) sends the answer to the fallback. Round 4 reverses the first-person
+# test (finding U15): the agent never acts, so a claim of any action is suspect.
 _ANSWER_STOPS = r"[;:!?\n]|(?<![^\W\d_])\.|\.(?![^\W\d_])"
 _ANSWER_SENTENCE_SPLIT_RE = re.compile(rf"(?:{_ANSWER_STOPS})+")
 _ANSWER_CLAUSE_RE = re.compile(
-    rf"(?:{_ANSWER_STOPS}|,)+|\s[-‐‑‒–—―]+\s|\b(?:and|then|e|poi)\b", re.IGNORECASE
+    rf"(?:{_ANSWER_STOPS}|,|[()\[\]])+|\s[-‐‑‒–—―]+\s|\b(?:and|then|but|or|e|poi|ma|o)\b",
+    re.IGNORECASE,
 )
 _MODALS = word_set(
     "to can could may might will would shall should must let lets puoi potete possiamo devi "
-    "dovete dobbiamo"
+    "dovete dobbiamo pls plz please"
 )
 _OBLIGATION_RE = re.compile(
     r"\b(?:must|need to|needs to|needed to|have to|has to|had to|should|ought|required to"
-    r"|better to|bisogna|occorre|vanno|meglio|deve|devono|dovrebbe|dovrebbero|necessari[oa]"
-    r"|andrebbe|andrebbero|conviene|converrebbe|make sure|ensure|assicura\w*|fai in modo"
-    r"|fate in modo|ricorda\w* di|(?:need|needs|needed|require|requires|required)"
+    r"|better to|bisogna|bisogn\w+|occorr\w+|opportuno|opportuna|vanno|meglio|deve|devono"
+    r"|dovrebbe|dovrebbero|necessari[oa]|andrebbe|andrebbero|conviene|converrebbe|make sure"
+    r"|ensure|assicura\w*|fai in modo|fate in modo|ricorda\w* di|chied\w* di|dimentic\w* di"
+    r"|(?:essential|imperative|necessary|vital|crucial|important|mandatory|required) that"
+    r"|(?:need|needs|needed|require|requires|required)"
     r" (?!nothing\b|something\b|anything\b|everything\b)\w+ing)\b"
 )
 _COMPLETION_RE = re.compile(
     r"\b(?:done|fatto|fatta|completed|completat[oaie]|eseguit[oaie]|as requested|as you asked"
     r"|as asked|carried out|went ahead|gone ahead|all set|come richiesto|come chiesto"
-    r"|come da richiesta|provveduto|riuscit[oaie]"
+    r"|come da richiesta|provveduto|riuscit[oaie]|(?:take|takes|taking|took|taken) care of"
+    r"|(?<!not )by me|(?<!non )da me|(?:at|on|per) your request|su (?:tua|sua|vostra) richiesta"
+    r"|(?:off|on|disabled|enabled|removed|blocked) (?:as of|from) now"
     r"|now (?:off|on|disabled|enabled|active|inactive|removed|blocked|unblocked|approved|rejected)"
     r"|ora (?:disattivat|attivat|spent|accesi|rimoss|bloccat|approvat)\w*)\b"
 )
@@ -494,14 +683,53 @@ _EN_ING_FORMS = frozenset(
     for verb in _EN_WRITE_VERBS.split()
     for form in (verb + "ing", verb[:-1] + "ing", verb + verb[-1] + "ing")
 )
+# Irregular English past forms, any verb: after "I" or "we" they claim an action.
+_EN_IRREGULAR_PAST = word_set(
+    "put took taken made gave given got gotten did done sent set cut held withheld kept froze "
+    "frozen shut struck hit let left brought built bought paid ran run wrote written told begun "
+    "began went gone stood laid"
+)
+# Read verbs: after "I" or "we" they are what the agent did, not an action on the case.
+_READ_PAST = word_set(
+    "checked read found looked reviewed consulted saw seen noticed observed examined inspected "
+    "verified analysed analyzed compared queried retrieved fetched searched counted called used "
+    "loaded gathered collected listed summarized summarised identified traced noted learned "
+    "learnt understood considered computed received obtained accessed requested asked "
+    "consultato letto "
+    "trovato verificato controllato visto esaminato notato osservato analizzato cercato guardato "
+    "confrontato rilevato riscontrato"
+)
 _FIRST_PERSON = word_set("i we")
+# Words between "I" or "we" and the verb ("I have", "I've", "we just", "I went ahead and").
+_FIRST_PERSON_SKIP = word_set(
+    "have ve had d ll will would just already went did do am m also then now successfully "
+    "personally can could was were ahead and gone simply quickly immediately"
+)
 # Words that follow "I" or "we" as a subject ("I have", "I've", "we just"), never the Italian
-# article "i" ("i coupon").
+# article "i" ("i coupon"); a real "I" must be in the sentence, not a digit read as a letter.
 _FIRST_PERSON_NEXT = word_set(
     "have ve had d ll will would just already went did do am m also then now successfully "
     "personally can could was were"
 )
 _ITALIAN_FIRST_PERSON = word_set("ho abbiamo")
+_ITALIAN_SKIP = word_set("appena gia anche ora subito ormai gia personalmente")
+_ADJECTIVE_PARTICIPLES = word_set("linked shared connected related distinct based combined")
+_IT_PAST_RE = re.compile(r"[a-z]{2,}(?:at|it|ut|s|t)[oaie]")
+# "Let me disable", "lasciami disattivare", "procedo a disattivare" (round 4, finding U15).
+_LET_ME = word_set("let lasciami fammi")
+_I_GO_TO = word_set("procedo provvedo vado passo")
+_CAUSATIVES = word_set("have get make")
+_PARTICLES = word_set("off on out up down")
+_I_RE = re.compile(r"(?<![\w-])[Ii](?![\w-])")
+
+
+def _past(token: str, italian: bool) -> bool:
+    """A past form or participle: any -ed or irregular English past, an Italian participle."""
+    if token in _READ_PAST or token in _ADJECTIVE_PARTICIPLES:
+        return False
+    if italian:
+        return _IT_PAST_RE.fullmatch(token) is not None or token in _WRITE_PARTICIPLES
+    return token in _EN_IRREGULAR_PAST or (token.endswith("ed") and len(token) > 4)
 
 
 def _acted(token: str) -> bool:
@@ -519,35 +747,84 @@ def _clause_actions(tokens: Sequence[str]) -> list[str]:
     opening = _opening_verb(tokens)
     if opening is not None:
         found.append(opening)
+    start = 0
+    while start < len(tokens) and _softener(tokens[start]):
+        start += 1
+    rest = tokens[start:]
+    following = rest[1] if len(rest) > 1 else ""
+    if rest[:1] and rest[0] in _IT_FIRST_SINGULARS and following in _OBJECTS:
+        found.append(rest[0])
+    acting = following in _OBJECTS or following in _PARTICLES
+    acting = acting or (following in _NOUNS and following not in _NOUN_HEADS)
+    if rest[:1] and rest[0] in _EN_ING_FORMS and acting:
+        found.append(rest[0])
+    if rest[:1] and rest[0] in _CAUSATIVES and any(t in _WRITE_PARTICIPLES for t in rest[1:]):
+        found.append(f"{rest[0]} ... {next(t for t in rest[1:] if t in _WRITE_PARTICIPLES)}")
     for index in range(1, len(tokens)):
         token, before = tokens[index], tokens[index - 1]
         if before in _MODALS and _write_verb(token) is not None:
             found.append(f"{before} {token}")
+        if before == "t" and index > 1 and tokens[index - 2] == "don" and _write_verb(token):
+            found.append(f"don t {token}")
+        if before == "not" and index > 1 and tokens[index - 2] == "do" and _write_verb(token):
+            found.append(f"do not {token}")
+        infinitive = tokens[index + 1] if index + 1 < len(tokens) else ""
+        if before in _I_GO_TO and token == "a" and _write_verb(infinitive):
+            found.append(f"{before} a {infinitive}")
     return found
 
 
-def _sentence_actions(tokens: Sequence[str]) -> list[str]:
-    """A first-person subject with a write form anywhere after it, "to be" with a participle,
-    "da" with a write infinitive, a third plural subjunctive, and "now" with a participle."""
+def _first_person_verb(tokens: Sequence[str], index: int) -> int | None:
+    """The first write form after a first-person subject at `index` (not right after a state
+    auxiliary), or its main verb when that is a past form but a read verb."""
+    italian = tokens[index] in _ITALIAN_FIRST_PERSON
+    skip = _ITALIAN_SKIP if italian else _FIRST_PERSON_SKIP
+    main = index + 1
+    while main < len(tokens) and tokens[main] in skip:
+        main += 1
+    if main < len(tokens) and tokens[main] in _READ_PAST:
+        main = len(tokens)  # a read verb: only a write form later counts
+    elif main < len(tokens) and _past(tokens[main], italian):
+        return main
+    for j in range(index + 1, len(tokens)):
+        if _acted(tokens[j]) and tokens[j - 1] not in _STATE_AUXILIARIES:
+            return j
+    return None
+
+
+def _sentence_actions(tokens: Sequence[str], has_i: bool) -> list[str]:
+    """A first-person subject with a write form or a past form after it, "let me" with a write
+    verb, "to be" with a participle, "da" with a write infinitive, "va" with a participle, "serve"
+    with a write infinitive, a third plural subjunctive, and "now" with a participle."""
     found: list[str] = []
     for index, token in enumerate(tokens):
         following = tokens[index + 1] if index + 1 < len(tokens) else ""
         subject = token in _ITALIAN_FIRST_PERSON or (
-            token in _FIRST_PERSON and (following in _FIRST_PERSON_NEXT or _acted(following))
+            token in _FIRST_PERSON
+            and (token != "i" or has_i)
+            and (following in _FIRST_PERSON_NEXT or _acted(following) or _past(following, False))
         )
-        verb = (
-            next((j for j in range(index + 1, len(tokens)) if _acted(tokens[j])), None)
-            if subject
-            else None
-        )
+        verb = _first_person_verb(tokens, index) if subject else None
         if verb is not None:
             span = tokens[index : verb + 1]
             found.append(" ".join(span) if len(span) <= 4 else f"{token} ... {tokens[verb]}")
         after = tokens[index + 1 : index + 4]
+        if (
+            token in _LET_ME
+            and after[:1] in (["me"], ["us"], [])
+            and any(_write_verb(t) for t in after[1:3])
+        ):
+            found.append(f"{token} {' '.join(after[:2])}")
+        if token in _LET_ME and token != "let" and after[:1] and _write_verb(after[0]):
+            found.append(f"{token} {after[0]}")
         if token == "to" and after[:1] == ["be"] and after[1:2] and _acted(after[1]):
             found.append(f"to be {after[1]}")
         if token == "da" and after[:1] and after[0] in _IT_INFINITIVES:
             found.append(f"da {after[0]}")
+        if token == "va" and after[:1] and after[0] in _WRITE_PARTICIPLES:
+            found.append(f"va {after[0]}")
+        if token in ("serve", "servirebbe") and after[:1] and after[0] in _IT_INFINITIVES:
+            found.append(f"{token} {after[0]}")
         if token in _SUBJUNCTIVE_PLURALS:
             found.append(token)
         rest = [t for t in after if t not in ("been", "be", "is", "are")]
@@ -558,16 +835,17 @@ def _sentence_actions(tokens: Sequence[str]) -> list[str]:
 
 def answer_actions(text: str) -> list[str]:
     """Imperatives, obligations and claims of an action taken, in every letter form; dots
-    between two letters join a word ("Dis.able")."""
+    between two letters join a word ("Dis.able", "Dis…able")."""
     found: list[str] = []
-    normal = unicodedata.normalize("NFKC", text)
+    normal = _clean(text)
     for clause in _ANSWER_CLAUSE_RE.split(normal):
         for form in forms(clause, leet=True):
             found += [cue for cue in _clause_actions(form.split()) if cue not in found]
     for sentence in _ANSWER_SENTENCE_SPLIT_RE.split(normal):
+        has_i = _I_RE.search(sentence) is not None
         for form in forms(sentence, leet=True):
-            found += [cue for cue in _sentence_actions(form.split()) if cue not in found]
-    for form in forms(text, leet=True):
+            found += [cue for cue in _sentence_actions(form.split(), has_i) if cue not in found]
+    for form in forms(normal, leet=True):
         for pattern in (_OBLIGATION_RE, _COMPLETION_RE):
             found += [m.group() for m in pattern.finditer(form) if m.group() not in found]
     return found
@@ -927,7 +1205,10 @@ _RECORD_KINDS = {
 }
 # Words that bring a kind of record into a clause, and whether they name one record ("the
 # disputed link", "the cluster") or several ("the links", "linked accounts"). A clause with only
-# a kind word is scoped to the records of that kind (round 3, finding T14).
+# a kind word is scoped to the records of that kind (round 3, finding T14). A singular kind word
+# with two or more records of that kind read names none of them ("the cluster" after R-MARCO and
+# F-ROSSI), except "link", which may be any one link of the cluster, and "order", which is the
+# case's order (round 4, finding U16).
 _KIND_WORDS: dict[str, tuple[str, bool]] = {
     "case": ("case", True),
     "caso": ("case", True),
@@ -951,15 +1232,31 @@ _KIND_WORDS: dict[str, tuple[str, bool]] = {
     "score": ("factor", True),
     "policy": ("policy", True),
 }
+_ANY_ONE = frozenset({"link"})  # kinds whose singular word may stand for any one record
+# Kinds whose singular word is the case's own record when several were read: "the order" of a
+# return case is the returned order (the orders of the customer are all read at once).
+_CASE_DEFAULT = frozenset({"order"})
 # Words that bind a number to a field of a record: the number written next to them must be that
 # field of a record in scope ("7 linked accounts" is a cluster size, "weight 0.6" a link weight).
-# Round 3, finding T14.
+# Up to two adjectives may stand before the field word ("9 distinct linked accounts", "9 payment
+# cards"). Rounds 3 and 4, findings T14 and U16.
 _CUES: tuple[tuple[tuple[str, ...], str], ...] = tuple(
     sorted(
         [
             (tuple(cue.split()), field)
             for field, cues in (
-                ("size", ("linked accounts", "accounts linked", "account collegati", "accounts")),
+                (
+                    "size",
+                    (
+                        "linked accounts",
+                        "accounts linked",
+                        "account collegati",
+                        "accounts",
+                        "account",
+                        "members",
+                        "membri",
+                    ),
+                ),
                 ("n_distinct_cards", ("distinct cards", "carte distinte", "cards", "carte")),
                 (
                     "n_shared_events",
@@ -977,10 +1274,54 @@ _CUES: tuple[tuple[tuple[str, ...], str], ...] = tuple(
 # Words a cue may stand before a number with ("weight of 0.6", "accounts linked: 9").
 _CUE_FILLERS = frozenset([":", "=", "of", "is", "are", "was", "were", "di", "e", "at", "pari", "a"])
 _CUE_STOPS = frozenset(",;.()[]")
-_ANSWER_SENTENCE_RE = re.compile(r"(?<=[.!?])\s+|\n+")
+# A cue after these is a rate, not a field ("1.0 coupons per account").
+_CUE_RATES = frozenset(["per", "each", "every", "ogni"])
+_CUE_WORDS_RE = re.compile(r"\s*((?:[^\W\d_]+\s+){0,4}[^\W\d_]+)")
+_NOT_ADJECTIVES = word_set(
+    "and or of in on at for to the a an with from by as is are was were vs versus e o di da in "
+    "con per tra fra il la lo i gli le"
+)
+_LIST_MARKER_RE = re.compile(r"^[ \t]*[-*•–—][ \t]+", re.MULTILINE)
+_LINE_SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
 _GROUNDING_CLAUSE_RE = re.compile(r"([;:()\[\]]|,(?=\s))")
-# A sentence that opens with a pronoun goes on about the record of the sentence before.
-_PRONOUN_RE = re.compile(r"\s*(?:it|its|they|their|esso|essa|essi|esse)\b", re.IGNORECASE)
+# When a clause names two records of one kind, it is split at these words and each part binds
+# its numbers to the record it names ("F-ROSSI has 7 linked accounts while R-MARCO has 3").
+_SUBCLAUSE_RE = re.compile(
+    r"\b(?:and|while|whereas|but|versus|vs|against|compared (?:with|to)|e|mentre|ma|contro"
+    r"|rispetto a)\b",
+    re.IGNORECASE,
+)
+# Two numbers compared ("7 vs 3 linked accounts"): under a header that names two records in order
+# ("R-MARCO vs F-ROSSI:"), the first is a value of the first record, the second of the second.
+_VERSUS_RE = re.compile(r"^\s*(?:vs\.?|versus|against|contro|compared (?:with|to))\s*$")
+# A sentence that opens with a pronoun or a demonstrative goes on about the record of the
+# sentence before ("It has", "This link has", "The same link", "Questo legame").
+_PRONOUN_RE = re.compile(
+    r"\s*(?:it|its|they|their|esso|essa|essi|esse|this|that|these|those|the same|questo|questa"
+    r"|questi|queste|quel|quello|quella|lo stesso|la stessa|lo stesso)\b",
+    re.IGNORECASE,
+)
+# The case cluster in words, and "here" for the case cluster in a comparison.
+_CASE_CLUSTER_RE = re.compile(
+    r"\bcase(?: s)? cluster\b|\bcluster of (?:the|this) case\b|\bcluster del caso\b"
+    r"|\bcluster di questo caso\b"
+)
+_CASE_ORDER_RE = re.compile(
+    r"\b(?:returned|case(?: s)?|this case s) order\b|\border of (?:the|this) case\b"
+    r"|\bordine (?:del caso|reso)\b"
+)
+_HERE = frozenset(["here", "qui", "qua"])
+_BIND_PREPOSITIONS = frozenset(
+    ["in", "for", "of", "at", "on", "di", "del", "della", "nel", "nella", "per", "su", "da"]
+)
+_BIND_FILLERS = frozenset(["the", "cluster", "link", "order", "il", "la", "lo", "l", "reference"])
+_FLAG_WORDS = {"disputed": ("disputed", True), "undisputed": ("disputed", False)}
+
+
+def strip_list_markers(text: str) -> str:
+    """The text without list markers at the start of a line ("- ", "* ", "• ", "– "): a
+    bullet is not a minus sign or a symbol (round 4, finding U17)."""
+    return _LIST_MARKER_RE.sub("", text)
 
 
 @dataclass(frozen=True)
@@ -989,6 +1330,9 @@ class _Record:
     id: str | None
     aliases: tuple[str, ...]  # a link is also named by its two accounts
     fields: tuple[tuple[str, Decimal], ...]  # its own numbers, by field name
+    names: tuple[str, ...] = ()  # other names, any one names it ("Rossi" for F-ROSSI)
+    flags: frozenset[tuple[str, bool]] = frozenset()  # its booleans ("disputed", True)
+    refers: tuple[str, ...] = ()  # ids of other records it names (a case: its cluster, order)
 
     @property
     def numbers(self) -> tuple[Decimal, ...]:
@@ -997,11 +1341,6 @@ class _Record:
     def values(self, field: str) -> list[Decimal]:
         """The values of a field; a field starting with "_" matches any field ending with it."""
         return [v for name, v in self.fields if name == field or name.endswith(field)]
-
-    def named_in(self, clause: str) -> bool:
-        if self.id is not None and _names(clause, self.id):
-            return True
-        return bool(self.aliases) and all(_names(clause, alias) for alias in self.aliases)
 
 
 def _record_kind(value: Any) -> str | None:
@@ -1025,26 +1364,31 @@ def _own_fields(
         fields.append((key, Decimal(str(value))))
 
 
-def _records(value: Any, found: list[_Record]) -> None:
+def _records(value: Any, found: list[_Record], references: Mapping[str, str]) -> None:
     kind = _record_kind(value)
     if kind is not None:
         key = next(iter(value))
         fields: list[tuple[str, Decimal]] = []
         _own_fields(value, key, fields)
         accounts = (value.get("account_a"), value.get("account_b")) if kind == "link" else ()
+        record_id = str(value[key]) if key.endswith("_id") else None
+        refers = (value.get("cluster_id"), value.get("order_id")) if kind == "case" else ()
         found.append(
             _Record(
                 kind,
-                str(value[key]) if key.endswith("_id") else None,
+                record_id,
                 tuple(str(a) for a in accounts if isinstance(a, str)),
                 tuple(fields),
+                tuple(name for name, cluster in references.items() if cluster == record_id),
+                frozenset((k, v) for k, v in value.items() if isinstance(v, bool)),
+                tuple(str(r) for r in refers if isinstance(r, str)),
             )
         )
     if isinstance(value, dict):
         value = list(value.values())
     if isinstance(value, list):
         for item in value:
-            _records(item, found)
+            _records(item, found, references)
 
 
 def _matches(written: Decimal, numbers: Sequence[Decimal]) -> bool:
@@ -1055,15 +1399,17 @@ def _matches(written: Decimal, numbers: Sequence[Decimal]) -> bool:
     return any(n == written for n in numbers)
 
 
-def _names(clause: str, record_id: str) -> bool:
-    pattern = rf"(?<![\w-]){re.escape(record_id)}(?![\w-])"
-    return re.search(pattern, unicodedata.normalize("NFKC", clause), re.IGNORECASE) is not None
-
-
 def _cue_after(rest: str) -> str | None:
-    match = re.match(r"\s*((?:[^\W\d_]+\s+){0,2}[^\W\d_]+)", rest)
+    match = _CUE_WORDS_RE.match(rest)
     following = tuple(match.group(1).split()) if match else ()
-    return next((f for cue, f in _CUES if following[: len(cue)] == cue), None)
+    for skip in range(3):
+        if any(word in _NOT_ADJECTIVES for word in following[:skip]):
+            return None
+        at = following[skip:]
+        field = next((f for cue, f in _CUES if at[: len(cue)] == cue), None)
+        if field is not None:
+            return field
+    return None
 
 
 def _cue_before(text: str) -> str | None:
@@ -1074,7 +1420,11 @@ def _cue_before(text: str) -> str | None:
     if end == 0 or tokens[end - 1] in _CUE_STOPS:
         return None
     before = tuple(tokens[:end])
-    return next((f for cue, f in _CUES if before[len(before) - len(cue) :] == cue), None)
+    for cue, field in _CUES:
+        if before[len(before) - len(cue) :] == cue:
+            rate = len(before) > len(cue) and before[len(before) - len(cue) - 1] in _CUE_RATES
+            return None if rate else field
+    return None
 
 
 @dataclass(frozen=True)
@@ -1083,97 +1433,287 @@ class _Evidence:
     ids: tuple[str, ...]
     records: tuple[_Record, ...]
 
+    def case_record(self, kind: str) -> _Record | None:
+        """The record of a kind the case names (its cluster, its order), if it was read."""
+        refers = {r for record in self.records if record.kind == "case" for r in record.refers}
+        return next((r for r in self.records if r.kind == kind and r.id in refers), None)
 
-def _evidence(results: Sequence[Any], case_id: str) -> _Evidence:
+
+def _evidence(
+    results: Sequence[Any], case_id: str, references: Mapping[str, str] | None = None
+) -> _Evidence:
     numbers: list[Decimal] = []
     ids: list[str] = [case_id]
     records: list[_Record] = []
     for result in results:
         _collect(result, numbers, ids)
-        _records(result, records)
+        _records(result, records, references or {})
     return _Evidence(tuple(numbers), tuple(ids), tuple(records))
 
 
+def _letters(index: int) -> str:
+    """A three-letter code for an index ("aaa", "aab"...), so a token never holds a digit."""
+    return "".join(chr(ord("a") + index // 26**power % 26) for power in (2, 1, 0))
+
+
+class _Marked:
+    """A clause with each record name replaced by a token of letters ("qzrb"), each account of a
+    link by its own token, and every other identifier of the results removed."""
+
+    def __init__(self, clause: str, evidence: _Evidence) -> None:
+        tokens: dict[str, str] = {}
+        for index, record in enumerate(evidence.records):
+            for name in (record.id, *record.names):
+                if name:
+                    tokens[name] = f" qzr{_letters(index)} "
+        accounts = sorted({a for r in evidence.records for a in r.aliases})
+        for index, account in enumerate(accounts):
+            tokens[account] = f" qza{_letters(index)} "
+        out = unicodedata.normalize("NFKC", clause)
+        for name in sorted(tokens, key=len, reverse=True):
+            out = strip_tokens(out, [name], tokens[name])
+        self.plain = fold(strip_tokens(out, evidence.ids))
+        self.words = words(self.plain)
+        found = re.findall(r"\bqz([ra])([a-z]+)\b", self.plain)
+        self.named: list[_Record] = []
+        for kind, code in found:
+            if kind == "r":
+                record = evidence.records[_decode(code)]
+                if record not in self.named:
+                    self.named.append(record)
+        present = {accounts[_decode(code)] for kind, code in found if kind == "a"}
+        for record in evidence.records:
+            if record.aliases and set(record.aliases) <= present and record not in self.named:
+                self.named.append(record)
+        letters = " ".join(self.words)
+        for kind, pattern in (("cluster", _CASE_CLUSTER_RE), ("order", _CASE_ORDER_RE)):
+            own = evidence.case_record(kind)
+            if own is not None and pattern.search(letters) and own not in self.named:
+                self.named.append(own)
+
+    def record_token(self, word: str, evidence: _Evidence) -> _Record | None:
+        match = re.fullmatch(r"qzr([a-z]+)", word)
+        return evidence.records[_decode(match[1])] if match else None
+
+
+def _decode(code: str) -> int:
+    index = 0
+    for ch in code:
+        index = index * 26 + ord(ch) - ord("a")
+    return index
+
+
 class _Scope:
-    """The records the clauses of a sentence talk about, and, when they talk about one record,
-    the records that can still be it after the numbers bound to fields so far."""
+    """The records the clauses of a sentence talk about, in the order they are named, the kinds
+    of record that stand for one record (and the records that can still be it after the numbers
+    bound to fields so far), and the kinds named ambiguously (they ground nothing)."""
 
-    def __init__(self) -> None:
-        self.records: list[_Record] | None = None  # None: any number of the results
-        self.single = False
-        self.candidates: set[int] | None = None
+    def __init__(self, records: Sequence[_Record] | None = None) -> None:
+        self.records: list[_Record] | None = None if records is None else list(records)
+        self.order: list[_Record] = list(records or [])
+        self.single: set[str] = (
+            {records[0].kind} if records is not None and len(records) == 1 else set()
+        )
+        self.candidates: dict[str, set[int]] = {}
+        self.ambiguous: set[str] = set()
 
-    def update(self, clause: str, plain: str, evidence: _Evidence) -> None:
-        """A clause that names records, or kinds of record the results have, sets the scope."""
-        named = [r for r in evidence.records if r.named_in(clause)]
+    def update(self, marked: _Marked, evidence: _Evidence, keep: bool) -> None:
+        """A clause that names records, or kinds of record the results have, sets the scope;
+        with `keep` (a sentence that opens with a pronoun or a demonstrative), a kind word the
+        scope already has goes on with its records."""
+        named = marked.named
         read = {r.kind for r in evidence.records}
-        kinds: dict[str, bool] = {}
-        for word in words(plain):
+        kinds: dict[str, tuple[bool, tuple[str, bool] | None]] = {}
+        for index, word in enumerate(marked.words):
             if word in _KIND_WORDS and _KIND_WORDS[word][0] in read:
                 kind, one = _KIND_WORDS[word]
-                kinds[kind] = kinds.get(kind, False) or one
+                flag = _FLAG_WORDS.get(marked.words[index - 1]) if index else None
+                before = kinds.get(kind, (False, None))
+                kinds[kind] = (before[0] or one, flag or before[1])
         for record in named:
             kinds.pop(record.kind, None)
-        if named or kinds:
-            self.records = named + [r for r in evidence.records if r.kind in kinds]
-            self.single = (len(named) == 1 and not kinds) or (
-                not named and len(kinds) == 1 and all(kinds.values())
-            )
-            self.candidates = None
+        current = self.records or []
+        # A kind word of the records already in scope goes on with them ("Rossi: 7 linked
+        # accounts" is about F-ROSSI, not every cluster).
+        for kind in [k for k in kinds if any(r.kind == k for r in current)]:
+            kinds.pop(kind)
+        if not (named or kinds):
+            return
+        records = list(named)
+        single = {r.kind for r in named if sum(n.kind == r.kind for n in named) == 1}
+        ambiguous: set[str] = set()
+        for kind, (one, flag) in kinds.items():
+            pool = [r for r in evidence.records if r.kind == kind]
+            if flag is not None:
+                pool = (
+                    [r for r in pool if (flag[0], True) in r.flags]
+                    if flag[1]
+                    else [r for r in pool if (flag[0], True) not in r.flags]
+                )
+            own = evidence.case_record(kind)
+            if one and len(pool) > 1 and flag is None and kind in _CASE_DEFAULT and own:
+                pool = [own]
+            elif one and len(pool) > 1 and flag is None and kind not in _ANY_ONE:
+                ambiguous.add(kind)
+                continue
+            records += pool
+            if one:
+                single.add(kind)
+        if keep:
+            records = [*[r for r in current if r not in records], *records]
+            single |= self.single
+        self.records, self.order = records, list(named)
+        self.single, self.ambiguous, self.candidates = single, ambiguous, {}
 
-    def grounds(self, value: Decimal, field: str | None, evidence: _Evidence) -> bool:
+    def grounds(
+        self, value: Decimal, field: str | None, evidence: _Evidence, bound: _Record | None = None
+    ) -> bool:
         """A number next to a field word is that field of a record in scope (of any record when
-        none in scope has the field); a field no record has does not bind the number."""
-        scope = list(evidence.records) if self.records is None else self.records
+        none in scope has the field, unless the kind is ambiguous); a field no record has does
+        not bind the number. A number bound to a record ("3 in F-ROSSI", "7 here") is a value of
+        that record."""
         if field is not None and not any(r.values(field) for r in evidence.records):
             field = None
+        if bound is not None:
+            return _matches(value, bound.values(field) if field else list(bound.numbers))
+        scope = list(evidence.records) if self.records is None else self.records
         if field is None:
             pool = (
                 evidence.numbers if self.records is None else [n for r in scope for n in r.numbers]
             )
             return _matches(value, pool)
         in_scope = [r for r in scope if r.values(field)]
-        candidates = in_scope or [r for r in evidence.records if r.values(field)]
-        hits = {id(r) for r in candidates if _matches(value, r.values(field))}
+        others = [r for r in evidence.records if r.values(field) and r.kind not in self.ambiguous]
+        candidates = in_scope or others
+        hits = [r for r in candidates if _matches(value, r.values(field))]
         if not hits:
             return False
-        if self.single and in_scope:
-            self.candidates = hits if self.candidates is None else self.candidates & hits
-            return bool(self.candidates)
+        for kind in {r.kind for r in in_scope} & self.single:
+            kind_hits = {id(r) for r in hits if r.kind == kind}
+            before = self.candidates.get(kind)
+            self.candidates[kind] = kind_hits if before is None else before & kind_hits
+            if not self.candidates[kind]:
+                return False
         return True
 
 
-def grounded_in(answer: str, results: Sequence[Any], case_id: str) -> bool:
+def _bound(marked: _Marked, end: int, evidence: _Evidence) -> _Record | None:
+    """The record a number is bound to by the words after it: "here" (the case cluster) or a
+    preposition before a record name ("3 in F-ROSSI", "4 shared events on L-101")."""
+    following = re.findall(r"[^\W\d_]+|\S", marked.plain[end:])[:6]
+    for index, word in enumerate(following[:4]):
+        if word in _HERE:
+            return evidence.case_record("cluster")
+        if word in _BIND_PREPOSITIONS:
+            rest = [w for w in following[index + 1 :] if w not in _BIND_FILLERS]
+            return marked.record_token(rest[0], evidence) if rest else None
+        if not word.isalpha() or word.startswith("qz"):
+            return None
+    return None
+
+
+def _versus_pair(marked: _Marked, numbers: Sequence[tuple[Decimal, int, int]]) -> bool:
+    """Two numbers with a "vs" word between them ("7 vs 3 linked accounts")."""
+    between = marked.plain[numbers[0][2] : numbers[1][1]] if len(numbers) == 2 else ""
+    return _VERSUS_RE.match(between) is not None
+
+
+def _clause_grounded(marked: _Marked, before: str, scope: _Scope, evidence: _Evidence) -> bool:
+    numbers = signed_numbers(marked.plain)
+    if _versus_pair(marked, numbers) and not marked.named:
+        (first, start, _), (second, _, end) = numbers
+        field = _cue_after(marked.plain[end:]) or _cue_before(before + marked.plain[:start])
+        if len(scope.order) == 2:
+            first_record, second_record = scope.order
+            return scope.grounds(first, field, evidence, first_record) and scope.grounds(
+                second, field, evidence, second_record
+            )
+        return scope.grounds(first, field, evidence) and scope.grounds(second, field, evidence)
+    for value, start, end in numbers:
+        field = _cue_after(marked.plain[end:]) or _cue_before(before + marked.plain[:start])
+        if not scope.grounds(value, field, evidence, _bound(marked, end, evidence)):
+            return False
+    return True
+
+
+def _header(line: str, evidence: _Evidence) -> _Scope | None:
+    """The scope of a line that ends with ":", for the list lines under it: every record it
+    names, in order ("R-MARCO vs F-ROSSI:", "Link L-102:")."""
+    if not line.rstrip().endswith(":"):
+        return None
+    named = _Marked(line, evidence).named
+    return _Scope(named) if named else None
+
+
+def grounded_in(
+    answer: str,
+    results: Sequence[Any],
+    case_id: str,
+    references: Mapping[str, str] | None = None,
+) -> bool:
     """Every number in the answer is a number of the tool results: an integer as written must
     be equal to one, a decimal may be one rounded to the decimals written. Identifiers and dates
-    of the results are removed first; a number with a scale suffix, a sign or a sign word, or
-    written in letters or Roman numerals, is never grounded. From the first clause of a sentence
-    that names a record (a link by its id or its two accounts, a cluster, an order, the case) or
-    a kind of record read ("the cluster", "the disputed link"), numbers must be values of those
-    records; a sentence that opens with a pronoun goes on with them. A number next to a field
-    word ("7 linked accounts", "weight 0.6", "9 distinct cards", "4 shared events", "9 days",
-    "return rate 0.9") must be that field of such a record, and of one same record when the
-    clauses talk about one ("The disputed link has weight 0.6 and 4 shared events" is not)."""
-    evidence = _evidence(results, case_id)
-    text = strip_tokens(answer, evidence.ids)
+    of the results are removed first, and so are list markers ("- ", "• "); a number with a scale
+    suffix, a sign or a sign word, or written in letters or Roman numerals, is never grounded.
+    From the first clause of a sentence that names a record (a link by its id or its two
+    accounts, a cluster by its id or its reference name, "the case cluster", an order, the case)
+    or a kind of record read ("the cluster", "the disputed link"), numbers must be values of
+    those records; a sentence that opens with a pronoun or a demonstrative goes on with them, and
+    so do the list lines under a line that names records and ends with ":". A clause that names
+    two records of one kind is split at and, while, but, vs... and each part binds its own
+    numbers. A number next to a field word ("7 linked accounts", "weight 0.6", "9 distinct
+    cards", "4 shared events", "9 days", "return rate 0.9") must be that field of such a record,
+    and of one same record when the clauses talk about one ("The disputed link has weight 0.6 and
+    4 shared events" is not). "3 in F-ROSSI" and "7 here" bind a number to F-ROSSI and to the case
+    cluster; "7 vs 3 linked accounts" under "R-MARCO vs F-ROSSI:" binds 7 to R-MARCO, 3 to
+    F-ROSSI. A singular kind word with two records of that kind read ("the cluster" after both
+    clusters) grounds no number (rounds 3 and 4, findings T14, U16 and U17)."""
+    evidence = _evidence(results, case_id, references)
+    text = strip_tokens(strip_list_markers(answer), evidence.ids)
     if number_modifiers(text) or number_words(text, "en", skip=ANSWER_SKIPPED_NUMBER_WORDS):
         return False
     if roman_numerals(text):
         return False
-    scope = _Scope()
-    for sentence in _ANSWER_SENTENCE_RE.split(answer):
-        if _PRONOUN_RE.match(sentence) is None:
-            scope = _Scope()
-        before = ""
-        parts = _GROUNDING_CLAUSE_RE.split(sentence)
-        for clause, separator in zip(parts[::2], [*parts[1::2], ""], strict=True):
-            plain = fold(strip_tokens(clause, evidence.ids))
-            scope.update(clause, plain, evidence)
-            for value, start, end in signed_numbers(plain):
-                field = _cue_after(plain[end:]) or _cue_before(before + plain[:start])
-                if not scope.grounds(value, field, evidence):
-                    return False
-            before += plain + separator
+    scope, header = _Scope(), None
+    for line in answer.split("\n"):
+        bullet = _LIST_MARKER_RE.match(line) is not None
+        line = strip_list_markers(line)
+        if not bullet:
+            header = None
+        for index, sentence in enumerate(_LINE_SENTENCE_RE.split(line)):
+            listed = index == 0 and bullet and header is not None
+            keep = _PRONOUN_RE.match(sentence) is not None
+            if listed and header is not None:
+                scope = _Scope(header.order)
+            elif not keep:
+                scope = _Scope()
+            if not _sentence_grounded(sentence, scope, evidence, keep, listed):
+                return False
+        header = _header(line, evidence) if not bullet else header
+    return True
+
+
+def _sentence_grounded(
+    sentence: str, scope: _Scope, evidence: _Evidence, keep: bool, listed: bool
+) -> bool:
+    """The clauses of a sentence, in order; `keep` goes on with the scope of the sentence before
+    (a pronoun), `listed` with the scope of the header for every clause (a list line)."""
+    before = ""
+    parts = _GROUNDING_CLAUSE_RE.split(sentence)
+    for clause, separator in zip(parts[::2], [*parts[1::2], ""], strict=True):
+        marked = _Marked(clause, evidence)
+        kinds = [r.kind for r in marked.named]
+        pieces = [clause]
+        if any(kinds.count(kind) > 1 for kind in kinds):
+            pieces = _SUBCLAUSE_RE.split(clause)
+        for piece in pieces:
+            marked = _Marked(piece, evidence) if len(pieces) > 1 else marked
+            scope.update(marked, evidence, keep or listed)
+            keep = False
+            if not _clause_grounded(marked, before, scope, evidence):
+                return False
+            before += marked.plain + " "
+        before += separator
     return True
 
 
@@ -1239,13 +1779,14 @@ class VllmAgent:
                 )
         if not content.strip():
             return self._fallback(question, tb, "the model gave no answer")
+        checked = strip_list_markers(content)
         if (
-            banned_terms(strip_tokens(content, _evidence(results, case_id).ids))
-            or decision_wording(content)
-            or advice(content)
-            or answer_actions(content)
-            or foreign_characters(content)
-            or not grounded_in(content, results, case_id)
+            banned_terms(strip_tokens(checked, _evidence(results, case_id).ids))
+            or decision_wording(checked)
+            or advice(checked)
+            or answer_actions(checked)
+            or foreign_characters(checked)
+            or not grounded_in(content, results, case_id, self._references)
         ):
             return self._fallback(question, tb, "the answer could not be verified")
         links = tuple(ref for ref in tb.refs if ref.id in content)

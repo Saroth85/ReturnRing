@@ -138,8 +138,9 @@ def test_t2_both_languages_give_the_refund_date_as_a_limit(refund: Decimal | Non
 @pytest.mark.parametrize(
     "lang, text",
     [
-        ("en", "Your next orders keep our standard return terms."),
-        ("it", "I tuoi prossimi ordini mantengono le nostre condizioni di reso standard."),
+        # round 4, finding U3: "have", not "keep", which claims unchanged terms
+        ("en", "Your next orders have our standard return terms."),
+        ("it", "I tuoi prossimi ordini hanno le nostre condizioni di reso standard."),
     ],
 )
 def test_t3_insufficient_evidence_states_the_standard_terms(lang: Lang, text: str) -> None:
@@ -149,6 +150,7 @@ def test_t3_insufficient_evidence_states_the_standard_terms(lang: Lang, text: st
     final = render_selection(["OPEN_THANKS", "CLOSE_REGARDS"], decision, BASE, lang)
     assert text in final
     assert "same as always" not in final and "quelle di sempre" not in final
+    assert not {"keep", "keeps", "mantengono"} & set(re.findall(r"\w+", final.lower()))
 
 
 # ---- T4: incoherent selections ------------------------------------------------------------------

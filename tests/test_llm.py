@@ -20,7 +20,7 @@ from decimal import Decimal
 from typing import Any
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import example, given, settings
 from hypothesis import strategies as st
 
 from llm.messages import placeholder_problems
@@ -443,6 +443,8 @@ _SIGN_WORDS |= {"lost", "unprofitable", "lossmaking"}
     fact_ids=st.lists(st.sampled_from([*FACT_VALUES, "F99"]), max_size=4),
     label=st.sampled_from(["OBSERVED", "SCORE", "HYPOTHESIS"]),
 )
+# Every failing example found so far (round 4, finding U1): a closing parenthesis hid a scale.
+@example(tokens=["risk", "(42.1)", "mil"], fact_ids=["F2"], label="OBSERVED")
 def test_llm03_every_number_after_the_validator_is_a_cited_fact(
     tokens: list[str], fact_ids: list[str], label: str
 ) -> None:
@@ -701,9 +703,9 @@ def test_r1_sentences_of_another_decision_are_regenerated(name: str, ids: list[s
 
 
 def test_r1_a_valid_selection_passes_and_is_returned() -> None:
-    result = run(
-        with_ids("OPEN_SORRY_FIT", "HELP_ADVICE", "INFO_TERMS", "THANKS_FEEDBACK", "CLOSE_SOON")
-    )
+    # Q4 takes at most two extras since round 4 (finding U2): the body says this return keeps
+    # the terms of its order.
+    result = run(with_ids("OPEN_SORRY_FIT", "HELP_ADVICE", "INFO_TERMS", "CLOSE_SOON"))
     assert result.ok, result.errors
     assert result.output is not None
     assert result.output.customer_message.sentence_ids[-1] == "CLOSE_SOON"

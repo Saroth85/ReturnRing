@@ -126,6 +126,17 @@ def test_gemma_weights_pinned_to_a_revision() -> None:
     assert "--tokenizer-revision=${GEMMA_REVISION}" in command
 
 
+def test_vllm_runs_offline() -> None:
+    # Rule 2: vLLM never calls huggingface.co at runtime; only weights.sh downloads.
+    assert services("docker-compose.yml")["vllm"]["environment"]["HF_HUB_OFFLINE"] == "1"
+    assert "HF_HUB_OFFLINE=0" in (INFRA / "spikes" / "weights.sh").read_text(encoding="utf-8")
+
+
+def test_dgl_smoke_check_fails_without_a_gpu() -> None:
+    command = services("docker-compose.yml")["trainer-gnn"]["command"]
+    assert "raise SystemExit(0 if torch.cuda.is_available() else 1)" in command[-1]
+
+
 def test_vllm_keeps_weights_and_compile_cache_in_volumes() -> None:
     vllm = services("docker-compose.yml")["vllm"]
     assert "hf-cache:/root/.cache/huggingface" in vllm["volumes"]

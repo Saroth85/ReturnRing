@@ -22,7 +22,12 @@ snapshot. Billing runs from creation to destruction, powered off or not.
   of `libxgboost.so` is missing.
 - Each spike starts on its own. Nothing is started with `make gpu-up`.
 - vLLM keeps its weights (`hf-cache`) and compile cache (`vllm-cache`) in volumes, so a restart
-  or a later session from the snapshot skips both.
+  or a later session from the snapshot skips both. It runs with `HF_HUB_OFFLINE=1` (rule 2): only
+  `spike-weights` talks to Hugging Face.
+- G2 and G3 are timed in two halves. The GPU halves run while the weights download; the CPU
+  baselines run after the download, alone on the CPU and before vLLM compiles, because a download
+  or a compile on the same 20 vCPUs would slow the CPU baseline and inflate the speedup. Every
+  output records its conditions in `context`.
 - Outputs go to `artifacts/spikes/` (git-ignored, owned by root because the containers run as
   root).
 
@@ -43,9 +48,9 @@ snapshot. Billing runs from creation to destruction, powered off or not.
 | 1-3 | create droplet, clone, `.env`, photo, `spike-preflight` | 10 min | no |
 | 4 | `spike-prep` (images, trainer-gbm build) | 5-15 min | no |
 | 5 | `spike-weights` (Gemma weights, in the background) | seconds to start | no |
-| 6 | `spike-gpu-check`, `spike-g2`, `spike-g2-load` | 6 min | yes |
-| 7 | `spike-g3` | 5-10 min | yes |
-| 8 | `spike-weights-wait` | whatever is left of the download | no |
+| 6 | `spike-gpu-check`, `spike-g2`, `spike-g2-load` (GPU halves) | 5 min | yes |
+| 7 | `spike-g3` (GPU halves) | 3-5 min | yes |
+| 8 | `spike-weights-wait`, then `spike-g2-cpu`, `spike-g3-cpu` | rest of the download + 5-10 min | no |
 | 9 | `spike-vllm`, `spike-wait`, `spike-g7` | 5-15 min | yes |
 | 10 | `spike-g1`, `spike-g1-bench` | 8 min | yes |
 | 11-12 | `spike-g5`, `spike-g6` | 3 min | yes |
@@ -55,8 +60,8 @@ snapshot. Billing runs from creation to destruction, powered off or not.
 
 All times are estimates: download speed, image extraction and vLLM compile time on ROCm are
 unmeasured. G2 and G3 run before vLLM starts, because vLLM measures free GPU memory while it
-starts and a training job running at that moment would skew its KV-cache sizing. They run while
-the weights download, so the GPU does not wait on the network.
+starts and a training job running at that moment would skew its KV-cache sizing. Their GPU halves
+run while the weights download, so the GPU does not wait on the network.
 
 ## Steps
 
@@ -129,7 +134,7 @@ make spike-weights
 Downloads the 62.6 GB of Gemma 4 31B at `GEMMA_REVISION` into the `hf-cache` volume, from inside
 the vLLM image, in the background (`logs/download-weights.log`). Go on with step 6 at once.
 
-### 6. SPK-G2: amd_xgboost on GPU (about 6 min)
+### 6. SPK-G2: amd_xgboost on GPU (about 5 min, GPU half)
 
 ```bash
 make spike-gpu-check             # 1 min: gfx942 from trainer-gbm, "gpu True" from trainer-gnn
@@ -139,9 +144,9 @@ make spike-g2-load
 
 Expected: an environment line with `"xgboost": "3.2.0", "use_hip": true` and `rocm` 7.2.3;
 `official_verify` with `device_effective` other than `cpu` (the exact string, likely `cuda:0`, is
-unconfirmed); CPU and GPU results with the same `test_logloss`; `"pass": true`. Then
-`g2_load_cpu.py` prints `"pass": true` with `max_abs_diff` near 0: the GPU model loads in
-xgboost-cpu 3.2.0 (spec section 10).
+unconfirmed); the GPU result; `"pass": true` in `g2_gpu.json`. Then `g2_load_cpu.py` prints
+`"pass": true` with `max_abs_diff` near 0: the GPU model loads in xgboost-cpu 3.2.0 (spec
+section 10). The CPU baseline comes in step 8.
 
 - `spike-gpu-check` fails for one image only: the other image's line still shows whether the host
   passes the GPU through; the failing image is the problem.
@@ -149,16 +154,17 @@ xgboost-cpu 3.2.0 (spec section 10).
   `make spike-gpu-check`.
 - Plan B (spec 13): XGBoost on CPU for training, GPU only for Gemma and DGL.
 
-### 7. SPK-G3: DGL GraphSAGE (5-10 min)
+### 7. SPK-G3: DGL GraphSAGE (3-5 min, GPU half)
 
 ```bash
 make spike-g3
 ```
 
-Three runs of `g3_graphsage_synthetic.py`: `--small` (smoke test), the spec size (1.2M nodes, 12M
-edges) and `--hetero` (customer/product graph with brand, product type and reason nodes). Model of
-spec 8.1: SAGEConv 16, max-pool, dropout 0.2, Adam 0.01; synthetic seeded data, no download.
-Expected: `torch_hip` set, `dgl` 2.4.0, `gpu_visible: true`, `gpu_arch` gfx942, `"pass": true`.
+Three runs of `g3_graphsage_synthetic.py`: `--small` (smoke test, CPU and GPU), then on the GPU
+the spec size (1.2M nodes, 12M edges) and `--hetero` (customer/product graph with brand, product
+type and reason nodes). Model of spec 8.1: SAGEConv 16, max-pool, dropout 0.2, Adam 0.01;
+synthetic seeded data, no download. Expected: `torch_hip` set, `dgl` 2.4.0, `gpu_visible: true`,
+`gpu_arch` gfx942, `"pass": true`.
 
 - Exit 2: GPU not visible in the DGL container: `make spike-gpu-check`.
 - Optional upstream example (downloads Cora from data.dgl.ai; do not pass `--gpu 0`, the script
@@ -171,16 +177,23 @@ Expected: `torch_hip` set, `dgl` 2.4.0, `gpu_visible: true`, `gpu_arch` gfx942, 
   ```
 - Plan B (spec 13): GraphSAGE only as an upgrade; benchmark B2 postponed.
 
-### 8. Wait for the weights (SPK-G7, first half)
+### 8. Wait for the weights, then the CPU baselines (SPK-G7 first half; 5-10 min after the download)
 
 ```bash
 make spike-weights-wait
+make spike-g2-cpu
+make spike-g3-cpu
 ```
 
 Expected: `download-weights: exit 0, took N s (google/gemma-4-31B-it@<revision>)`. N is the
-SPK-G7 download time; it ran next to G2 and G3, which use the GPU, not the network. A 401 or 403
-is not expected (both Gemma 4 models are not gated): set `HF_TOKEN` in `.env`, then
+SPK-G7 download time; it ran next to the GPU halves of G2 and G3, which use the GPU and little CPU.
+A 401 or 403 is not expected (both Gemma 4 models are not gated): set `HF_TOKEN` in `.env`, then
 `make spike-weights spike-weights-wait`.
+
+The CPU runs use the same data and parameters as the GPU files and write the speedups:
+`speedup_train` in `g2_cpu.json`, `speedup_median_epoch` in `g3_cpu.json` and
+`g3_hetero_cpu.json`. They stop with an error if the GPU file was produced with a different
+configuration.
 
 ### 9. Start vLLM, SPK-G7 (5-15 min)
 

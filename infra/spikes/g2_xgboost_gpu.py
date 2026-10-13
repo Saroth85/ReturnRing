@@ -11,6 +11,10 @@ Runs in the trainer-gbm container (make spike-g2). Steps:
 4. Saves the GPU model as <out>_model.json plus <out>_check.json (a prediction sample), for
    g2_load_cpu.py (xgboost-cpu 3.2.0).
 
+The runbook times the GPU half while the Gemma weights download and the CPU half afterwards, alone
+on the CPU (make spike-g2, make spike-g2-cpu); --gpu-result lets the CPU run compute the speedup
+from the GPU file, and --context records what else was running.
+
 The device string is "cuda" on ROCm too ("hip" is rejected by XGBoost). Exit codes: 0 pass,
 1 error, 2 GPU not used.
 """
@@ -21,6 +25,7 @@ import argparse
 import json
 import math
 import os
+import statistics
 import time
 from pathlib import Path
 from typing import Any
@@ -102,6 +107,10 @@ def bench(
         "device_effective": effective_device(bst),
         "warmup_2_rounds_s": round(warmup_s, 3),
         "train_s": round(min(times), 3),
+        # Under SPK-G4 the minimum hides interference: compare medians there.
+        "train_s_median": round(statistics.median(times), 3),
+        "train_s_max": round(max(times), 3),
+        "train_s_all": [round(t, 3) for t in times],
         "train_runs": len(times),
         "rounds": args.rounds,
         "test_logloss": round(loss, 5),
@@ -120,9 +129,18 @@ def main() -> int:
     )
     parser.add_argument("--out", type=Path, default=Path("artifacts/spikes/g2.json"))
     parser.add_argument("--skip-verify", action="store_true", help="for --device cpu only")
+    parser.add_argument("--context", default="", help="recorded: what else ran at the same time")
+    parser.add_argument(
+        "--gpu-result", type=Path, help="CPU run: GPU result file to compute the speedup against"
+    )
     args = parser.parse_args()
 
-    summary: dict[str, Any] = {"spike": "SPK-G2", "environment": environment()}
+    summary: dict[str, Any] = {
+        "spike": "SPK-G2",
+        "context": args.context,
+        "config": {"rows": args.rows, "rounds": args.rounds, "seed": args.seed},
+        "environment": environment(),
+    }
     print(json.dumps(summary["environment"]), flush=True)
     if args.device != "cpu" and not args.skip_verify:
         verify = official_verify()
@@ -161,6 +179,15 @@ def main() -> int:
             }
             args.out.with_name(f"{args.out.stem}_check.json").write_text(json.dumps(check))
     summary["results"] = results
+    if "cpu" in results and "gpu" not in results and args.gpu_result:
+        other = json.loads(args.gpu_result.read_text())
+        if other.get("config") != summary["config"]:
+            print(
+                f"FAIL: {args.gpu_result} has config {other.get('config')}, not {summary['config']}"
+            )
+            return 1
+        results["gpu"] = other["results"]["gpu"]
+        summary["gpu_result_from"] = {"file": str(args.gpu_result), "context": other["context"]}
     if "gpu" in results and "cpu" in results:
         summary["speedup_train"] = round(results["cpu"]["train_s"] / results["gpu"]["train_s"], 2)
     summary["pass"] = all(r["finite"] for r in results.values()) and (

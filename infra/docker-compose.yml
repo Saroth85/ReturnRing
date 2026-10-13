@@ -79,6 +79,9 @@ services:
     profiles: [gpu]
     environment:
       HF_TOKEN: ${HF_TOKEN:-}
+      # Rule 2: no call to huggingface.co at runtime; the weights are already in hf-cache at
+      # GEMMA_REVISION (infra/spikes/weights.sh downloads them with this turned off).
+      HF_HUB_OFFLINE: "1"
     # The image ENTRYPOINT is ["vllm", "serve"]: these items are its arguments. The model is
     # positional (--model= is deprecated). Tool-call flags and the chat template path are those of
     # the vLLM Gemma 4 recipe for MI300X; the template path is absolute because the image WORKDIR
@@ -135,11 +138,12 @@ services:
       DGLBACKEND: pytorch
       SEED: ${SEED:-42}
     working_dir: /app
-    # Smoke check only. DGL is an editable install in /src/dgl: never mount over it.
+    # Smoke check only, exit 1 without a GPU. DGL is an editable install in /src/dgl: never mount
+    # over it.
     command:
       - python
       - -c
-      - "import dgl, torch; print('dgl', dgl.__version__, 'torch', torch.__version__, 'hip', torch.version.hip, 'gpu', torch.cuda.is_available())"
+      - "import dgl, torch; print('dgl', dgl.__version__, 'torch', torch.__version__, 'hip', torch.version.hip, 'gpu', torch.cuda.is_available()); raise SystemExit(0 if torch.cuda.is_available() else 1)"
     volumes:
       - ../artifacts:/app/artifacts
 

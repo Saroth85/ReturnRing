@@ -24,7 +24,7 @@ case "${1:-}" in
     # setsid: the download survives the end of this script and an SSH drop.
     setsid bash -c '
       s=$(date +%s)
-      $0 run --rm --no-deps -T -e HF_XET_HIGH_PERFORMANCE=1 --entrypoint python3 vllm -c \
+      $0 run --rm --no-deps -T -e HF_HUB_OFFLINE=0 --entrypoint python3 vllm -c \
         "import sys, huggingface_hub as h; print(h.snapshot_download(sys.argv[1], revision=sys.argv[2]))" \
         "$1" "$2"
       rc=$?

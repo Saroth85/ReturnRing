@@ -258,3 +258,43 @@ test.describe('system and benchmarks (US-901, US-902, US-905)', () => {
     await expect(dock).toHaveCount(0);
   });
 });
+
+test.describe('demo path and coupon rules (US-903, US-402)', () => {
+  test('the preflight checks the run on the contract examples and a beat opens with its persona', async ({ page }) => {
+    const errors = watchConsole(page);
+    await page.goto('/demo');
+    // The load time is measured for real: a cold dev server may miss the target, the rest is green.
+    for (const id of ['readiness', 'components', 'marco', 'rossi', 'assumptions']) {
+      await expect(page.locator(`[data-preflight="${id}"]`)).toHaveAttribute('data-state', 'pass');
+    }
+    await expect(page.locator('[data-preflight="load"] [data-figure][data-nature="real"]')).toBeVisible();
+    await expectClean(page, errors);
+    await shoot(page, 'demo');
+    await page.locator('[data-beat="4"]').getByRole('link', { name: 'Open', exact: true }).click();
+    await expect(page).toHaveURL(/\/simulator$/);
+    await expect(page.getByRole('combobox', { name: 'Acting as' })).toHaveValue('luca');
+  });
+
+  test('presenter mode shows the beat rail, and Alt+→ moves to the next beat', async ({ page }) => {
+    await page.goto('/compare?a=RET-000101&b=RET-000102&present=1');
+    const rail = page.getByRole('navigation', { name: 'Demo beats' });
+    await expect(rail.locator('[aria-current="step"]')).toContainText('Same indicator');
+    await page.keyboard.press('Alt+ArrowRight');
+    await expect(page).toHaveURL(/\/returns\/RET-000102$/);
+    await expect(rail.locator('[aria-current="step"]')).toContainText('Marco');
+  });
+
+  test('a manager approves a new coupon rule version; the applications keep their reversal', async ({ page }) => {
+    const errors = watchConsole(page);
+    await actAs(page, 'luca');
+    await page.goto('/coupons');
+    await expect(page.locator('[data-current-rule="coupon-rule-v1"]')).toBeVisible();
+    await expect(page.locator('[data-application-state]')).toHaveCount(2);
+    await expectClean(page, errors);
+    await shoot(page, 'coupons');
+    await page.getByRole('button', { name: 'Start from the current rule' }).click();
+    await page.getByRole('textbox', { name: 'Rule text' }).press('Control+Enter');
+    await expect(page.locator('[data-rule-created="coupon-rule-v2"]')).toBeVisible();
+    await expect(page.locator('[data-current-rule="coupon-rule-v2"]')).toBeVisible();
+  });
+});

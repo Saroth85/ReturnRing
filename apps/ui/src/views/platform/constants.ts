@@ -22,3 +22,21 @@ export const ARCHITECTURE = {
 
 /** The art. 14(2) reference of the guarantee-path note (Directive 2011/83/EU, docs/ui-design.md 9.2). */
 export const DIMINISHED_VALUE_ARTICLE = 'art. 14(2)';
+
+/** The golden cases of the pitch (spec 16, docs/ui-design.md 12): Giulia, Marco, Rossi twice, Elena. */
+export const GOLDEN_RETURN_IDS = ['RET-000101', 'RET-000102', 'RET-000103', 'RET-000104', 'RET-000105'] as const;
+/** Marco's case: proposed at its first version before the pitch (docs/ui-design.md 9.5). */
+export const MARCO_RETURN_ID = 'RET-000102';
+export const MARCO_FIRST_VERSION = 1;
+/** Rossi's card variant: its latest decision is still the first one before the pitch. */
+export const ROSSI_RETURN_ID = 'RET-000104';
+export const ROSSI_FIRST_DECISION_ID = 'DEC-000104-1';
+/** The assumption set of beat 5 (ECO-01: +€368, docs/ui-design.md 12). */
+export const DEMO_ASSUMPTIONS_VERSION = 'assumptions-v1';
+/** The golden cards and the matrix load in under two seconds (docs/ui-design.md 9.5). */
+export const PREFLIGHT_LOAD_TARGET_MS = 2000;
+/** The second origin that serves the cached demo (docs/ui-design.md 9.5, failover). */
+export const CACHED_ORIGIN: string | null = import.meta.env.VITE_CACHED_ORIGIN || null;
+
+/** The real dataset behind the return model and its licence (spec section 7, CLAUDE.md rule 15). */
+export const ASOS_DATASET = 'ASOS GraphReturns, CC BY 4.0';

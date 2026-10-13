@@ -1,0 +1,113 @@
+{
+  "items": [
+    {
+      "message_id": "MSG-000107-1",
+      "return_id": "RET-000107",
+      "decision_id": "DEC-000107-1",
+      "customer_id": "C-11872",
+      "lang": "en",
+      "subject": "Your return RET-000107",
+      "sentence_ids": [
+        "OPEN_THANKS",
+        "CLOSE_HAPPY"
+      ],
+      "fields": {
+        "terms": null,
+        "amount": null,
+        "deadline": "12 October 2026"
+      },
+      "refund": null,
+      "body": "Hello, thank you for writing to us. We have registered your return request and your refund is due by 12 October 2026. The return terms of your orders stay the same as always. We are happy to have you with us.",
+      "legal_clause_kind": null,
+      "generation_id": null,
+      "status": "sent_simulated",
+      "created_by": "sara",
+      "created_at": "2026-09-30T18:55:00Z"
+    },
+    {
+      "message_id": "MSG-000108-1",
+      "return_id": "RET-000108",
+      "decision_id": "DEC-000108-1",
+      "customer_id": "C-17305",
+      "lang": "it",
+      "subject": "Il tuo reso RET-000108",
+      "sentence_ids": [
+        "OPEN_MESSAGE",
+        "CONTACT_TEAM",
+        "CLOSE_DAY"
+      ],
+      "fields": {
+        "terms": null,
+        "amount": null,
+        "deadline": "13 ottobre 2026"
+      },
+      "refund": null,
+      "body": "Ciao, grazie per il tuo messaggio. Abbiamo registrato la tua richiesta di reso e il rimborso è previsto per il 13 ottobre 2026. Le condizioni di reso dei tuoi ordini restano quelle di sempre. Il nostro team ti risponderà volentieri. Grazie ancora e buona giornata.",
+      "legal_clause_kind": null,
+      "generation_id": null,
+      "status": "sent_simulated",
+      "created_by": "sara",
+      "created_at": "2026-09-30T18:50:00Z"
+    },
+    {
+      "message_id": "MSG-000110-1",
+      "return_id": "RET-000110",
+      "decision_id": "DEC-000110-1",
+      "customer_id": "C-14502",
+      "lang": "it",
+      "subject": "Il tuo reso RET-000110",
+      "sentence_ids": [
+        "OPEN_THANKS",
+        "HELP_SIZE",
+        "CLOSE_REGARDS"
+      ],
+      "fields": {
+        "terms": null,
+        "amount": "71,92 €",
+        "deadline": "10 ottobre 2026"
+      },
+      "refund": {
+        "value": 71.92,
+        "unit": "eur",
+        "provenance": {
+          "origin": "Contract example: diminished-value rule DV-RULE-1 applied to a synthetic return",
+          "period_start": "2025-10-01",
+          "period_end": "2026-09-30",
+          "nature": "synthetic"
+        }
+      },
+      "body": "Ciao, grazie per averci scritto. Abbiamo registrato la tua richiesta di reso e il rimborso di 71,92 € è previsto per il 10 ottobre 2026. Se ti serve un'altra taglia, rispondi pure a questo messaggio. Un caro saluto dal nostro team.",
+      "legal_clause_kind": null,
+      "generation_id": null,
+      "status": "sent_simulated",
+      "created_by": "ahmed",
+      "created_at": "2026-09-30T18:47:00Z"
+    },
+    {
+      "message_id": "MSG-000102-1",
+      "return_id": "RET-000102",
+      "decision_id": "DEC-000102-1",
+      "customer_id": "C-MARCO-1",
+      "lang": "it",
+      "subject": "Il tuo reso RET-000102",
+      "sentence_ids": [
+        "OPEN_THANKS",
+        "INFO_TERMS",
+        "CLOSE_REGARDS"
+      ],
+      "fields": {
+        "terms": "reso entro 14 giorni dalla consegna; spedizione del reso a tuo carico; rimborso nei tempi di legge, non istantaneo; codici sconto non utilizzabili",
+        "amount": null,
+        "deadline": "12 ottobre 2026"
+      },
+      "refund": null,
+      "body": "Ciao, grazie per averci scritto. Abbiamo registrato la tua richiesta di reso e il rimborso è previsto per il 12 ottobre 2026. I tuoi prossimi ordini avranno nuove condizioni di reso, mostrate prima di ogni acquisto: reso entro 14 giorni dalla consegna; spedizione del reso a tuo carico; rimborso nei tempi di legge, non istantaneo; codici sconto non utilizzabili. Queste condizioni tengono conto dei resi dei tuoi ordini precedenti. Per domande su queste condizioni, rispondi pure a questo messaggio. Un caro saluto dal nostro team.\n\nTi ricordiamo che puoi sempre esercitare il diritto di recesso entro 14 giorni dalla consegna, senza indicarne il motivo. Ti rimborseremo entro 14 giorni dalla tua comunicazione, al ricevimento dei prodotti o della prova della loro spedizione.",
+      "legal_clause_kind": "withdrawal",
+      "generation_id": "GEN-000102-1",
+      "status": "sent_simulated",
+      "created_by": "sara",
+      "created_at": "2026-09-30T18:20:00Z"
+    }
+  ],
+  "total": 4
+}

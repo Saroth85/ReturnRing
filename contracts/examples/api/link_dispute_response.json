@@ -1,0 +1,449 @@
+{
+  "link": {
+    "link_id": "C-10233~C-20871",
+    "customer_a": "C-10233",
+    "customer_b": "C-20871",
+    "kinds": [
+      "card",
+      "address"
+    ],
+    "weight": 1.0,
+    "weight_decayed": 0.8461,
+    "first_shared_at": "2026-02-11T09:00:00Z",
+    "last_shared_at": "2026-08-30T15:00:00Z",
+    "n_shared_events": 2,
+    "max_sharers": 41,
+    "disputed": true,
+    "dispute": {
+      "dispute_id": "LD-000002",
+      "reason": "Card used once for a gift; the accounts are in different households",
+      "author": "sara",
+      "created_at": "2026-09-30T18:40:00Z"
+    },
+    "explained_by_evidence_id": null
+  },
+  "affected_return_ids": [
+    "RET-000106"
+  ],
+  "recompute": {
+    "return_id": "RET-000106",
+    "trigger": "link_disputed",
+    "evidence_id": null,
+    "dispute_id": "LD-000002",
+    "before": {
+      "decision_id": "DEC-000106-1",
+      "version": 1,
+      "state": "proposed",
+      "quadrant": "Q3",
+      "evidence_quality": "sufficient",
+      "risk": {
+        "value": 0.66,
+        "unit": "probability",
+        "provenance": {
+          "origin": "Contract example: risk model risk-xgb-0.1.0 on decision-time features of the synthetic shop",
+          "period_start": "2025-10-01",
+          "period_end": "2026-09-30",
+          "nature": "synthetic"
+        }
+      },
+      "top_factors": [
+        {
+          "label": "SCORE",
+          "feature": "strong_id_share",
+          "feature_value": 0.5,
+          "contribution": 0.52,
+          "direction": "raises",
+          "phrase": "A payment card is shared with a linked account"
+        },
+        {
+          "label": "SCORE",
+          "feature": "cluster_return_rate",
+          "feature_value": 0.71,
+          "contribution": 0.33,
+          "direction": "raises",
+          "phrase": "The linked accounts returned 71% of delivered lines"
+        },
+        {
+          "label": "SCORE",
+          "feature": "residual_z",
+          "feature_value": 0.6,
+          "contribution": 0.08,
+          "direction": "raises",
+          "phrase": "Returns slightly above what the products predict"
+        }
+      ],
+      "lever_ids": [
+        "instant_refund:false",
+        "transparency_notice:true"
+      ],
+      "requires_approval": true,
+      "cluster_size": 3,
+      "active_links": 3
+    },
+    "after": {
+      "decision_id": "DEC-000106-2",
+      "version": 2,
+      "state": "proposed",
+      "quadrant": "Q1",
+      "evidence_quality": "sufficient",
+      "risk": {
+        "value": 0.41,
+        "unit": "probability",
+        "provenance": {
+          "origin": "Contract example: risk model risk-xgb-0.1.0 on decision-time features of the synthetic shop",
+          "period_start": "2025-10-01",
+          "period_end": "2026-09-30",
+          "nature": "synthetic"
+        }
+      },
+      "top_factors": [
+        {
+          "label": "SCORE",
+          "feature": "cluster_size",
+          "feature_value": 1,
+          "contribution": -0.3,
+          "direction": "lowers",
+          "phrase": "No linked accounts after the dispute"
+        },
+        {
+          "label": "SCORE",
+          "feature": "changed_mind_share",
+          "feature_value": 1.0,
+          "contribution": 0.21,
+          "direction": "raises",
+          "phrase": "2 of 2 returns were for change of mind"
+        },
+        {
+          "label": "SCORE",
+          "feature": "residual_z",
+          "feature_value": 0.6,
+          "contribution": 0.09,
+          "direction": "raises",
+          "phrase": "Returns slightly above what the products predict"
+        }
+      ],
+      "lever_ids": [
+        "return_window_days:60",
+        "priority_size_exchange:true"
+      ],
+      "requires_approval": false,
+      "cluster_size": null,
+      "active_links": 0
+    },
+    "decision": {
+      "decision_id": "DEC-000106-2",
+      "return_id": "RET-000106",
+      "version": 2,
+      "revision_trigger": "link_disputed",
+      "supersedes": "DEC-000106-1",
+      "superseded_by": null,
+      "created_at": "2026-09-30T18:40:00Z",
+      "as_of": "2026-09-30T18:40:00Z",
+      "decided_on": "2026-09-29",
+      "state": "proposed",
+      "path": "withdrawal",
+      "evidence_quality": "sufficient",
+      "quadrant": "Q1",
+      "missing_evidence": [],
+      "proposed_levers": [
+        {
+          "id": "return_window_days",
+          "value": 60,
+          "scope": "future_orders"
+        },
+        {
+          "id": "priority_size_exchange",
+          "value": true,
+          "scope": "all_orders"
+        }
+      ],
+      "levers": [
+        {
+          "id": "return_window_days",
+          "value": 60,
+          "scope": "future_orders"
+        },
+        {
+          "id": "priority_size_exchange",
+          "value": true,
+          "scope": "all_orders"
+        }
+      ],
+      "lever_ids": [
+        "return_window_days:60",
+        "priority_size_exchange:true"
+      ],
+      "requires_approval": false,
+      "in_force": true,
+      "current_return_terms": {
+        "return_window_days": 30,
+        "free_return_shipping": true,
+        "instant_refund": true,
+        "free_size_exchange": true,
+        "coupons_enabled": true
+      },
+      "future_terms": {
+        "return_window_days": 60,
+        "free_return_shipping": true,
+        "instant_refund": true,
+        "free_size_exchange": true,
+        "coupons_enabled": true
+      },
+      "refund_due_by": "2026-10-13",
+      "review_at": null,
+      "approver": null,
+      "approved_at": null,
+      "override_reason": null,
+      "override_category": null,
+      "coupon_rule": null,
+      "diminished_value_claim": null,
+      "inputs": {
+        "order_id": "ORD-005402",
+        "customer_id": "C-10233",
+        "reason": "changed_mind",
+        "delivered_on": "2026-09-25",
+        "notice_on": "2026-09-29",
+        "order_terms": {
+          "return_window_days": 30,
+          "free_return_shipping": true,
+          "instant_refund": true,
+          "free_size_exchange": true,
+          "coupons_enabled": true
+        },
+        "base_terms": {
+          "return_window_days": 30,
+          "free_return_shipping": true,
+          "instant_refund": true,
+          "free_size_exchange": true,
+          "coupons_enabled": true
+        },
+        "risk": 0.41,
+        "value_eur": 433.75,
+        "evidence_quality": "sufficient",
+        "cluster_id": null,
+        "thresholds": {
+          "risk": 0.6,
+          "value_eur": 185.0
+        },
+        "provenance": {
+          "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+          "period_start": "2025-10-01",
+          "period_end": "2026-09-29",
+          "nature": "synthetic"
+        }
+      },
+      "rules_version": "policy-2026-10-12",
+      "model_versions": {
+        "risk": "risk-xgb-0.1.0",
+        "propensity": "propensity-xgb-0.1.0",
+        "graph": "graph-0.1.0",
+        "evidence": "evidence-0.1.0",
+        "value": "value-0.1.0"
+      },
+      "assumptions_version": "assumptions-v1",
+      "generation_id": "GEN-000106-2"
+    },
+    "draft": {
+      "generation": {
+        "generation_id": "GEN-000106-2",
+        "generation_path": "template",
+        "fallback_reason": "decision_echo",
+        "llm_mode": "mock",
+        "served_from": "live",
+        "model": "mock",
+        "model_calls": 1,
+        "validator_codes": [
+          "DECISION_ECHO"
+        ],
+        "created_at": "2026-09-30T18:40:50Z",
+        "latency_ms": 14
+      },
+      "tone": "warm",
+      "decision_echo": {
+        "path": "withdrawal",
+        "quadrant": "Q1",
+        "lever_ids": [
+          "return_window_days:60",
+          "priority_size_exchange:true"
+        ]
+      },
+      "explanation": [
+        {
+          "label": "SCORE",
+          "fact_ids": [
+            "F1"
+          ],
+          "text": "Risk score 0.41 from the model: an estimate, not a cause.",
+          "facts": [
+            {
+              "id": "F1",
+              "entity": "customer",
+              "metric": "risk_score",
+              "value": 0.41,
+              "period": "as of 2026-09-29",
+              "nature": "synthetic"
+            }
+          ]
+        },
+        {
+          "label": "SCORE",
+          "fact_ids": [
+            "F3"
+          ],
+          "text": "Contribution to the score: cluster_size is 1.",
+          "facts": [
+            {
+              "id": "F3",
+              "entity": "cluster",
+              "metric": "cluster_size",
+              "value": 1,
+              "period": "as of 2026-09-29",
+              "nature": "synthetic"
+            }
+          ]
+        },
+        {
+          "label": "SCORE",
+          "fact_ids": [
+            "F4"
+          ],
+          "text": "Contribution to the score: changed_mind_share is 1.",
+          "facts": [
+            {
+              "id": "F4",
+              "entity": "customer",
+              "metric": "changed_mind_share",
+              "value": 1,
+              "period": "as of 2026-09-29",
+              "nature": "synthetic"
+            }
+          ]
+        },
+        {
+          "label": "SCORE",
+          "fact_ids": [
+            "F5"
+          ],
+          "text": "Contribution to the score: residual_z is 0.6.",
+          "facts": [
+            {
+              "id": "F5",
+              "entity": "customer",
+              "metric": "residual_z",
+              "value": 0.6,
+              "period": "as of 2026-09-29",
+              "nature": "synthetic"
+            }
+          ]
+        },
+        {
+          "label": "OBSERVED",
+          "fact_ids": [
+            "F2"
+          ],
+          "text": "Customer net margin over the period: 433.75 EUR.",
+          "facts": [
+            {
+              "id": "F2",
+              "entity": "customer",
+              "metric": "value_eur_12m",
+              "value": 433.75,
+              "period": "12 months to 2026-09-29",
+              "nature": "synthetic"
+            }
+          ]
+        },
+        {
+          "label": "OBSERVED",
+          "fact_ids": [
+            "F3"
+          ],
+          "text": "Linked accounts in the cluster: 1.",
+          "facts": [
+            {
+              "id": "F3",
+              "entity": "cluster",
+              "metric": "cluster_size",
+              "value": 1,
+              "period": "as of 2026-09-29",
+              "nature": "synthetic"
+            }
+          ]
+        },
+        {
+          "label": "OBSERVED",
+          "fact_ids": [],
+          "text": "The rules engine placed the case in Q1; the levers are listed with the decision.",
+          "facts": []
+        },
+        {
+          "label": "OBSERVED",
+          "fact_ids": [
+            "F6"
+          ],
+          "text": "Days from delivery to the return notice: 4.",
+          "facts": [
+            {
+              "id": "F6",
+              "entity": "return",
+              "metric": "days_since_delivery",
+              "value": 4,
+              "period": "2026-09-25/2026-09-29",
+              "nature": "synthetic"
+            }
+          ]
+        }
+      ],
+      "message": {
+        "sentence_ids": [
+          "OPEN_THANKS",
+          "CLOSE_HAPPY"
+        ],
+        "legal_clause_kind": null,
+        "texts": [
+          {
+            "lang": "it",
+            "fields": {
+              "terms": "reso entro 60 giorni dalla consegna; cambio taglia con priorità",
+              "amount": null,
+              "deadline": "13 ottobre 2026"
+            },
+            "text": "Ciao, grazie per averci scritto. Abbiamo registrato la tua richiesta di reso e il rimborso è previsto per il 13 ottobre 2026. Per i tuoi prossimi ordini ti offriamo condizioni di reso migliori: reso entro 60 giorni dalla consegna; cambio taglia con priorità. Siamo felici di averti tra i nostri clienti."
+          },
+          {
+            "lang": "en",
+            "fields": {
+              "terms": "returns within 60 days of delivery; priority size exchange",
+              "amount": null,
+              "deadline": "13 October 2026"
+            },
+            "text": "Hello, thank you for writing to us. We have registered your return request and your refund is due by 13 October 2026. For your next orders we are glad to offer you better return terms: returns within 60 days of delivery; priority size exchange. We are happy to have you with us."
+          }
+        ]
+      },
+      "provenance": {
+        "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+        "period_start": "2025-10-01",
+        "period_end": "2026-09-29",
+        "nature": "synthetic"
+      }
+    },
+    "coupon_application": null,
+    "audit_entry_ids": [
+      7,
+      8
+    ],
+    "provenance": {
+      "origin": "Contract example: risk model risk-xgb-0.1.0 on decision-time features of the synthetic shop",
+      "period_start": "2025-10-01",
+      "period_end": "2026-09-30",
+      "nature": "synthetic"
+    }
+  },
+  "provenance": {
+    "origin": "Contract example: account graph graph-0.1.0 (spec 8.3) of the synthetic shop",
+    "period_start": "2025-10-01",
+    "period_end": "2026-09-30",
+    "nature": "synthetic"
+  }
+}

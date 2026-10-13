@@ -17,7 +17,7 @@ from policy.engine import (
     levers_for,
     quadrant_for,
 )
-from policy.legal_guard import is_restrictive
+from policy.legal_guard import check, is_restrictive
 from policy.types import (
     CaseScores,
     DecisionState,
@@ -193,10 +193,42 @@ def test_lever_ids_list_only_the_differences_from_base() -> None:
     assert levers_for(Quadrant.Q2, BASE, has_cluster=False).lever_ids(BASE) == []
     q1 = levers_for(Quadrant.Q1, BASE, has_cluster=False)
     assert q1.lever_ids(BASE) == ["return_window_days:60", "priority_size_exchange:true"]
-    from dataclasses import replace
+    # A size exchange restriction is not a lever: scope all_orders only upgrades (C5).
+    assert all(q.future_terms.free_size_exchange for q in map(_levers, Quadrant))
 
-    no_exchange = replace(q4, future_terms=replace(q4.future_terms, free_size_exchange=False))
-    assert "free_size_exchange:false" in no_exchange.lever_ids(BASE)
+
+def _levers(quadrant: Quadrant) -> Levers:
+    return levers_for(quadrant, BASE, has_cluster=True)
+
+
+NO_EXCHANGE = ReturnTerms(30, True, True, False, True)  # an order bought without size exchange
+
+
+@pytest.mark.parametrize(("risk", "value"), [(0.95, "15"), (0.95, "500"), (0.1, "800")])
+def test_free_size_exchange_also_reaches_the_current_order(risk: float, value: str) -> None:
+    """C5: free_size_exchange has scope all_orders. When the engine grants it, the order being
+    returned gets it too, even if its snapshot lacked it; every other term stays the snapshot."""
+    req = request(terms=NO_EXCHANGE)
+    d = decide(req, scores(risk, value, cluster="R-X"), BASE, THRESHOLDS, TODAY)
+    assert d.levers.future_terms.free_size_exchange
+    assert d.current_return_terms == replace(NO_EXCHANGE, free_size_exchange=True)
+    assert check(d, req, BASE) == []
+
+
+def test_insufficient_evidence_keeps_the_base_size_exchange_on_the_current_order() -> None:
+    req = request(terms=NO_EXCHANGE)
+    s = scores(0.95, "15", evidence=EvidenceQuality.INSUFFICIENT)
+    d = decide(req, s, BASE, THRESHOLDS, TODAY)
+    assert d.current_return_terms == replace(NO_EXCHANGE, free_size_exchange=True)
+
+
+def test_no_size_exchange_is_added_when_the_engine_does_not_grant_it() -> None:
+    """The other direction: a base without size exchange in Q2 leaves the snapshot as it is."""
+    base = ReturnTerms(30, True, True, False, True)
+    req = request(terms=NO_EXCHANGE)
+    d = decide(req, scores(0.1, "15"), base, THRESHOLDS, TODAY)
+    assert d.quadrant is Quadrant.Q2 and not d.levers.future_terms.free_size_exchange
+    assert d.current_return_terms == NO_EXCHANGE
 
 
 @pytest.mark.parametrize("quadrant_scores", [(0.9, "500"), (0.9, "20")])

@@ -3,3 +3,21 @@ fastapi==0.143.0
 uvicorn==0.54.0
 pydantic==2.14.1
 pyarrow==26.0.0
+# Data pipeline (phase 1). numpy declares "BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0":
+# all permissive (rule 15). pandas reads the ASOS pickles once, at ingest.
+numpy==2.5.4
+pandas==3.0.6
+polars==2.0.0
+# Models on CPU (phase 2). xgboost-cpu, not xgboost: the Linux xgboost wheel pulls nvidia-nccl
+# (proprietary licence). 3.2.x reads the JSON models trained with amd_xgboost 3.2 (spec 10).
+xgboost-cpu==3.2.0
+scipy==1.18.1
+scikit-learn==1.9.1
+joblib==1.6.0
+threadpoolctl==3.7.0
+narwhals==2.27.1
+networkx==3.7
+# Persistence (phase 4): PostgreSQL through asyncpg (psycopg is LGPL, spec 10).
+sqlalchemy==2.1.4
+greenlet==3.5.6
+asyncpg==0.32.0

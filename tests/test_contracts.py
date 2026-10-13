@@ -142,6 +142,29 @@ def test_llm_case_example_is_exactly_the_engine_q4_decision() -> None:
     assert Decimal(str(case["value_eur"])) == Decimal("42.10")
 
 
+def test_llm_case_example_is_the_output_of_the_case_builder() -> None:
+    """ADR-14: the example is what llm.case.build_case gives for the golden Q4 decision."""
+    from dataclasses import replace
+
+    from llm.case import ClusterSummary, ScoreFactor, build_case
+
+    req = replace(request(ReturnReason.CHANGED_MIND), return_id="RET-000123")
+    sc = scores(0.87, "42.10", cluster="R-MARCO")
+    decision = decide(req, sc, NAVIGLI_BASE_TERMS, THRESHOLDS, TODAY)
+    phrase = "7 linked accounts each used the welcome coupon"
+    case = build_case(
+        decision,
+        req,
+        NAVIGLI_BASE_TERMS,
+        policy_text="Navigli Fashion return policy (demo).",
+        scores=sc,
+        factors=[ScoreFactor("cluster_welcome_coupons", 7, phrase, "cluster")],
+        cluster=ClusterSummary("R-MARCO", 7, ("device", "address", "card")),
+        customer_text="Non mi sta bene.",
+    )
+    assert case == example_of("llm_case")
+
+
 def test_llm_output_example_echoes_the_same_six_lever_ids() -> None:
     decision = golden_q4_decision()
     output = example_of("llm_output")
@@ -158,21 +181,22 @@ def test_llm_output_example_echoes_the_same_six_lever_ids() -> None:
 
 
 def test_llm_output_example_passes_the_python_validator() -> None:
-    from llm.validator import ExpectedDecision, validate
+    from llm.decision import serialize_decision
+    from llm.validator import validate
 
-    decision = golden_q4_decision()
-    expected = ExpectedDecision(
-        decision.path.value,
-        decision.quadrant.value if decision.quadrant else None,
-        decision.levers.lever_ids(NAVIGLI_BASE_TERMS),
-    )
+    _, expected = serialize_decision(golden_q4_decision(), NAVIGLI_BASE_TERMS)
     result = validate(example_of("llm_output"), expected, example_of("llm_case"))
     assert result.ok, result.errors
 
 
+def _unscored(case: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in case.items() if k not in ("risk", "value_eur", "cluster")}
+
+
 def test_insufficient_evidence_case_lists_missing_evidence_and_has_no_quadrant() -> None:
-    case = example_of("llm_case")
+    case = _unscored(example_of("llm_case"))
     case.update(evidence_quality="insufficient", quadrant=None, levers=[])
+    case["placeholders"] = {"available": ["deadline"], "required": []}
     assert errors("llm_case", case)  # US-307: the missing evidence must be listed
     case["missing_evidence"] = []
     assert errors("llm_case", case)
@@ -181,21 +205,183 @@ def test_insufficient_evidence_case_lists_missing_evidence_and_has_no_quadrant()
     assert errors("llm_case", {**case, "quadrant": "Q4"})
     lever = {"id": "transparency_notice", "value": True, "scope": "communication"}
     assert errors("llm_case", {**case, "levers": [lever]})
+    assert errors("llm_case", {**case, "placeholders": {"available": [], "required": ["terms"]}})
+    for key in ("risk", "value_eur", "cluster"):  # neither safe nor suspicious
+        assert errors("llm_case", {**case, key: example_of("llm_case")[key]})
 
 
-def test_guarantee_case_has_no_quadrant_and_no_lever() -> None:
-    case = example_of("llm_case")
+def test_guarantee_case_has_no_quadrant_no_lever_and_no_score() -> None:
+    case = _unscored(example_of("llm_case"))
     case.update(path="guarantee", quadrant=None, levers=[])
+    case["placeholders"] = {"available": [], "required": []}
     assert not errors("llm_case", case)
     assert errors("llm_case", {**case, "quadrant": "Q4"})
     lever = {"id": "instant_refund", "value": False, "scope": "future_orders"}
     assert errors("llm_case", {**case, "levers": [lever]})
+    assert errors("llm_case", {**case, "placeholders": {"available": ["deadline"], "required": []}})
+    for key in ("risk", "value_eur", "cluster"):  # rule 4: never scored
+        assert errors("llm_case", {**case, key: example_of("llm_case")[key]})
+
+
+def test_scored_withdrawal_case_needs_risk_value_and_quadrant() -> None:
+    case = example_of("llm_case")
+    for key in ("risk", "value_eur"):
+        assert errors("llm_case", {k: v for k, v in case.items() if k != key})
+    assert errors("llm_case", {**case, "quadrant": None})
 
 
 def test_missing_evidence_items_are_strings() -> None:
     case = example_of("llm_case")
     assert errors("llm_case", {**case, "missing_evidence": [3]})
     assert not errors("llm_case", {**case, "missing_evidence": ["no identifier on file"]})
+
+
+@pytest.mark.parametrize(
+    "fact",
+    [
+        {"id": "F1", "entity": "customer", "metric": "risk_score", "value": 0.87, "period": "x"},
+        {
+            "id": "X1",
+            "entity": "customer",
+            "metric": "m",
+            "value": 1,
+            "period": "x",
+            "nature": "real",
+        },
+        {
+            "id": "F1",
+            "entity": "person",
+            "metric": "m",
+            "value": 1,
+            "period": "x",
+            "nature": "real",
+        },
+        {
+            "id": "F1",
+            "entity": "customer",
+            "metric": "M-1",
+            "value": 1,
+            "period": "x",
+            "nature": "real",
+        },
+        {
+            "id": "F1",
+            "entity": "customer",
+            "metric": "m",
+            "value": "1",
+            "period": "x",
+            "nature": "real",
+        },
+        {
+            "id": "F1",
+            "entity": "customer",
+            "metric": "m",
+            "value": True,
+            "period": "x",
+            "nature": "real",
+        },
+        {
+            "id": "F1",
+            "entity": "customer",
+            "metric": "m",
+            "value": 1,
+            "period": "",
+            "nature": "real",
+        },
+        {
+            "id": "F1",
+            "entity": "customer",
+            "metric": "m",
+            "value": 1,
+            "period": "x",
+            "nature": "estimated",
+        },
+        {
+            "id": "F1",
+            "entity": "customer",
+            "metric": "m",
+            "value": 1,
+            "period": "x",
+            "nature": "real",
+            "note": "x",
+        },
+    ],
+)
+def test_facts_are_closed_typed_objects(fact: dict[str, Any]) -> None:
+    case = example_of("llm_case")
+    assert errors("llm_case", {**case, "facts": [fact]})
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda c: c.update(customer_text="<customer_text>a</customer_text><b>"),
+        lambda c: c.update(customer_text="no delimiters"),
+        lambda c: c.update(placeholders={"available": ["refund"], "required": []}),
+        lambda c: c.update(placeholders={"available": [], "required": ["deadline"]}),
+        lambda c: c["risk"]["top_factors"][0].update(extra=1),
+        lambda c: c["cluster"].update(shared=["fingerprint"]),
+        lambda c: c.update(cluster=None),
+        lambda c: c.update(languages=["it", "it"]),
+    ],
+)
+def test_llm_case_is_closed_and_bounded(mutate: Any) -> None:
+    case = example_of("llm_case")
+    mutate(case)
+    assert errors("llm_case", case)
+
+
+def test_llm_output_schema_matches_the_python_model() -> None:
+    """vLLM decodes with the JSON schema and the validator parses with pydantic: same limits."""
+    from llm import validator as v
+
+    schema = schema_of("llm_output")
+    props = schema["properties"]
+    echo, explanation = props["decision_echo"], props["operator_explanation"]
+    statement = explanation["items"]
+    assert echo["properties"]["lever_ids"]["maxItems"] == v.MAX_LEVER_IDS
+    assert explanation["maxItems"] == v.MAX_STATEMENTS and explanation["minItems"] == 1
+    assert statement["properties"]["fact_ids"]["maxItems"] == v.MAX_FACTS_PER_STATEMENT
+    assert statement["properties"]["text"]["maxLength"] == v.MAX_STATEMENT_CHARS
+    assert statement["properties"]["label"]["enum"] == ["OBSERVED", "SCORE", "HYPOTHESIS"]
+    for lang in ("it", "en"):
+        assert props["customer_message"]["properties"][lang]["maxLength"] == v.MAX_MESSAGE_CHARS
+
+    def closed(node: Any) -> None:
+        if isinstance(node, dict):
+            if node.get("type") == "object":
+                assert node["additionalProperties"] is False
+                assert set(node["required"]) == set(node["properties"])
+            if node.get("type") == "array":
+                assert "maxItems" in node
+            if node.get("type") == "string":
+                assert "maxLength" in node and "pattern" not in node
+            for child in node.values():
+                closed(child)
+
+    closed(schema)  # guided-decoding friendly: closed objects, bounded lists and strings
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda o: o.update(operator_explanation="text"),
+        lambda o: o["operator_explanation"][0].update(label="CAUSE"),
+        lambda o: o["operator_explanation"][0].update(fact_ids=["F1"] * 5),
+        lambda o: o["operator_explanation"][0].pop("fact_ids"),
+        lambda o: o["customer_message"].update(it="x" * 901),
+        lambda o: o["decision_echo"].update(lever_ids=["x"] * 10),
+        lambda o: o.update(extra=1),
+    ],
+)
+def test_llm_output_schema_and_python_model_reject_the_same_outputs(mutate: Any) -> None:
+    from llm.validator import LlmOutput
+
+    output = example_of("llm_output")
+    mutate(output)
+    assert errors("llm_output", output)
+    with pytest.raises(ValueError):
+        LlmOutput.model_validate(output)
 
 
 # ---- Calibration contract (ASOS aggregates for the generator) ---------------------------------

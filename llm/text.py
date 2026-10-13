@@ -1,5 +1,5 @@
 """Lexical checks on model text (docs/spec.md 8.7; review findings LLM-1, LLM-5, LLM-6, LLM-10 and
-the adversarial review of 13 Oct).
+the adversarial reviews of 13 Oct, rounds 1 and 2).
 
 Standard library only. Word checks run on folded forms of the text, so look-alike letters,
 invisible characters, accents, dashes and letter spacing do not hide a word:
@@ -13,7 +13,10 @@ invisible characters, accents, dashes and letter spacing do not hide a word:
 - `words`: the first form, as a list of lowercase letter runs.
 
 These are blocklists: they reduce risk, they do not prove a text is safe. The validator applies
-them to model text only, never to fixed texts filled in by code.
+them to the text Gemma still writes (operator statements, agent answers); the tests apply them to
+every sentence of the customer phrasebook (llm/phrasebook.py). One check is an allowlist instead:
+`foreign_letters` accepts only the letters a-z and the Italian accented vowels, so look-alike
+letters of other scripts never reach the blocklists (round 2, finding R5).
 """
 
 from __future__ import annotations
@@ -207,19 +210,31 @@ ALLOWED_PREFIXES: tuple[str, ...] = ("scambi", "scamosci", "scamp", "scamiciat",
 _WORD_PREFIXES: tuple[str, ...] = ("anti", "non", "pre", "super", "ultra", "iper", "hyper")
 
 # "Linked accounts", never "same person" (CLAUDE.md rule 11, spec 16), with its synonyms: a
-# qualifier (same, one, single, stesso, medesimo, un solo, un unico), at most one more word, and
-# a noun for a person (adversarial review of 13 Oct, finding 4).
+# qualifier (same, one, single, sole, common, stesso, singolo, unico...), at most two more words
+# that are not function words ("the same very real customer"), and a noun for a person, an
+# identity or a household (adversarial review of 13 Oct, finding 4; round 2, finding R3).
 _PERSON_NOUNS = (
     "persons?|people|individuals?|customers?|clients?|buyers?|shoppers?|owners?|holders?"
     "|users?(?! agents?\\b)|humans?|entity|entities|guys?|man|men|woman|women"
+    "|consumers?|purchasers?|members?|subscribers?|part(?:y|ies)|identit(?:y|ies)"
     "|person[ae]|individu[oi]|soggett[oi]|client[ei]|utent[ei]|acquirent[ei]|titolar[ei]"
-    "|intestatari[oae]?|proprietari[oae]?|entita"
+    "|intestatari[oae]?|proprietari[oae]?|entita|identita|consumator[ei]|consumatric[ei]"
+    "|comprator[ei]|compratric[ei]|utilizzator[ei]|utilizzatric[ei]|esser[ei] uman[oi]"
 )
+# A household is several people: only with a qualifier ("the same household"), never "a family".
+_GROUP_NOUNS = "households?|famil(?:y|ies)|famigli[ae]|nucle[oi]"
+_QUALIFIERS = (
+    "same|single|one|sole|selfsame|identical|common|stess[aeoi]|medesim[aeoi]|singol[aeoi]"
+    "|unic[aeoi]|comun[ei]"
+)
+_FUNCTION_WORDS = (
+    "of|or|and|the|a|an|to|for|in|on|with|as|by|from|at|than|di|del|della|dei|degli|delle|e|o"
+    "|per|con|tra|fra|da|su|al|alla|che"
+)
+_GAP = rf"(?: (?!(?:{_FUNCTION_WORDS})\b)[a-z]+){{0,2}}"
 _SAME_PERSON_RES: tuple[re.Pattern[str], ...] = (
-    re.compile(
-        rf"\b(?:same|single|one|stess[aeoi]|medesim[aeoi])(?: [a-z]+)? (?:{_PERSON_NOUNS})\b"
-    ),
-    re.compile(rf"\bun[ao]? (?:sol[aeoi]|unic[aeoi])(?: [a-z]+)? (?:{_PERSON_NOUNS})\b"),
+    re.compile(rf"\b(?:{_QUALIFIERS}){_GAP} (?:{_PERSON_NOUNS}|{_GROUP_NOUNS})\b"),
+    re.compile(rf"\bun[ao]? (?:sol[aeoi]|unic[aeoi]){_GAP} (?:{_PERSON_NOUNS})\b"),
     re.compile(r"\bone and the same\b"),
 )
 # "un cliente", "una persona": an article as often as a numeral, so only in a sentence that also
@@ -227,6 +242,19 @@ _SAME_PERSON_RES: tuple[re.Pattern[str], ...] = (
 _ONE_PERSON_RE = re.compile(rf"\bun[ao]? (?:{_PERSON_NOUNS})\b")
 _ACCOUNTS_RE = re.compile(r"\b(?:accounts?|profil[oi]|collegat[oaie]|linked)\b")
 _SENTENCE_RE = re.compile(r"[.!?;:\n]+")
+# Ownership of all the accounts is the same claim ("the customer owns all the linked accounts",
+# "gli account collegati sono tutti tuoi"): an ownership word in a sentence about all accounts.
+_TOTALITY_RE = re.compile(
+    r"\b(?:all|every|each|both|whole|tutti|tutte|ogni|entrambi|entrambe|ciascun[oa]?)\b"
+)
+_OWNERSHIP_RE = re.compile(
+    r"(?<!its )(?<!their )(?<!your )(?<!his )(?<!her )(?<!our )(?<!my )\bown(?:s|ed|ing)?\b"
+    r"|\bcontrol(?:s|led|ling)?\b|\bbehind\b|\bbelong(?:s|ed|ing)? to (?:you|him|her|me|us)\b"
+    r"|\b(?:run|operated|managed|held) by\b|\b(?:yours|theirs|hers|mine)\b"
+    r"|\b(?:tuoi|tue|suoi|sue|vostri|vostre|miei|mie)\b|\b(?:tutti|tutte) di\b"
+    r"|\b(?:appartien[ei]|appartengono|controll[ao]\w*|gestit[oaie]|gestisc\w+|possedut[oaie]"
+    r"|possied\w+|intestat[oaie])\b"
+)
 
 
 def _same_person(text: str) -> list[str]:
@@ -237,6 +265,8 @@ def _same_person(text: str) -> list[str]:
         form = _letters_only(sentence)
         if _ACCOUNTS_RE.search(form):
             _add(found, (m.group() for m in _ONE_PERSON_RE.finditer(form)))
+            if _TOTALITY_RE.search(form):
+                _add(found, (m.group() for m in _OWNERSHIP_RE.finditer(form)))
     return found
 
 
@@ -249,6 +279,26 @@ def banned_terms(text: str) -> list[str]:
         )
         _add(found, hits)
     return _add(found, _same_person(text))
+
+
+# ---- Script allowlist (round 2, finding R5) ---------------------------------------------------
+
+ITALIAN_VOWELS = "àáèéìíòóùúÀÁÈÉÌÍÒÓÙÚ"
+
+
+def foreign_letters(text: str) -> list[str]:
+    """Letters outside a-z and the Italian accented vowels, after NFKC (which already folds
+    full-width, mathematical and ligature forms), and combining marks that NFKC could not
+    compose into such a letter. Model text with any of them is regenerated, so a look-alike
+    letter missing from `_CONFUSABLES` cannot hide a word."""
+    found: list[str] = []
+    for ch in unicodedata.normalize("NFKC", text):
+        foreign = (ch.isalpha() and not (ch.isascii() or ch in ITALIAN_VOWELS)) or (
+            unicodedata.category(ch).startswith("M")
+        )
+        if foreign and ch not in found:
+            found.append(ch)
+    return found
 
 
 # ---- Terms and decisions in words (adversarial review of 13 Oct, finding 1) -------------------
@@ -292,7 +342,7 @@ _TERMS_PHRASES: tuple[re.Pattern[str], ...] = (
     # how much is refunded: the amount comes only from {amount}
     re.compile(r"\b(?:full|partial|total|entire|whole) (?:refund|amount|price)\b"),
     re.compile(r"\brimborso (?:complet|total|inter|integral|parzial)[a-z]*\b"),
-    re.compile(r"\b(?:intero|totale) importo\b|\bprezzo pieno\b"),
+    re.compile(r"\b(?:intero|totale) importo\b|\bprezzo pieno\b|\btutto quanto\b"),
 )
 # Decisions in words: the decision is the engine's, shown by code (rules 1 and 3).
 DECISION_STEMS: tuple[str, ...] = (
@@ -398,12 +448,18 @@ _EN_ORDINALS = word_set(
 )
 _EN_OTHER = word_set(
     "zero dozen dozens fortnight fortnights fortnightly twice thrice half halves quarter "
-    "quarters double triple"
+    "quarters double triple tenner tenners fiver fivers sennight sennights"
 )
 # Pronoun uses ("this one") are too common in free operator text; the customer check keeps them.
 PRONOUN_NUMBERS = frozenset({"one", "uno"})
 # A cardinal this long at the start of a longer word is read as a number ("twentyish").
 _LONG_CARDINAL = 6
+# Abbreviated units a short cardinal may be glued to ("tenhrs", "sixd", "dueh", "duesett"), and
+# the words that only look like one ("tend", "tremo"). Round 2, finding R6.
+_UNIT_ABBREVIATIONS = word_set(
+    "h hr hrs d dd g gg w wk wks m mo mos mth mths y yr yrs min mins sec secs sett"
+)
+_NOT_GLUED = word_set("tend tremo")
 
 
 def _cardinal(word: str) -> bool:
@@ -427,13 +483,17 @@ def _plain_number(word: str) -> bool:
 
 @functools.lru_cache(maxsize=4096)
 def _glued_number(word: str) -> bool:
-    """A number glued to a unit or another number ("fourteendays", "quattordicigiorni"), or a
-    long cardinal at the start of a longer word ("twentyish")."""
+    """A number glued to a unit, an abbreviated unit or another number ("fourteendays",
+    "quattordicigiorni", "tenhrs"), or a long cardinal at the start of a longer word
+    ("twentyish")."""
+    if word in _NOT_GLUED:
+        return False
     for end in range(len(word) - 1, 2, -1):
         head, rest = word[:end], word[end:]
         if _plain_number(head) and (
             (len(head) >= _LONG_CARDINAL and _cardinal(head))
             or rest in UNIT_WORDS
+            or rest in _UNIT_ABBREVIATIONS
             or _plain_number(rest)
         ):
             return True
@@ -479,16 +539,23 @@ UNIT_WORDS = word_set(
     "giorni giornate gg notti settimana settimane mese mesi anno anni ore minuto minuti "
     "secondi trimestre semestre days nights week weeks month months year years hour hours minute "
     "minutes seconds euro euros eur centesimo centesimi cent cents dollaro dollari dollar dollars "
-    "usd gbp sterlina sterline pound pounds percento percent"
+    "usd gbp sterlina sterline pound pounds percento percent penny pennies pence "
+    "h hr hrs wk wks mo yr yrs min mins sec secs sett"
 )
-# Dates and deadlines in words. "may" is left out (a modal verb), as are abbreviations.
+# Dates, deadlines, holidays and periods in words. "may" is left out (a modal verb).
 DATE_WORDS = word_set(
     "gennaio febbraio marzo aprile maggio giugno luglio agosto settembre ottobre novembre "
     "dicembre january february march april june july august september october november "
     "december lunedi martedi mercoledi giovedi venerdi sabato domenica monday tuesday wednesday "
     "thursday friday saturday sunday oggi domani dopodomani ieri stasera stanotte stamattina "
-    "stamani mezzanotte mezzogiorno today tomorrow tonight yesterday midnight noon"
+    "stamani mezzanotte mezzogiorno today tomorrow tonight yesterday midnight noon "
+    "domattina posdomani indomani stamane overnight eod cob alba dawn sunrise sunset tramonto "
+    "cena pranzo christmas xmas easter natale pasqua ferragosto capodanno finesettimana "
+    "decade decades century centuries decennio decenni secolo secoli lustro lustri biennio "
+    "bienni bimestre bimestri quadrimestre quadrimestri"
 )
+# Units written as two words: "un'ora" ("ora" alone is "now"), "end of business".
+_UNIT_PHRASES = re.compile(r"\b(?:un|una|mezz|mezza) ora\b|\b(?:end|close) of business\b")
 
 
 # Times of day are units too ("over the weekend", "entro la giornata"), except in a greeting:
@@ -505,7 +572,7 @@ _GREETING_ADJECTIVES = word_set(
 
 def _unit_words(form: str) -> list[str]:
     tokens = form.split()
-    return [
+    found = [
         word
         for index, word in enumerate(tokens)
         if word in UNIT_WORDS
@@ -515,6 +582,7 @@ def _unit_words(form: str) -> list[str]:
             and (index == 0 or tokens[index - 1] not in _GREETING_ADJECTIVES)
         )
     ]
+    return found + [m.group() for m in _UNIT_PHRASES.finditer(form)]
 
 
 def literal_units(text: str) -> list[str]:
@@ -604,8 +672,9 @@ def language_of(text: str) -> Lang | None:
 
 # ---- Numbers written with digits (grounding of the operator explanation) ----------------------
 
-# A leading separator is part of the number (".87"); any dash or minus sign right before the
-# digits is a sign (adversarial review of 13 Oct, finding 5).
+# A leading separator is part of the number (".87"); any dash or minus sign before the digits,
+# also with spaces between ("- 42.1"), is a sign (adversarial review of 13 Oct, finding 5; round
+# 2, finding R7).
 _NUMBER_RE = re.compile(r"(?<![0-9])(?:[.,](?=[0-9]))?[0-9]+(?:[.,][0-9]+)*")
 _MINUS_SIGNS = "−➖˗"
 
@@ -628,33 +697,42 @@ def parse_number(token: str) -> Decimal:
 
 def numbers_in_text(text: str) -> list[Decimal]:
     """Every number written with ASCII digits in the folded text (NFKC, no format characters),
-    negative when a dash or minus sign comes right before it."""
+    negative when a dash or minus sign comes before it, spaces aside."""
     folded = fold(text)
     found: list[Decimal] = []
     for match in _NUMBER_RE.finditer(folded):
         value = parse_number(match.group())
-        before = folded[match.start() - 1] if match.start() else ""
+        before = folded[: match.start()].rstrip()[-1:]
         negative = before != "" and (before in _MINUS_SIGNS or is_dash(before))
         found.append(-value if negative else value)
     return found
 
 
-# A number with a letter or a percent sign right after it ("42.1k", "0.87%"), a scale word after
-# it ("42.1 M", "42 mln"), or a sign word in a text with a number ("minus 42.1", "a loss of 42.1",
-# "un margine negativo di 42,1"): its value is not the value written, so it cannot be grounded.
+# A number with a letter or a percent sign right after it ("42.1k", "0.87%"), a scale or unit
+# word after it ("42.1 M", "42 mln", "42.1 grand", "42.1 kEUR", "42.1 percent"), a sign around
+# it ("(42.1)", "±42.1", "42.1-"), or a sign word in a text with a number ("minus 42.1", "a loss
+# of 42.1", "42.1 EUR owed"): its value is not the value written, so it cannot be grounded.
 _SUFFIXED_RE = re.compile(r"[0-9]+(?:[.,][0-9]+)*(?:[^\W\d_]+|[%‰‱×])")
-_SCALED_RE = re.compile(r"[0-9]\s*(?:k|m|mln|mld|mrd|mn|bn|mio)\b")
+_SCALED_RE = re.compile(
+    r"[0-9]\s*(?:k|m|b|mln|mld|mrd|mn|bn|mio|mil|mill|grand|[kmb]eur|percent|per cent|percento"
+    r"|per cento|bps?|pp|basis points?|punti base|punti percentuali)\b"
+)
+_SIGNED_RE = re.compile(
+    r"\(\s*[0-9]+(?:[.,][0-9]+)*\s*\)|[±∓]\s*[0-9]|[0-9][-−➖˗‐‑‒–—―⁻](?![0-9a-z])"
+)
 _SIGN_WORDS_RE = re.compile(
-    r"\b(?:minus|meno|negativ[eoai]|loss|losses|perdit[ae]|deficit|disavanz[oi]"
-    r"|in the red|in rosso)\b"
+    r"\b(?:minus|meno|negativ[eoai]|loss|losses|lossmaking|perdit[ae]|deficit|disavanz[oi]"
+    r"|in the red|in rosso|owed|owes|owing|debit(?! cards?\b)|debits|debts?|debit[oi]"
+    r"|shortfall|lost|unprofitable)\b"
 )
 
 
 def number_modifiers(text: str) -> list[str]:
-    """Scale suffixes around numbers, and sign words in a text with a number; empty when every
-    number is plain."""
+    """Scale suffixes, unit words and signs around numbers, and sign words in a text with a
+    number; empty when every number is plain."""
     found: list[str] = []
-    for folded, pattern in ((fold(text), _SUFFIXED_RE), (fold(text, " "), _SCALED_RE)):
+    patterns = ((fold(text), _SUFFIXED_RE), (fold(text, " "), _SCALED_RE), (fold(text), _SIGNED_RE))
+    for folded, pattern in patterns:
         _add(found, (m.group().strip() for m in pattern.finditer(folded)))
     if _NUMBER_RE.search(fold(text)):
         for form in forms(text):
@@ -670,6 +748,7 @@ def other_numeric_characters(text: str) -> list[str]:
 # ---- Quadrant labels (adversarial review of 13 Oct, finding 3) --------------------------------
 
 _QUADRANT_RE = re.compile(r"(?<![a-z0-9])q[\s_‐‑‒–—-]*([1-4])(?![0-9])")
+_QUADRANT_ROMAN_RE = re.compile(r"(?<![a-z0-9])q[\s_‐‑‒–—-]?(iv|iii|ii|i)(?![a-z0-9])")
 _QUADRANT_WORD_RE = re.compile(
     r"\bquadrant[ei]?[\s:#]*(?:no\.?\s*|number\s+)?"
     r"([1-4]|one|two|three|four|uno|due|tre|quattro|iv|iii|ii|i)\b"
@@ -687,12 +766,63 @@ _QUADRANT_OF = {
 
 
 def quadrant_labels(text: str) -> list[str]:
-    """Quadrants named in the text ("Q4", "quadrant 4", "fourth quadrant"), in order."""
+    """Quadrants named in the text ("Q4", "QIV", "quadrant 4", "fourth quadrant"), in order."""
     folded = fold(text, " ")
     found: list[str] = []
-    patterns = (_QUADRANT_RE, _QUADRANT_WORD_RE, _QUADRANT_ORDINAL_RE)
+    patterns = (_QUADRANT_RE, _QUADRANT_ROMAN_RE, _QUADRANT_WORD_RE, _QUADRANT_ORDINAL_RE)
     matches = sorted((m for p in patterns for m in p.finditer(folded)), key=lambda m: m.start())
     return _add(found, (_QUADRANT_OF[m.group(1)] for m in matches))
+
+
+# Quadrants described by their axes ("the high-risk, low-value quadrant") or by their place in the
+# matrix ("top left"); restrictions named in words (round 2, finding R2).
+_HIGH = "high|higher|highest|elevated|alt[oaie]|elevat[oaie]"
+_LOW = "low|lower|lowest|bass[oaie]|scars[oaie]"
+_AXIS = {"risk": "risk", "rischio": "risk", "value": "value", "valore": "value"}
+_AXIS_RE = re.compile(
+    rf"\b(?:(?P<level>{_HIGH}|{_LOW}) (?P<axis>risk|value|rischio|valore)"
+    rf"|(?P<axis2>risk|value|rischio|valore) (?:is |e )?(?P<level2>{_HIGH}|{_LOW}))\b"
+)
+QUADRANT_AXES: dict[str, frozenset[str]] = {
+    "Q1": frozenset({"risk:low", "value:high"}),
+    "Q2": frozenset({"risk:low", "value:low"}),
+    "Q3": frozenset({"risk:high", "value:high"}),
+    "Q4": frozenset({"risk:high", "value:low"}),
+}
+_POSITION_RE = re.compile(
+    r"\b(?:top|bottom|upper|lower) (?:left|right)\b"
+    r"|\b(?:in )?(?:alto|basso) a (?:destra|sinistra)\b"
+)
+RESTRICTION_STEMS: tuple[str, ...] = ("restrict", "restrizion", "restritt")
+_NEGATION_WORDS = word_set("no not t non without senza nessun nessuna nessuno never neither nor")
+_CLAUSE_RE = re.compile(r"[.!?;:,\n]+")
+
+
+def quadrant_axes(text: str) -> list[str]:
+    """Risk and value levels named in the text, as "risk:high", "value:low"..."""
+    found: list[str] = []
+    for match in _AXIS_RE.finditer(_letters_only(fold(text, " "))):
+        axis = _AXIS[match["axis"] or match["axis2"]]
+        level = match["level"] or match["level2"]
+        _add(found, [f"{axis}:{'high' if re.fullmatch(_HIGH, level) else 'low'}"])
+    return found
+
+
+def quadrant_positions(text: str) -> list[str]:
+    """Places in the matrix named in the text ("top left", "in alto a destra")."""
+    return [m.group() for m in _POSITION_RE.finditer(_letters_only(fold(text, " ")))]
+
+
+def restriction_words(text: str) -> list[str]:
+    """Words for a restriction ("restrictive", "restricted", "restrizioni") in a clause without a
+    negation ("no restrictive levers", "without a score or restrictive levers" and
+    "restrictions do not apply" are not claims of a restriction)."""
+    found: list[str] = []
+    for clause in _CLAUSE_RE.split(fold(text, " ")):
+        tokens = _letters_only(clause).split()
+        if not any(t in _NEGATION_WORDS for t in tokens):
+            _add(found, (t for t in tokens if t.startswith(RESTRICTION_STEMS)))
+    return found
 
 
 def strip_tokens(text: str, tokens: Iterable[str]) -> str:

@@ -3,15 +3,21 @@
 - Five read-only tools over an injected data-access protocol (CaseReader): get_case, get_orders,
   get_cluster, get_score_factors, get_policy_text. The protocol has no write method.
 - At most MAX_TOOL_CALLS tool calls per question, counted by the ToolBox; unknown tools count too.
-- A request to change anything is refused before any tool or model call.
+- A request to change anything is refused before any tool or model call. Each sentence of the
+  question is checked on its own ("What is this case? Approve it." is a request), also with
+  digits read as letters and dashes joined ("appr0ve", "dis-able").
 - Every answer lists the evidence consulted, the evidence missing and the ids it cites (orders,
   links, clusters), all collected by code from the tool results, never from the model.
 - MockAgent answers the three questions of US-702 deterministically from tool results only.
 - VllmAgent uses Gemma tool calling with the same tools and limits. An answer is replaced by a
   list of the evidence consulted when it names a banned term (same-person synonyms included), a
-  decision verb (approve, reject, block...), a recommendation, a number written in letters, or a
-  number absent from the tool results (integers exactly, decimals possibly rounded to the digits
-  written, no sign flip or scale suffix). Adversarial review of 13 Oct, finding 7.
+  decision verb (approve, reject, block...), a recommendation, an action (an imperative, an
+  obligation such as "must be disabled", a claim that something was done such as "done" or
+  "now off"), a letter of another script, a number written in letters, or a number absent from
+  the tool results (integers exactly, decimals possibly rounded to the digits written, no sign
+  flip or scale suffix). A number in a clause that names a record (a link, a cluster, an order,
+  the case) must be a value of that record. Adversarial review of 13 Oct, finding 7, and round
+  2, finding R4.
 """
 
 from __future__ import annotations
@@ -19,6 +25,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import re
+import unicodedata
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
@@ -31,6 +38,8 @@ from llm.text import (
     PRONOUN_NUMBERS,
     banned_terms,
     decision_wording,
+    foreign_letters,
+    forms,
     number_modifiers,
     number_words,
     numbers_in_text,
@@ -156,14 +165,15 @@ REFUSAL = (
     "view, with a reason in the audit log."
 )
 
-# ---- Write requests (LLM-07; adversarial review of 13 Oct, finding 7) -------------------------
+# ---- Write requests (LLM-07; adversarial review of 13 Oct, finding 7; round 2, finding R4) ----
 
 _EN_WRITE_VERBS = (
     "approve reject deny change modify edit update set apply override delete remove add create "
     "insert cancel block unblock enable disable grant revoke refund send email dispute mark "
     "unmark assign lower raise increase decrease reset close reopen write save confirm flag "
     "unflag restore merge unlink ban allow waive issue move force ignore bypass forget turn "
-    "switch stop toggle activate deactivate suspend revert undo rollback dismiss split notify"
+    "switch stop toggle activate deactivate suspend revert undo rollback dismiss split notify "
+    "accept blacklist shut kill proceed keep"
 )
 _IT_WRITE_VERBS = (
     "approva approvare rifiuta rifiutare nega negare cambia cambiare modifica modificare aggiorna "
@@ -175,21 +185,41 @@ _IT_WRITE_VERBS = (
     "chiudere riapri riaprire scrivi scrivere salva salvare conferma confermare ripristina "
     "ripristinare sposta spostare forza forzare togli togliere metti mettere ignora ignorare "
     "dimentica dimenticare spegni spegnere accendi accendere ferma fermare sospendi sospendere "
-    "riducete"
+    "riducete accetta accettare respingi respingere leva levare procedi procedere mantieni "
+    "mantenere"
 )
 _ITALIAN_INFINITIVES = [w for w in _IT_WRITE_VERBS.split() if w.endswith(("are", "ere", "ire"))]
 # Imperatives in the second person plural ("disattivate", "togliete", "rimuovete").
 _IT_PLURAL_IMPERATIVES = " ".join(
     w[:-3] + {"a": "ate", "e": "ete", "i": "ite"}[w[-3]] for w in _ITALIAN_INFINITIVES
 )
-_WRITE_VERBS = word_set(f"{_EN_WRITE_VERBS} {_IT_WRITE_VERBS} {_IT_PLURAL_IMPERATIVES}")
+
+
+def _first_plural(infinitive: str) -> str:
+    """The first person plural, also an imperative ("blocchiamo", "togliamo", "disattiviamo")."""
+    stem = infinitive[:-3]
+    if infinitive.endswith("are") and stem.endswith(("c", "g")):
+        stem += "h"
+    return stem + ("amo" if stem.endswith("i") else "iamo")
+
+
+_IT_FIRST_PLURALS = " ".join(_first_plural(w) for w in _ITALIAN_INFINITIVES)
+_WRITE_VERBS = word_set(
+    f"{_EN_WRITE_VERBS} {_IT_WRITE_VERBS} {_IT_PLURAL_IMPERATIVES} {_IT_FIRST_PLURALS}"
+)
+# "okay" is a verb only with an object ("okay the return"), not as "Okay, what is...".
+_OBJECT_VERBS = word_set("okay")
+_DETERMINERS = word_set(
+    "the this that these those it them all every il lo la i gli le questo questa questi queste"
+)
 # Past participles ask for a change ("Sara wants coupons disabled") unless a state auxiliary comes
 # right before them ("were disabled", "è stato approvato"): then they describe the case.
 _EN_PARTICIPLES = (
     "approved rejected denied changed modified updated overridden deleted removed cancelled "
     "canceled blocked unblocked enabled disabled granted revoked refunded reset lowered raised "
     "reopened flagged unflagged restored merged unlinked banned waived forced bypassed turned "
-    "switched stopped toggled activated deactivated suspended reverted dismissed notified"
+    "switched stopped toggled activated deactivated suspended reverted dismissed notified "
+    "accepted blacklisted okayed killed"
 )
 # Italian participles of the -are and -ire verbs ("disattivati", "approvato"), and a few irregular.
 _IT_PARTICIPLES = " ".join(
@@ -200,7 +230,8 @@ _IT_PARTICIPLES = " ".join(
 )
 _IT_IRREGULAR_PARTICIPLES = (
     "rimosso rimossa rimossi rimosse concesso concessa concessi concesse tolto tolta tolti tolte "
-    "sospeso sospesa sospesi sospese spento spenta spenti spente"
+    "sospeso sospesa sospesi sospese spento spenta spenti spente respinto respinta respinti "
+    "respinte"
 )
 _WRITE_PARTICIPLES = word_set(f"{_EN_PARTICIPLES} {_IT_PARTICIPLES} {_IT_IRREGULAR_PARTICIPLES}")
 _STATE_AUXILIARIES = word_set(
@@ -216,6 +247,10 @@ _QUESTION_WORDS = word_set(
     "what which why how who when where whose does did is are was were has have had "
     "cosa che quale quali perche come chi quando dove quanto quanti quante qual cos"
 )
+# Auxiliaries open a question only in a sentence that ends with "?": "Have the coupons been
+# disabled?" is a question, "Have the coupons disabled." is a request.
+_AUX_QUESTION_WORDS = word_set("does did is are was were has have had")
+_QUESTION_SENTENCE_RE = re.compile(r"[^.?!;\n]+[.?!;\n]*")
 
 
 # The agent never recommends a decision (spec 8.8): advice in an answer is not verified.
@@ -234,6 +269,9 @@ def _first_write_cue(tokens: Sequence[str]) -> int | None:
     for index, token in enumerate(tokens):
         if token in _WRITE_VERBS:
             return index
+        following = tokens[index + 1] if index + 1 < len(tokens) else ""
+        if token in _OBJECT_VERBS and following in _DETERMINERS:
+            return index
         if token in _WRITE_PARTICIPLES and (
             index == 0 or tokens[index - 1] not in _STATE_AUXILIARIES
         ):
@@ -241,13 +279,7 @@ def _first_write_cue(tokens: Sequence[str]) -> int | None:
     return None
 
 
-def is_write_request(question: str) -> bool:
-    """True when the question asks to change something (or to ignore the rules): it names a
-    write verb, or a participle that asks for a change, and no question word comes between the
-    last request marker ("can you", "please") and that verb. "Why was it disabled?" and "Can you
-    tell me why it was disabled?" are questions; "Turn off coupons", "Can the coupons be turned
-    off?" and "Sara wants coupons disabled" are requests."""
-    tokens = words(question)
+def _sentence_requests(tokens: Sequence[str], asked: bool) -> bool:
     cue = _first_write_cue(tokens)
     if cue is None:
         return False
@@ -260,8 +292,91 @@ def is_write_request(question: str) -> bool:
         ),
         default=-1,
     )
-    question_word = max((i for i in range(cue) if tokens[i] in _QUESTION_WORDS), default=-1)
+    question_word = max(
+        (
+            i
+            for i in range(cue)
+            if tokens[i] in _QUESTION_WORDS and (asked or tokens[i] not in _AUX_QUESTION_WORDS)
+        ),
+        default=-1,
+    )
     return question_word < 0 or marker >= question_word
+
+
+def is_write_request(question: str) -> bool:
+    """True when a sentence of the question asks to change something (or to ignore the rules):
+    it names a write verb, or a participle that asks for a change, and no question word comes
+    between the last request marker ("can you", "please") and that verb. "Why was it disabled?"
+    and "Can you tell me why it was disabled?" are questions; "Turn off coupons", "Can the
+    coupons be turned off?", "Sara wants coupons disabled" and "What is this case? Approve it."
+    are requests. Every letter form is checked: digits read as letters, dashes joined."""
+    text = unicodedata.normalize("NFKC", question)
+    for match in _QUESTION_SENTENCE_RE.finditer(text):
+        sentence = match.group()
+        asked = "?" in sentence
+        if any(_sentence_requests(form.split(), asked) for form in forms(sentence, leet=True)):
+            return True
+    return False
+
+
+# ---- Actions in an answer (round 2, finding R4) -----------------------------------------------
+
+# An answer never acts, asks to act or says it acted: a write verb that opens a clause ("Turn off
+# coupons", "Go ahead and refund"), a write verb after a modal ("you can disable"), an obligation
+# ("must be disabled", "è meglio togliere") or a completion ("Done", "now off", "I have
+# disabled") sends the answer to the fallback.
+_ANSWER_CLAUSE_RE = re.compile(r"[.;:!?\n,]+|\b(?:and|then|e|poi)\b", re.IGNORECASE)
+_SOFTENERS = word_set(
+    "please now just simply kindly also then so ok okay go ahead per favore adesso ora quindi "
+    "allora anche subito"
+)
+_MODALS = word_set(
+    "to can could may might will would shall should must let lets puoi potete possiamo devi "
+    "dovete dobbiamo"
+)
+_OBLIGATION_RE = re.compile(
+    r"\b(?:must|need to|needs to|needed to|have to|has to|had to|should|ought|required to"
+    r"|better to|bisogna|occorre|vanno|meglio|deve|devono|dovrebbe|dovrebbero|necessari[oa])\b"
+)
+_COMPLETION_RE = re.compile(
+    r"\b(?:done|fatto|fatta|completed|completat[oaie]|eseguit[oaie]"
+    r"|now (?:off|on|disabled|enabled|active|inactive|removed|blocked|unblocked|approved|rejected)"
+    r"|ora (?:disattivat|attivat|spent|accesi|rimoss|bloccat|approvat)\w*)\b"
+)
+_FIRST_PERSON = word_set("i we")
+_PERFECT_AUXILIARIES = word_set("have ve had just")
+_ITALIAN_PERFECT = word_set("ho abbiamo")
+
+
+def _clause_actions(tokens: Sequence[str]) -> list[str]:
+    found: list[str] = []
+    start = 0
+    while start < len(tokens) and tokens[start] in _SOFTENERS:
+        start += 1
+    if start < len(tokens) and tokens[start] in _WRITE_VERBS:
+        found.append(tokens[start])
+    for index in range(1, len(tokens)):
+        token, before = tokens[index], tokens[index - 1]
+        if token in _WRITE_VERBS and before in _MODALS:
+            found.append(f"{before} {token}")
+        first_person = before in _ITALIAN_PERFECT or (
+            before in _PERFECT_AUXILIARIES and index > 1 and tokens[index - 2] in _FIRST_PERSON
+        )
+        if token in _WRITE_PARTICIPLES and first_person:
+            found.append(f"{before} {token}")
+    return found
+
+
+def answer_actions(text: str) -> list[str]:
+    """Imperatives, obligations and claims of an action taken, in every letter form."""
+    found: list[str] = []
+    for clause in _ANSWER_CLAUSE_RE.split(unicodedata.normalize("NFKC", text)):
+        for form in forms(clause, leet=True):
+            found += [cue for cue in _clause_actions(form.split()) if cue not in found]
+    for form in forms(text, leet=True):
+        for pattern in (_OBLIGATION_RE, _COMPLETION_RE):
+            found += [m.group() for m in pattern.finditer(form) if m.group() not in found]
+    return found
 
 
 # ---- Tools --------------------------------------------------------------------------------------
@@ -605,27 +720,118 @@ def _collect(value: Any, numbers: list[Decimal], ids: list[str]) -> None:
         ids.append(value)
 
 
+# Records of the tool results, by the first key of their JSON object: a number in a clause that
+# names a record id must be a value of that record (round 2, finding R4: "Link L-102 has 1 shared
+# event" is not grounded by the cluster's 1.0 welcome coupons per account).
+_RECORD_KINDS = {
+    "case_id": "case",
+    "order_id": "order",
+    "cluster_id": "cluster",
+    "link_id": "link",
+    "feature": "factor",
+    "version": "policy",
+}
+# Words that bring another kind of record into a clause already about a named record.
+_KIND_WORDS = {
+    "case": "case",
+    "order": "order",
+    "orders": "order",
+    "terms": "order",
+    "cluster": "cluster",
+    "clusters": "cluster",
+    "account": "cluster",
+    "accounts": "cluster",
+    "link": "link",
+    "links": "link",
+    "factor": "factor",
+    "factors": "factor",
+    "score": "factor",
+    "policy": "policy",
+}
+_ANSWER_SENTENCE_RE = re.compile(r"(?<=[.!?])\s+|\n+")
+_GROUNDING_CLAUSE_RE = re.compile(r"[;:()\[\]]|,(?=\s)")
+
+
+@dataclass(frozen=True)
+class _Record:
+    kind: str
+    id: str | None
+    numbers: tuple[Decimal, ...]
+
+
+def _record_kind(value: Any) -> str | None:
+    return _RECORD_KINDS.get(next(iter(value), "")) if isinstance(value, dict) else None
+
+
+def _own_numbers(value: Any, numbers: list[Decimal]) -> None:
+    """Numbers of a record, without those of the records nested in it (a cluster's links)."""
+    if isinstance(value, dict):
+        value = list(value.values())
+    if isinstance(value, list):
+        for item in value:
+            if _record_kind(item) is None:
+                _own_numbers(item, numbers)
+    elif isinstance(value, int | float) and not isinstance(value, bool):
+        numbers.append(Decimal(str(value)))
+
+
+def _records(value: Any, found: list[_Record]) -> None:
+    kind = _record_kind(value)
+    if kind is not None:
+        key = next(iter(value))
+        numbers: list[Decimal] = []
+        _own_numbers(value, numbers)
+        found.append(
+            _Record(kind, str(value[key]) if key.endswith("_id") else None, tuple(numbers))
+        )
+    if isinstance(value, dict):
+        value = list(value.values())
+    if isinstance(value, list):
+        for item in value:
+            _records(item, found)
+
+
+def _matches(written: Decimal, numbers: Sequence[Decimal]) -> bool:
+    exponent = written.as_tuple().exponent
+    if isinstance(exponent, int) and exponent < 0:
+        step = Decimal(1).scaleb(exponent)
+        return any(n.quantize(step, rounding=ROUND_HALF_UP) == written for n in numbers)
+    return any(n == written for n in numbers)
+
+
+def _names(clause: str, record_id: str) -> bool:
+    pattern = rf"(?<![\w-]){re.escape(record_id)}(?![\w-])"
+    return re.search(pattern, unicodedata.normalize("NFKC", clause), re.IGNORECASE) is not None
+
+
 def grounded_in(answer: str, results: Sequence[Any], case_id: str) -> bool:
     """Every number in the answer is a number of the tool results: an integer as written must
     be equal to one, a decimal may be one rounded to the decimals written. Identifiers and dates
-    of the results are removed first; a number with a scale suffix or a sign word, or written
-    in letters, is never grounded."""
+    of the results are removed first; a number with a scale suffix, a sign or a sign word, or
+    written in letters, is never grounded. Within a sentence, from the first clause that names a
+    record (a link, a cluster, an order, the case), numbers must be values of the records the
+    clause names, or of the kinds of record it mentions ("cluster of 7 linked accounts")."""
     numbers: list[Decimal] = []
     ids: list[str] = [case_id]
+    records: list[_Record] = []
     for result in results:
         _collect(result, numbers, ids)
+        _records(result, records)
     text = strip_tokens(answer, ids)
     if number_modifiers(text) or number_words(text, "en", skip=ANSWER_SKIPPED_NUMBER_WORDS):
         return False
-    for written in numbers_in_text(text):
-        exponent = written.as_tuple().exponent
-        if isinstance(exponent, int) and exponent < 0:
-            step = Decimal(1).scaleb(exponent)
-            matches = (n.quantize(step, rounding=ROUND_HALF_UP) == written for n in numbers)
-        else:
-            matches = (n == written for n in numbers)
-        if not any(matches):
-            return False
+    for sentence in _ANSWER_SENTENCE_RE.split(answer):
+        scope: list[Decimal] | None = None  # None: any number of the results
+        for clause in _GROUNDING_CLAUSE_RE.split(sentence):
+            named = [r for r in records if r.id is not None and _names(clause, r.id)]
+            kinds = {_KIND_WORDS[w] for w in words(strip_tokens(clause, ids)) if w in _KIND_WORDS}
+            kinds -= {r.kind for r in named}
+            if named or (kinds and scope is not None):
+                chosen = named + [r for r in records if r.kind in kinds]
+                scope = [n for r in chosen for n in r.numbers]
+            pool = numbers if scope is None else scope
+            if not all(_matches(n, pool) for n in numbers_in_text(strip_tokens(clause, ids))):
+                return False
     return True
 
 
@@ -695,6 +901,8 @@ class VllmAgent:
             banned_terms(content)
             or decision_wording(content)
             or advice(content)
+            or answer_actions(content)
+            or foreign_letters(content)
             or not grounded_in(content, results, case_id)
         ):
             return self._fallback(question, tb, "the answer could not be verified")

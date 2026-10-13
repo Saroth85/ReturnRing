@@ -6,9 +6,11 @@ Every error carries a code and the action of the 8.7 table:
 - BLOCK: a bug in the code (the case does not match the engine decision); nothing is shown.
 The model never changes the decision (CLAUDE.md rule 1). Numbers in the operator explanation are
 grounded only on code-built facts the statement cites; customer text, policy text and identifiers
-never feed grounding. A statement that names a quadrant or a lever value other than the engine's
-is a decision echo mismatch. The customer message is connective text only: terms and decisions
-written in words are rejected (adversarial review of 13 Oct).
+never feed grounding. A statement that names a quadrant, a lever value or a restriction other than
+the engine's is a decision echo mismatch, and a statement with a letter of another script is
+regenerated (adversarial review of 13 Oct, rounds 1 and 2). The model writes no customer prose:
+it picks phrasebook sentence ids, which must be known, unique, in their slot and allowed for the
+decision (llm/phrasebook.py, round 2, finding R1).
 """
 
 from __future__ import annotations
@@ -21,38 +23,40 @@ from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstraints
 
 from contracts.levers import LEVERS, LeverError, format_lever_id
 from llm.decision import ExpectedDecision
-from llm.messages import placeholder_problems, strip_placeholders
+from llm.phrasebook import (
+    MAX_SENTENCES,
+    MIN_SENTENCES,
+    PHRASEBOOK,
+    context_of,
+    selection_problems,
+)
 from llm.text import (
-    LANGS,
     PRONOUN_NUMBERS,
-    Lang,
+    QUADRANT_AXES,
     banned_terms,
     fold,
+    foreign_letters,
     is_dash,
     language_of,
-    legal_wording,
-    literal_numbers,
-    literal_units,
     number_modifiers,
     number_words,
     numbers_in_text,
     other_numeric_characters,
+    quadrant_axes,
     quadrant_labels,
+    quadrant_positions,
+    restriction_words,
     strip_tokens,
-    terms_wording,
-    word_count,
     word_set,
 )
 
-MAX_CUSTOMER_WORDS = 120
 MAX_STATEMENTS = 8
 MAX_FACTS_PER_STATEMENT = 4
 MAX_STATEMENT_CHARS = 300
-MAX_MESSAGE_CHARS = 900
 MAX_LEVER_IDS = 9
 # Facts that are model outputs: an OBSERVED statement may not cite them.
 SCORE_METRICS = frozenset({"risk_score"})
@@ -76,20 +80,15 @@ class Code(StrEnum):
     LABEL_MISMATCH = "LABEL_MISMATCH"
     UNGROUNDED_NUMBER = "UNGROUNDED_NUMBER"
     BANNED_TERM = "BANNED_TERM"
-    LITERAL_NUMBER = "LITERAL_NUMBER"
-    LITERAL_UNIT = "LITERAL_UNIT"
-    LEGAL_WORDING = "LEGAL_WORDING"
-    TERMS_WORDING = "TERMS_WORDING"
-    PLACEHOLDER_SYNTAX = "PLACEHOLDER_SYNTAX"
-    PLACEHOLDER_UNAVAILABLE = "PLACEHOLDER_UNAVAILABLE"
-    TERMS_MISSING = "TERMS_MISSING"
+    SCRIPT = "SCRIPT"
+    SENTENCE_ID = "SENTENCE_ID"
     WRONG_LANGUAGE = "WRONG_LANGUAGE"
-    TOO_LONG = "TOO_LONG"
 
 
-# The 8.7 table: echo (also a quadrant or lever named in the explanation) -> template; numbers,
-# banned terms, terms or decisions in words, language and length -> regenerate, then template;
-# the legal clause and any mismatch between case and decision -> blocking error.
+# The 8.7 table: echo (also a quadrant, lever value or restriction named in the explanation) ->
+# template; numbers, banned terms, letters of other scripts, phrasebook ids and language ->
+# regenerate, then template; the legal clause and any mismatch between case and decision ->
+# blocking error.
 ACTIONS: dict[Code, Action] = {
     Code.SCHEMA: Action.REGENERATE,
     Code.CASE_INVALID: Action.BLOCK,
@@ -99,15 +98,9 @@ ACTIONS: dict[Code, Action] = {
     Code.LABEL_MISMATCH: Action.REGENERATE,
     Code.UNGROUNDED_NUMBER: Action.REGENERATE,
     Code.BANNED_TERM: Action.REGENERATE,
-    Code.LITERAL_NUMBER: Action.REGENERATE,
-    Code.LITERAL_UNIT: Action.REGENERATE,
-    Code.LEGAL_WORDING: Action.REGENERATE,
-    Code.TERMS_WORDING: Action.REGENERATE,
-    Code.PLACEHOLDER_SYNTAX: Action.REGENERATE,
-    Code.PLACEHOLDER_UNAVAILABLE: Action.REGENERATE,
-    Code.TERMS_MISSING: Action.REGENERATE,
+    Code.SCRIPT: Action.REGENERATE,
+    Code.SENTENCE_ID: Action.REGENERATE,
     Code.WRONG_LANGUAGE: Action.REGENERATE,
-    Code.TOO_LONG: Action.REGENERATE,
 }
 
 
@@ -129,6 +122,15 @@ FactId = Annotated[str, StringConstraints(min_length=1, max_length=4)]
 LeverId = Annotated[str, StringConstraints(min_length=1, max_length=40)]
 
 
+def _known_sentence(sentence_id: str) -> str:
+    if sentence_id not in PHRASEBOOK:
+        raise ValueError(f"unknown sentence id {sentence_id!r}")
+    return sentence_id
+
+
+SentenceId = Annotated[str, AfterValidator(_known_sentence)]  # the enum of the JSON schema
+
+
 class DecisionEcho(BaseModel):
     model_config = ConfigDict(extra="forbid")
     path: Literal["withdrawal", "guarantee"]
@@ -144,9 +146,10 @@ class Statement(BaseModel):
 
 
 class CustomerMessage(BaseModel):
+    """Phrasebook ids only: code writes the message (llm/phrasebook.py)."""
+
     model_config = ConfigDict(extra="forbid")
-    it: str = Field(min_length=1, max_length=MAX_MESSAGE_CHARS)
-    en: str = Field(min_length=1, max_length=MAX_MESSAGE_CHARS)
+    sentence_ids: list[SentenceId] = Field(min_length=MIN_SENTENCES, max_length=MAX_SENTENCES)
 
 
 class LlmOutput(BaseModel):
@@ -236,98 +239,188 @@ def _identifiers(case: Mapping[str, Any], expected: ExpectedDecision) -> list[st
     return ids
 
 
-# ---- Levers named in the operator explanation (adversarial review of 13 Oct, finding 3) -------
+# ---- Levers named in the operator explanation (adversarial review of 13 Oct, finding 3; round 2,
+# finding R2) -------------------------------------------------------------------------------------
 
-# Lever names: the catalogue id as words ("instant refund") and a few aliases. A name followed by
-# a value ("instant_refund:false", "instant refund is off", "return window of 30 days") or
-# preceded by a negation ("no instant refund") is a claim about the decision.
+# Lever names: the catalogue id as words ("instant refund"), its camelCase form ("instantRefund")
+# and a few aliases, in English and Italian. A name followed by a value ("instant_refund:false",
+# "instant refund is off", "return window of 30 days") or preceded by one ("no instant refund",
+# "the customer keeps instant refund") is a claim about the decision. A negation inverts the value
+# ("coupons are not disabled" claims coupons_enabled:true); a value that cannot be read, or that
+# is contradicted right after ("false? No, true"), is the unknown value "?", never the engine's.
 _LEVER_ALIASES: dict[str, tuple[str, ...]] = {
-    "return_window_days": ("return window",),
-    "free_return_shipping": ("return shipping",),
-    "instant_refund": ("instant refunds",),
-    "free_size_exchange": ("size exchange", "size exchanges"),
-    "coupons_enabled": ("coupons", "coupon", "discount codes", "discount code"),
-    "priority_size_exchange": ("priority exchange",),
+    "return_window_days": ("return window", "finestra di reso", "finestra reso"),
+    "free_return_shipping": ("return shipping", "spedizione del reso", "spedizione reso"),
+    "instant_refund": ("instant refunds", "rimborso istantaneo", "rimborsi istantanei"),
+    "free_size_exchange": ("size exchange", "size exchanges", "cambio taglia", "cambi taglia"),
+    "coupons_enabled": (
+        "coupons",
+        "coupon",
+        "discount codes",
+        "discount code",
+        "codici sconto",
+        "codice sconto",
+    ),
+    "priority_size_exchange": ("priority exchange", "cambio taglia prioritario"),
+    "transparency_notice": ("avviso di trasparenza",),
+    "size_advice": ("consiglio di taglia", "consiglio taglia"),
 }
-_LEVER_NAMES: tuple[tuple[tuple[str, ...], str], ...] = tuple(
+# Names whose values are the opposite of the lever id ("cluster coupons disabled" is true when the
+# lever cluster_coupons_disabled is true, "cluster coupons enabled" when it is false).
+_INVERTED_ALIASES: dict[str, tuple[str, ...]] = {
+    "cluster_coupons_disabled": ("cluster coupons", "coupon del cluster"),
+}
+_LEVER_NAMES: tuple[tuple[tuple[str, ...], str, bool], ...] = tuple(
     sorted(
-        (
-            (tuple(name.split()), lever.id)
+        [
+            (tuple(name.split()), lever.id, False)
             for lever in LEVERS
             for name in (lever.id.replace("_", " "), *_LEVER_ALIASES.get(lever.id, ()))
-        ),
+        ]
+        + [
+            (tuple(name.split()), lever_id, True)
+            for lever_id, names in _INVERTED_ALIASES.items()
+            for name in names
+        ],
         key=lambda item: -len(item[0]),
     )
 )
 _INTEGER_LEVERS = frozenset(lever.id for lever in LEVERS if lever.value_type == "integer")
-_TRUE_WORDS = word_set("true yes on enabled enable active available allowed granted kept")
+UNKNOWN = "?"
+_TRUE_WORDS = word_set(
+    "true yes on enabled enable active available allowed granted kept vero attivo attiva attivi "
+    "attive abilitato abilitata abilitati acceso accesa disponibile disponibili"
+)
 _FALSE_WORDS = word_set(
-    "false no not off disabled disable inactive unavailable removed blocked withdrawn revoked "
-    "denied suspended"
+    "false off disabled disable inactive unavailable removed blocked withdrawn revoked denied "
+    "suspended falso disattivato disattivata disattivati disabilitato disabilitata spento spenta "
+    "rimosso rimossa tolto tolta"
 )
-_TRUE_BEFORE = word_set("enabled granted")
-_FALSE_BEFORE = word_set("no without disabled removed revoked blocked withdrawn")
+_NEGATIONS = word_set("not no never non")
+# Words right after a value that contradict it ("false? No, true").
+_CONTRADICTIONS = word_set("true false yes no not never vero falso")
+_TRUE_BEFORE = word_set("enabled granted keeps keep kept retains retain gets get regains")
+_FALSE_BEFORE = word_set(
+    "no without disabled removed revoked blocked withdrawn pays pay paid senza nessun nessuna"
+)
+_ARTICLES = word_set("the a an any its their for il lo la i gli le del della dello per")
+# The window changed in words ("shortened", "extended"): a claim whose value cannot be read.
+_CHANGE_WORDS = word_set(
+    "shortened reduced shorter cut extended longer lengthened increased raised decreased lowered "
+    "ridotta ridotto accorciata accorciato estesa esteso allungata allungato aumentata aumentato"
+)
 _FILLERS = word_set(
-    "is are was were be been set to now still at of the a an equal equals changed turned stay "
-    "stays remain remains lever levers code codes"
+    "is are was were be been being has have had set to now still at of the a an equal equals "
+    "changed turned switched kept stay stays remain remains lever levers code codes can could "
+    "will would shall should must may might do does did ca wo e resta restano rimane rimangono"
 )
-_FILLER_MARKS = frozenset(":=>→⇒")
+_KEEP_WORDS = word_set("kept")
+_FILLER_MARKS = frozenset(":=>→⇒()[]\"'`")
 _LEVER_TOKEN_RE = re.compile(r"[a-z]+|[0-9]+|[^\sa-z0-9]")
+_CAMEL_RE = re.compile(r"(?<=[a-z])(?=[A-Z])")
+_NOT_RE = re.compile(r"n['’]t\b")
+_CANNOT_RE = re.compile(r"\bcannot\b")
 
 
 def _lever_tokens(text: str) -> list[str]:
-    folded = "".join(" " if ch == "_" or is_dash(ch) else ch for ch in fold(text, " "))
+    folded = fold(_CAMEL_RE.sub(" ", text), " ")
+    folded = _CANNOT_RE.sub("can not", _NOT_RE.sub(" not", folded))
+    folded = "".join(" " if ch == "_" or is_dash(ch) else ch for ch in folded)
     return _LEVER_TOKEN_RE.findall(folded)
 
 
-def _value_after(tokens: Sequence[str], start: int, lever_id: str) -> int | bool | None:
-    index = start
+def _name_at(tokens: Sequence[str], index: int) -> tuple[tuple[str, ...], str, bool] | None:
+    return next(
+        (item for item in _LEVER_NAMES if tuple(tokens[index : index + len(item[0])]) == item[0]),
+        None,
+    )
+
+
+def _skip_fillers(tokens: Sequence[str], index: int) -> tuple[int, bool]:
+    kept = False
     while index < len(tokens) and (tokens[index] in _FILLERS or tokens[index] in _FILLER_MARKS):
+        kept = kept or tokens[index] in _KEEP_WORDS
         index += 1
+    return index, kept
+
+
+def _contradicted(tokens: Sequence[str], index: int) -> bool:
+    """A yes/no word right after a value, punctuation aside, that does not start a negated lever
+    name ("off, no instant refund")."""
+    while index < len(tokens) and not tokens[index].isalnum():
+        index += 1
+    if index >= len(tokens) or tokens[index] not in _CONTRADICTIONS:
+        return False
+    return _name_at(tokens, index + 1) is None
+
+
+def _value_after(tokens: Sequence[str], start: int, lever_id: str) -> str | None:
+    index, kept = _skip_fillers(tokens, start)
     token = tokens[index] if index < len(tokens) else ""
-    if lever_id in _INTEGER_LEVERS:
-        return int(token) if token.isdigit() else None
-    if token in _TRUE_WORDS:
-        return True
-    return False if token in _FALSE_WORDS else None
+    after = index + 1  # where a contradiction would start
+    if token in _NEGATIONS:
+        index, _ = _skip_fillers(tokens, after)
+        word = tokens[index] if index < len(tokens) else ""
+        if lever_id in _INTEGER_LEVERS:
+            return UNKNOWN
+        if word in _TRUE_WORDS:
+            value, after = "false", index + 1
+        elif word in _FALSE_WORDS:
+            value, after = "true", index + 1
+        elif not word.isalnum():  # "instant refund: no."
+            value, after = "false", index
+        else:
+            return UNKNOWN
+    elif lever_id in _INTEGER_LEVERS:
+        if not token.isdigit():
+            return UNKNOWN if token in _CHANGE_WORDS else None
+        value = token
+    elif token in _TRUE_WORDS:
+        value = "true"
+    elif token in _FALSE_WORDS:
+        value = "false"
+    elif kept:  # "instant refund is kept"
+        value, after = "true", index
+    else:
+        return None
+    return UNKNOWN if _contradicted(tokens, after) else value
 
 
-def _value_before(tokens: Sequence[str], start: int, lever_id: str) -> bool | None:
-    token = tokens[start - 1] if start > 0 else ""
+def _value_before(tokens: Sequence[str], start: int, lever_id: str) -> str | None:
+    index = start - 1
+    while index >= 0 and tokens[index] in _ARTICLES:
+        index -= 1
+    token = tokens[index] if index >= 0 else ""
     if lever_id in _INTEGER_LEVERS:
         return None
     if token in _TRUE_BEFORE:
-        return True
-    return False if token in _FALSE_BEFORE else None
+        return "true"
+    return "false" if token in _FALSE_BEFORE else None
+
+
+_INVERT = {"true": "false", "false": "true"}
 
 
 def lever_claims(text: str) -> list[str]:
-    """Lever values a text states, as "id:value" strings, for example "instant_refund:false".
-    A name whose id ends in "enabled" or "disabled" states the value true by itself."""
+    """Lever values a text states, as "id:value" strings, for example "instant_refund:false";
+    "?" when the value cannot be read. A name whose id ends in "enabled" or "disabled" states
+    the value true by itself."""
     tokens = _lever_tokens(text)
     claims: list[str] = []
     index = 0
     while index < len(tokens):
-        found = next(
-            (
-                (name, lever_id)
-                for name, lever_id in _LEVER_NAMES
-                if tuple(tokens[index : index + len(name)]) == name
-            ),
-            None,
-        )
+        found = _name_at(tokens, index)
         if found is None:
             index += 1
             continue
-        name, lever_id = found
+        name, lever_id, inverted = found
         value = _value_after(tokens, index + len(name), lever_id)
         if value is None:
             value = _value_before(tokens, index, lever_id)
         if value is None and name[-1] in ("enabled", "disabled"):
-            value = True
+            value = "true"
         if value is not None:
-            text_value = str(value).lower() if isinstance(value, bool) else str(value)
-            claims.append(f"{lever_id}:{text_value}")
+            claims.append(f"{lever_id}:{_INVERT.get(value, value) if inverted else value}")
         index += len(name)
     return claims
 
@@ -348,9 +441,15 @@ def _check_echo(echo: DecisionEcho, expected: ExpectedDecision) -> list[Validati
 def _check_mentions(
     where: str, text: str, entity_ids: Sequence[str], expected: ExpectedDecision
 ) -> list[ValidationIssue]:
-    """A quadrant or a lever value named in a statement must be the engine's."""
+    """A quadrant, by label or by its risk and value levels, and a lever value named in a
+    statement must be the engine's. Without restrictive levers (guarantee, insufficient
+    evidence, Q1, Q2), a restriction or a place in the matrix may not be named either."""
     named = strip_tokens(text, entity_ids)
     other = [label for label in quadrant_labels(named) if label != expected.quadrant]
+    axes = QUADRANT_AXES.get(expected.quadrant or "", frozenset())
+    other += [axis for axis in quadrant_axes(named) if axis not in axes]
+    if not expected.restrictive:
+        other += restriction_words(named) + quadrant_positions(named)
     other += [claim for claim in lever_claims(text) if claim not in expected.lever_ids]
     if other:
         return [_issue(Code.DECISION_ECHO, where, f"not the engine decision: {', '.join(other)}")]
@@ -386,6 +485,9 @@ def _check_statement(
     banned = banned_terms(statement.text)
     if banned:
         errors.append(_issue(Code.BANNED_TERM, where, ", ".join(banned)))
+    foreign = foreign_letters(strip_tokens(statement.text, entity_ids))
+    if foreign:
+        errors.append(_issue(Code.SCRIPT, where, "".join(foreign)))
     return errors
 
 
@@ -403,27 +505,11 @@ def _check_explanation(
     return errors
 
 
-def _check_customer(text: str, lang: Lang, expected: ExpectedDecision) -> list[ValidationIssue]:
-    where = f"customer_message.{lang}"
-    errors = [
-        _issue(Code(p.code), where, p.detail)
-        for p in placeholder_problems(text, expected.placeholders, expected.requires_terms)
-    ]
-    body = strip_placeholders(text)
-    checks = (
-        (Code.LITERAL_NUMBER, literal_numbers(body, lang)),
-        (Code.LITERAL_UNIT, literal_units(body)),
-        (Code.LEGAL_WORDING, legal_wording(body)),
-        (Code.TERMS_WORDING, terms_wording(body)),
-        (Code.BANNED_TERM, banned_terms(body)),
-    )
-    errors.extend(_issue(code, where, ", ".join(found)) for code, found in checks if found)
-    detected = language_of(body)
-    if detected != lang:
-        errors.append(_issue(Code.WRONG_LANGUAGE, where, f"detected {detected or 'unknown'}"))
-    if word_count(text) > MAX_CUSTOMER_WORDS:
-        errors.append(_issue(Code.TOO_LONG, where, f"more than {MAX_CUSTOMER_WORDS} words"))
-    return errors
+def _check_sentences(ids: Sequence[str], expected: ExpectedDecision) -> list[ValidationIssue]:
+    problems = selection_problems(ids, context_of(expected))
+    if problems:
+        return [_issue(Code.SENTENCE_ID, "customer_message.sentence_ids", "; ".join(problems))]
+    return []
 
 
 def validate(
@@ -441,9 +527,7 @@ def validate(
 
     errors = _check_echo(out.decision_echo, expected)
     errors += _check_explanation(out.operator_explanation, case, expected)
-    messages = {"it": out.customer_message.it, "en": out.customer_message.en}
-    for lang in LANGS:
-        errors += _check_customer(messages[lang], lang, expected)
+    errors += _check_sentences(out.customer_message.sentence_ids, expected)
     return ValidationResult(tuple(errors), None if errors else out)
 
 

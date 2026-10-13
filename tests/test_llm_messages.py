@@ -1,5 +1,6 @@
 """Deterministic customer messages: rendering from the Decision (LLM-8, LLM-10), the legal clause
-(LEG-06, LLM-11), templates (LLM-12) and the prompt of spec 19.D."""
+(LEG-06, LLM-11), templates (LLM-12) and the prompt of spec 19.D with the phrasebook amendment of
+ADR-14."""
 
 from __future__ import annotations
 
@@ -24,13 +25,13 @@ from llm.messages import (
     available_placeholders,
     format_amount,
     format_date,
-    placeholders_in,
     render,
     template_fields,
     term_phrases,
 )
+from llm.phrasebook import render_selection
 from llm.prompts import SYSTEM_PROMPT
-from llm.templates import customer_template, format_value, output_from_case, template_output
+from llm.templates import format_value, output_from_case, template_output
 from llm.text import LANGS, Lang, word_count
 from llm.validator import validate
 from policy.engine import decide
@@ -272,9 +273,9 @@ def test_llm12_every_template_validates_renders_and_stays_short(name: str) -> No
     assert result.ok, result.errors
     kind = required_clause(built.decision, BASE)
     for lang in LANGS:
-        text = output["customer_message"][lang]
-        assert set(placeholders_in(text)) <= built.expected.placeholders
-        final = render(text, built.decision, BASE, lang)
+        final = render_selection(
+            output["customer_message"]["sentence_ids"], built.decision, BASE, lang
+        )
         assert_clause(final, kind, lang)
         assert word_count(final) <= 120, (name, lang, word_count(final))
 
@@ -290,12 +291,6 @@ def test_templates_with_a_known_refund_still_validate() -> None:
     assert validate(template_output(built.case, built.expected), built.expected, built.case).ok
 
 
-def test_template_without_deadline_and_with_generic_terms() -> None:
-    texts = customer_template("Q2", {"terms"}, [])
-    assert "{deadline}" not in texts["en"] and "{terms}" in texts["en"]
-    assert texts["it"].startswith("Ciao, grazie per averci scritto. Abbiamo registrato")
-
-
 def test_format_value() -> None:
     assert format_value(42.1) == "42.1"
     assert format_value(0.87) == "0.87"
@@ -306,9 +301,31 @@ def test_format_value() -> None:
 # ---- Spec 19.D: the system prompt ----------------------------------------------------------------
 
 
-def test_system_prompt_is_the_text_of_spec_19d() -> None:
+# The phrasebook amendment of ADR-14 (round 2, finding R1) replaced the customer-message lines of
+# the 19.D draft: the model picks sentence ids and writes no customer prose. Until 19.D is
+# updated, every other line stays identical to the spec, and the replaced lines are exactly these.
+REPLACED_19D_LINES = (
+    "3. customer_message: a short, warm message",
+    "Rules for the customer message:",
+    "- Never write numbers, in digits or in words",
+    "- Never write about withdrawal rights",
+)
+ADDED_LINES = (
+    "3. customer_message: choose sentence_ids for a short, warm message",
+    "- Use only the letters a-z and the Italian accented vowels",
+)
+
+
+def test_system_prompt_is_the_text_of_spec_19d_with_the_phrasebook_amendment() -> None:
     section = _section("### D. Prompt di sistema di Gemma")
-    block = section.split("```text\n", 1)[1].split("\n```", 1)[0]
-    assert block == SYSTEM_PROMPT.rstrip()
-    for rule in ("<customer_text>", "linked accounts", "placeholders.required", "fact_ids"):
+    spec = [x for x in section.split("```text\n", 1)[1].split("\n```", 1)[0].splitlines() if x]
+    prompt = [x for x in SYSTEM_PROMPT.splitlines() if x]
+    removed = [line for line in spec if line not in prompt]
+    added = [line for line in prompt if line not in spec]
+    assert len(removed) == len(REPLACED_19D_LINES)
+    assert all(line.startswith(p) for line, p in zip(removed, REPLACED_19D_LINES, strict=True))
+    assert all(line.startswith(p) for line, p in zip(added, ADDED_LINES, strict=True))
+    assert [x for x in spec if x in prompt] == [x for x in prompt if x in spec]  # same order
+    for rule in ("<customer_text>", "linked accounts", "sentence_ids", "fact_ids"):
         assert rule in SYSTEM_PROMPT
+    assert "placeholders" not in SYSTEM_PROMPT  # code places them, the model never does

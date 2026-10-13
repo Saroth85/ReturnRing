@@ -20,10 +20,12 @@ from llm.client import (
     MockClient,
     VllmClient,
     VllmConfig,
+    case_output_schema,
     check_local_url,
     client_from_env,
     output_schema,
 )
+from llm.phrasebook import SENTENCE_IDS, allowed_sentences, context_of_case
 from llm.prompts import SYSTEM_PROMPT
 from tests.llm_factories import make
 
@@ -119,13 +121,39 @@ def test_complete_sends_a_guided_json_request(server: FakeServer) -> None:
     assert body["max_tokens"] == 321
     assert body["response_format"] == {
         "type": "json_schema",
-        "json_schema": {"name": "llm_output", "schema": output_schema(), "strict": True},
+        "json_schema": {
+            "name": "llm_output",
+            "schema": case_output_schema(CASE, output_schema()),
+            "strict": True,
+        },
     }
     assert "$schema" not in body["response_format"]["json_schema"]["schema"]
     system, user = body["messages"]
     assert system == {"role": "system", "content": SYSTEM_PROMPT}
     assert user["role"] == "user"
-    assert json.loads(user["content"].split("\n", 1)[1]) == CASE
+    assert json.loads(user["content"].split("\n")[1]) == CASE
+    assert (
+        "- INFO_TERMS: Questions about these terms? Just reply to this message." in user["content"]
+    )
+    assert "OPEN_SORRY_ITEM" not in user["content"]  # a guarantee sentence, not for this case
+
+
+@pytest.mark.parametrize("name", ["Q4_cluster", "Q2", "guarantee", "insufficient"])
+def test_the_guided_schema_allows_only_the_sentences_of_the_case(name: str) -> None:
+    """Round 2, finding R1: the enum is narrowed per case; the decision echo stays open, so a
+    misread decision still reaches the validator as DECISION_ECHO."""
+    case = make(name).case
+    full = output_schema()
+    narrowed = case_output_schema(case, full)
+    enum = narrowed["properties"]["customer_message"]["properties"]["sentence_ids"]["items"]
+    assert enum["enum"] == [s.id for s in allowed_sentences(context_of_case(case))]
+    assert set(enum["enum"]) < set(SENTENCE_IDS)
+    assert narrowed["properties"]["decision_echo"] == full["properties"]["decision_echo"]
+    assert (
+        narrowed["properties"]["operator_explanation"] == full["properties"]["operator_explanation"]
+    )
+    full_enum = full["properties"]["customer_message"]["properties"]["sentence_ids"]["items"]
+    assert full_enum["enum"] == list(SENTENCE_IDS)  # the shared schema is not changed
 
 
 def test_retry_codes_are_sent_as_feedback(server: FakeServer) -> None:
@@ -219,7 +247,6 @@ def test_chat_with_tools(server: FakeServer) -> None:
         ("http://[::1]:8001/v1", "http://[::1]:8001/v1/chat/completions"),
         ("http://172.20.0.4:8001", "http://172.20.0.4:8001/v1/chat/completions"),  # compose
         ("http://192.168.1.10/v1", "http://192.168.1.10/v1/chat/completions"),
-        ("http://[fd00::5]:8001/v1", "http://[fd00::5]:8001/v1/chat/completions"),
         ("http://[::ffff:127.0.0.1]/v1", "http://[::ffff:127.0.0.1]/v1/chat/completions"),
     ],
 )
@@ -249,6 +276,9 @@ def test_local_urls_are_accepted(url: str, endpoint: str) -> None:
         "http://[64:ff9b::a9fe:a9fe]/v1",
         "http://[fe80::1]/v1",
         "http://[::]/v1",
+        # Round 2, finding R8: the compose network is IPv4 only, so no IPv6 unique local address
+        "http://[fd00:ec2::254]/v1",  # EC2 IPv6 instance metadata
+        "http://[fd00::5]:8001/v1",
         "http://127.1/v1",
         "ftp://vllm/v1",
         "http://user:secret@vllm/v1",

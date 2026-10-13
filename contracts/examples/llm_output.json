@@ -34,7 +34,10 @@
     }
   ],
   "customer_message": {
-    "it": "Ciao, grazie per averci scritto. Abbiamo registrato la tua richiesta di reso e il rimborso è previsto per il {deadline}. Per i prossimi ordini le condizioni di reso cambiano e ti verranno mostrate prima di ogni acquisto: {terms}.",
-    "en": "Hello, thank you for writing to us. We have registered your return request and your refund is due by {deadline}. For your next orders the return terms change and you will see them before each purchase: {terms}."
+    "sentence_ids": [
+      "OPEN_SORRY_FIT",
+      "INFO_TERMS",
+      "CLOSE_REGARDS"
+    ]
   }
 }

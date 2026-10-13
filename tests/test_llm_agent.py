@@ -28,6 +28,7 @@ from llm.agent import (
     ToolBox,
     ToolLimitReached,
     VllmAgent,
+    answer_actions,
     describe_terms,
     grounded_in,
     is_write_request,
@@ -325,6 +326,12 @@ READ_QUESTIONS = [
     "Il rimborso è stato approvato?",
     "Quali coupon sono stati disattivati?",
     "Per favore, perché il rimborso è stato bloccato?",
+    # Round 2, finding R4: what the sentence split and the new verbs must leave alone
+    "Okay, what is the refund deadline?",
+    "Have the coupons been disabled?",
+    "Which link was accepted by the operator? Why?",
+    "Perché blocchiamo i coupon del cluster?",
+    "What is this case? Which terms applied?",
 ]
 
 
@@ -525,6 +532,61 @@ def test_vllm_answers_are_checked(final: str, source: str) -> None:
     if source == "fallback":
         assert result.text.startswith("No verified answer")
         assert "get_cluster(R-MARCO)" in result.text
+
+
+@pytest.mark.parametrize(
+    "final",
+    [
+        # Round 2, finding R4: answers about state, not actions, keep the model path
+        "Coupons were disabled for the cluster R-MARCO.",
+        "The instant refund was removed because the case is in Q4.",
+        "Link L-101 joins C-MARCO-1 and C-MARCO-2 (cluster of 7 linked accounts).",
+        "Cluster R-MARCO has 7 linked accounts; link L-102 has 2 shared events.",
+        "Link L-101 has 4 shared events, and the cluster has 7 linked accounts.",
+        "The refund deadline is set by the rules engine, not by me.",
+    ],
+)
+def test_vllm_answers_about_state_keep_the_model_path(final: str) -> None:
+    chat = ScriptedChat(
+        [
+            calls(tool_call("get_case")),
+            calls(tool_call("get_cluster", {"cluster_id": "R-MARCO"})),
+            answer(final),
+        ]
+    )
+    result = VllmAgent(chat, FakeReader()).ask("RET-1", "Tell me about the cluster")
+    assert result.source == "model", final
+
+
+@pytest.mark.parametrize(
+    "text, cues",
+    [
+        ("Turn off coupons for R-MARCO.", ["turn"]),
+        ("Go ahead and refund.", ["refund"]),
+        ("For R-MARCO, disable the coupons.", ["disable"]),
+        ("You can disable the coupons in the case view.", ["can disable"]),
+        ("I have disabled the coupons.", ["have disabled"]),
+        ("Ho disattivato i coupon.", ["ho disattivato"]),
+        ("Coupons must be disabled.", ["must"]),
+        ("È meglio togliere i coupon.", ["meglio"]),
+        ("Done: coupons for R-MARCO are now off.", ["done", "now off"]),
+        ("Coupons were disabled for the cluster.", []),
+        ("The coupons of R-MARCO are off.", []),
+    ],
+)
+def test_answer_actions(text: str, cues: list[str]) -> None:
+    assert answer_actions(text) == cues
+
+
+def test_grounding_follows_the_record_a_clause_names() -> None:
+    results = [to_json(MARCO), to_json(CASE)]
+    assert grounded_in("Link L-102 has 2 shared events and weight 0.6.", results, "RET-1")
+    assert not grounded_in("Link L-102 has 4 shared events.", results, "RET-1")  # L-101's
+    assert not grounded_in("Link L-102 has weight 0.6, 1 shared event.", results, "RET-1")
+    assert grounded_in("Link L-102: weight 0.6 (cluster of 7 linked accounts).", results, "RET-1")
+    assert grounded_in("The cluster has 7 accounts. Link L-101 has 4 events.", results, "RET-1")
+    assert not grounded_in("Cluster R-MARCO has 4 linked accounts.", results, "RET-1")
+    assert grounded_in("4 shared events and 7 linked accounts.", results, "RET-1")  # no record
 
 
 def test_vllm_unavailable_falls_back() -> None:

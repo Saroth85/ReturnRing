@@ -333,6 +333,7 @@ def test_llm_case_is_closed_and_bounded(mutate: Any) -> None:
 
 def test_llm_output_schema_matches_the_python_model() -> None:
     """vLLM decodes with the JSON schema and the validator parses with pydantic: same limits."""
+    from llm import phrasebook as p
     from llm import validator as v
 
     schema = schema_of("llm_output")
@@ -344,8 +345,11 @@ def test_llm_output_schema_matches_the_python_model() -> None:
     assert statement["properties"]["fact_ids"]["maxItems"] == v.MAX_FACTS_PER_STATEMENT
     assert statement["properties"]["text"]["maxLength"] == v.MAX_STATEMENT_CHARS
     assert statement["properties"]["label"]["enum"] == ["OBSERVED", "SCORE", "HYPOTHESIS"]
-    for lang in ("it", "en"):
-        assert props["customer_message"]["properties"][lang]["maxLength"] == v.MAX_MESSAGE_CHARS
+    message = props["customer_message"]
+    assert message["required"] == ["sentence_ids"]  # no free customer prose (ADR-14, R1)
+    ids = message["properties"]["sentence_ids"]
+    assert (ids["minItems"], ids["maxItems"]) == (p.MIN_SENTENCES, p.MAX_SENTENCES)
+    assert ids["items"]["enum"] == list(p.SENTENCE_IDS)
 
     def closed(node: Any) -> None:
         if isinstance(node, dict):
@@ -369,7 +373,11 @@ def test_llm_output_schema_matches_the_python_model() -> None:
         lambda o: o["operator_explanation"][0].update(label="CAUSE"),
         lambda o: o["operator_explanation"][0].update(fact_ids=["F1"] * 5),
         lambda o: o["operator_explanation"][0].pop("fact_ids"),
-        lambda o: o["customer_message"].update(it="x" * 901),
+        lambda o: o["customer_message"].update(it="Ciao, il reso lo paghiamo noi."),
+        lambda o: o.update(customer_message={"it": "Ciao.", "en": "Hello."}),
+        lambda o: o["customer_message"].update(sentence_ids=["OPEN_THANKS"]),
+        lambda o: o["customer_message"].update(sentence_ids=["OPEN_THANKS"] * 6),
+        lambda o: o["customer_message"].update(sentence_ids=["OPEN_THANKS", "Ciao!"]),
         lambda o: o["decision_echo"].update(lever_ids=["x"] * 10),
         lambda o: o.update(extra=1),
     ],

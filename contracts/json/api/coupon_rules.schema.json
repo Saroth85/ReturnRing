@@ -62,7 +62,7 @@
     },
     "CouponRuleApplication": {
       "additionalProperties": false,
-      "description": "The rule applied to one cluster: proposed with a decision, confirmed by the operator who\napproves it, always reversible, with a review date.",
+      "description": "The general coupon rule applied to one cluster (US-402, LEG-09): proposed with a\ndecision, confirmed by the person who approves it, always reversible, with the review date\nof that decision (US-607).\n\nin_force says whether the block applies to the linked accounts at as_of (the time the\napplication was served): confirmed, not reversed, and before its review date (UTC days). It\nlapses at the review date like the restriction that applied it. The API reverses it when the\nversion that applied it is lifted (DecisionResult.coupon_application) or superseded by a\nrecompute; a person reverses it on request (rectification). as_of and in_force are computed\nwhen served, not stored.",
       "properties": {
         "application_id": {
           "maxLength": 96,
@@ -194,6 +194,15 @@
             }
           ],
           "title": "Reversal Reason"
+        },
+        "as_of": {
+          "format": "date-time",
+          "title": "As Of",
+          "type": "string"
+        },
+        "in_force": {
+          "title": "In Force",
+          "type": "boolean"
         }
       },
       "required": [
@@ -210,7 +219,9 @@
         "reversible",
         "reversed_by",
         "reversed_at",
-        "reversal_reason"
+        "reversal_reason",
+        "as_of",
+        "in_force"
       ],
       "title": "CouponRuleApplication",
       "type": "object"
@@ -235,12 +246,18 @@
       },
       "title": "Applications",
       "type": "array"
+    },
+    "as_of": {
+      "format": "date-time",
+      "title": "As Of",
+      "type": "string"
     }
   },
   "required": [
     "current",
     "history",
-    "applications"
+    "applications",
+    "as_of"
   ],
   "title": "CouponRulesResponse",
   "type": "object"

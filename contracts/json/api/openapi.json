@@ -3,7 +3,7 @@
   "info": {
     "title": "ReturnRing API",
     "description": "Contract of the ReturnRing API (ADR-15). Every response carries the headers X-ReturnRing-Mode (live or cached) and X-Request-Id.",
-    "version": "1.1.0"
+    "version": "1.2.0"
   },
   "paths": {
     "/healthz": {
@@ -338,8 +338,8 @@
         "tags": [
           "returns"
         ],
-        "summary": "Approve, override or reject the proposal with a reason; lift a restriction",
-        "description": "Approve, override or reject the proposal with a reason; lift a restriction. Stories: US-303, US-306, US-607.",
+        "summary": "Approve, override or reject the proposal; lift or renew a restriction under review",
+        "description": "Approve, override or reject the proposal; lift or renew a restriction under review. Stories: US-303, US-306, US-607.",
         "operationId": "post__api_returns_return_id_decision_api_returns__return_id__decision_post",
         "parameters": [
           {
@@ -1273,6 +1273,7 @@
                       "decision_overridden",
                       "decision_rejected",
                       "restriction_lifted",
+                      "restriction_renewed",
                       "case_recomputed",
                       "draft_generated",
                       "draft_regenerated",
@@ -2667,7 +2668,8 @@
                     "decision_overridden",
                     "decision_proposed",
                     "decision_rejected",
-                    "restriction_lifted"
+                    "restriction_lifted",
+                    "restriction_renewed"
                   ]
                 },
                 "before": {
@@ -2695,7 +2697,8 @@
                       "decision_overridden",
                       "decision_proposed",
                       "decision_rejected",
-                      "restriction_lifted"
+                      "restriction_lifted",
+                      "restriction_renewed"
                     ]
                   }
                 }
@@ -2737,6 +2740,7 @@
               "decision_overridden",
               "decision_rejected",
               "restriction_lifted",
+              "restriction_renewed",
               "case_recomputed",
               "draft_generated",
               "draft_regenerated",
@@ -2929,7 +2933,7 @@
           "request_id"
         ],
         "title": "AuditEntry",
-        "description": "One row of the append-only audit log (US-604).\n\nThe entries about a decision version (entity_type decision, actions DECISION_AUDIT_ACTIONS)\ncarry a typed before and after (DecisionAuditState). approve, override and reject change a\nproposed version; restriction_lifted and case_recomputed create the next version."
+        "description": "One row of the append-only audit log (US-604).\n\nThe entries about a decision version (entity_type decision, actions DECISION_AUDIT_ACTIONS)\nname its return and carry a typed before and after (DecisionAuditState). approve, override\nand reject change a proposed version; restriction_lifted, restriction_renewed and\ncase_recomputed create the next version, so before and after are two versions."
       },
       "AuditPage": {
         "properties": {
@@ -4338,7 +4342,7 @@
           "text"
         ],
         "title": "CouponBlock",
-        "description": "Why coupons are off for this customer: a confirmed cluster rule application (US-402)."
+        "description": "Why coupons are off for this customer: a confirmed cluster rule application in force\n(US-402), shown only before its review date (US-607)."
       },
       "CouponRule": {
         "properties": {
@@ -4530,6 +4534,15 @@
               }
             ],
             "title": "Reversal Reason"
+          },
+          "as_of": {
+            "type": "string",
+            "format": "date-time",
+            "title": "As Of"
+          },
+          "in_force": {
+            "type": "boolean",
+            "title": "In Force"
           }
         },
         "additionalProperties": false,
@@ -4548,10 +4561,12 @@
           "reversible",
           "reversed_by",
           "reversed_at",
-          "reversal_reason"
+          "reversal_reason",
+          "as_of",
+          "in_force"
         ],
         "title": "CouponRuleApplication",
-        "description": "The rule applied to one cluster: proposed with a decision, confirmed by the operator who\napproves it, always reversible, with a review date."
+        "description": "The general coupon rule applied to one cluster (US-402, LEG-09): proposed with a\ndecision, confirmed by the person who approves it, always reversible, with the review date\nof that decision (US-607).\n\nin_force says whether the block applies to the linked accounts at as_of (the time the\napplication was served): confirmed, not reversed, and before its review date (UTC days). It\nlapses at the review date like the restriction that applied it. The API reverses it when the\nversion that applied it is lifted (DecisionResult.coupon_application) or superseded by a\nrecompute; a person reverses it on request (rectification). as_of and in_force are computed\nwhen served, not stored."
       },
       "CouponRuleCreate": {
         "properties": {
@@ -4659,6 +4674,11 @@
             },
             "type": "array",
             "title": "Applications"
+          },
+          "as_of": {
+            "type": "string",
+            "format": "date-time",
+            "title": "As Of"
           }
         },
         "additionalProperties": false,
@@ -4666,7 +4686,8 @@
         "required": [
           "current",
           "history",
-          "applications"
+          "applications",
+          "as_of"
         ],
         "title": "CouponRulesResponse"
       },
@@ -4760,15 +4781,12 @@
           "risk": {
             "anyOf": [
               {
-                "type": "number",
-                "maximum": 1.0,
-                "minimum": 0.0
+                "$ref": "#/components/schemas/Metric"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Risk"
+            ]
           },
           "lever_ids": {
             "items": {
@@ -5003,6 +5021,9 @@
           },
           "thresholds": {
             "$ref": "#/components/schemas/DecisionThresholds"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/Provenance"
           }
         },
         "additionalProperties": false,
@@ -5019,10 +5040,11 @@
           "value_eur",
           "evidence_quality",
           "cluster_id",
-          "thresholds"
+          "thresholds",
+          "provenance"
         ],
         "title": "DecisionInputs",
-        "description": "The inputs given to policy.engine.decide, kept for audit (US-604) and re-runnable: the\nreturn request (with order_id and customer_id), the scores, the terms and the thresholds."
+        "description": "The inputs given to policy.engine.decide, kept for audit (US-604) and re-runnable: the\nreturn request (with order_id and customer_id), the scores, the terms and the thresholds.\nprovenance covers the plain numbers of the inputs (risk, value_eur, thresholds): the scores\nat decision time, stored with the version so an earlier one is served as it was (rule 11)."
       },
       "DecisionRecord": {
         "properties": {
@@ -5037,20 +5059,16 @@
             "maxItems": 3,
             "minItems": 1,
             "title": "Alternatives"
-          },
-          "provenance": {
-            "$ref": "#/components/schemas/Provenance"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
           "decision",
-          "alternatives",
-          "provenance"
+          "alternatives"
         ],
         "title": "DecisionRecord",
-        "description": "GET /api/decisions/{decision_id}: one version of a case's decision as stored, the latest\nor an earlier one (US-604): the engine inputs, the alternatives with their net benefits, the\nhuman outcome, the versions of rules, models and assumptions, and the version that superseded\nit. The audit log names these ids (DecisionAuditState)."
+        "description": "GET /api/decisions/{decision_id}: one version of a case's decision as stored, the latest\nor an earlier one (US-604): the engine inputs (with their provenance), the alternatives with\ntheir net benefits, the human outcome, the versions of rules, models and assumptions, and the\nversion that superseded it. The audit log names these ids (DecisionAuditState)."
       },
       "DecisionRequest": {
         "allOf": [
@@ -5124,7 +5142,8 @@
                 "action": {
                   "enum": [
                     "reject",
-                    "lift"
+                    "lift",
+                    "renew"
                   ]
                 }
               },
@@ -5155,7 +5174,8 @@
               "approve",
               "override",
               "reject",
-              "lift"
+              "lift",
+              "renew"
             ],
             "title": "Action"
           },
@@ -5227,7 +5247,7 @@
           "approver"
         ],
         "title": "DecisionRequest",
-        "description": "POST /api/returns/{return_id}/decision (spec 19.B, plus decision_id and the category).\n\napprove: confirm the proposal (levers, if sent, must equal it: 409 otherwise); override:\nreplace the levers, with a reason and a category, checked by the legal guard (422); reject:\ndiscard the proposal (no lever applies, the order's terms stay; the return itself is never\nrefused), with a reason and a category. The three act on a proposed version.\n\nlift (US-607): end an approved or overridden restriction, before or at its review date (a\nreview, or a rectification the customer asked for), with a reason and a category. It creates\nthe next version (trigger review), overridden to the standard levers; 409 if the version\nnamed is not a restriction. Every action sends one message to the outbox."
+        "description": "POST /api/returns/{return_id}/decision (spec 19.B, plus decision_id and the category).\n\napprove: confirm the proposal (levers, if sent, must equal it: 409 otherwise); override:\nreplace the levers, with a reason and a category, checked by the legal guard (422); reject:\ndiscard the proposal (no lever applies, the order's terms stay; the return itself is never\nrefused), with a reason and a category. The three act on a proposed version.\n\nlift and renew (US-607) review an approved or overridden restriction, the latest version\n(409 if it is not a restriction). Each creates the next version (trigger review) from\npolicy.engine.decide() on the latest scores at the day of the review. lift ends the\nrestriction, before or after its review date (a review, or a rectification the customer\nasked for), with a reason and a category: the new version is overridden to the standard\nlevers, and the cluster coupon application of the restriction, if any, is reversed. renew\nkeeps a restriction, at or after its review date (409 before), with no levers and no reason:\nthe person approves the fresh proposal, which gets a new review date (409 if the fresh\nproposal is not a restriction: lift it). Every action sends one message to the outbox."
       },
       "DecisionResult": {
         "properties": {
@@ -5239,6 +5259,16 @@
           },
           "outbox_message": {
             "$ref": "#/components/schemas/OutboxMessage"
+          },
+          "coupon_application": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CouponRuleApplication"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "additionalProperties": false,
@@ -5246,10 +5276,11 @@
         "required": [
           "decision",
           "audit_entry",
-          "outbox_message"
+          "outbox_message",
+          "coupon_application"
         ],
         "title": "DecisionResult",
-        "description": "The outcome of POST .../decision: the version acted on (or, for a lift, the new version),\nits audit entry and its outbox message."
+        "description": "The outcome of POST .../decision: the version acted on (for a lift or a renewal, the new\nversion), its audit entry, its outbox message, and the cluster coupon application the act\nchanged: confirmed by approve, override or renew of levers that block the cluster's coupons\n(the decision's own application), or reversed by a lift of a version that had one (US-402,\nUS-607). The entry and the message are about this decision, its return and its customer."
       },
       "DecisionThresholds": {
         "properties": {
@@ -5299,7 +5330,6 @@
               "initial",
               "evidence_added",
               "link_disputed",
-              "scores_refreshed",
               "review"
             ],
             "title": "Revision Trigger"
@@ -5594,7 +5624,7 @@
           "generation_id"
         ],
         "title": "DecisionView",
-        "description": "A decision version: the engine's proposal and the human outcome (spec 8.6, US-303/306).\n\nlevers are the levers of the current state: the proposal while proposed or approved, the\noperator's levers when overridden, none when rejected. requires_approval and review_at refer\nto them: a restriction needs a person and has a review date, and nothing else has one.\n\nin_force says whether the levers apply to future orders at as_of (the time the view was\nserved): approved, overridden, or proposed without a need for approval; never once a later\nversion supersedes this one; never from the review date on (US-607: a restriction lapses\nunless a person renews it with a new decision). A version created by a review (trigger\nreview, action lift) is overridden to the standard levers.\n\nEvery view passes policy.legal_guard under to_policy_decision (ADR-15 section 8)."
+        "description": "A decision version: the engine's proposal and the human outcome (spec 8.6, US-303/306).\n\nlevers are the levers of the current state: the proposal while proposed or approved, the\noperator's levers when overridden, none when rejected. requires_approval and review_at refer\nto them: a restriction needs a person and has a review date, and nothing else has one.\n\nin_force says whether the levers apply to future orders at as_of (the time the view was\nserved): approved, overridden, or proposed without a need for approval; never once a later\nversion supersedes this one; never from the review date on, counted in UTC days (US-607: a\nrestriction lapses unless a person renews it).\n\nA version created by a review (trigger review) is policy.engine.decide() on the latest\nscores at the day of the review (inputs, decided_on, quadrant, proposed_levers), with the\nperson's outcome: action lift overrides it to the standard levers; action renew approves the\nfresh restriction, with a new review date.\n\nEvery view passes policy.legal_guard under to_policy_decision (ADR-15 section 8)."
       },
       "DraftView": {
         "properties": {
@@ -8565,12 +8595,8 @@
             "pattern": "^[A-Za-z0-9][A-Za-z0-9._:~-]*$",
             "title": "Return Id"
           },
-          "decision_id": {
-            "type": "string",
-            "maxLength": 96,
-            "minLength": 1,
-            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:~-]*$",
-            "title": "Decision Id"
+          "decision": {
+            "$ref": "#/components/schemas/DecisionView"
           },
           "draft": {
             "$ref": "#/components/schemas/DraftView"
@@ -8580,10 +8606,11 @@
         "type": "object",
         "required": [
           "return_id",
-          "decision_id",
+          "decision",
           "draft"
         ],
-        "title": "RegenerateResponse"
+        "title": "RegenerateResponse",
+        "description": "The new draft of the latest decision version, checked against it like the draft of a case\ncard: the echo, the legal clause and the template fields (rules 1 and 10)."
       },
       "ReturnReason": {
         "type": "string",
@@ -8744,7 +8771,6 @@
               "initial",
               "evidence_added",
               "link_disputed",
-              "scores_refreshed",
               "review"
             ],
             "title": "Trigger"

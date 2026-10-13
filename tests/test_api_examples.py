@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -544,6 +544,51 @@ def test_earlier_decision_versions_keep_their_inputs_and_alternatives() -> None:
     assert (
         request.decision_id == dispute.recompute.before.decision_id == record.decision.decision_id
     )
+
+
+def test_every_version_named_in_the_examples_is_served_by_the_mock() -> None:
+    """A UI that follows the version chain (supersedes, superseded_by) on the mock server finds
+    every version it is pointed to (US-604)."""
+    routes = load("index.json")["routes"]
+    served = {
+        r["path"].removeprefix("/api/decisions/"): r["response"]
+        for r in routes
+        if r["endpoint"] == "/api/decisions/{decision_id}" and r["status"] == 200
+    }
+    named = {x for _, view in ALL_VIEWS for x in (view.supersedes, view.superseded_by) if x}
+    assert named, "the examples hold version chains"
+    assert named <= set(served), sorted(named - set(served))
+    records = {
+        key: s.DecisionRecord.model_validate(load(name)).decision for key, name in served.items()
+    }
+    for decision_id, view in records.items():
+        assert view.decision_id == decision_id
+        if view.superseded_by is not None:
+            assert records[view.superseded_by].supersedes == decision_id
+        if view.supersedes is not None:
+            assert records[view.supersedes].superseded_by == decision_id
+
+
+@pytest.mark.parametrize("action", ["lift", "renew"])
+def test_a_review_version_reruns_the_engine_on_the_latest_scores(action: str) -> None:
+    """A lift and a renewal record policy.engine.decide() on the latest scores at the day of
+    the review (inputs, proposed_levers, quadrant, decided_on), then the person's outcome."""
+    from scripts import build_api_examples as bae
+
+    lorenzo = bae.simple_case(bae.SIMPLE_BY_KEY["lorenzo"])
+    v1 = lorenzo.card.decision
+    when = datetime(2026, 9, 30, 19, 10, tzinfo=UTC)
+    _, result = bae.review_result(
+        lorenzo.engine, v1, action, "luca", when, entry_id=14, message_id="MSG-000088-2",
+        reason="Reviewed at the due date" if action == "lift" else None,
+        category="periodic_review" if action == "lift" else None,
+    )  # fmt: skip
+    v2 = result.decision
+    assert v2.decided_on == when.date() != v1.decided_on
+    assert_engine_output(v2, rerun(v2))
+    assert v2.proposed_levers == v1.proposed_levers  # same scores here: same Q3 proposal
+    decision, request = s.to_policy_decision(v2)
+    assert check(decision, request, BASE) == []
 
 
 def test_decision_audit_payloads_are_the_decision_states() -> None:

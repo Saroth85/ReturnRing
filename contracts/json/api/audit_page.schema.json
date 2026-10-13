@@ -16,7 +16,8 @@
                     "decision_overridden",
                     "decision_proposed",
                     "decision_rejected",
-                    "restriction_lifted"
+                    "restriction_lifted",
+                    "restriction_renewed"
                   ]
                 }
               }
@@ -41,7 +42,8 @@
                   "decision_overridden",
                   "decision_proposed",
                   "decision_rejected",
-                  "restriction_lifted"
+                  "restriction_lifted",
+                  "restriction_renewed"
                 ]
               },
               "before": {
@@ -61,7 +63,7 @@
           }
         }
       ],
-      "description": "One row of the append-only audit log (US-604).\n\nThe entries about a decision version (entity_type decision, actions DECISION_AUDIT_ACTIONS)\ncarry a typed before and after (DecisionAuditState). approve, override and reject change a\nproposed version; restriction_lifted and case_recomputed create the next version.",
+      "description": "One row of the append-only audit log (US-604).\n\nThe entries about a decision version (entity_type decision, actions DECISION_AUDIT_ACTIONS)\nname its return and carry a typed before and after (DecisionAuditState). approve, override\nand reject change a proposed version; restriction_lifted, restriction_renewed and\ncase_recomputed create the next version, so before and after are two versions.",
       "properties": {
         "entry_id": {
           "minimum": 1,
@@ -95,6 +97,7 @@
             "decision_overridden",
             "decision_rejected",
             "restriction_lifted",
+            "restriction_renewed",
             "case_recomputed",
             "draft_generated",
             "draft_regenerated",
@@ -327,15 +330,12 @@
         "risk": {
           "anyOf": [
             {
-              "maximum": 1,
-              "minimum": 0,
-              "type": "number"
+              "$ref": "#/$defs/Metric"
             },
             {
               "type": "null"
             }
-          ],
-          "title": "Risk"
+          ]
         },
         "lever_ids": {
           "items": {
@@ -425,6 +425,94 @@
         "coupon_application_id"
       ],
       "title": "DecisionAuditState",
+      "type": "object"
+    },
+    "Metric": {
+      "additionalProperties": false,
+      "description": "A figure shown in the UI: its value, its unit and where it comes from.",
+      "properties": {
+        "value": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Value"
+        },
+        "unit": {
+          "enum": [
+            "eur",
+            "usd",
+            "count",
+            "expected_count",
+            "ratio",
+            "probability",
+            "percent",
+            "percentage_points",
+            "z_score",
+            "score",
+            "days",
+            "seconds",
+            "milliseconds",
+            "tokens_per_second",
+            "gib",
+            "watts"
+          ],
+          "title": "Unit",
+          "type": "string"
+        },
+        "provenance": {
+          "$ref": "#/$defs/Provenance"
+        }
+      },
+      "required": [
+        "value",
+        "unit",
+        "provenance"
+      ],
+      "title": "Metric",
+      "type": "object"
+    },
+    "Provenance": {
+      "additionalProperties": false,
+      "description": "Where a number comes from: origin, period and nature (same fields as contracts.io).",
+      "properties": {
+        "origin": {
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Origin",
+          "type": "string"
+        },
+        "period_start": {
+          "format": "date",
+          "title": "Period Start",
+          "type": "string"
+        },
+        "period_end": {
+          "format": "date",
+          "title": "Period End",
+          "type": "string"
+        },
+        "nature": {
+          "enum": [
+            "real",
+            "synthetic",
+            "simulated"
+          ],
+          "title": "Nature",
+          "type": "string"
+        }
+      },
+      "required": [
+        "origin",
+        "period_start",
+        "period_end",
+        "nature"
+      ],
+      "title": "Provenance",
       "type": "object"
     },
     "Quadrant": {

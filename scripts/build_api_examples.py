@@ -698,11 +698,17 @@ def in_force(
     superseded_by: str | None,
 ) -> bool:
     """The rule of DecisionView.in_force (US-607: a restriction lapses at its review date)."""
-    lapsed = review_at is not None and as_of.date() >= review_at
+    lapsed = review_at is not None and s.utc_day(as_of) >= review_at
     standing = state in ("approved", "overridden") or (
         state == "proposed" and not requires_approval
     )
     return standing and not lapsed and superseded_by is None
+
+
+INPUTS_ORIGIN = (
+    "engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the "
+    "synthetic shop, matrix thresholds of the validation months"
+)
 
 
 def decision_view(
@@ -720,11 +726,14 @@ def decision_view(
     affected: Sequence[str] = (),
     approved_at: datetime | None = None,
     claim: s.ClaimView | None = None,
+    **outcome: Any,
 ) -> s.DecisionView:
+    """The view of the engine's decision. `outcome` replaces fields before the view is validated:
+    a person's outcome that is not policy.engine's (an override, a lift; see acted_fields)."""
     d, req, sc = engine.decision, engine.request, engine.scores
     levers = s.levers_from_policy(d.levers, BASE)
     coupon_rule = None
-    if d.coupon_rule is not None:
+    if d.coupon_rule is not None and "coupon_rule" not in outcome:
         assert d.coupon_rule.rule_version and sc.cluster_id and coupon_application_id
         coupon_rule = s.CouponRuleRef(
             rule_version=d.coupon_rule.rule_version,
@@ -735,7 +744,7 @@ def decision_view(
         )
     scored = d.path is ReturnPath.WITHDRAWAL
     state = _STATES[d.state]
-    return s.DecisionView(
+    fields: dict[str, Any] = dict(
         decision_id=f"DEC-{req.return_id.removeprefix('RET-')}-{version}",
         return_id=req.return_id,
         version=version,
@@ -780,12 +789,45 @@ def decision_view(
             thresholds=s.DecisionThresholds(
                 risk=THRESHOLDS.risk, value_eur=eur(THRESHOLDS.value_eur)
             ),
+            provenance=prov(INPUTS_ORIGIN, DATA_START, d.decided_on),  # data up to the decision
         ),
         rules_version=d.rules_version,
         model_versions=MODEL_VERSIONS,
         assumptions_version=ASSUMPTIONS_V1,
         generation_id=generation_id,
     )
+    return s.DecisionView.model_validate({**fields, **outcome})
+
+
+def acted_fields(
+    decided_on: date,
+    superseded_by: str | None,
+    state: Literal["overridden", "rejected"],
+    levers: Sequence[s.Lever],
+    approver: str,
+    when: datetime,
+    reason: str,
+    category: OverrideCategory,
+) -> dict[str, Any]:
+    """The fields of a view after a person overrode (with `levers`) or rejected (no lever) the
+    proposal: the levers, the approval flag and the review date now describe that choice."""
+    policy_levers = s.to_policy_levers(levers, BASE)
+    restrictive = is_restrictive(policy_levers, BASE)
+    review = decided_on + timedelta(days=90) if restrictive else None
+    return {
+        "state": state,
+        "levers": [x.model_dump() for x in levers],
+        "lever_ids": [x.lever_id() for x in levers],
+        "requires_approval": restrictive,
+        "review_at": review,
+        "in_force": in_force(state, restrictive, review, when, superseded_by),
+        "future_terms": s.Terms.from_policy(policy_levers.future_terms).model_dump(),
+        "approver": approver,
+        "approved_at": when,
+        "as_of": when,
+        "override_reason": reason,
+        "override_category": category,
+    }
 
 
 def acted(
@@ -796,30 +838,38 @@ def acted(
     when: datetime,
     reason: str,
     category: OverrideCategory,
-    **updates: Any,
 ) -> s.DecisionView:
-    """The view after a person overrode (with `levers`) or rejected (no lever) the proposal: the
-    levers, the approval flag and the review date now describe that choice."""
-    policy_levers = s.to_policy_levers(levers, BASE)
-    restrictive = is_restrictive(policy_levers, BASE)
-    review = view.decided_on + timedelta(days=90) if restrictive else None
-    out: s.DecisionView = revalidate(
-        view,
-        state=state,
-        levers=[x.model_dump() for x in levers],
-        lever_ids=[x.lever_id() for x in levers],
-        requires_approval=restrictive,
-        review_at=review,
-        in_force=in_force(state, restrictive, review, when, view.superseded_by),
-        future_terms=s.Terms.from_policy(policy_levers.future_terms).model_dump(),
-        approver=approver,
-        approved_at=when,
-        as_of=when,
-        override_reason=reason,
-        override_category=category,
-        **updates,
+    """The view after a person overrode or rejected its proposal (acted_fields)."""
+    fields = acted_fields(
+        view.decided_on, view.superseded_by, state, levers, approver, when, reason, category
     )
+    out: s.DecisionView = revalidate(view, **fields)
     return out
+
+
+def application_of(view: s.DecisionView, as_of: datetime) -> s.CouponRuleApplication:
+    """The cluster coupon application of a decision version, as served at `as_of`: proposed
+    with the decision, confirmed by the person who approved it, with its review date."""
+    rule = view.coupon_rule
+    assert rule is not None and view.review_at is not None
+    confirmed = rule.confirmed_by is not None
+    return s.CouponRuleApplication(
+        application_id=rule.application_id,
+        rule_version=rule.rule_version,
+        cluster_id=rule.cluster_id,
+        decision_id=view.decision_id,
+        affected_customer_ids=rule.affected_customer_ids,
+        state="confirmed" if confirmed else "proposed",
+        proposed_at=view.created_at,
+        confirmed_by=rule.confirmed_by,
+        confirmed_at=view.approved_at if confirmed else None,
+        review_at=view.review_at,
+        reversed_by=None,
+        reversed_at=None,
+        reversal_reason=None,
+        as_of=as_of,
+        in_force=confirmed and s.utc_day(as_of) < view.review_at,
+    )
 
 
 # ---- Net benefit (policy.simulator) -------------------------------------------------------------
@@ -990,6 +1040,12 @@ TEXT_WRONG_ITEM: dict[Lang, str] = {
     "Il reso è gratuito e il rimborso arriverà entro il {deadline}.",
     "en": "Hello, we are sorry for the mistake: you received a different item from the one you "
     "ordered. The return is free and your refund will arrive by {deadline}.",
+}
+TEXT_RENEWED: dict[Lang, str] = {
+    "it": "Ciao, abbiamo rivisto le condizioni del tuo account. Dal prossimo ordine continuano a "
+    "valere queste condizioni: {terms}. Le rivedremo di nuovo alla prossima data di riesame.",
+    "en": "Hello, we have reviewed the terms of your account. From your next order these terms "
+    "still apply: {terms}. We will review them again at the next review date.",
 }
 TEXT_LIFTED: dict[Lang, str] = {
     "it": "Ciao, abbiamo rivisto le condizioni del tuo account. Dal prossimo ordine valgono di "
@@ -1962,14 +2018,12 @@ def simple_view(c: Simple, claim: s.ClaimView | None = None) -> s.DecisionView:
     )
 
 
-def simple_case(c: Simple) -> Case:
-    engine = simple_engine(c)
-    view = simple_view(c)
-    order = c.orders[-1]
-    guarantee = view.path is ReturnPath.GUARANTEE
+def simple_alternatives(c: Simple, view: s.DecisionView) -> list[s.Alternative]:
+    """The alternatives of a version of a plain case: the engine's proposal (recommended), a
+    check at the warehouse and, when the proposal changes the terms, the current terms."""
     period = f"12 months after the decision, customer {c.customer_id}"
     did = view.decision_id
-    proposal = s.levers_from_policy(engine.decision.levers, BASE)
+    proposal = view.proposed_levers
     alternatives = [
         alternative("proposal", c.proposal, did, period, proposal, True, c.benefit),
         alternative(
@@ -1978,6 +2032,16 @@ def simple_case(c: Simple) -> Case:
     ]
     if proposal:
         alternatives.append(alternative("current_terms", "Keep the current terms", did, period))
+    return alternatives
+
+
+def simple_case(c: Simple) -> Case:
+    engine = simple_engine(c)
+    view = simple_view(c)
+    order = c.orders[-1]
+    guarantee = view.path is ReturnPath.GUARANTEE
+    proposal = view.proposed_levers
+    alternatives = simple_alternatives(c, view)
     kept, lines = kept_of(c.orders)
     returned = lines - kept
     statements = [
@@ -2258,6 +2322,7 @@ def marco_approval(case: Case) -> tuple[s.DecisionRequest, s.DecisionResult, Dec
             approved_at,
             "GEN-000102-1",
         ),  # fmt: skip
+        coupon_application=application_of(view, approved_at),  # confirmed by the approval
     )
     return request, result, approved
 
@@ -2284,6 +2349,7 @@ def override_example(case: Case) -> tuple[s.DecisionRequest, s.DecisionResult]:
             11, when, "sara", "decision_overridden", overridden, reason, before=view
         ),  # fmt: skip
         outbox_message=outbox_message("MSG-000108-1", overridden, "it", text, "sara", when),
+        coupon_application=None,
     )
     return request, result
 
@@ -2310,43 +2376,100 @@ def reject_example(case: Case) -> tuple[s.DecisionRequest, s.DecisionResult]:
         outbox_message=outbox_message(
             "MSG-000107-1", rejected, "en", TEXT_REGISTERED["en"], "sara", when
         ),
+        coupon_application=None,
     )
     return request, result
+
+
+def review_result(
+    engine: Engine,
+    before: s.DecisionView,
+    action: Literal["lift", "renew"],
+    person: str,
+    when: datetime,
+    *,
+    entry_id: int,
+    message_id: str,
+    reason: str | None = None,
+    category: OverrideCategory | None = None,
+    lang: Lang = "it",
+    application_id: str | None = None,
+) -> tuple[s.DecisionRequest, s.DecisionResult]:
+    """US-607: a person reviews the restriction `before` (approved or overridden) at `when`.
+
+    Both outcomes create the next version (trigger review) from policy.engine.decide() on the
+    latest scores at the day of the review (here the scores of `engine`). lift overrides it to
+    the standard levers and reverses the coupon application of `before`, if any; renew approves
+    the fresh restriction, with a new review date and, if its levers block the cluster's
+    coupons, a new application (`application_id`) confirmed by the person."""
+    fresh = decide(engine.request, engine.scores, BASE, THRESHOLDS, when.date(), COUPON_RULE)
+    common: dict[str, Any] = {
+        "version": before.version + 1,
+        "created_at": when,
+        "as_of": when,
+        "trigger": "review",
+        "supersedes": before.decision_id,
+    }
+    application: s.CouponRuleApplication | None = None
+    if action == "lift":
+        assert reason is not None and category is not None
+        outcome = acted_fields(fresh.decided_on, None, "overridden", [], person, when, reason,
+                               category)  # fmt: skip
+        after = decision_view(
+            replace(engine, decision=fresh), **{**common, "coupon_rule": None, **outcome}
+        )
+        if before.coupon_rule is not None:
+            application = revalidate(
+                application_of(before, when),
+                state="reversed",
+                reversed_by=person,
+                reversed_at=when,
+                reversal_reason=reason,
+                in_force=False,
+            )
+        text = TEXT_LIFTED[lang]
+    else:
+        assert reason is None and category is None
+        renewed = approve(fresh, engine.request, BASE, person)
+        cluster = engine.scores.cluster_id
+        after = decision_view(
+            replace(engine, decision=renewed), **common, approved_at=when,
+            coupon_application_id=application_id,
+            affected=before.coupon_rule.affected_customer_ids if before.coupon_rule else (),
+        )  # fmt: skip
+        if after.coupon_rule is not None:
+            assert cluster is not None and application_id is not None
+            application = application_of(after, when)
+        text = TEXT_RENEWED[lang]
+    request = s.DecisionRequest(
+        decision_id=before.decision_id,
+        action=action,
+        message=s.MessageChoice(lang=lang),
+        override_reason=reason,
+        override_category=category,
+        approver=person,
+    )
+    audit_action: AuditAction = "restriction_lifted" if action == "lift" else "restriction_renewed"
+    result = s.DecisionResult(
+        decision=after,
+        audit_entry=decision_entry(entry_id, when, person, audit_action, after, reason, before),
+        outbox_message=outbox_message(message_id, after, lang, text, person, when),
+        coupon_application=application,
+    )
+    return request, result
+
+
+LIFT_REASON = "Reviewed at the due date: the returns are back in line with the products"
+LIFT_AT = AS_OF + timedelta(minutes=70)
 
 
 def lift_example(case: Case) -> tuple[s.DecisionRequest, s.DecisionResult]:
-    """US-607: Luca reviews a Q3 restriction at its review date and lifts it. The approved
+    """US-607: Luca reviews a Q3 restriction after its review date and lifts it. The approved
     version stays in the log; the new version has the standard levers."""
-    v1 = case.card.decision
-    when = AS_OF + timedelta(minutes=70)
-    reason = "Reviewed at the due date: the returns are back in line with the products"
-    request_, scores = case.engine.request, case.engine.scores
-    rerun = decide(request_, scores, BASE, THRESHOLDS, when.date(), COUPON_RULE)
-    v2 = decision_view(
-        replace(case.engine, decision=rerun), version=2, created_at=when, as_of=when,
-        trigger="scores_refreshed", supersedes=v1.decision_id,
+    return review_result(
+        case.engine, case.card.decision, "lift", "luca", LIFT_AT, entry_id=14,
+        message_id="MSG-000088-2", reason=LIFT_REASON, category="periodic_review",
     )  # fmt: skip
-    lifted = acted(
-        v2, "overridden", [], "luca", when, reason, "periodic_review", revision_trigger="review"
-    )
-    request = s.DecisionRequest(
-        decision_id=v1.decision_id,
-        action="lift",
-        message=s.MessageChoice(lang="it"),
-        override_reason=reason,
-        override_category="periodic_review",
-        approver="luca",
-    )
-    result = s.DecisionResult(
-        decision=lifted,
-        audit_entry=decision_entry(
-            14, when, "luca", "restriction_lifted", lifted, reason, before=v1
-        ),  # fmt: skip
-        outbox_message=outbox_message(
-            "MSG-000088-2", lifted, "it", TEXT_LIFTED["it"], "luca", when
-        ),
-    )
-    return request, result
 
 
 def legal_guard_error(elena_case: Case) -> tuple[s.DecisionRequest, s.ErrorResponse]:
@@ -2395,7 +2518,7 @@ def regenerate_example(giulia_case: Case) -> tuple[s.RegenerateRequest, s.Regene
     )
     response = s.RegenerateResponse(
         return_id=view.return_id,
-        decision_id=view.decision_id,
+        decision=revalidate(view, as_of=gen.created_at),
         draft=draft(view, gen, giulia_case.card.draft.explanation, text, tone="formal"),
     )
     return request, response
@@ -2554,19 +2677,46 @@ def dispute_example(case: Case) -> tuple[s.LinkDisputeRequest, s.LinkDisputeResp
     )
 
 
-def decision_records(chiara_case: Case, lorenzo_case: Case) -> dict[str, BaseModel]:
-    """GET /api/decisions/{decision_id} after the dispute and the lift: two earlier versions."""
+def recompute_alternatives(view: s.DecisionView) -> list[s.Alternative]:
+    """The alternatives of a version made by a recompute (US-310): the engine's new proposal
+    (recommended) and the alternatives that fit it."""
+    period = f"12 months after the decision, customer {view.inputs.customer_id}"
+    did = view.decision_id
+    if view.proposed_levers:  # the Q1 upgrade of Chiara once the disputed link is gone
+        return [
+            alternative(
+                "proposal", "Q1 upgrade for future orders: 60-day window and priority size "
+                "exchange", did, period, view.proposed_levers, True,
+                incremental_margin_eur="15.00", incentives_eur="4.00", system_cost_eur="0.50",
+            ),
+            alternative("current_terms", "Keep the current terms", did, period),
+        ]  # fmt: skip
+    return [
+        alternative("proposal", "Standard terms: the linked accounts alone do not justify a "
+                    "change", did, period, recommended=True),
+        alternative("verification", "Check the item at the warehouse before closing the "
+                    "return", did, period, quantities=VERIFICATION),
+    ]  # fmt: skip
+
+
+def decision_records(
+    versions: Sequence[tuple[str, s.DecisionView, list[s.Alternative], str | None]],
+) -> dict[str, BaseModel]:
+    """GET /api/decisions/{decision_id} after the evidence, the dispute and the lift: each
+    version named by a version chain of the examples, as served two hours after the demo clock
+    (US-604). A version given with the id of its successor is history: superseded, not in
+    force."""
     served = AS_OF + timedelta(hours=2)
     out: dict[str, BaseModel] = {}
-    for key, case, next_id in (
-        ("chiara_v1", chiara_case, "DEC-000106-2"),
-        ("lorenzo_v1", lorenzo_case, "DEC-000088-2"),
-    ):
-        view = case.card.decision
-        later = revalidate(view, superseded_by=next_id, as_of=served, in_force=False)
-        out[f"decision_record.{key}"] = s.DecisionRecord(
-            decision=later, alternatives=case.card.alternatives, provenance=SCORES
+    for key, view, alternatives, next_id in versions:
+        state, approval, review = view.state, view.requires_approval, view.review_at
+        later = revalidate(
+            view,
+            superseded_by=next_id,
+            as_of=served,
+            in_force=in_force(state, approval, review, served, next_id),
         )
+        out[f"decision_record.{key}"] = s.DecisionRecord(decision=later, alternatives=alternatives)
     return out
 
 
@@ -3311,23 +3461,11 @@ def coupon_examples(marco_view: s.DecisionView) -> dict[str, BaseModel]:
         supersedes=None,
         active=True,
     )
-    assert marco_view.review_at is not None and marco_view.approved_at is not None
-    marco_app = s.CouponRuleApplication(
-        application_id=MARCO_APPLICATION,
-        rule_version=COUPON_RULE,
-        cluster_id=MARCO_CLUSTER,
-        decision_id=marco_view.decision_id,
-        affected_customer_ids=[a.customer_id for a in ring_accounts()],
-        state="confirmed",
-        proposed_at=marco_view.created_at,
-        confirmed_by="sara",
-        confirmed_at=marco_view.approved_at,
-        review_at=marco_view.review_at,
-        reversed_by=None,
-        reversed_at=None,
-        reversal_reason=None,
-    )
+    served = AS_OF + timedelta(minutes=90)  # GET /api/coupon-rules, after the approval of Marco
+    marco_app = application_of(marco_view, served)
+    assert marco_app.state == "confirmed" and marco_app.in_force
     reversed_reason = "The linked accounts share a pickup point only: application reversed"
+    reversed_at = AS_OF - timedelta(hours=1)
     reversed_app = s.CouponRuleApplication(
         application_id="CRA-000027",
         rule_version=COUPON_RULE,
@@ -3340,11 +3478,16 @@ def coupon_examples(marco_view: s.DecisionView) -> dict[str, BaseModel]:
         confirmed_at=at(date(2026, 9, 29), 15),
         review_at=date(2026, 12, 28),
         reversed_by="luca",
-        reversed_at=AS_OF - timedelta(hours=1),
+        reversed_at=reversed_at,
         reversal_reason=reversed_reason,
+        as_of=reversed_at,  # as returned by POST .../reverse
+        in_force=False,
     )
     current = s.CouponRulesResponse(
-        current=v1, history=[v1], applications=[marco_app, reversed_app]
+        current=v1,
+        history=[v1],
+        applications=[marco_app, revalidate(reversed_app, as_of=served)],
+        as_of=served,
     )
     create = s.CouponRuleCreate(
         text=v1.text.replace(
@@ -3360,10 +3503,12 @@ def coupon_examples(marco_view: s.DecisionView) -> dict[str, BaseModel]:
         supersedes=COUPON_RULE,
         active=True,
     )
+    created = v2.approved_at
     after_create = s.CouponRulesResponse(
         current=v2,
         history=[v2, revalidate(v1, active=False)],
-        applications=[marco_app, reversed_app],
+        applications=[revalidate(x, as_of=created) for x in (marco_app, reversed_app)],
+        as_of=created,
     )
     return {
         "coupon_rules": current,
@@ -3756,7 +3901,32 @@ def build() -> tuple[Files, list[dict[str, Any]]]:
     files["link_dispute_request"] = dispute_request
     files["link_dispute_response"] = dispute_response
     assert dispute_response.recompute is not None
-    files.update(decision_records(by_key["chiara"], by_key["lorenzo"]))
+    chiara_v1, lorenzo_v1 = by_key["chiara"].card, by_key["lorenzo"].card
+    rossi_v1 = by_key["rossi_card"].card
+    chiara_v2, rossi_v2 = dispute_response.recompute.decision, evidence_response.decision
+    lorenzo_v2 = lift_result.decision
+    files.update(
+        decision_records(
+            [
+                ("chiara_v1", chiara_v1.decision, chiara_v1.alternatives, "DEC-000106-2"),
+                ("chiara_v2", chiara_v2, recompute_alternatives(chiara_v2), None),
+                ("lorenzo_v1", lorenzo_v1.decision, lorenzo_v1.alternatives, "DEC-000088-2"),
+                (
+                    "lorenzo_v2",
+                    lorenzo_v2,
+                    simple_alternatives(SIMPLE_BY_KEY["lorenzo"], lorenzo_v2),
+                    None,
+                ),
+                (
+                    "rossi_card_v1",
+                    rossi_v1.decision,
+                    rossi_v1.alternatives,
+                    "DEC-000104-2",
+                ),
+                ("rossi_card_v2", rossi_v2, recompute_alternatives(rossi_v2), None),
+            ]
+        )
+    )
     files.update(checkout_examples(by_key["giulia"], approve_result.decision))
     files.update(inspection_examples(by_key["valentina"], by_key["simone"]))
     files["portfolio_matrix"] = matrix(cases)
@@ -3847,10 +4017,15 @@ def mock_routes(cases: Sequence[Case]) -> list[dict[str, Any]]:
           "/api/returns/RET-000105/decision", "decision_request.elena_shipping.json", 422),
         r("POST", "/api/returns/{return_id}/decision", "error.invalid_request.json",
           "/api/returns/RET-000111/decision", None, 422, scenario="invalid_request"),
-        r("GET", "/api/decisions/{decision_id}", "decision_record.chiara_v1.json",
-          "/api/decisions/DEC-000106-1"),
-        r("GET", "/api/decisions/{decision_id}", "decision_record.lorenzo_v1.json",
-          "/api/decisions/DEC-000088-1"),
+        *[
+            r("GET", "/api/decisions/{decision_id}", f"decision_record.{key}.json",
+              f"/api/decisions/{decision_id}")
+            for key, decision_id in (
+                ("lorenzo_v1", "DEC-000088-1"), ("lorenzo_v2", "DEC-000088-2"),
+                ("rossi_card_v1", "DEC-000104-1"), ("rossi_card_v2", "DEC-000104-2"),
+                ("chiara_v1", "DEC-000106-1"), ("chiara_v2", "DEC-000106-2"),
+            )
+        ],
         r("POST", "/api/returns/{return_id}/regenerate", "regenerate_response.json",
           "/api/returns/RET-000101/regenerate", "regenerate_request.json"),
         r("POST", "/api/returns/{return_id}/evidence", "recompute_response.rossi_card.json",

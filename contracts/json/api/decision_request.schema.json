@@ -348,7 +348,8 @@
           "action": {
             "enum": [
               "reject",
-              "lift"
+              "lift",
+              "renew"
             ]
           }
         },
@@ -365,7 +366,7 @@
       }
     }
   ],
-  "description": "POST /api/returns/{return_id}/decision (spec 19.B, plus decision_id and the category).\n\napprove: confirm the proposal (levers, if sent, must equal it: 409 otherwise); override:\nreplace the levers, with a reason and a category, checked by the legal guard (422); reject:\ndiscard the proposal (no lever applies, the order's terms stay; the return itself is never\nrefused), with a reason and a category. The three act on a proposed version.\n\nlift (US-607): end an approved or overridden restriction, before or at its review date (a\nreview, or a rectification the customer asked for), with a reason and a category. It creates\nthe next version (trigger review), overridden to the standard levers; 409 if the version\nnamed is not a restriction. Every action sends one message to the outbox.",
+  "description": "POST /api/returns/{return_id}/decision (spec 19.B, plus decision_id and the category).\n\napprove: confirm the proposal (levers, if sent, must equal it: 409 otherwise); override:\nreplace the levers, with a reason and a category, checked by the legal guard (422); reject:\ndiscard the proposal (no lever applies, the order's terms stay; the return itself is never\nrefused), with a reason and a category. The three act on a proposed version.\n\nlift and renew (US-607) review an approved or overridden restriction, the latest version\n(409 if it is not a restriction). Each creates the next version (trigger review) from\npolicy.engine.decide() on the latest scores at the day of the review. lift ends the\nrestriction, before or after its review date (a review, or a rectification the customer\nasked for), with a reason and a category: the new version is overridden to the standard\nlevers, and the cluster coupon application of the restriction, if any, is reversed. renew\nkeeps a restriction, at or after its review date (409 before), with no levers and no reason:\nthe person approves the fresh proposal, which gets a new review date (409 if the fresh\nproposal is not a restriction: lift it). Every action sends one message to the outbox.",
   "properties": {
     "decision_id": {
       "maxLength": 96,
@@ -379,7 +380,8 @@
         "approve",
         "override",
         "reject",
-        "lift"
+        "lift",
+        "renew"
       ],
       "title": "Action",
       "type": "string"

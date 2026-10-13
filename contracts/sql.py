@@ -22,6 +22,7 @@ Conventions:
   free_size_exchange, coupons_enabled}.
 - Timestamps are TIMESTAMP WITH TIME ZONE. UtcDateTime refuses a naive datetime, stores UTC
   and reads back a timezone-aware UTC datetime on both databases (SQLite has no time zones).
+  A CHECK that compares a timestamp with a date uses utc_date(), the UTC day on both databases.
 - audit_log, simulator_assumptions and coupon_rules are append-only: triggers refuse UPDATE and
   DELETE (and TRUNCATE on PostgreSQL). A new version is a new row.
 
@@ -32,7 +33,7 @@ with policy.legal_guard and the validators of apps/api/schemas.py.
 from __future__ import annotations
 
 from collections.abc import Iterable
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 
 from sqlalchemy import (
@@ -55,13 +56,18 @@ from sqlalchemy import (
     Text,
     TypeDecorator,
     UniqueConstraint,
+    column,
     event,
     false,
+    or_,
     true,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.engine import Dialect, Engine
 from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.ext.compiler import compiles
+from sqlalchemy.sql.compiler import SQLCompiler
+from sqlalchemy.sql.functions import FunctionElement
 
 from contracts.vocab import (
     ASSUMPTION_BASES,
@@ -162,6 +168,26 @@ def person(column: str) -> str:
 
 def _check(rule: str, name: str) -> CheckConstraint:
     return CheckConstraint(rule, name=name)
+
+
+class utc_date(FunctionElement[date]):  # noqa: N801 - a SQL function, named as SQL names it
+    """The UTC calendar day of a UtcDateTime column, the same on both databases: SQLite stores
+    the UTC time as text (date() reads its day); PostgreSQL converts the timestamptz at UTC,
+    whatever the TimeZone of the session."""
+
+    type = Date()
+    name = "utc_date"
+    inherit_cache = True
+
+
+@compiles(utc_date)
+def _utc_date_sqlite(element: utc_date, compiler: SQLCompiler, **kw: Any) -> str:
+    return f"date({compiler.process(element.clauses, **kw)})"
+
+
+@compiles(utc_date, "postgresql")
+def _utc_date_postgresql(element: utc_date, compiler: SQLCompiler, **kw: Any) -> str:
+    return f"(({compiler.process(element.clauses, **kw)}) AT TIME ZONE 'UTC')::date"
 
 
 # ---- Return requests (F1: the simulated shop adapter publishes them, the API stores them) -----
@@ -323,6 +349,9 @@ decisions = Table(
     Column("cluster_id", Id),
     Column("risk_threshold", Float, nullable=False),
     Column("value_threshold_eur", Money, nullable=False),
+    # {origin, period_start, period_end, nature} of the scores and thresholds above (rule 11):
+    # an earlier version is served with the provenance it had (US-604)
+    Column("inputs_provenance", JSONDoc, nullable=False),
     Column("base_terms", JSONDoc, nullable=False),
     Column("order_terms", JSONDoc, nullable=False),
     # engine outputs
@@ -411,10 +440,13 @@ decisions = Table(
         "override_has_reason",
     ),
     _check("state <> 'rejected' OR NOT requires_approval", "rejected_not_restrictive"),
-    # US-607: a version created by a review lifts the restriction (action lift)
+    # US-607: a version created by a review lifts the restriction (action lift: overridden to
+    # the standard levers) or renews it (action renew: the engine's fresh restriction, approved)
     _check(
-        "revision_trigger <> 'review' OR (state = 'overridden' AND NOT requires_approval)",
-        "review_lifts",
+        "revision_trigger <> 'review'"
+        " OR (state = 'overridden' AND NOT requires_approval)"
+        " OR (state = 'approved' AND requires_approval)",
+        "review_outcome",
     ),
     _check(
         "coupon_application_id IS NULL OR coupon_rule_version IS NOT NULL",
@@ -610,6 +642,15 @@ terms_snapshots = Table(
     _check(
         f"NOT ({LESS_GENEROUS}) OR (source <> 'base' AND review_at IS NOT NULL)",
         "restriction_has_review",
+    ),
+    # US-607: terms from a restriction are shown only before its review date, when it lapses
+    # (the UTC day of shown_at, as DecisionView.in_force and the API models count it)
+    CheckConstraint(
+        or_(
+            column("review_at").is_(None),
+            utc_date(column("shown_at")) < column("review_at", Date),
+        ),
+        name="review_after_shown",
     ),
 )
 Index(None, terms_snapshots.c.customer_id)

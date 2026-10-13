@@ -1,6 +1,118 @@
 {
   "return_id": "RET-000101",
-  "decision_id": "DEC-000101-1",
+  "decision": {
+    "decision_id": "DEC-000101-1",
+    "return_id": "RET-000101",
+    "version": 1,
+    "revision_trigger": "initial",
+    "supersedes": null,
+    "superseded_by": null,
+    "created_at": "2026-09-27T10:14:00Z",
+    "as_of": "2026-09-30T18:05:00Z",
+    "decided_on": "2026-09-27",
+    "state": "proposed",
+    "path": "withdrawal",
+    "evidence_quality": "sufficient",
+    "quadrant": "Q1",
+    "missing_evidence": [],
+    "proposed_levers": [
+      {
+        "id": "return_window_days",
+        "value": 60,
+        "scope": "future_orders"
+      },
+      {
+        "id": "priority_size_exchange",
+        "value": true,
+        "scope": "all_orders"
+      }
+    ],
+    "levers": [
+      {
+        "id": "return_window_days",
+        "value": 60,
+        "scope": "future_orders"
+      },
+      {
+        "id": "priority_size_exchange",
+        "value": true,
+        "scope": "all_orders"
+      }
+    ],
+    "lever_ids": [
+      "return_window_days:60",
+      "priority_size_exchange:true"
+    ],
+    "requires_approval": false,
+    "in_force": true,
+    "current_return_terms": {
+      "return_window_days": 30,
+      "free_return_shipping": true,
+      "instant_refund": true,
+      "free_size_exchange": true,
+      "coupons_enabled": true
+    },
+    "future_terms": {
+      "return_window_days": 60,
+      "free_return_shipping": true,
+      "instant_refund": true,
+      "free_size_exchange": true,
+      "coupons_enabled": true
+    },
+    "refund_due_by": "2026-10-11",
+    "review_at": null,
+    "approver": null,
+    "approved_at": null,
+    "override_reason": null,
+    "override_category": null,
+    "coupon_rule": null,
+    "diminished_value_claim": null,
+    "inputs": {
+      "order_id": "ORD-004811",
+      "customer_id": "C-GIULIA",
+      "reason": "size",
+      "delivered_on": "2026-09-24",
+      "notice_on": "2026-09-27",
+      "order_terms": {
+        "return_window_days": 30,
+        "free_return_shipping": true,
+        "instant_refund": true,
+        "free_size_exchange": true,
+        "coupons_enabled": true
+      },
+      "base_terms": {
+        "return_window_days": 30,
+        "free_return_shipping": true,
+        "instant_refund": true,
+        "free_size_exchange": true,
+        "coupons_enabled": true
+      },
+      "risk": 0.12,
+      "value_eur": 211.85,
+      "evidence_quality": "sufficient",
+      "cluster_id": null,
+      "thresholds": {
+        "risk": 0.6,
+        "value_eur": 185.0
+      },
+      "provenance": {
+        "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+        "period_start": "2025-10-01",
+        "period_end": "2026-09-27",
+        "nature": "synthetic"
+      }
+    },
+    "rules_version": "policy-2026-10-12",
+    "model_versions": {
+      "risk": "risk-xgb-0.1.0",
+      "propensity": "propensity-xgb-0.1.0",
+      "graph": "graph-0.1.0",
+      "evidence": "evidence-0.1.0",
+      "value": "value-0.1.0"
+    },
+    "assumptions_version": "assumptions-v1",
+    "generation_id": "GEN-000101-1"
+  },
   "draft": {
     "generation": {
       "generation_id": "GEN-000101-2",

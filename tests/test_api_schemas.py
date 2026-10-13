@@ -5,10 +5,11 @@ from __future__ import annotations
 import copy
 import json
 from collections.abc import Iterator
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, get_args
+from types import UnionType
+from typing import Annotated, Any, Literal, Union, get_args, get_origin
 
 import pytest
 from jsonschema import Draft202012Validator
@@ -18,7 +19,15 @@ from apps.api import schemas as s
 from contracts.io import NATURES
 from contracts.levers import lever_json_schema
 from contracts.parquet import ANOMALY_STATUSES, COUPON_KINDS, IDENTIFIER_KINDS
-from contracts.vocab import ASSUMPTION_BASES, CLAUSE_KINDS, DECISION_STATUSES, LANGS
+from contracts.vocab import (
+    ASSUMPTION_BASES,
+    CLAUSE_KINDS,
+    DECISION_AUDIT_ACTIONS,
+    DECISION_STATUSES,
+    HUMAN_ONLY_ACTIONS,
+    LANGS,
+    REASON_REQUIRED_ACTIONS,
+)
 from llm.legal_clause import CLAUSES
 from policy.engine import NAVIGLI_BASE_TERMS, levers_for
 from policy.legal_guard import check
@@ -647,6 +656,47 @@ REJECTED: list[tuple[str, str, Path_, Any]] = [
      ("terms_snapshot", "source"), "base"),
     ("link_dispute_request.json", "link_dispute_request", ("decision_id",), DELETE),
     ("portfolio_matrix.json", "portfolio_matrix", ("points", 6, "risk"), 0.4),
+    # restrictions lapse where they reach customers: checkout terms and coupon blocks (US-607)
+    ("checkout_evaluate_response.marco.json", "checkout_evaluate_response", ("review_at",),
+     "2026-09-01"),
+    ("checkout_evaluate_response.marco.json", "checkout_evaluate_response", ("shown_at",),
+     "2027-01-10T10:00:00Z"),
+    ("checkout_evaluate_response.marco.json", "checkout_evaluate_response",
+     ("coupon_block", "review_at"), "2026-09-30"),
+    ("coupon_rules.json", "coupon_rules", ("applications", 0, "in_force"), False),
+    ("coupon_rules.json", "coupon_rules", ("as_of",), "2026-12-27T08:00:00Z"),
+    ("decision_result.marco_approved.json", "decision_result", ("coupon_application",), None),
+    ("decision_result.marco_approved.json", "decision_result",
+     ("coupon_application", "confirmed_by"), "luca"),
+    # a decision result, its audit entry and its message are about one decision (US-604)
+    ("decision_result.marco_approved.json", "decision_result", ("outbox_message", "return_id"),
+     "RET-000999"),
+    ("decision_result.marco_approved.json", "decision_result", ("outbox_message", "customer_id"),
+     "C-SOMEONE-ELSE"),
+    ("decision_result.marco_approved.json", "decision_result", ("audit_entry", "return_id"),
+     "RET-000999"),
+    ("decision_result.override.json", "decision_result", ("audit_entry", "reason"),
+     "something else entirely"),
+    ("decision_result.lift.json", "decision_result", ("audit_entry", "before", "decision_id"),
+     "DEC-000999-1"),
+    ("decision_result.lift.json", "decision_result", ("audit_entry", "before", "decision_id"),
+     "DEC-000088-2"),
+    ("inspection_confirm_response.json", "inspection_confirm_response",
+     ("outbox_message", "customer_id"), "C-SOMEONE-ELSE"),
+    ("inspection_confirm_response.json", "inspection_confirm_response",
+     ("inspection", "return_id"), "RET-000999"),
+    ("recompute_response.rossi_card.json", "recompute_response", ("return_id",), "RET-000999"),
+    # a regenerated draft is checked against the decision it explains (rules 1 and 10)
+    ("regenerate_response.json", "regenerate_response", ("draft", "decision_echo", "lever_ids"),
+     ["instant_refund:false"]),
+    ("regenerate_response.json", "regenerate_response", ("draft", "decision_echo", "quadrant"),
+     "Q4"),
+    # one label, one set of values: derived labels are checked by the models (US-602)
+    ("case_card.marco.json", "case_card",
+     ("alternatives", 0, "net_benefit", "assumptions", "version"), "whatever/proposal"),
+    ("decision_record.chiara_v1.json", "decision_record",
+     ("alternatives", 1, "net_benefit", "assumptions", "version"), "DEC-000106-2/verification"),
+    ("kpi.json", "kpi", ("net_benefit_simulated", "assumptions", "version"), "kpi/2026-09-28"),
 ]  # fmt: skip
 
 
@@ -730,21 +780,64 @@ def test_lift_takes_a_reason_and_no_levers() -> None:
         s.DecisionRequest.model_validate({**body, "levers": []})
 
 
-def test_review_versions_lift_to_the_standard_levers() -> None:
-    """A version created by a review (trigger review) is the operator's lift: standard levers."""
+def test_review_versions_lift_or_renew_the_restriction() -> None:
+    """A version created by a review (trigger review) is a person's outcome of the review: a lift
+    (overridden to the standard levers) or a renewal (the engine's fresh restriction, approved).
+    Never a proposal, never anything else."""
     lift = s.DecisionResult.model_validate(load("decision_result.lift.json")).decision
     assert (lift.revision_trigger, lift.state, lift.levers) == ("review", "overridden", [])
     assert lift.supersedes is not None and lift.version == 2 and lift.in_force
-    doc = load("decision_result.marco_approved.json")["decision"]
-    doc.update(revision_trigger="review", version=2, supersedes="DEC-000102-0")
+    renewal = load("decision_result.marco_approved.json")["decision"]
+    renewal.update(revision_trigger="review", version=2, supersedes="DEC-000102-0")
+    s.DecisionView.model_validate(renewal)  # an approved restriction: a renewal
+    proposed = load("case_card.marco.json")["decision"]
+    proposed.update(revision_trigger="review", version=2, supersedes="DEC-000102-0")
     with pytest.raises(ValidationError, match="trigger review"):
-        s.DecisionView.model_validate(doc)
+        s.DecisionView.model_validate(proposed)
+    upgrade = load("case_card.giulia.json")["decision"]
+    upgrade.update(
+        revision_trigger="review", version=2, supersedes="DEC-000101-0", state="approved",
+        approver="luca", approved_at=upgrade["as_of"],
+    )  # fmt: skip
+    with pytest.raises(ValidationError, match="trigger review"):
+        s.DecisionView.model_validate(upgrade)
 
 
 def test_queue_filters_restrictions_due_for_review() -> None:
     assert "review_due" in s.QueueQuery.model_fields
     assert {"review_at", "review_due"} <= set(s.QueueItem.model_fields)
-    assert "review" in get_args(s.RevisionTrigger) and "lift" in get_args(s.DecisionAction)
+    assert "review" in get_args(s.RevisionTrigger)
+    assert {"lift", "renew"} <= set(get_args(s.DecisionAction))
+
+
+def test_every_revision_trigger_has_a_producer() -> None:
+    """Initial: the intake function. evidence_added, link_disputed: the recompute. review: a lift
+    or a renewal. Nothing produced scores_refreshed, so it is gone (ADR-15 section 10)."""
+    assert set(get_args(s.RevisionTrigger)) == {
+        "initial", "evidence_added", "link_disputed", "review"
+    }  # fmt: skip
+    assert "restriction_renewed" in DECISION_AUDIT_ACTIONS & HUMAN_ONLY_ACTIONS
+    assert "restriction_renewed" not in REASON_REQUIRED_ACTIONS  # like approve
+
+
+def test_renew_takes_no_levers_and_no_reason() -> None:
+    """renew approves the engine's fresh restriction, as approve does: no levers, no reason."""
+    body = {
+        "decision_id": "DEC-000088-1",
+        "action": "renew",
+        "message": {"lang": "it"},
+        "approver": "luca",
+    }
+    s.DecisionRequest.model_validate(body)
+    Draft202012Validator(schema("decision_request")).validate(body)
+    bad = (
+        {**body, "levers": []},
+        {**body, "override_reason": "Still returning", "override_category": "periodic_review"},
+    )
+    for doc in bad:
+        with pytest.raises(ValidationError):
+            s.DecisionRequest.model_validate(doc)
+        assert not Draft202012Validator(schema("decision_request")).is_valid(doc)
 
 
 # ---- Template fields come from the decision (rule 10, ADR-08) -----------------------------------
@@ -848,6 +941,169 @@ def test_terms_snapshot_from_base_has_the_base_terms() -> None:
     s.TermsSnapshotView.model_validate({**decision, "terms": restricted, "review_at": "2026-12-27"})
 
 
+# ---- Restrictions lapse where they reach customers (US-607, US-402) -----------------------------
+
+
+def test_terms_snapshot_from_a_restriction_is_shown_before_its_review_date() -> None:
+    """Terms from a decision are shown only while the restriction is in force: a snapshot shown
+    on or after the review date would make a lapsed restriction reach a new order."""
+    snapshot = load("case_card.giulia.json")["order_terms"]
+    restricted = {
+        **snapshot,
+        "source": "DEC-000102-1",
+        "quadrant_at_purchase": "Q4",
+        "terms": {**snapshot["terms"], "instant_refund": False},
+    }
+    shown = date.fromisoformat(snapshot["shown_at"][:10])
+    s.TermsSnapshotView.model_validate(
+        {**restricted, "review_at": (shown + timedelta(days=1)).isoformat()}
+    )
+    for review in (shown - timedelta(days=30), shown):
+        with pytest.raises(ValidationError, match="review"):
+            s.TermsSnapshotView.model_validate({**restricted, "review_at": review.isoformat()})
+
+
+def test_checkout_terms_and_coupon_block_lapse_at_their_review_date() -> None:
+    doc = load("checkout_evaluate_response.marco.json")
+    s.CheckoutEvaluateResponse.model_validate(doc)
+    shown = date.fromisoformat(doc["shown_at"][:10])
+    for review in (date(2026, 9, 1), shown):
+        with pytest.raises(ValidationError, match="review"):
+            s.CheckoutEvaluateResponse.model_validate({**doc, "review_at": review.isoformat()})
+    with pytest.raises(ValidationError, match="review"):
+        s.CheckoutEvaluateResponse.model_validate({**doc, "shown_at": "2027-01-10T10:00:00Z"})
+    block = {**doc["coupon_block"], "review_at": shown.isoformat()}
+    with pytest.raises(ValidationError, match="coupon block"):
+        s.CheckoutEvaluateResponse.model_validate({**doc, "coupon_block": block})
+
+
+def test_a_cluster_coupon_application_lapses_at_its_review_date() -> None:
+    """The coupon block of the linked accounts ends at its review date, like the restriction
+    that applied it (US-607: no permanent label)."""
+    rules = load("coupon_rules.json")
+    app = rules["applications"][0]
+    assert app["state"] == "confirmed" and app["in_force"] is True
+    assert app["as_of"] == rules["as_of"]
+    s.CouponRuleApplication.model_validate(app)
+    lapsed = {**app, "as_of": f"{app['review_at']}T08:00:00Z"}
+    with pytest.raises(ValidationError, match="in_force"):
+        s.CouponRuleApplication.model_validate(lapsed)
+    s.CouponRuleApplication.model_validate({**lapsed, "in_force": False})
+    reversed_ = load("coupon_rule_application.reversed.json")
+    assert reversed_["state"] == "reversed" and reversed_["in_force"] is False
+    with pytest.raises(ValidationError, match="in_force"):
+        s.CouponRuleApplication.model_validate({**reversed_, "in_force": True})
+
+
+def test_lifting_a_cluster_restriction_reverses_its_coupon_application() -> None:
+    """A lift of a Q4 version with a coupon block ends the block on every linked account: the
+    result carries the application, reversed by the person who lifted, with the lift's reason."""
+    approved = s.DecisionResult.model_validate(load("decision_result.marco_approved.json"))
+    before = approved.decision
+    assert before.coupon_rule is not None and approved.coupon_application is not None
+    assert approved.coupon_application.state == "confirmed" and approved.coupon_application.in_force
+    when = datetime(2026, 10, 2, 9, 30, tzinfo=UTC)
+    reason = "Rectification asked by the customer: the linked accounts are three colleagues"
+    request, result = build_api_examples.review_result(
+        build_api_examples.marco().engine, before, "lift", "luca", when,
+        entry_id=30, message_id="MSG-000102-2", reason=reason, category="customer_context",
+    )  # fmt: skip
+    assert request.action == "lift" and request.decision_id == before.decision_id
+    app = result.coupon_application
+    assert app is not None and app.application_id == before.coupon_rule.application_id
+    assert (app.state, app.reversed_by, app.reversal_reason, app.in_force) == (
+        "reversed",
+        "luca",
+        reason,
+        False,
+    )
+    assert app.decision_id == before.decision_id == result.decision.supersedes
+    assert result.decision.coupon_rule is None and result.decision.levers == []
+    doc = result.model_dump(mode="json")
+    s.DecisionResult.model_validate(doc)
+    for path, value in (
+        (("coupon_application",), None),
+        (("coupon_application", "reversed_by"), "sara"),
+        (("coupon_application", "application_id"), "CRA-000099"),
+    ):
+        with pytest.raises(ValidationError, match="coupon"):
+            s.DecisionResult.model_validate(mutated(doc, path, value))
+
+
+def test_a_restriction_due_for_review_is_renewed_with_a_new_version() -> None:
+    """renew (US-607): at or after the review date a person approves the engine's fresh
+    restriction, which gets a new review date; the lapsed version stays in the log."""
+    lorenzo = build_api_examples.simple_case(build_api_examples.SIMPLE_BY_KEY["lorenzo"])
+    v1 = lorenzo.card.decision
+    assert v1.review_at is not None and not v1.in_force
+    when = datetime(2026, 9, 30, 19, 20, tzinfo=UTC)
+    request, result = build_api_examples.review_result(
+        lorenzo.engine, v1, "renew", "luca", when, entry_id=15, message_id="MSG-000088-3"
+    )
+    assert (request.action, request.levers, request.override_reason) == ("renew", None, None)
+    v2 = result.decision
+    assert (v2.version, v2.supersedes, v2.revision_trigger, v2.state) == (
+        2,
+        v1.decision_id,
+        "review",
+        "approved",
+    )
+    assert v2.requires_approval and v2.in_force and v2.approver == "luca"
+    assert v2.decided_on == when.date() >= v1.review_at
+    assert v2.review_at is not None and v2.review_at > v2.decided_on
+    assert result.audit_entry.action == "restriction_renewed"
+    assert result.outbox_message.legal_clause_kind == "withdrawal"
+    doc = result.model_dump(mode="json")
+    s.DecisionResult.model_validate(doc)
+    early = mutated(doc, ("audit_entry", "before", "review_at"), "2026-12-01")
+    with pytest.raises(ValidationError, match="review date"):
+        s.DecisionResult.model_validate(early)
+    with pytest.raises(ValidationError):
+        s.DecisionResult.model_validate(
+            mutated(doc, ("audit_entry", "action"), "decision_approved")
+        )
+
+
+def test_a_new_decision_version_has_a_new_decision_id() -> None:
+    """restriction_lifted and case_recomputed create the next version: before and after are two
+    versions, never one."""
+    page = load("audit_page.json")
+    new_versions = [x for x in page["items"] if x["action"] in ("restriction_lifted",
+                                                               "case_recomputed")]  # fmt: skip
+    assert {x["action"] for x in new_versions} == {"restriction_lifted", "case_recomputed"}
+    for item in new_versions:
+        s.AuditEntry.model_validate(item)
+        same = mutated(item, ("before", "decision_id"), item["after"]["decision_id"])
+        with pytest.raises(ValidationError, match="new version"):
+            s.AuditEntry.model_validate(same)
+
+
+def test_regenerated_draft_fields_are_the_decision_fields() -> None:
+    """The regenerated draft is checked like the draft of a case card (rule 10)."""
+    doc = load("regenerate_response.json")
+    s.RegenerateResponse.model_validate(doc)
+    assert doc["decision"]["decision_id"] == load("regenerate_request.json")["decision_id"]
+    doc["draft"]["messages"][0] = _rerender(
+        doc["draft"]["messages"][0], terms="finestra di reso di 90 giorni"
+    )
+    with pytest.raises(ValidationError, match="template fields"):
+        s.RegenerateResponse.model_validate(doc)
+
+
+def test_alternatives_share_the_basis_of_their_stored_version() -> None:
+    """US-602: every alternative of a decision uses the unit costs and the basis of the stored
+    version; a realized set among simulated ones is refused."""
+    card = load("case_card.marco.json")
+    s.CaseCard.model_validate(card)
+    nb = card["alternatives"][1]["net_benefit"]
+    nb["assumptions"]["basis"] = "realized"
+    for metric in [c["amount"] for c in nb["components"]] + [nb["total"]]:
+        metric["provenance"]["nature"] = "synthetic"
+    s.NetBenefitView.model_validate(nb)  # valid alone
+    with pytest.raises(ValidationError, match="basis"):
+        s.CaseCard.model_validate(card)
+
+
 def test_a_dispute_from_a_case_names_the_decision_shown() -> None:
     body = {"reason": "Card used once for a gift", "author": "sara", "return_id": "RET-000106"}
     with pytest.raises(ValidationError, match="decision_id"):
@@ -905,3 +1161,81 @@ def test_responses_with_plain_numbers_carry_a_provenance() -> None:
     card = schema("case_card")["$defs"]
     assert "provenance" in card["RiskView"]["required"]
     assert card["RevisionSummary"]["properties"]["risk"]["anyOf"][0] == {"$ref": "#/$defs/Metric"}
+    assert "provenance" in card["DecisionInputs"]["required"]
+    audit = schema("audit_page")["$defs"]["DecisionAuditState"]
+    assert audit["properties"]["risk"]["anyOf"][0] == {"$ref": "#/$defs/Metric"}
+
+
+# Plain numbers that are not figures (rule 11 is about figures shown as data): counters and
+# positions, versions, run settings, contract terms and their thresholds. Every other plain
+# number of a response sits in a section that carries a provenance.
+NOT_FIGURES: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("AuditPage", "total"), ("AuditPage", "page"), ("AuditPage", "page_size"),
+        ("AuditEntry", "entry_id"),
+        ("OutboxResponse", "total"),
+        ("DecisionView", "version"), ("DecisionAuditState", "version"),
+        ("RevisionSummary", "version"),
+        ("Terms", "return_window_days"),  # a term of the return policy, not a measurement
+        ("Lever", "value"),  # the value of a policy lever (a window in days, a flag)
+        ("GenerationInfo", "attempts"), ("GenerationInfo", "latency_ms"),
+        ("ToolCallEvent", "seq"), ("ToolCallEvent", "step"),
+        ("ToolResultEvent", "seq"), ("ToolResultEvent", "step"),
+        ("TokenEvent", "seq"), ("AnswerEvent", "seq"), ("RefusalEvent", "seq"),
+        ("ErrorEvent", "seq"), ("DoneEvent", "seq"), ("DoneEvent", "steps_used"),
+        ("Benchmark", "config"), ("BenchmarkResult", "concurrency"),
+        ("BenchmarkResult", "batch_size"),
+        ("LlmStats", "window_s"),
+        ("FollowUp", "weeks_after"),
+    }
+)  # fmt: skip
+
+
+def _leaf_types(annotation: Any) -> Iterator[Any]:
+    """The concrete types inside an annotation: unions, containers and Annotated unwrapped."""
+    origin = get_origin(annotation)
+    if origin is Annotated:
+        yield from _leaf_types(get_args(annotation)[0])
+    elif origin is Literal:
+        return  # a constant, not a value
+    elif origin in (Union, UnionType, list, tuple, dict):
+        args = get_args(annotation)
+        for arg in args[1:] if origin is dict else args:
+            yield from _leaf_types(arg)
+    else:
+        yield annotation
+
+
+def _uncovered_numbers(
+    model: type[BaseModel], covered: bool, seen: set[tuple[type[BaseModel], bool]]
+) -> Iterator[tuple[str, str]]:
+    """(model, field) of every int or float field with no provenance on its path. A model with a
+    Provenance field covers its subtree; a Metric carries its own; a NetBenefitView is covered
+    by the provenance of its total, which every component shares."""
+    if model is s.Metric or (model, covered) in seen:
+        return
+    seen.add((model, covered))
+    fields = model.model_fields
+    own = (
+        covered
+        or model is s.NetBenefitView
+        or any(s.Provenance in set(_leaf_types(f.annotation)) for f in fields.values())
+    )
+    for name, field in fields.items():
+        for leaf in _leaf_types(field.annotation):
+            if leaf in (int, float) and not own:
+                yield model.__name__, name
+            elif isinstance(leaf, type) and issubclass(leaf, BaseModel):
+                yield from _uncovered_numbers(leaf, own, seen)
+
+
+def test_every_plain_number_of_a_response_has_a_covering_provenance() -> None:
+    """Rule 11, NFR-16: walk every response model; a plain number outside a section with a
+    provenance is a defect (decision inputs and audit risks were, before ADR-15 section 10)."""
+    names = {ep.response for ep in s.ENDPOINTS} | {"error"}
+    seen: set[tuple[type[BaseModel], bool]] = set()
+    found = {
+        hit for name in sorted(names) for hit in _uncovered_numbers(s.API_MODELS[name], False, seen)
+    }
+    assert found <= NOT_FIGURES, sorted(found - NOT_FIGURES)
+    assert ("DecisionInputs", "risk") not in found and ("DecisionAuditState", "risk") not in found

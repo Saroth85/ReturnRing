@@ -497,6 +497,12 @@
       "thresholds": {
         "risk": 0.6,
         "value_eur": 185.0
+      },
+      "provenance": {
+        "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+        "period_start": "2025-10-01",
+        "period_end": "2026-09-28",
+        "nature": "synthetic"
       }
     },
     "rules_version": "policy-2026-10-12",

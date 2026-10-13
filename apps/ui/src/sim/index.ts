@@ -1,0 +1,35 @@
+// The economic simulator and the threshold sandbox in the browser (ADR-04, docs/ui-design.md 5.6).
+// Owner: manager (Eng 3).
+export {
+  COMPONENT_IDS,
+  INPUT_KEYS,
+  inputsOf,
+  netBenefit,
+  resultOf,
+  sameResult,
+  scenarioInputs,
+  scenarioLabel,
+  SENSITIVITY_IDS,
+  sensitivity,
+  toView,
+  type AssumptionInputs,
+  type AssumptionLabels,
+  type AssumptionSet,
+  type ComponentId,
+  type InputKey,
+  type NetBenefitResult,
+  type ScenarioResult,
+  type SensitivityId,
+} from './netBenefit';
+export {
+  bucketDelta,
+  matrixThresholds,
+  QUADRANT_ORDER,
+  quadrantFor,
+  rebucket,
+  type BucketChange,
+  type Buckets,
+  type MatrixPointLike,
+  type QuadrantBucket,
+  type SandboxThresholds,
+} from './rebucket';

@@ -11,6 +11,7 @@ import pytest
 from policy.engine import (
     REVIEW_DAYS,
     PolicyError,
+    Thresholds,
     approve,
     decide,
     levers_for,
@@ -261,3 +262,39 @@ def test_approve_without_a_coupon_rule() -> None:
     d = decide(req, scores(0.9, "500"), BASE, THRESHOLDS, TODAY)  # Q3, no cluster
     assert d.coupon_rule is None
     assert approve(d, req, BASE, approver="sara").coupon_rule is None
+
+
+def test_quadrant_for_refuses_invalid_scores() -> None:
+    with pytest.raises(PolicyError):
+        quadrant_for(
+            CaseScores(float("nan"), Decimal("500"), EvidenceQuality.SUFFICIENT), THRESHOLDS
+        )
+
+
+@pytest.mark.parametrize(
+    ("risk", "value"),
+    [
+        (float("nan"), "150"),
+        (0.0, "150"),
+        (1.5, "150"),
+        (0.5, "NaN"),
+        (0.5, "Infinity"),
+    ],
+)
+def test_thresholds_must_be_valid(risk: float, value: str) -> None:
+    with pytest.raises(PolicyError):
+        Thresholds(risk=risk, value_eur=Decimal(value))
+
+
+def test_approve_refuses_a_missing_approver() -> None:
+    req = request()
+    d = decide(req, scores(0.95, "15"), BASE, THRESHOLDS, TODAY)
+    with pytest.raises(PolicyError):
+        approve(d, req, BASE, approver=None)  # type: ignore[arg-type]
+
+
+def test_most_generous_takes_the_better_term_each() -> None:
+    q4 = ReturnTerms(14, False, False, True, False)
+    upgrade = ReturnTerms(60, True, True, False, True)
+    assert q4.most_generous(upgrade) == ReturnTerms(60, True, True, True, True)
+    assert q4.most_generous(q4) == q4

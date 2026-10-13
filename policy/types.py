@@ -76,6 +76,16 @@ class ReturnTerms:
             or (other.coupons_enabled and not self.coupons_enabled)
         )
 
+    def most_generous(self, other: ReturnTerms) -> ReturnTerms:
+        """Term by term, the better of the two for the customer."""
+        return ReturnTerms(
+            return_window_days=max(self.return_window_days, other.return_window_days),
+            free_return_shipping=self.free_return_shipping or other.free_return_shipping,
+            instant_refund=self.instant_refund or other.instant_refund,
+            free_size_exchange=self.free_size_exchange or other.free_size_exchange,
+            coupons_enabled=self.coupons_enabled or other.coupons_enabled,
+        )
+
 
 @dataclass(frozen=True)
 class Levers:
@@ -151,8 +161,8 @@ class Decision:
     evidence_quality: EvidenceQuality
     quadrant: Quadrant | None
     levers: Levers
-    # The order snapshot, never restricted retroactively; on the guarantee path return shipping
-    # is always free (Directive (EU) 2019/771, art. 14).
+    # The order snapshot, never restricted retroactively. On the guarantee path no restrictive
+    # lever applies (the better of snapshot and base) and return shipping is always free.
     current_return_terms: ReturnTerms
     refund_due_by: date
     requires_approval: bool

@@ -11,6 +11,9 @@ CALIBRATION ?= pipeline/calibration/asos_calibration.json
 SEED ?= 42
 SCALE ?= 1.0
 SOURCE_DIR ?=
+# The pipeline job writes data/ as the owner of the checkout (infra/docker-compose.yml).
+export HOST_UID ?= $(shell id -u)
+export HOST_GID ?= $(shell id -g)
 COMPOSE = docker compose -f infra/docker-compose.yml --env-file $(ENV_FILE)
 # gpu and demo use override files so the laptop .env (DEVICE=cpu, LLM_MODE=mock) cannot leak in.
 GPU = docker compose -f infra/docker-compose.yml -f infra/compose.gpu.yml --env-file $(ENV_FILE) --profile gpu

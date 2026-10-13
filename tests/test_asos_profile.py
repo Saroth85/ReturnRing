@@ -266,8 +266,46 @@ def test_i3_write_calibration_leaves_no_tmp_when_the_rename_fails(
     target.mkdir()  # os.replace onto a directory fails
     with pytest.raises(OSError):
         ap.write_calibration(doc, target)
-    assert not (tmp_path / "calibration.json.tmp").exists()
+    assert not list(tmp_path.glob("calibration.json?*")) and not list(tmp_path.glob(".calib*"))
     assert target.is_dir()
+
+
+def test_p3_write_calibration_never_writes_through_a_planted_symlink(
+    raw_root: Path, tmp_path: Path
+) -> None:
+    """Review P3: a symlink planted at a temporary name (the old one, calibration.json.tmp, and
+    the shared helper's, .calibration.json.part) must not redirect the write, and the
+    calibration must end up a regular file, not a link to the victim."""
+    doc = ap.calibration(ap.load_raw(raw_root))
+    out = tmp_path / "out"
+    out.mkdir()
+    target = out / "calibration.json"
+    planted = {}
+    for i, name in enumerate(("calibration.json.tmp", ".calibration.json.part")):
+        victim = tmp_path / f"victim-{i}.txt"
+        victim.write_text("keep me")
+        (out / name).symlink_to(victim)
+        planted[name] = victim
+    ap.write_calibration(doc, target)
+    assert all(victim.read_text() == "keep me" for victim in planted.values())
+    assert target.is_file() and not target.is_symlink()
+    assert json.loads(target.read_text()) == doc
+    assert {p.name for p in out.iterdir()} - set(planted) == {"calibration.json"}
+
+
+def test_p3_the_report_is_written_atomically(raw_root: Path, tmp_path: Path) -> None:
+    """The plain-text report goes through the same helper: a symlink planted at the report or at
+    its temporary name is replaced, never written through."""
+    victims = [tmp_path / "victim-0.txt", tmp_path / "victim-1.txt"]
+    report_out = tmp_path / "report" / "asos_profile.txt"
+    report_out.parent.mkdir()
+    for victim, name in zip(victims, ("asos_profile.txt", ".asos_profile.txt.part"), strict=True):
+        victim.write_text("keep me")
+        (report_out.parent / name).symlink_to(victim)
+    _, text = ap.profile(raw_root, tmp_path / "calibration.json", report_out)
+    assert all(victim.read_text() == "keep me" for victim in victims)
+    assert report_out.read_text() == text and not report_out.is_symlink()
+    assert [p.name for p in report_out.parent.iterdir()] == ["asos_profile.txt"]
 
 
 def test_write_calibration_refuses_an_invalid_document(tmp_path: Path) -> None:

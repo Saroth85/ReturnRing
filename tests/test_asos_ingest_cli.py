@@ -138,7 +138,20 @@ def test_i3_a_calibration_path_that_cannot_be_written_exits_1(
     assert cli.main(args(tmp_path, "--skip-download")) == 1
     err = capsys.readouterr().err
     assert "[convert/profile] failed" in err and "calibration.json" in err
-    assert not list(tmp_path.glob("*.tmp"))
+    assert not list(tmp_path.rglob("*.tmp")) and not list(tmp_path.rglob("*.part"))
+
+
+def test_p3_a_raw_table_path_that_cannot_be_written_leaves_no_temporary_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Review P3: the convert step writes through contracts.io.write_table. A directory in the
+    way of raw/asos_events.parquet is a clean exit 1, and no temporary file is left in raw/."""
+    pins = write_replica(tmp_path / "data/raw/asos")
+    monkeypatch.setattr(dl, "EXPECTED", pins)
+    (tmp_path / "data/raw/asos_events.parquet").mkdir()
+    assert cli.main(args(tmp_path, "--skip-download")) == 1
+    assert "[convert/profile] failed" in capsys.readouterr().err
+    assert not list(tmp_path.rglob("*.tmp")) and not list(tmp_path.rglob("*.part"))
 
 
 def test_i3_a_data_root_that_is_a_file_exits_1(

@@ -10,7 +10,8 @@ The six files are pickles, and loading a pickle runs code, so integrity is a sec
 - EXPECTED pins the name, size, sha256 and OSF download id of each file. Only these six names are
   ever written, and only as plain file names inside the destination.
 - A download is streamed in chunks to a temporary file while it is hashed. It fails closed on any
-  size or hash mismatch, and only a matching file is renamed into place.
+  size or hash mismatch, and only a matching file is renamed into place. Temporary files go
+  through contracts.files (created anew, never through a planted symlink, removed on failure).
 - A file already present with the pinned hash is not fetched again, so an interrupted run resumes.
 - --source-dir takes the files from a local cache: hard link when possible, copy otherwise, and
   the same check before the file is installed.
@@ -33,6 +34,8 @@ from functools import partial
 from pathlib import Path
 from types import MappingProxyType
 from typing import BinaryIO, NamedTuple, cast
+
+from contracts.files import atomic_write, create_new, install
 
 ATTRIBUTION = (
     "ASOS GraphReturns dataset, McGowan et al. (2023), arXiv:2302.14096, "
@@ -145,21 +148,11 @@ def verify(dest: Path, expected: Mapping[str, Pinned] | None = None) -> dict[str
     return problems
 
 
-# A temporary file is always created anew and never through a symlink planted at its name.
-_NEW_FILE = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
-
-
-def _create(path: Path) -> int:
-    """A file descriptor of a new file at `path`, after removing whatever was there."""
-    path.unlink(missing_ok=True)
-    return os.open(path, _NEW_FILE, 0o644)
-
-
 def _stream_into(stream: BinaryIO, tmp: Path, pin: Pinned, origin: str) -> None:
     """Copy `stream` to `tmp` chunk by chunk while hashing; fail closed on size or hash."""
     digest = hashlib.sha256()
     size = 0
-    with os.fdopen(_create(tmp), "wb") as out:
+    with os.fdopen(create_new(tmp), "wb") as out:
         while chunk := stream.read(CHUNK):
             size += len(chunk)
             if size > pin.size:
@@ -185,18 +178,6 @@ def _from_cache(source: Path, pin: Pinned, tmp: Path) -> str:
     return "linked"
 
 
-def _install(target: Path, fill: Callable[[Path], str]) -> str:
-    """Fill a temporary file next to `target`, then rename it into place; clean up on failure."""
-    tmp = target.with_name(f".{target.name}.part")
-    tmp.unlink(missing_ok=True)
-    try:
-        action = fill(tmp)
-        os.replace(tmp, target)
-        return action
-    finally:
-        tmp.unlink(missing_ok=True)
-
-
 def _write_log(dest: Path, files: Mapping[str, Pinned], actions: Mapping[str, str]) -> None:
     log = {
         "attribution": ATTRIBUTION,
@@ -206,13 +187,8 @@ def _write_log(dest: Path, files: Mapping[str, Pinned], actions: Mapping[str, st
             name: {**files[name]._asdict(), "action": action} for name, action in actions.items()
         },
     }
-    tmp = dest / f".{MANIFEST}.part"
-    try:
-        with os.fdopen(_create(tmp), "w", encoding="utf-8") as out:
-            out.write(json.dumps(log, indent=2, sort_keys=True) + "\n")
-        os.replace(tmp, dest / MANIFEST)
-    finally:
-        tmp.unlink(missing_ok=True)
+    text = (json.dumps(log, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    atomic_write(dest / MANIFEST, lambda out: out.write(text))
 
 
 def download(
@@ -238,9 +214,9 @@ def download(
             continue
         source = None if source_dir is None else source_dir / name  # name checked above
         if source is not None and source.is_file():
-            actions[name] = _install(target, partial(_from_cache, source, pin))
+            actions[name] = install(target, partial(_from_cache, source, pin))
         else:
-            actions[name] = _install(target, partial(_fetch, fetch, pin))
+            actions[name] = install(target, partial(_fetch, fetch, pin))
     _write_log(dest, files, actions)
     return actions
 

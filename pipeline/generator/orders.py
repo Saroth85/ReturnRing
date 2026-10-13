@@ -14,7 +14,8 @@ Behaviour signatures in the orders:
 - ring accounts place their first order within two days of opening, with the welcome coupon.
 
 Defective variants sell about DEFECT_WEEKLY_SALES a week in the first DEFECT_BOOST_WEEKS weeks of
-their defect window (boost_defect_windows), so the spec 8.9 detector can evaluate them.
+their defect window, so the spec 8.9 detector can evaluate them; matched non-defective best sellers
+get the same surge at random dates, so a surge alone never identifies a defect (boost_surges).
 
 Every order is delivered 1 to 5 days later (no Sunday deliveries), with the same lag distribution
 for every customer, except 0.3% of lost parcels.
@@ -27,7 +28,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import numpy.typing as npt
 
-from pipeline.generator.calibration import Calibration, QuantileDistribution
+from pipeline.generator.calibration import Calibration, CalibrationError, QuantileDistribution
 from pipeline.generator.catalogue import Catalogue, SizeKind, size_codes
 from pipeline.generator.config import (
     BLACK_FRIDAY_CODES_AT,
@@ -134,30 +135,44 @@ class Deliveries:
     available_at: I64
 
 
+_NOTHING_TO_DRAW = (
+    "no variant of positive weight is listed before the period for this draw (sized items for a "
+    "bracketing pair, for example): use a larger --scale or a calibration with larger sized "
+    "product types"
+)
+
+
 class VariantSampler:
-    """Draws variants by weight among those listed before the order."""
+    """Draws variants by weight among those listed before the order; never a zero-weight one."""
 
     def __init__(self, cat: Catalogue, weights: F64) -> None:
         self.listed = cat.listed_at
         self.cum = np.cumsum(weights)
         early = np.where(cat.listed_at < START_US, weights, 0.0)
         self.early_cum = np.cumsum(early)
+        # Draws are clipped to the last variant of positive weight, never to a trailing zero.
+        self.last = int(np.flatnonzero(weights > 0)[-1]) if (weights > 0).any() else 0
+        self.early_last = int(np.flatnonzero(early > 0)[-1]) if (early > 0).any() else 0
 
     def draw(self, rng: np.random.Generator, placed: I64) -> I64:
         n = len(placed)
+        if n and not self.cum[-1] > 0:
+            raise CalibrationError([_NOTHING_TO_DRAW])
         v = np.searchsorted(self.cum, rng.random(n) * self.cum[-1], side="right")
-        v = np.minimum(v, len(self.cum) - 1)
+        v = np.minimum(v, self.last)
         for _ in range(20):
             bad = np.flatnonzero(self.listed[v] > placed)
             if len(bad) == 0:
                 return np.asarray(v, dtype=np.int64)
             redraw = np.searchsorted(self.cum, rng.random(len(bad)) * self.cum[-1], side="right")
-            v[bad] = np.minimum(redraw, len(self.cum) - 1)
+            v[bad] = np.minimum(redraw, self.last)
         bad = np.flatnonzero(self.listed[v] > placed)
+        if len(bad) and not self.early_cum[-1] > 0:  # review P2: nothing listed in time
+            raise CalibrationError([_NOTHING_TO_DRAW])
         early = np.searchsorted(
             self.early_cum, rng.random(len(bad)) * self.early_cum[-1], side="right"
         )
-        v[bad] = np.minimum(early, len(self.cum) - 1)
+        v[bad] = np.minimum(early, self.early_last)
         return np.asarray(v, dtype=np.int64)
 
 
@@ -317,45 +332,60 @@ def _wardrobe_days(rng: np.random.Generator, placed: I64, earliest: I64, wardrob
     return np.where(move & (moved >= earliest), moved, placed)
 
 
-def boost_defect_windows(plan: OrderPlan, cat: Catalogue, rng: np.random.Generator) -> int:
-    """A defective batch sells strongly at first: in each of the first DEFECT_BOOST_WEEKS weeks of
-    its defect window, ordinary lines of the same product type switch to the defective variant
-    until it sells about DEFECT_WEEKLY_SALES that week. Type sales shares stay as calibrated.
+def boost_surges(plan: OrderPlan, cat: Catalogue, rng: np.random.Generator) -> int:
+    """Sales surges of best sellers (reviews G6 and P1): in each of the DEFECT_BOOST_WEEKS weeks
+    from a variant's surge_start, ordinary lines of the same product type switch to it until it
+    sells about DEFECT_WEEKLY_SALES that week. Type sales shares stay as calibrated.
+
+    A defective variant surges at the start of its defect window, a matched control at a random
+    Monday (catalogue._add_defects). The lift does not look at the defect, and takes the variants
+    in random order, so defects and controls surge alike.
 
     Only plain lines move (normal and size modes, no bracketing pair, no scripted line), never a
-    line of another defective variant, at most DEFECT_MAX_TYPE_SHARE of the type's lines of the
-    week, and at most one line per order, never into an order that already holds the variant.
-    Returns the number of lines switched."""
+    line of a surging variant, nor a line already switched; for each variant at most
+    DEFECT_MAX_TYPE_SHARE of the type's free lines of the week, at most one line per order, and
+    never into an order that already holds it. Returns the number of lines switched."""
     week = 7 * US_PER_DAY
     placed = plan.placed_at[plan.line_order]
+    surging = cat.surge_start >= 0
     movable = (
         np.isin(plan.line_mode, (MODE_NORMAL, MODE_SIZE))
         & (plan.line_pair < 0)
-        & ~cat.defective[plan.line_variant]
+        & ~surging[plan.line_variant]
     )
     line_type = cat.type_index[plan.line_variant]
+    # The lines of each type that can move, by time, so a week is a slice.
+    by_type: dict[int, I64] = {}
+    for t in np.unique(cat.type_index[surging]).tolist():
+        lines = np.flatnonzero(movable & (line_type == t))
+        by_type[t] = lines[np.argsort(placed[lines], kind="stable")]
+    holds = np.zeros(plan.n_orders, dtype=np.bool_)
     switched = 0
-    for v in np.flatnonzero(cat.defective):
-        start = int(cat.defect_start[v])
-        end = END_US if cat.defect_end[v] < 0 else int(cat.defect_end[v])
-        holding = np.unique(plan.line_order[plan.line_variant == v])
-        free = movable & (line_type == cat.type_index[v]) & ~np.isin(plan.line_order, holding)
+    for v in rng.permutation(np.flatnonzero(surging)).tolist():
+        lines = by_type[int(cat.type_index[v])]
+        times = placed[lines]
+        mine = placed[plan.line_variant == v]
+        holds[:] = False
+        holds[plan.line_order[plan.line_variant == v]] = True
         for w in range(DEFECT_BOOST_WEEKS):
-            lo, hi = start + w * week, min(start + (w + 1) * week, end)
+            lo = int(cat.surge_start[v]) + w * week
+            hi = min(lo + week, END_US)
             if lo >= hi:
                 break
-            in_week = (placed >= lo) & (placed < hi)
-            sold = int(np.count_nonzero(in_week & (plan.line_variant == v)))
+            sold = int(np.count_nonzero((mine >= lo) & (mine < hi)))
             want = DEFECT_WEEKLY_SALES * (hi - lo) / week - sold
-            candidates = np.flatnonzero(free & in_week)
+            first, last = np.searchsorted(times, [lo, hi], side="left")
+            candidates = lines[first:last]
+            candidates = candidates[movable[candidates] & ~holds[plan.line_order[candidates]]]
             if want <= 0 or len(candidates) == 0:
                 continue
             share = min(DEFECT_MAX_TYPE_SHARE, want / len(candidates))
             chosen = candidates[rng.random(len(candidates)) < share]
-            _, first = np.unique(plan.line_order[chosen], return_index=True)
-            chosen = chosen[np.sort(first)]
+            _, one = np.unique(plan.line_order[chosen], return_index=True)
+            chosen = chosen[np.sort(one)]  # one line per order
             plan.line_variant[chosen] = v  # same type, so the same sizes
-            free[np.isin(plan.line_order, plan.line_order[chosen])] = False
+            movable[chosen] = False
+            holds[plan.line_order[chosen]] = True
             switched += len(chosen)
     return switched
 

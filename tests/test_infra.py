@@ -8,6 +8,7 @@ ubuntu-24.04 runners) and is skipped otherwise.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -153,6 +154,23 @@ def test_pipeline_service_runs_the_generator_on_the_real_calibration() -> None:
     assert "--calibration pipeline/calibration/asos_calibration.json" in command
     assert (ROOT / "pipeline/calibration/asos_calibration.json").is_file()
     assert ((ROOT / "data").resolve(), "/app/data", False) in bind_mounts(pipeline)
+
+
+def test_p5_the_pipeline_job_writes_data_as_the_host_user() -> None:
+    """Review P5: the image runs as user app (uid 1000), but data/ belongs to whoever cloned the
+    repository (root on the droplet, infra/spikes/README.md). The job runs as the host user:
+    the Makefile passes `id -u` and `id -g`, .env.example documents both, uid 1000 otherwise."""
+    pipeline = services("docker-compose.yml")["pipeline"]
+    assert pipeline["user"] == "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    env = env_example()
+    assert env["HOST_UID"].isdigit() and env["HOST_GID"].isdigit()
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    assert re.search(r"^export HOST_UID \?= \$\(shell id -u\)$", makefile, re.M)
+    assert re.search(r"^export HOST_GID \?= \$\(shell id -g\)$", makefile, re.M)
+    # The other services keep the image's own user.
+    for service_name, service in services("docker-compose.yml").items():
+        if service_name != "pipeline":
+            assert "user" not in service, service_name
 
 
 def makefile_targets() -> dict[str, tuple[str, list[str]]]:
@@ -311,6 +329,11 @@ def test_rendered_compose_config(
     for key, value in expected.items():
         assert rendered["api"]["environment"][key] == value
     assert "ports" not in rendered.get("vllm", {})
+    if "pipeline" in rendered:  # dev and gpu profiles (review P5)
+        assert rendered["pipeline"]["user"] in {
+            f"{env_example()['HOST_UID']}:{env_example()['HOST_GID']}",
+            f"{os.getuid()}:{os.getgid()}",  # make exports HOST_UID and HOST_GID
+        }
     for service in rendered.values():
         for volume in service.get("volumes", []):
             assert not volume.get("source", "").endswith("/data/truth")

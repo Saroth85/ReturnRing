@@ -14,8 +14,10 @@ the sales-weighted rate distribution of the store matches the sales-weighted qua
 
 About 2% of the variants are defective (spec section 7): during a window, a share of their buyers
 return them for one non-conformity reason. The golden jacket V-JKT-DEF is one of them (US-104).
-Their sales are lifted during the window (orders.boost_defect_windows), so that the weekly
-detector of spec 8.9 (at least 20 sales a week) can see them.
+Their sales surge in the first weeks of the window (orders.boost_surges), so that the weekly
+detector of spec 8.9 (at least 20 sales a week) can see them. Matched controls, non-defective best
+sellers drawn from the same pool, get the same surge at random dates (review P1), so a surge is no
+evidence of a defect: only the returns are.
 
 A store needs at least one sized product type: size customers bracket two sizes and the golden
 cases buy sized items (Giulia's pairs, the jacket's fit defect). A calibration whose types are all
@@ -39,6 +41,7 @@ from pipeline.generator.calibration import (
     QuantileDistribution,
 )
 from pipeline.generator.config import (
+    DEFECT_BOOST_WEEKS,
     DEFECT_MAX_TYPE_SHARE,
     DEFECT_WEEKLY_SALES,
     DEFECTIVE_VARIANT_SHARE,
@@ -48,6 +51,7 @@ from pipeline.generator.config import (
     MIN_PRICE_CENTS,
     MIN_VARIANTS,
     START_US,
+    SURGE_CONTROLS_PER_DEFECT,
     US_PER_DAY,
     VARIANTS_AT_SCALE_1,
     ScenarioConfig,
@@ -83,6 +87,7 @@ PRE_PERIOD_LISTING_SHARE = 0.75
 POPULARITY_SIGMA = 1.0
 DEFECT_INTENSITY = (0.35, 0.65)  # share of in-window buyers who return for the defect
 DEFECT_WEEKS = (4, 12)
+SURGE_START_TRIES = 20  # random Mondays tried per surge before the least loaded one is taken
 DEFECT_NEVER_FIXED_SHARE = 0.2
 DEFECT_REASONS = ("defective", "not_as_described")
 
@@ -152,6 +157,7 @@ class Catalogue:
     defect_start: I64  # 0 when not defective
     defect_end: I64  # -1: not defective or never fixed in the period
     defect_intensity: F64
+    surge_start: I64  # Monday a sales surge starts (defects and their controls), -1: none
     type_names: tuple[str, ...]
 
     @property
@@ -238,6 +244,28 @@ def require_sizes(types: tuple[ProductType, ...]) -> None:
         raise CalibrationError([_NO_SIZES])
 
 
+def require_early_sized_variant(cat: Catalogue) -> None:
+    """Refuse a catalogue without a sized variant that sells from the first day (review P2).
+
+    An order drawn before a variant is listed falls back to the variants listed before the
+    period, and a bracketing pair needs a sized one among them; the golden jacket does not
+    count, since its dates are scripted. A calibration whose sized types have tiny shares gives
+    such a catalogue at small scales, in any scenario."""
+    generic = np.asarray(
+        [vid not in (golden.DEFECTIVE_JACKET, golden.JACKET_SIBLING) for vid in cat.variant_id],
+        dtype=np.bool_,
+    )
+    sized = (cat.size_kind != int(SizeKind.ONE)) & (cat.popularity > 0)
+    if not (generic & sized & (cat.listed_at < START_US)).any():
+        raise CalibrationError(
+            [
+                "no sized variant is listed before the period in this catalogue, so size "
+                "customers cannot bracket two sizes from the first day: use a larger --scale "
+                "or a calibration with larger sized product types"
+            ]
+        )
+
+
 def _price_cents(gbp: F64) -> I64:
     cents = np.round(gbp * GBP_TO_EUR * 100).astype(np.int64)
     return np.maximum(cents, MIN_PRICE_CENTS)
@@ -320,13 +348,13 @@ def build_catalogue(
         defect_start=np.zeros(len(v_order), dtype=np.int64),
         defect_end=np.full(len(v_order), -1, dtype=np.int64),
         defect_intensity=np.zeros(len(v_order), dtype=np.float64),
+        surge_start=np.full(len(v_order), -1, dtype=np.int64),
         type_names=tuple(t.name for t in types),
     )
     if cfg.golden:
         _add_golden_jacket(cat, types)
     _normalise_popularity(cat, types, cfg.golden)
-    if not ((cat.size_kind != int(SizeKind.ONE)) & (cat.popularity > 0)).any():
-        raise CalibrationError(["no sized variant sells in this catalogue: " + _NO_SIZES])
+    require_early_sized_variant(cat)
     type_weekly = np.asarray([t.sales_share for t in types]) * expected_weekly_lines(scale)
     _add_defects(cat, n_total, cfg.golden, type_weekly, rng)
     return cat
@@ -358,6 +386,7 @@ def _add_golden_jacket(cat: Catalogue, types: tuple[ProductType, ...]) -> None:
     cat.defect_intensity = np.concatenate(
         [cat.defect_intensity, np.array([golden.JACKET_DEFECT_INTENSITY, 0.0])]
     )
+    cat.surge_start = np.concatenate([cat.surge_start, cat.defect_start[-2:-1], [-1]])
     cat.defect_reason[-2] = golden.JACKET_DEFECT_REASON
 
 
@@ -393,6 +422,34 @@ def _monday(t: I64) -> I64:
     return np.asarray((day - weekday(t)) * US_PER_DAY, dtype=np.int64)
 
 
+def _schedule_surges(
+    cat: Catalogue, surging: I64, type_weekly: F64, latest_start: int, rng: np.random.Generator
+) -> None:
+    """A random Monday for each surge, spread so that the surges of a type rarely overlap more
+    than the type can carry (DEFECT_MAX_TYPE_SHARE of its lines a week, DEFECT_WEEKLY_SALES per
+    surge, at least one surge): in random order, each variant takes the first of SURGE_START_TRIES
+    random Mondays whose weeks stay within that load, else the least loaded of them. The rule
+    knows nothing of the defect, so defects and controls are spread alike."""
+    week = 7 * US_PER_DAY
+    first_monday = int(_monday(np.asarray([START_US], dtype=np.int64))[0])
+    n_weeks = (END_US - first_monday) // week + DEFECT_BOOST_WEEKS + 1
+    capacity = np.maximum(1.0, type_weekly * DEFECT_MAX_TYPE_SHARE / DEFECT_WEEKLY_SALES)
+    load = np.zeros((len(type_weekly), n_weeks), dtype=np.int64)
+    for v in np.flatnonzero(cat.surge_start >= 0).tolist():  # the golden jacket
+        w = (int(cat.surge_start[v]) - first_monday) // week
+        load[cat.type_index[v], w : w + DEFECT_BOOST_WEEKS] += 1
+    for v in rng.permutation(surging).tolist():
+        t = int(cat.type_index[v])
+        earliest = max(START_US + 21 * US_PER_DAY, int(cat.listed_at[v]) + 14 * US_PER_DAY)
+        tries = _monday(uniform_us(rng, earliest, latest_start, SURGE_START_TRIES)) + week
+        offsets = (tries - first_monday) // week
+        peaks = np.asarray([load[t, w : w + DEFECT_BOOST_WEEKS].max() for w in offsets.tolist()])
+        fits = np.flatnonzero(peaks + 1 <= capacity[t])
+        pick = int(fits[0]) if len(fits) else int(np.argmin(peaks))
+        cat.surge_start[v] = tries[pick]
+        load[t, offsets[pick] : offsets[pick] + DEFECT_BOOST_WEEKS] += 1
+
+
 def _add_defects(
     cat: Catalogue,
     n_total: int,
@@ -400,9 +457,19 @@ def _add_defects(
     type_weekly: F64,
     rng: np.random.Generator,
 ) -> None:
-    """Defective variants, drawn among the best sellers of the types that sell enough lines a
-    week for the window lift of orders.boost_defect_windows (review G6). When too few variants
-    qualify (small scales), among all best sellers: the detector cannot see them at that size."""
+    """Defective variants and their matched controls (reviews G6 and P1).
+
+    A defect is noticed on a variant that sells, and its batch sells strongly at first: the
+    first DEFECT_BOOST_WEEKS weeks of the window are a sales surge (orders.boost_surges), so the
+    weekly detector of spec 8.9 can assess it. So that a surge does not give the defect away,
+    SURGE_CONTROLS_PER_DEFECT non-defective best sellers per defect get the same surge.
+
+    Defects and controls are drawn together from one pool: the best sellers (twice as many as
+    the surges, at least the top 5%) of the types that sell enough lines a week for the lift.
+    Each gets a surge from a random Monday; only then are the defective ones drawn among them,
+    so defects and controls share types, popularity and dates. When too few variants qualify
+    (small scales), the pool is the best sellers of every type: the detector cannot see them at
+    that size."""
     n_defective = max(1, round(DEFECTIVE_VARIANT_SHARE * n_total))
     n_generic = n_defective - (1 if with_jacket else 0)
     if n_generic <= 0:
@@ -422,13 +489,15 @@ def _add_defects(
     eligible = listed_in_time[liftable >= DEFECT_WEEKLY_SALES]
     if len(eligible) < n_generic:
         eligible = listed_in_time
-    # Defects are noticed on variants that sell: draw them from the most popular ones.
+    n_surging = min(n_generic * (1 + SURGE_CONTROLS_PER_DEFECT), len(eligible))
     by_popularity = eligible[np.argsort(-cat.popularity[eligible], kind="stable")]
-    pool = by_popularity[: max(3 * n_generic, len(eligible) // 20)]
-    chosen = np.sort(rng.choice(pool, size=min(n_generic, len(pool)), replace=False))
+    pool = by_popularity[: max(2 * n_surging, len(eligible) // 20)]
+    surging = np.sort(rng.choice(pool, size=n_surging, replace=False))
+    _schedule_surges(cat, surging, type_weekly, latest_start, rng)
+    # The defects: a random subset of the surging best sellers, the others are the controls.
+    chosen = np.sort(rng.choice(surging, size=min(n_generic, n_surging), replace=False))
     k = len(chosen)
-    earliest = np.maximum(START_US + 21 * US_PER_DAY, cat.listed_at[chosen] + 14 * US_PER_DAY)
-    start = _monday(uniform_us(rng, earliest, latest_start, k)) + 7 * US_PER_DAY
+    start = cat.surge_start[chosen]
     weeks = rng.integers(DEFECT_WEEKS[0], DEFECT_WEEKS[1] + 1, k)
     end = start + weeks * 7 * US_PER_DAY
     never_fixed = (rng.random(k) < DEFECT_NEVER_FIXED_SHARE) | (end >= END_US)

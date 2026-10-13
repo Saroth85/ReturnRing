@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pytest
@@ -39,8 +40,17 @@ from pipeline.generator.config import (
     PERIOD_END,
     PERIOD_LAST_DAY,
     PERIOD_START,
+    SCENARIOS,
+    SURGE_CONTROLS_PER_DEFECT,
 )
-from pipeline.generator.core import STORE_TABLES, TRUTH_TABLES, generate, scenario_roots
+from pipeline.generator.core import (
+    STORE_TABLES,
+    TRUTH_TABLES,
+    build_store,
+    generate,
+    scenario_roots,
+)
+from pipeline.generator.timeline import weekday
 from policy.engine import NAVIGLI_BASE_TERMS
 from policy.legal_guard import LEGAL_REFUND_DAYS
 from policy.types import NON_CONFORMITY_REASONS, ReturnReason
@@ -947,6 +957,104 @@ def test_g6_defective_variants_reach_the_detector_minimum(calibrated: Store) -> 
     # Without the lift (review G6) only about 3 of 100 variants reached 20 sales in a week.
     later = generic.groupby("variant_id").nth(slice(DEFECT_BOOST_WEEKS, None))
     assert (later["sales"] >= 20).mean() < (first_weeks["sales"] >= 20).mean()
+
+
+# ---- P1: a sales surge is not a defect label ---------------------------------------------------
+
+# The review's label-free rule, which reads no return and no label: a variant whose best week
+# sells at least SURGE_RULE_MIN_SALES and at least SURGE_RULE_RATIO times its median week.
+SURGE_RULE_MIN_SALES = 15
+SURGE_RULE_RATIO = 4
+
+
+@pytest.fixture(params=["main_store", "real_store", "ood_store", "real_ood_store"])
+def lifted(request: pytest.FixtureRequest) -> Store:
+    """Stores whose types can lift a best seller to the spec 8.9 minimum: the calibrated ones
+    (scale 0.1 and 0.25) and the two OOD stores at scale 0.1."""
+    store: Store = request.getfixturevalue(request.param)
+    return store
+
+
+def weekly_variant_sales(store: Store) -> tuple[pd.DataFrame, pd.Series]:
+    """Sales of every variant in every Monday-to-Sunday week of the period, from the week it is
+    listed (NaN before), as the detector of spec 8.9 counts them; and whether it is defective.
+    Only store/order_lines and store/variants are read, plus the truth for the label."""
+    lines = store["store/order_lines"]
+    variants = store["store/variants"].set_index("variant_id")
+
+    def monday(t: pd.Series) -> pd.Series:
+        day = t.dt.floor("D")
+        return day - pd.to_timedelta(day.dt.weekday, unit="D")
+
+    weeks = pd.date_range(monday(pd.Series([START]))[0], END - DAY, freq="7D")
+    counts = lines.assign(week=monday(lines["event_at"])).groupby(["variant_id", "week"]).size()
+    table = counts.unstack(fill_value=0).reindex(index=variants.index, columns=weeks, fill_value=0)
+    listed = monday(variants["event_at"].clip(lower=START))
+    before = table.columns.values[None, :] < listed.values[:, None]
+    weekly = table.astype(float).mask(before)
+    defective = store["truth/variants"].set_index("variant_id")["defective"].reindex(weekly.index)
+    return weekly, defective.astype(bool)
+
+
+def test_p1_reaching_the_sales_gate_does_not_identify_a_defect(lifted: Store) -> None:
+    """Review P1: at 472d798 the lift went to defective variants only, so 100 of the 106
+    variants that ever sold 20 in a week were defective (real calibration, scale 1.0, synthetic):
+    the spec 8.9 gate alone was a defect flag. Matched non-defective best sellers now get the
+    same surge, so most variants the detector can assess are not defective."""
+    weekly, defective = weekly_variant_sales(lifted)
+    reach = weekly.max(axis=1) >= 20
+    share = defective[reach].mean()
+    assert share <= 0.3, (share, int(reach.sum()), int(defective[reach].sum()))
+    assert (reach & ~defective).sum() >= 3 * (reach & defective).sum()
+    assessable = weekly >= 20  # variant-weeks the detector can assess
+    weeks_defective = assessable[defective].to_numpy().sum() / assessable.to_numpy().sum()
+    assert weeks_defective <= 0.4, weeks_defective
+
+
+def test_p1_the_label_free_surge_rule_has_low_precision(lifted: Store) -> None:
+    """Review P1: "best week >= 15 sales and >= 4 times the median week" flagged 92 variants,
+    91 of them defective, at 472d798 (scale 1.0). A surge is now no evidence of a defect: the
+    rule's precision is about the share of defects among the surging best sellers."""
+    weekly, defective = weekly_variant_sales(lifted)
+    best, median = weekly.max(axis=1), weekly.median(axis=1)
+    flagged = (best >= SURGE_RULE_MIN_SALES) & (best >= SURGE_RULE_RATIO * median)
+    assert flagged.sum() >= 3 * defective.sum()  # the surges are there, not hidden
+    precision = defective[flagged].mean()
+    assert precision <= 0.3, (precision, int(flagged.sum()))
+
+
+def test_p1_defects_and_matched_controls_surge_alike() -> None:
+    """The controls are drawn with the defects from one pool of best sellers, so they have the
+    same types and popularity; both get the same lift, and the lift processes them in random
+    order, so they reach the spec 8.9 minimum alike (real calibration, scale 0.25)."""
+    store = build_store(REAL_CAL, 42, 0.25, SCENARIOS["main"])
+    cat, plan = store.cat, store.plan
+    jacket = cat.index_of(golden.DEFECTIVE_JACKET)
+    surging = cat.surge_start >= 0
+    surging[jacket] = False  # the golden jacket's dates are scripted
+    generic = np.flatnonzero(surging & cat.defective)
+    controls = np.flatnonzero(surging & ~cat.defective)
+    assert len(generic) == cat.defective.sum() - 1
+    assert len(controls) == SURGE_CONTROLS_PER_DEFECT * len(generic)
+    assert set(cat.type_index[generic]) <= set(cat.type_index[controls])
+    ratio = np.median(cat.popularity[generic]) / np.median(cat.popularity[controls])
+    assert 0.5 < ratio < 2.0
+    assert (cat.defect_start[generic] == cat.surge_start[generic]).all()
+    assert (weekday(cat.surge_start[cat.surge_start >= 0]) == 0).all()  # Mondays
+    week = 7 * 24 * 3600 * 1_000_000
+    placed = plan.placed_at[plan.line_order]
+
+    def reach(variants: np.ndarray) -> float:
+        hits = []
+        for v in variants:
+            mine = placed[plan.line_variant == v]
+            for w in range(DEFECT_BOOST_WEEKS):
+                lo = cat.surge_start[v] + w * week
+                hits.append(np.count_nonzero((mine >= lo) & (mine < lo + week)) >= 20)
+        return float(np.mean(hits))
+
+    assert reach(generic) >= 0.75 and reach(controls) >= 0.75
+    assert abs(reach(generic) - reach(controls)) <= 0.1
 
 
 def test_g4_size_range_matches_the_category(any_main: Store) -> None:

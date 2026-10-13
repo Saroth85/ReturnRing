@@ -76,6 +76,16 @@ class ReturnTerms:
             or (other.coupons_enabled and not self.coupons_enabled)
         )
 
+    def most_generous(self, other: ReturnTerms) -> ReturnTerms:
+        """Term by term, the better of the two for the customer."""
+        return ReturnTerms(
+            return_window_days=max(self.return_window_days, other.return_window_days),
+            free_return_shipping=self.free_return_shipping or other.free_return_shipping,
+            instant_refund=self.instant_refund or other.instant_refund,
+            free_size_exchange=self.free_size_exchange or other.free_size_exchange,
+            coupons_enabled=self.coupons_enabled or other.coupons_enabled,
+        )
+
 
 @dataclass(frozen=True)
 class Levers:
@@ -83,8 +93,9 @@ class Levers:
 
     future_terms: ReturnTerms
     cluster_coupons_disabled: bool
-    transparency_notice: bool
+    transparency_notice: bool  # return-rate notice: Q3 and Q4 only, a restriction
     size_advice: bool
+    priority_size_exchange: bool = False  # Q1 only: free size exchange "with priority"
 
     def lever_ids(self, base: ReturnTerms) -> list[str]:
         """Stable identifiers of the levers that differ from the merchant base policy."""
@@ -104,6 +115,8 @@ class Levers:
             ids.append("cluster_coupons_disabled:true")
         if self.transparency_notice:
             ids.append("transparency_notice:true")
+        if self.priority_size_exchange:
+            ids.append("priority_size_exchange:true")
         return ids
 
 
@@ -148,7 +161,9 @@ class Decision:
     evidence_quality: EvidenceQuality
     quadrant: Quadrant | None
     levers: Levers
-    current_return_terms: ReturnTerms  # always the order snapshot: never restricted retroactively
+    # The order snapshot, never restricted retroactively. On the guarantee path no restrictive
+    # lever applies (the better of snapshot and base) and return shipping is always free.
+    current_return_terms: ReturnTerms
     refund_due_by: date
     requires_approval: bool
     state: DecisionState = DecisionState.PROPOSED

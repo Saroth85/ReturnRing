@@ -211,14 +211,67 @@ SCHEMAS: dict[str, pa.Schema] = {
         pa.field("cluster_return_rate", pa.float64()),  # null: no line delivered yet
         pa.field("strong_id_share", pa.float64(), nullable=False),
     ),
+    # Behaviour features and the return residual at as_of (US-204 inputs, US-206; amendment 2,
+    # docs/customer-features.md). No customer value here: it never feeds risk (rule 6).
     "features/customer_features": _as_of_table(
         pa.field("customer_id", pa.string(), nullable=False),
-        pa.field("return_rate", pa.float64(), nullable=False),
-        pa.field("changed_mind_share", pa.float64(), nullable=False),
-        pa.field("size_share", pa.float64(), nullable=False),
+        pa.field("n_orders", pa.int32(), nullable=False),
+        pa.field("n_lines", pa.int32(), nullable=False),
+        pa.field("n_delivered_lines", pa.int32(), nullable=False),
+        pa.field("n_observations", pa.int32(), nullable=False),  # lines with a settled outcome
+        pa.field("n_returns", pa.int32(), nullable=False),  # withdrawal-path returns known
+        pa.field("return_rate", pa.float64()),  # over n_observations; null without any
+        pa.field("return_rate_to_date", pa.float64()),  # over delivered lines; null without any
+        pa.field("size_share", pa.float64()),  # reason shares of the n_returns; null without any
+        pa.field("changed_mind_share", pa.float64()),
+        pa.field("not_as_expected_share", pa.float64()),
+        pa.field("other_reason_share", pa.float64()),
         pa.field("median_days_to_return", pa.float64()),
-        pa.field("residual_z", pa.float64()),
+        pa.field("tenure_days", pa.float64(), nullable=False),  # since the account was opened
+        pa.field("n_welcome_coupons_used", pa.int32(), nullable=False),
+        pa.field("n_promo_coupons_used", pa.int32(), nullable=False),  # promo and referral
+        pa.field("coupon_order_share", pa.float64()),  # null without orders
+        pa.field("weekend_order_share", pa.float64()),  # orders on Saturday or Sunday (UTC)
+        pa.field("mean_line_price_eur", pa.float64()),  # null without lines
+        pa.field("expected_returns", pa.float64(), nullable=False),  # sum of p_l, spec 8.2
+        pa.field("residual", pa.float64(), nullable=False),  # R_c
+        pa.field("residual_z", pa.float64()),  # z_c; null when the variance is zero
+        pa.field("reference_model_version", pa.string(), nullable=False),
+    ),
+    # Net margin over 12 months (US-205, spec 8.5): never a risk feature (rule 6).
+    "features/customer_value": _as_of_table(
+        pa.field("customer_id", pa.string(), nullable=False),
+        pa.field("value_eur", EUR, nullable=False),  # V_c
+        pa.field("kept_eur", EUR, nullable=False),  # price of the lines not returned
+        pa.field("returned_eur", EUR, nullable=False),
+        pa.field("discount_eur", EUR, nullable=False),  # coupon discounts redeemed
+        pa.field("orders_total_eur", EUR, nullable=False),  # kept + returned - discount
+        pa.field("n_orders", pa.int32(), nullable=False),
+        pa.field("n_lines", pa.int32(), nullable=False),
+        pa.field("n_returns", pa.int32(), nullable=False),
+        pa.field("window_start", TS, nullable=False),  # orders placed after it count
+        pa.field("assumptions_version", pa.string(), nullable=False),
+    ),
+    # Evidence quality, separate from risk (US-209, US-307).
+    "features/evidence_quality": _as_of_table(
+        pa.field("customer_id", pa.string(), nullable=False),
+        pa.field("evidence_quality", pa.string(), nullable=False),  # policy.types.EvidenceQuality
         pa.field("n_observations", pa.int32(), nullable=False),
+        pa.field("n_observations_linked", pa.int32()),  # own plus linked accounts; null: no graph
+        pa.field("identifier_completeness", pa.float64(), nullable=False),  # weighted, 0..1
+        pa.field(
+            "missing_identifier_kinds",
+            pa.list_(pa.field("element", pa.string(), nullable=False)),
+            nullable=False,
+        ),
+        pa.field("n_reasons", pa.int32(), nullable=False),  # withdrawal returns judged
+        pa.field("reason_coherence", pa.float64()),  # null without returns
+        pa.field(
+            "missing_evidence",  # plain words, empty when sufficient (US-307)
+            pa.list_(pa.field("element", pa.string(), nullable=False)),
+            nullable=False,
+        ),
+        pa.field("thresholds_version", pa.string(), nullable=False),
     ),
     "features/product_anomalies": _as_of_table(
         pa.field("variant_id", pa.string(), nullable=False),

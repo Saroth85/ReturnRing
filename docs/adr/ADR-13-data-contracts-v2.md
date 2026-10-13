@@ -291,3 +291,18 @@ exchange to the current order. Lever arrays have one object per lever id. Spec 1
 - In `infra/docker-compose.yml`, the offline jobs `trainer-gbm` and `trainer-gnn` mount `data/`
   read-only, the generator job `pipeline` writes it, and no other service mounts `data/` or any path
   with a `truth` part. `tests/test_infra.py` checks this for every compose file.
+
+## Amendment 2 (13 Oct 2026): customer features, value and evidence (US-205, US-206, US-209)
+
+The contract version stays `2.0.0`: no `features/` file had been written. Definitions are in
+`docs/customer-features.md`; the code is `pipeline/features/` and `ml/reference/`.
+
+| Table | Change |
+| --- | --- |
+| features/customer_features | Extended to the decision-time behaviour features: n_orders, n_lines, n_delivered_lines, n_observations (settled lines), n_returns (withdrawal path), return_rate, return_rate_to_date, size, changed_mind, not_as_expected and other_reason shares, median_days_to_return, tenure_days, n_welcome_coupons_used, n_promo_coupons_used, coupon_order_share, weekend_order_share, mean_line_price_eur, and the residual of spec 8.2: expected_returns, residual, residual_z, reference_model_version. return_rate, size_share and changed_mind_share become nullable: a customer without a settled line has no rate, which is not a rate of zero |
+| features/customer_value | New. V_c of spec 8.5 with its components (kept, returned, discount, order totals), counts, window_start and assumptions_version. A table of its own, so no risk model reads value by accident (rule 6) |
+| features/evidence_quality | New. evidence_quality (sufficient or insufficient), n_observations, n_observations_linked (null without the account graph), identifier_completeness, missing_identifier_kinds, n_reasons, reason_coherence, missing_evidence (plain sentences, US-307) and thresholds_version |
+
+The checks add ranges, `n_observations <= n_delivered_lines <= n_lines`, `n_returns <= n_lines`,
+`n_observations <= n_observations_linked`, the EvidenceQuality enum and the identifier kinds. No
+new column is a forbidden feature (`tenure_days`, not "account age": the word age is forbidden).

@@ -1,0 +1,248 @@
+{
+  "contract_version": "2.0.0",
+  "provenance": {
+    "origin": "ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; calibration: aggregates of the train split (2021-09-01..2021-10-31) by pipeline/ingest/asos_profile.py",
+    "period": {
+      "start": "2021-09-01",
+      "end": "2021-10-31"
+    },
+    "nature": "real"
+  },
+  "splits": [
+    "train"
+  ],
+  "overall": {
+    "event_label_rate": 0.55307,
+    "product_sales_weighted_return_rate": 0.30962,
+    "n_events": 1369133,
+    "n_customers": 810237,
+    "n_variants": 432666
+  },
+  "product_types": {
+    "Jeans": {
+      "variant_share": 0.081675,
+      "sales_share": 0.075407,
+      "price_quantiles_gbp": {
+        "p10": 14.99,
+        "p25": 19.57,
+        "p50": 25.83,
+        "p75": 34.48,
+        "p90": 42.65
+      },
+      "return_rate_quantiles": {
+        "p10": 0.25,
+        "p25": 0.343284,
+        "p50": 0.452632,
+        "p75": 0.555556,
+        "p90": 0.642105
+      }
+    },
+    "productType_A": {
+      "variant_share": 0.025373,
+      "sales_share": 0.020525,
+      "price_quantiles_gbp": {
+        "p10": 5.75,
+        "p25": 7.72,
+        "p50": 11.68,
+        "p75": 16.49,
+        "p90": 22.41
+      },
+      "return_rate_quantiles": {
+        "p10": 0.162791,
+        "p25": 0.231884,
+        "p50": 0.333333,
+        "p75": 0.444444,
+        "p90": 0.545455
+      }
+    },
+    "productType_B": {
+      "variant_share": 0.155747,
+      "sales_share": 0.117565,
+      "price_quantiles_gbp": {
+        "p10": 11.7,
+        "p25": 16.67,
+        "p50": 25.23,
+        "p75": 37.85,
+        "p90": 60.81
+      },
+      "return_rate_quantiles": {
+        "p10": 0.3125,
+        "p25": 0.405405,
+        "p50": 0.512397,
+        "p75": 0.618421,
+        "p90": 0.707692
+      }
+    },
+    "productType_C": {
+      "variant_share": 0.032654,
+      "sales_share": 0.033073,
+      "price_quantiles_gbp": {
+        "p10": 22.0,
+        "p25": 29.45,
+        "p50": 43.5,
+        "p75": 64.21,
+        "p90": 114.0
+      },
+      "return_rate_quantiles": {
+        "p10": 0.181818,
+        "p25": 0.257048,
+        "p50": 0.356164,
+        "p75": 0.465909,
+        "p90": 0.555556
+      }
+    },
+    "productType_D": {
+      "variant_share": 0.032503,
+      "sales_share": 0.042633,
+      "price_quantiles_gbp": {
+        "p10": 11.0,
+        "p25": 14.75,
+        "p50": 20.4,
+        "p75": 27.59,
+        "p90": 34.04
+      },
+      "return_rate_quantiles": {
+        "p10": 0.166667,
+        "p25": 0.230415,
+        "p50": 0.3,
+        "p75": 0.373984,
+        "p90": 0.447368
+      }
+    },
+    "productType_E": {
+      "variant_share": 0.037053,
+      "sales_share": 0.029503,
+      "price_quantiles_gbp": {
+        "p10": 13.29,
+        "p25": 17.65,
+        "p50": 23.54,
+        "p75": 28.16,
+        "p90": 38.46
+      },
+      "return_rate_quantiles": {
+        "p10": 0.1875,
+        "p25": 0.247706,
+        "p50": 0.328947,
+        "p75": 0.41784,
+        "p90": 0.51145
+      }
+    },
+    "productType_F": {
+      "variant_share": 0.025551,
+      "sales_share": 0.017688,
+      "price_quantiles_gbp": {
+        "p10": 7.95,
+        "p25": 10.5,
+        "p50": 14.54,
+        "p75": 20.0,
+        "p90": 26.84
+      },
+      "return_rate_quantiles": {
+        "p10": 0.082353,
+        "p25": 0.125,
+        "p50": 0.2,
+        "p75": 0.321429,
+        "p90": 0.448276
+      }
+    },
+    "productType_G": {
+      "variant_share": 0.027434,
+      "sales_share": 0.031988,
+      "price_quantiles_gbp": {
+        "p10": 11.06,
+        "p25": 14.98,
+        "p50": 23.55,
+        "p75": 36.07,
+        "p90": 52.8
+      },
+      "return_rate_quantiles": {
+        "p10": 0.121951,
+        "p25": 0.171171,
+        "p50": 0.236364,
+        "p75": 0.314815,
+        "p90": 0.392157
+      }
+    },
+    "productType_H": {
+      "variant_share": 0.085576,
+      "sales_share": 0.08749,
+      "price_quantiles_gbp": {
+        "p10": 6.9,
+        "p25": 9.8,
+        "p50": 14.51,
+        "p75": 20.92,
+        "p90": 29.13
+      },
+      "return_rate_quantiles": {
+        "p10": 0.080645,
+        "p25": 0.122605,
+        "p50": 0.181818,
+        "p75": 0.265306,
+        "p90": 0.357143
+      }
+    },
+    "productType_I": {
+      "variant_share": 0.046528,
+      "sales_share": 0.038631,
+      "price_quantiles_gbp": {
+        "p10": 13.27,
+        "p25": 17.92,
+        "p50": 24.15,
+        "p75": 29.9,
+        "p90": 38.89
+      },
+      "return_rate_quantiles": {
+        "p10": 0.238095,
+        "p25": 0.333333,
+        "p50": 0.442424,
+        "p75": 0.538462,
+        "p90": 0.620991
+      }
+    },
+    "productType_J": {
+      "variant_share": 0.449906,
+      "sales_share": 0.505497,
+      "price_quantiles_gbp": {
+        "p10": 7.97,
+        "p25": 12.35,
+        "p50": 20.22,
+        "p75": 33.67,
+        "p90": 57.46
+      },
+      "return_rate_quantiles": {
+        "p10": 0.032258,
+        "p25": 0.107492,
+        "p50": 0.22619,
+        "p75": 0.367347,
+        "p90": 0.5
+      }
+    }
+  },
+  "reason_shares": {
+    "A": 0.033983,
+    "B": 0.052673,
+    "C": 0.007148,
+    "D": 0.043758,
+    "E": 9.1e-05,
+    "D2": 0.340951,
+    "F": 0.008245,
+    "G": 0.001538,
+    "H": 0.008842,
+    "I": 0.233969,
+    "J": 0.190133,
+    "K": 0.076812,
+    "L": 0.001858
+  },
+  "purchases_per_customer": {
+    "p10": 1.0,
+    "p25": 1.0,
+    "p50": 1.0,
+    "p75": 2.0,
+    "p90": 3.0
+  },
+  "join_coverage": {
+    "events_with_customer": 0.947669,
+    "events_with_variant": 0.653365,
+    "events_with_both": 0.619702
+  }
+}

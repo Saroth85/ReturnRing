@@ -18,10 +18,13 @@ strict = true
 files = ["policy", "llm", "apps", "pipeline", "contracts", "scripts"]
 
 [[tool.mypy.overrides]]
-module = ["pyarrow.*"]
+module = ["pyarrow.*", "pandas.*"]  # no type information shipped (pandas-stubs is not a dependency)
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
-markers = ["gpu: needs the AMD MI300X droplet"]
+markers = [
+    "gpu: needs the AMD MI300X droplet",
+    "asos: needs the real ASOS GraphReturns files in ASOS_DIR (skipped otherwise)",
+]

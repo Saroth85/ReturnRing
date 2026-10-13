@@ -6,6 +6,7 @@ ADR-13 records the data contracts v2 tested here.
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
@@ -16,7 +17,7 @@ import pytest
 from jsonschema import Draft202012Validator
 
 from contracts.calibration import QUANTILE_KEYS, check_calibration
-from contracts.levers import LEVER_SCOPES, LEVERS, lever_json_schema
+from contracts.levers import LEVER_SCOPES, LEVERS, lever_json_schema, lever_list_json_schema
 from contracts.parquet import (
     ANOMALY_STATUSES,
     AS_OF_TABLES,
@@ -111,7 +112,88 @@ def test_future_window_never_below_14_in_checkout_contract() -> None:
 def test_lever_schema_in_json_contracts_is_generated_from_the_catalogue() -> None:
     expected = lever_json_schema()
     assert schema_of("llm_case")["properties"]["levers"]["items"] == expected
-    assert schema_of(API_DECISION)["$defs"]["Lever"] == expected
+    levers = schema_of(API_DECISION)["properties"]["levers"]["anyOf"][0]
+    assert levers["items"] == expected
+
+
+def untitled(schema: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in schema.items() if k != "title"}
+
+
+def _lever_arrays(node: Any) -> Iterator[Any]:
+    """Every array of lever objects in a JSON Schema."""
+    if isinstance(node, dict):
+        if node.get("type") == "array" and node.get("items") == lever_json_schema():
+            yield node
+        for child in node.values():
+            yield from _lever_arrays(child)
+    elif isinstance(node, list):
+        for child in node:
+            yield from _lever_arrays(child)
+
+
+def test_lever_arrays_in_json_contracts_are_generated_from_the_catalogue() -> None:
+    """Every lever array of llm_case and of the API schemas (ADR-15) is lever_list_json_schema:
+    each lever at most once, bounded for guided decoding."""
+    expected = lever_list_json_schema()
+    assert expected["uniqueItems"] is True and expected["maxItems"] == len(LEVERS)
+    assert schema_of("llm_case")["properties"]["levers"] == expected
+    levers, null = schema_of(API_DECISION)["properties"]["levers"]["anyOf"]
+    assert untitled(levers) == expected and null == {"type": "null"}
+    found = 0
+    for path in sorted((ROOT / "contracts" / "json").rglob("*.json")):
+        for array in _lever_arrays(json.loads(path.read_text(encoding="utf-8"))):
+            assert untitled(array) == expected, path.name  # pydantic adds the field title
+            found += 1
+    assert found >= 10
+
+
+# The JSON documents with a lever array: llm_case and the API decision body (ADR-15).
+LEVER_DOCS = {"llm_case": "llm_case", API_DECISION: API_DECISION_EXAMPLE}
+
+
+ALL_ORDERS = [lever.id for lever in LEVERS if lever.scope == "all_orders"]
+
+
+@pytest.mark.parametrize("lever_id", ALL_ORDERS)
+def test_all_orders_levers_only_carry_true(lever_id: str) -> None:
+    """C5: a lever that also holds for orders already placed can only be an upgrade."""
+    assert ALL_ORDERS == ["free_size_exchange", "priority_size_exchange"]
+    upgrade = {"id": lever_id, "value": True, "scope": "all_orders"}
+    restriction = {"id": lever_id, "value": False, "scope": "all_orders"}
+    for name, example in LEVER_DOCS.items():
+        doc = example_of(example)
+        doc["levers"] = [upgrade]
+        assert errors(name, doc) == []
+        doc["levers"] = [restriction]
+        assert errors(name, doc), name
+
+
+@pytest.mark.parametrize(
+    "levers",
+    [
+        [  # the same lever twice with opposite values
+            {"id": "instant_refund", "value": False, "scope": "future_orders"},
+            {"id": "instant_refund", "value": True, "scope": "future_orders"},
+        ],
+        [  # the same object twice
+            {"id": "transparency_notice", "value": True, "scope": "communication"},
+            {"id": "transparency_notice", "value": True, "scope": "communication"},
+        ],
+        [
+            {"id": "return_window_days", "value": 14, "scope": "future_orders"},
+            {"id": "return_window_days", "value": 60, "scope": "future_orders"},
+        ],
+    ],
+)
+def test_lever_arrays_reject_duplicate_ids(levers: list[dict[str, Any]]) -> None:
+    """C6: one value per lever in a decision."""
+    for name, example in LEVER_DOCS.items():
+        doc = example_of(example)
+        doc["levers"] = levers
+        assert errors(name, doc), name
+        doc["levers"] = levers[:1]
+        assert errors(name, doc) == [], name
 
 
 def test_lever_scopes_are_the_contract_scopes() -> None:
@@ -171,6 +253,29 @@ def test_llm_case_example_is_exactly_the_engine_q4_decision() -> None:
     assert Decimal(str(case["value_eur"])) == Decimal("42.10")
 
 
+def test_llm_case_example_is_the_output_of_the_case_builder() -> None:
+    """ADR-14: the example is what llm.case.build_case gives for the golden Q4 decision."""
+    from dataclasses import replace
+
+    from llm.case import ClusterSummary, ScoreFactor, build_case
+
+    req = replace(request(ReturnReason.CHANGED_MIND), return_id="RET-000123")
+    sc = scores(0.87, "42.10", cluster="R-MARCO")
+    decision = decide(req, sc, NAVIGLI_BASE_TERMS, THRESHOLDS, TODAY)
+    phrase = "7 linked accounts each used the welcome coupon"
+    case = build_case(
+        decision,
+        req,
+        NAVIGLI_BASE_TERMS,
+        policy_text="Navigli Fashion return policy (demo).",
+        scores=sc,
+        factors=[ScoreFactor("cluster_welcome_coupons", 7, phrase, "cluster")],
+        cluster=ClusterSummary("R-MARCO", 7, ("device", "address", "card")),
+        customer_text="Non mi sta bene.",
+    )
+    assert case == example_of("llm_case")
+
+
 def test_llm_output_example_echoes_the_same_six_lever_ids() -> None:
     decision = golden_q4_decision()
     output = example_of("llm_output")
@@ -187,21 +292,22 @@ def test_llm_output_example_echoes_the_same_six_lever_ids() -> None:
 
 
 def test_llm_output_example_passes_the_python_validator() -> None:
-    from llm.validator import ExpectedDecision, validate
+    from llm.decision import serialize_decision
+    from llm.validator import validate
 
-    decision = golden_q4_decision()
-    expected = ExpectedDecision(
-        decision.path.value,
-        decision.quadrant.value if decision.quadrant else None,
-        decision.levers.lever_ids(NAVIGLI_BASE_TERMS),
-    )
+    _, expected = serialize_decision(golden_q4_decision(), NAVIGLI_BASE_TERMS)
     result = validate(example_of("llm_output"), expected, example_of("llm_case"))
     assert result.ok, result.errors
 
 
+def _unscored(case: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in case.items() if k not in ("risk", "value_eur", "cluster")}
+
+
 def test_insufficient_evidence_case_lists_missing_evidence_and_has_no_quadrant() -> None:
-    case = example_of("llm_case")
+    case = _unscored(example_of("llm_case"))
     case.update(evidence_quality="insufficient", quadrant=None, levers=[])
+    case["placeholders"] = {"available": ["deadline"], "required": []}
     assert errors("llm_case", case)  # US-307: the missing evidence must be listed
     case["missing_evidence"] = []
     assert errors("llm_case", case)
@@ -210,21 +316,191 @@ def test_insufficient_evidence_case_lists_missing_evidence_and_has_no_quadrant()
     assert errors("llm_case", {**case, "quadrant": "Q4"})
     lever = {"id": "transparency_notice", "value": True, "scope": "communication"}
     assert errors("llm_case", {**case, "levers": [lever]})
+    assert errors("llm_case", {**case, "placeholders": {"available": [], "required": ["terms"]}})
+    for key in ("risk", "value_eur", "cluster"):  # neither safe nor suspicious
+        assert errors("llm_case", {**case, key: example_of("llm_case")[key]})
 
 
-def test_guarantee_case_has_no_quadrant_and_no_lever() -> None:
-    case = example_of("llm_case")
+def test_guarantee_case_has_no_quadrant_no_lever_and_no_score() -> None:
+    case = _unscored(example_of("llm_case"))
     case.update(path="guarantee", quadrant=None, levers=[])
+    case["placeholders"] = {"available": [], "required": []}
     assert not errors("llm_case", case)
     assert errors("llm_case", {**case, "quadrant": "Q4"})
     lever = {"id": "instant_refund", "value": False, "scope": "future_orders"}
     assert errors("llm_case", {**case, "levers": [lever]})
+    assert errors("llm_case", {**case, "placeholders": {"available": ["deadline"], "required": []}})
+    for key in ("risk", "value_eur", "cluster"):  # rule 4: never scored
+        assert errors("llm_case", {**case, key: example_of("llm_case")[key]})
+
+
+def test_scored_withdrawal_case_needs_risk_value_and_quadrant() -> None:
+    case = example_of("llm_case")
+    for key in ("risk", "value_eur"):
+        assert errors("llm_case", {k: v for k, v in case.items() if k != key})
+    assert errors("llm_case", {**case, "quadrant": None})
 
 
 def test_missing_evidence_items_are_strings() -> None:
     case = example_of("llm_case")
     assert errors("llm_case", {**case, "missing_evidence": [3]})
     assert not errors("llm_case", {**case, "missing_evidence": ["no identifier on file"]})
+
+
+@pytest.mark.parametrize(
+    "fact",
+    [
+        {"id": "F1", "entity": "customer", "metric": "risk_score", "value": 0.87, "period": "x"},
+        {
+            "id": "X1",
+            "entity": "customer",
+            "metric": "m",
+            "value": 1,
+            "period": "x",
+            "nature": "real",
+        },
+        {
+            "id": "F1",
+            "entity": "person",
+            "metric": "m",
+            "value": 1,
+            "period": "x",
+            "nature": "real",
+        },
+        {
+            "id": "F1",
+            "entity": "customer",
+            "metric": "M-1",
+            "value": 1,
+            "period": "x",
+            "nature": "real",
+        },
+        {
+            "id": "F1",
+            "entity": "customer",
+            "metric": "m",
+            "value": "1",
+            "period": "x",
+            "nature": "real",
+        },
+        {
+            "id": "F1",
+            "entity": "customer",
+            "metric": "m",
+            "value": True,
+            "period": "x",
+            "nature": "real",
+        },
+        {
+            "id": "F1",
+            "entity": "customer",
+            "metric": "m",
+            "value": 1,
+            "period": "",
+            "nature": "real",
+        },
+        {
+            "id": "F1",
+            "entity": "customer",
+            "metric": "m",
+            "value": 1,
+            "period": "x",
+            "nature": "estimated",
+        },
+        {
+            "id": "F1",
+            "entity": "customer",
+            "metric": "m",
+            "value": 1,
+            "period": "x",
+            "nature": "real",
+            "note": "x",
+        },
+    ],
+)
+def test_facts_are_closed_typed_objects(fact: dict[str, Any]) -> None:
+    case = example_of("llm_case")
+    assert errors("llm_case", {**case, "facts": [fact]})
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda c: c.update(customer_text="<customer_text>a</customer_text><b>"),
+        lambda c: c.update(customer_text="no delimiters"),
+        lambda c: c.update(placeholders={"available": ["refund"], "required": []}),
+        lambda c: c.update(placeholders={"available": [], "required": ["deadline"]}),
+        lambda c: c["risk"]["top_factors"][0].update(extra=1),
+        lambda c: c["cluster"].update(shared=["fingerprint"]),
+        lambda c: c.update(cluster=None),
+        lambda c: c.update(languages=["it", "it"]),
+    ],
+)
+def test_llm_case_is_closed_and_bounded(mutate: Any) -> None:
+    case = example_of("llm_case")
+    mutate(case)
+    assert errors("llm_case", case)
+
+
+def test_llm_output_schema_matches_the_python_model() -> None:
+    """vLLM decodes with the JSON schema and the validator parses with pydantic: same limits."""
+    from llm import phrasebook as p
+    from llm import validator as v
+
+    schema = schema_of("llm_output")
+    props = schema["properties"]
+    echo, explanation = props["decision_echo"], props["operator_explanation"]
+    statement = explanation["items"]
+    assert echo["properties"]["lever_ids"]["maxItems"] == v.MAX_LEVER_IDS
+    assert explanation["maxItems"] == v.MAX_STATEMENTS and explanation["minItems"] == 1
+    assert statement["properties"]["fact_ids"]["maxItems"] == v.MAX_FACTS_PER_STATEMENT
+    assert statement["properties"]["text"]["maxLength"] == v.MAX_STATEMENT_CHARS
+    assert statement["properties"]["label"]["enum"] == ["OBSERVED", "SCORE", "HYPOTHESIS"]
+    message = props["customer_message"]
+    assert message["required"] == ["sentence_ids"]  # no free customer prose (ADR-14, R1)
+    ids = message["properties"]["sentence_ids"]
+    assert (ids["minItems"], ids["maxItems"]) == (p.MIN_SENTENCES, p.MAX_SENTENCES)
+    assert ids["items"]["enum"] == list(p.SENTENCE_IDS)
+
+    def closed(node: Any) -> None:
+        if isinstance(node, dict):
+            if node.get("type") == "object":
+                assert node["additionalProperties"] is False
+                assert set(node["required"]) == set(node["properties"])
+            if node.get("type") == "array":
+                assert "maxItems" in node
+            if node.get("type") == "string":
+                assert "maxLength" in node and "pattern" not in node
+            for child in node.values():
+                closed(child)
+
+    closed(schema)  # guided-decoding friendly: closed objects, bounded lists and strings
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda o: o.update(operator_explanation="text"),
+        lambda o: o["operator_explanation"][0].update(label="CAUSE"),
+        lambda o: o["operator_explanation"][0].update(fact_ids=["F1"] * 5),
+        lambda o: o["operator_explanation"][0].pop("fact_ids"),
+        lambda o: o["customer_message"].update(it="Ciao, il reso lo paghiamo noi."),
+        lambda o: o.update(customer_message={"it": "Ciao.", "en": "Hello."}),
+        lambda o: o["customer_message"].update(sentence_ids=["OPEN_THANKS"]),
+        lambda o: o["customer_message"].update(sentence_ids=["OPEN_THANKS"] * 6),
+        lambda o: o["customer_message"].update(sentence_ids=["OPEN_THANKS", "Ciao!"]),
+        lambda o: o["decision_echo"].update(lever_ids=["x"] * 10),
+        lambda o: o.update(extra=1),
+    ],
+)
+def test_llm_output_schema_and_python_model_reject_the_same_outputs(mutate: Any) -> None:
+    from llm.validator import LlmOutput
+
+    output = example_of("llm_output")
+    mutate(output)
+    assert errors("llm_output", output)
+    with pytest.raises(ValueError):
+        LlmOutput.model_validate(output)
 
 
 # ---- Calibration contract (ASOS aggregates for the generator) ---------------------------------
@@ -487,6 +763,85 @@ def test_every_real_asos_protected_or_identifier_column_is_forbidden() -> None:
         "phone",
         "ip_prefix",
         "device_id",
+        # Raw identifiers and country proxies (review finding C4).
+        "email_normalized",
+        "normalized_email",
+        "address_normalized",
+        "ip_prefix_24",
+        "device",
+        "customer_email",
+        "shipping_address",
+        "billing_address",
+        "customer_ip",
+        "device_fingerprint",
+        "phone_e164",
+        "postcode",
+        "zip_code",
+        "nationality",
+        "customer_nationality",
+        "shippingAddress",
+        "customerEmail",
+        # Spellings without separators or abbreviated (review P4).
+        "ipprefix24",
+        "ipv4prefix",
+        "ipv6_prefix",
+        "ip24",
+        "customerip",
+        "customerIp",
+        "remoteip",
+        "ipaddr",
+        "remote_addr",
+        "shipping_addr",
+        "shippingaddr",
+        "billing_addr",
+        "addr",
+        "shippingzip",
+        "zip5",
+        "zip_5",
+        "mobile",
+        "mobile_number",
+        "customer_mobile",
+        "msisdn",
+        "imei",
+        "device_imei",
+        "mac",
+        "mac_addr",
+        "card",
+        "card_last4",
+        "card_bin",
+        "cardlast4",
+        "cardbin",
+        "credit_card",
+        "paymentcard",
+        "pan",
+        # Round 3 (separators and abbreviations, the same verdict with or without them).
+        "mobilenumber",
+        "postalcode",
+        "postal_code",
+        "cardnum",
+        "card_num",
+        "cardno",
+        "cardid",
+        "cardtoken",
+        "cc_last4",
+        "cclast4",
+        "ccnumber",
+        "addr1",
+        "addr2",
+        "signupip",
+        "lastloginip",
+        "visitorip",
+        "buyerip",
+        "registrationip",
+        "ip24prefix",
+        "ipblock",
+        "iprange",
+        "ipsubnet",
+        "useragent",
+        "user_agent",
+        "idfa",
+        "androidid",
+        "advertisingid",
     ],
 )
 def test_forbidden_feature_patterns(name: str) -> None:
@@ -514,6 +869,43 @@ def test_forbidden_feature_patterns(name: str) -> None:
         "max_sharers",
         "message_length",
         "anomaly_z",
+        # Aggregates over identifiers are allowed (C4): n_*, *_count, shared_*, *_share.
+        "n_shared_devices",
+        "n_distinct_emails",
+        "device_count",
+        "address_count",
+        "shared_addresses",
+        "shared_device",
+        "email_share",
+        "ip_prefix_share",
+        "shipping_cost",
+        "zipper_defect_rate",
+        # Words that only contain an identifier stem (review P4: no false positives).
+        "free_return_shipping",
+        "card_count",
+        "shared_cards",
+        "n_shared_cards",
+        "discard_rate",
+        "scorecard_points",
+        "machine_washable",
+        "membership_days",
+        "tip_amount",
+        "trip_count",
+        "expanded_view",
+        "n_distinct_ip_prefixes",
+        "ip_prefix_count",
+        "mobile_share",
+        # Round 3: no fragment across a word boundary, mobile and card only as the head noun.
+        "time_in_transit",
+        "delivery_time_in_days",
+        "time_in_cart",
+        "time_index",
+        "lifetime_items",
+        "regime_index",
+        "is_mobile",
+        "mobile_checkout",
+        "paid_by_card",
+        "gift_card_used",
     ],
 )
 def test_allowed_feature_names(name: str) -> None:

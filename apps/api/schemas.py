@@ -27,7 +27,7 @@ the examples pass both.
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
@@ -45,6 +45,7 @@ from pydantic import (
     StrictFloat,
     StrictInt,
     StringConstraints,
+    WithJsonSchema,
     model_validator,
 )
 from pydantic.json_schema import JsonSchemaValue
@@ -54,8 +55,10 @@ from contracts.io import Nature
 from contracts.levers import (
     LEVERS_BY_ID,
     LeverScope,
+    check_lever_objects,
     format_lever_id,
     lever_json_schema,
+    lever_list_json_schema,
     parse_lever_id,
 )
 from contracts.parquet import is_forbidden_feature
@@ -95,9 +98,9 @@ from contracts.vocab import (
     SizeAdviceKind,
     Tone,
 )
-from llm.legal_clause import clause
-from llm.messages import PLACEHOLDERS, placeholders_in, render_customer_message
-from llm.validator import BANNED_EVERYWHERE, BANNED_FOR_CUSTOMER, MAX_CUSTOMER_WORDS
+from llm.legal_clause import append_clause, clause
+from llm.messages import PLACEHOLDERS, MessageError, placeholders_in
+from llm.text import banned_terms
 from policy.engine import Thresholds as PolicyThresholds
 from policy.engine import guarantee_terms, quadrant_for
 from policy.legal_guard import (
@@ -349,6 +352,19 @@ class Lever(ApiModel):
     def lever_id(self) -> str:
         """The "id:value" form, for example "instant_refund:false"."""
         return format_lever_id(self.id, self.value)
+
+
+def _lever_list(levers: list[Lever]) -> list[Lever]:
+    """A list of levers names each catalogue lever at most once (contracts.levers)."""
+    check_lever_objects(x.model_dump() for x in levers)
+    return levers
+
+
+# Every lever array of the contract: lever objects, each lever at most once, at most one per
+# catalogue lever; its JSON Schema is contracts.levers.lever_list_json_schema (ADR-13, ADR-14).
+LeverList = Annotated[
+    list[Lever], AfterValidator(_lever_list), WithJsonSchema(lever_list_json_schema())
+]
 
 
 class Terms(ApiModel):
@@ -1058,7 +1074,9 @@ class LinkedAccountsView(ApiModel):
     @model_validator(mode="after")
     def _graph(self) -> Self:
         if self.cluster_id.startswith(("R-", "F-")):
-            raise ValueError("cluster ids are opaque graph ids, not truth ring or family ids")
+            raise ValueError(
+                "cluster ids are opaque graph ids, not ring or family ids of the generator"
+            )
         ids = [a.customer_id for a in self.accounts]
         if len(ids) != self.cluster_size or len(set(ids)) != len(ids):
             raise ValueError("accounts lists each account of the cluster once")
@@ -1282,8 +1300,8 @@ class DecisionView(ApiModel):
     evidence_quality: EvidenceQuality
     quadrant: Quadrant | None
     missing_evidence: list[ShortText]
-    proposed_levers: list[Lever]
-    levers: list[Lever]
+    proposed_levers: LeverList
+    levers: LeverList
     lever_ids: list[LeverIdText]
     requires_approval: bool
     in_force: bool
@@ -1529,7 +1547,7 @@ class Alternative(ApiModel):
     kind: AlternativeKind
     summary: ShortText
     recommended: bool
-    levers: list[Lever]
+    levers: LeverList
     net_benefit: NetBenefitView
 
     @model_validator(mode="after")
@@ -1575,7 +1593,7 @@ class ExplanationStatement(ApiModel):
 
     @model_validator(mode="after")
     def _words(self) -> Self:
-        if any(term in self.text.lower() for term in BANNED_EVERYWHERE):
+        if banned_terms(self.text):
             raise ValueError('say "linked accounts", never "same person" (rule 11)')
         cited = (self.entity, self.metric, self.value, self.period)
         if any(ch.isdigit() for ch in self.text) and any(x is None for x in cited):
@@ -1681,15 +1699,34 @@ def _check_fields(fields: TemplateFields, decision: DecisionView, lang: Lang) ->
         )
 
 
+MAX_CUSTOMER_WORDS = 120  # spec 8.7
+
+
+def render_customer_message(
+    llm_text: str, fields: Mapping[str, str], lang: Lang, clause_kind: ClauseKind | None
+) -> str:
+    """Fill the placeholders of connective text from the template fields and append the fixed
+    legal clause (the v1 draft renderer; llm/messages.py now renders from phrasebook ids)."""
+    used = placeholders_in(llm_text)
+    missing = [name for name in used if name not in fields]
+    if missing:
+        raise MessageError(f"Missing values for placeholders: {missing}")
+    text = llm_text
+    for name in used:
+        text = text.replace("{" + name + "}", fields[name])
+    return append_clause(text, clause_kind, lang)
+
+
 def check_connective_text(text: str) -> None:
     """Rules of the connective text of a customer message, written by the LLM or edited by an
     operator: known placeholders only, no digit outside them (amounts, terms and deadlines are
     template fields, rule 10), no accusatory term, no "same person", at most 120 words."""
-    unknown = placeholders_in(text) - PLACEHOLDERS
-    if unknown:
-        raise ValueError(f"unknown placeholders {sorted(unknown)}")
-    lower = text.lower()
-    if any(term in lower for term in BANNED_FOR_CUSTOMER + BANNED_EVERYWHERE):
+    rest = text
+    for name in PLACEHOLDERS:
+        rest = rest.replace("{" + name + "}", "")
+    if any(ch in rest for ch in "{}"):
+        raise ValueError("unknown placeholders: only {terms}, {amount} and {deadline}")
+    if banned_terms(text):
         raise ValueError("no accusatory term and no 'same person' in a customer message")
     stripped = text
     for name in PLACEHOLDERS:
@@ -2059,7 +2096,7 @@ class DecisionRequest(ApiModel):
 
     decision_id: Id  # the version the operator saw: 409 stale_decision if a newer one exists
     action: DecisionAction
-    levers: list[Lever] | None = None
+    levers: LeverList | None = None
     message: MessageChoice
     override_reason: Reason | None = None
     override_category: OverrideCategory | None = None
@@ -3329,7 +3366,7 @@ class AnswerEvent(ApiModel):
 
     @model_validator(mode="after")
     def _words(self) -> Self:
-        if any(term in self.text.lower() for term in BANNED_EVERYWHERE):
+        if banned_terms(self.text):
             raise ValueError('say "linked accounts", never "same person" (rule 11)')
         return self
 

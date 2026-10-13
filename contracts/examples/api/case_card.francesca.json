@@ -701,7 +701,7 @@
           "deadline": "14 ottobre 2026"
         },
         "legal_clause_kind": "guarantee",
-        "rendered_text": "Ciao, ci dispiace per l'errore: hai ricevuto un articolo diverso da quello ordinato. Il reso è gratuito e il rimborso arriverà entro il 14 ottobre 2026.\n\nIl prodotto è coperto dalla garanzia legale di conformità: hai diritto alla riparazione, alla sostituzione o al rimborso senza costi a tuo carico."
+        "rendered_text": "Ciao, ci dispiace per l'errore: hai ricevuto un articolo diverso da quello ordinato. Il reso è gratuito e il rimborso arriverà entro il 14 ottobre 2026.\n\nIl prodotto è coperto dalla garanzia legale di conformità. Puoi chiedere prima di tutto la riparazione o la sostituzione, senza spese ed entro un periodo ragionevole. Nei casi previsti dalla legge, per esempio se la riparazione o la sostituzione non sono possibili o non eliminano il difetto, puoi chiedere una riduzione del prezzo oppure, se il difetto non è di lieve entità, la risoluzione del contratto con la restituzione del prezzo."
       },
       {
         "lang": "en",
@@ -712,7 +712,7 @@
           "deadline": "14 October 2026"
         },
         "legal_clause_kind": "guarantee",
-        "rendered_text": "Hello, we are sorry for the mistake: you received a different item from the one you ordered. The return is free and your refund will arrive by 14 October 2026.\n\nThe item is covered by the legal guarantee of conformity: you are entitled to a repair, a replacement or a refund at no cost to you."
+        "rendered_text": "Hello, we are sorry for the mistake: you received a different item from the one you ordered. The return is free and your refund will arrive by 14 October 2026.\n\nThe item is covered by the legal guarantee of conformity. You can first ask for a repair or a replacement, free of charge and within a reasonable time. Where the law provides for it, for example if a repair or a replacement is not possible or does not remove the defect, you can ask for a price reduction or, unless the defect is minor, end the contract and get the price back."
       }
     ]
   },

@@ -67,8 +67,10 @@ def test_leg01_engine_never_produces_violations(
     if d.path is Path.GUARANTEE:  # LEG-07: no restrictive lever, shipping free (US-309)
         expected = replace(snapshot.most_generous(base), free_return_shipping=True)
         assert d.current_return_terms == expected
-    else:  # LEG-04: the snapshot shown at purchase, never restricted retroactively
-        assert d.current_return_terms == snapshot
+    else:  # LEG-04: the snapshot shown at purchase, never restricted retroactively, plus the
+        # free size exchange the engine grants, whose scope is all orders (C5)
+        exchange = snapshot.free_size_exchange or d.levers.future_terms.free_size_exchange
+        assert d.current_return_terms == replace(snapshot, free_size_exchange=exchange)
     if d.quadrant in (Quadrant.Q3, Quadrant.Q4):  # LEG-03 and LEG-08, spec 8.6
         assert d.requires_approval and d.review_on == TODAY + timedelta(days=REVIEW_DAYS)
     else:

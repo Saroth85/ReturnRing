@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -29,7 +30,7 @@ from contracts.io import (
     validate_table,
     write_table,
 )
-from contracts.parquet import CONTRACT_VERSION, SCHEMAS
+from contracts.parquet import CONTRACT_VERSION, SCHEMAS, TS
 
 T0 = datetime(2026, 9, 1, 10, 0, tzinfo=UTC)
 SYNTH = Provenance(
@@ -170,7 +171,7 @@ def test_same_input_gives_byte_identical_files(tmp_path: Path) -> None:
     assert digest[0] == digest[1]
     again = write_table("store/returns", table("store/returns", rows), tmp_path / "a", SYNTH)
     assert hashlib.sha256(again.read_bytes()).hexdigest() == digest[0]
-    assert not list((tmp_path / "a" / "store").glob("*.tmp"))
+    assert [p.name for p in (tmp_path / "a" / "store").iterdir()] == ["returns.parquet"]
 
 
 def test_columns_in_any_order_are_written_in_contract_order(tmp_path: Path) -> None:
@@ -194,13 +195,11 @@ def test_read_table_as_of_filters_on_available_at(tmp_path: Path) -> None:
     assert read_table("store/returns", tmp_path, as_of=rome)[0].num_rows == 1
 
 
-def test_read_table_as_of_needs_an_aware_datetime_and_an_event_table(tmp_path: Path) -> None:
+def test_read_table_as_of_needs_an_aware_datetime(tmp_path: Path) -> None:
     write_table("store/returns", table("store/returns", returns_rows()), tmp_path, SYNTH)
     with pytest.raises(ContractError, match="timezone"):
         read_table("store/returns", tmp_path, as_of=datetime(2026, 9, 6))
     write_table("features/links", table("features/links", links_rows()), tmp_path, SYNTH)
-    with pytest.raises(ContractError, match="event table"):
-        read_table("features/links", tmp_path, as_of=at(0))
     links, _ = read_table("features/links", tmp_path)
     assert links.column("kinds").to_pylist() == [["card", "device"]]
 
@@ -544,6 +543,284 @@ def test_a_valid_table_for_every_contract_round_trips(tmp_path: Path) -> None:
     """Every contract can be written and read with an empty table (schema-only check)."""
     for name, schema in SCHEMAS.items():
         empty = schema.empty_table()
-        write_table(name, empty, tmp_path, SYNTH)
+        write_table(name, empty, tmp_path, REAL if name.startswith("raw/") else SYNTH)
         back, _ = read_table(name, tmp_path)
         assert back.num_rows == 0 and back.schema.remove_metadata().equals(schema), name
+
+
+# ---- Review findings C1..C12 (13 Oct 2026) -----------------------------------------------------
+
+
+def _order_lines(n: int) -> pa.Table:
+    """n order lines at spec volume, built column by column (fixture values, nature synthetic)."""
+    stamps = pa.array([T0 + timedelta(minutes=k % 40_000) for k in range(n)], TS)
+    return pa.table(
+        {
+            "line_id": [f"L-{k:08d}" for k in range(n)],
+            "order_id": [f"O-{k // 3:07d}" for k in range(n)],
+            "variant_id": [f"V-{(k * 7919) % 5000:06d}" for k in range(n)],
+            "size": [("XS", "S", "M", "L", None)[k % 5] for k in range(n)],
+            "price_eur": pa.array([Decimal(100 + k % 20_000) / 100 for k in range(n)]).cast(
+                pa.decimal128(12, 2)
+            ),
+            "event_at": stamps,
+            "available_at": stamps,
+        }
+    )
+
+
+def test_c1_bytes_do_not_depend_on_the_chunking_at_spec_volume(tmp_path: Path) -> None:
+    """DATA-04 at 200,000 order lines: one chunk and 64 chunks give the same file."""
+    whole = _order_lines(200_000)
+    assert whole.column("line_id").num_chunks == 1
+    step = 200_000 // 64 + 1
+    chunked = pa.concat_tables([whole.slice(k, step) for k in range(0, 200_000, step)])
+    assert chunked.column("line_id").num_chunks == 64
+    one = write_table("store/order_lines", whole, tmp_path / "one", SYNTH)
+    many = write_table("store/order_lines", chunked, tmp_path / "many", SYNTH)
+    assert hashlib.sha256(one.read_bytes()).digest() == hashlib.sha256(many.read_bytes()).digest()
+
+
+def anomaly_row(**changes: Any) -> dict[str, Any]:
+    row: dict[str, Any] = {
+        "variant_id": "V-JKT-DEF",
+        "reason": "not_as_described",
+        "week": date(2026, 8, 31),
+        "observed": 9,
+        "expected": 2.5,
+        "z": 4.1,
+        "n": 24,
+        "status": "open",
+        "as_of": at(0),  # 1 Sep 2026
+    }
+    return {**row, **changes}
+
+
+def test_c2_anomaly_week_is_not_after_as_of() -> None:
+    """Rule 7: a week that starts after as_of is a future fact."""
+    ok = table("features/product_anomalies", [anomaly_row(week=date(2026, 9, 1))])
+    assert validate_table("features/product_anomalies", ok) == []
+    future = table("features/product_anomalies", [anomaly_row(week=date(2026, 9, 7))])
+    found = validate_table("features/product_anomalies", future)
+    assert any("week" in e and "as_of" in e for e in found)
+
+
+def test_c3_as_of_tables_refuse_a_read_before_their_as_of(tmp_path: Path) -> None:
+    write_table("features/links", table("features/links", links_rows()), tmp_path, SYNTH)
+    links, _ = read_table("features/links", tmp_path, as_of=at(0))
+    assert links.num_rows == 1
+    assert read_table("features/links", tmp_path, as_of=at(3))[0].num_rows == 1
+    with pytest.raises(ContractError, match="as_of"):
+        read_table("features/links", tmp_path, as_of=at(-1))
+    with pytest.raises(ContractError, match="timezone"):
+        read_table("features/links", tmp_path, as_of=datetime(2026, 9, 6))
+
+
+def test_c3_static_tables_refuse_as_of(tmp_path: Path) -> None:
+    labels = [
+        {
+            "customer_id": "C-1",
+            "behaviour": "normal",
+            "ring_id": None,
+            "family_id": None,
+            "scenario": "main",
+        }
+    ]
+    write_table("truth/labels", table("truth/labels", labels), tmp_path, SYNTH)
+    with pytest.raises(ContractError, match="static"):
+        read_table("truth/labels", tmp_path, as_of=at(0))
+
+
+def test_c3_as_of_table_keys_include_as_of() -> None:
+    """Two snapshots of one pair are two rows; the same pair twice in one snapshot is not."""
+    later = {**links_rows()[0], "as_of": at(7)}
+    snapshots = table("features/links", [links_rows()[0], later])
+    assert validate_table("features/links", snapshots) == []
+    twice = table("features/links", [links_rows()[0], links_rows()[0]])
+    assert any("unique" in e for e in validate_table("features/links", twice))
+    for name in sorted(n for n in SCHEMAS if n.startswith(("features/", "scores/"))):
+        keys = [c.keys for c in CHECKS[name] if isinstance(c, Unique)]
+        assert keys and all(k[-1] == "as_of" for k in keys), name
+
+
+@pytest.mark.parametrize(
+    ("kinds", "message"),
+    [(None, "null"), ([], "empty"), (["card", "card"], "repeat")],
+)
+def test_c7_link_kinds_are_present_non_empty_and_distinct(kinds: Any, message: str) -> None:
+    rows = links_rows()
+    rows[0]["kinds"] = kinds
+    found = validate_table("features/links", table("features/links", rows))
+    assert any("kinds" in e and message in e for e in found), found
+
+
+def coupon_rows() -> list[dict[str, Any]]:
+    issue = {
+        "coupon_code": "WLC-1",
+        "customer_id": "C-1",
+        "kind": "welcome",
+        "discount_eur": Decimal("0.00"),
+        "order_id": None,
+        "event_at": at(0),
+        "available_at": at(0),
+    }
+    redeem = {**issue, "discount_eur": Decimal("7.50"), "order_id": "O-1"}
+    return [issue, {**redeem, "event_at": at(1), "available_at": at(1)}]
+
+
+def test_c8_coupon_log_valid() -> None:
+    assert validate_table("store/coupons", table("store/coupons", coupon_rows())) == []
+    issued_only = coupon_rows()[:1]
+    assert validate_table("store/coupons", table("store/coupons", issued_only)) == []
+
+
+def test_c8_redemption_without_issue_row() -> None:
+    found = validate_table("store/coupons", table("store/coupons", coupon_rows()[1:]))
+    assert any("coupon_code" in e and "issue" in e for e in found), found
+
+
+def test_c8_two_issue_rows_for_one_code() -> None:
+    rows = coupon_rows()
+    rows.append({**rows[0], "event_at": at(0.5), "available_at": at(0.5)})
+    found = validate_table("store/coupons", table("store/coupons", rows))
+    assert any("coupon_code" in e and "issue" in e for e in found), found
+
+
+def test_c8_two_redemptions_for_one_code() -> None:
+    rows = coupon_rows()
+    rows.append({**rows[1], "order_id": "O-2", "event_at": at(2), "available_at": at(2)})
+    found = validate_table("store/coupons", table("store/coupons", rows))
+    assert any("coupon_code" in e and "redemption" in e for e in found), found
+
+
+def test_c8_redemption_before_issue() -> None:
+    rows = coupon_rows()
+    rows[1].update(event_at=at(-1), available_at=at(-1))
+    found = validate_table("store/coupons", table("store/coupons", rows))
+    assert any("coupon_code" in e and "before" in e for e in found), found
+
+
+def test_c9_defect_end_only_on_defective_variants() -> None:
+    row = {
+        "variant_id": "V-1",
+        "base_return_rate": 0.3,
+        "defective": False,
+        "defect_reason": None,
+        "defect_start": None,
+        "defect_end": at(40),
+    }
+    found = validate_table("truth/variants", table("truth/variants", [row]))
+    assert any("defect_end" in e for e in found), found
+    never_fixed = {**row, "defective": True, "defect_reason": "defective", "defect_start": at(1)}
+    never_fixed["defect_end"] = None
+    assert validate_table("truth/variants", table("truth/variants", [never_fixed])) == []
+
+
+@pytest.mark.parametrize("value", [float("inf"), float("-inf"), float("nan")])
+def test_c10_non_finite_floats_are_rejected(value: float) -> None:
+    rows = links_rows()
+    rows[0]["weight_decayed"] = value
+    found = validate_table("features/links", table("features/links", rows))
+    assert any("weight_decayed" in e and "NaN/inf" in e for e in found), found
+
+
+REAL = Provenance("ASOS GraphReturns, test", date(2021, 9, 1), date(2021, 11, 30), "real")
+SIMULATED = Provenance("Policy simulator, test", date(2025, 10, 1), date(2026, 9, 30), "simulated")
+
+
+def asos_event_rows() -> list[dict[str, Any]]:
+    return [{"split": "train", "variant_hash": 1, "customer_hash": 2, "is_returned": True}]
+
+
+def test_c11_each_family_has_its_nature(tmp_path: Path) -> None:
+    events = table("raw/asos_events", asos_event_rows())
+    write_table("raw/asos_events", events, tmp_path, REAL)
+    with pytest.raises(ContractError, match="nature"):
+        write_table("raw/asos_events", events, tmp_path, SYNTH)
+    returns = table("store/returns", returns_rows())
+    with pytest.raises(ContractError, match="nature"):
+        write_table("store/returns", returns, tmp_path, replace(SYNTH, nature="real"))
+    labels = [
+        {"customer_id": "C-1", "behaviour": "normal", "ring_id": None, "family_id": None}
+        | {"scenario": "main"}
+    ]
+    with pytest.raises(ContractError, match="nature"):
+        write_table("truth/labels", table("truth/labels", labels), tmp_path, SIMULATED)
+    links = table("features/links", links_rows())
+    write_table("features/links", links, tmp_path, SIMULATED)
+    write_table("features/links", links, tmp_path, SYNTH)
+    with pytest.raises(ContractError, match="nature"):
+        write_table("features/links", links, tmp_path, replace(SYNTH, nature="real"))
+
+
+def test_c11_nature_override_is_explicit(tmp_path: Path) -> None:
+    """A test fixture shaped like ASOS is synthetic: it says so, and the caller says it knows."""
+    events = table("raw/asos_events", asos_event_rows())
+    path = write_table("raw/asos_events", events, tmp_path, SYNTH, nature_override="synthetic")
+    assert read_table("raw/asos_events", tmp_path)[1].nature == "synthetic"
+    assert path.exists()
+    with pytest.raises(ContractError, match="override"):
+        write_table("raw/asos_events", events, tmp_path, SYNTH, nature_override="simulated")
+
+
+@pytest.mark.parametrize("days", [-400.0, 40.0])
+def test_c11_event_at_lies_in_the_provenance_period(tmp_path: Path, days: float) -> None:
+    rows = returns_rows()
+    rows[0].update(event_at=at(days), available_at=at(days))  # SYNTH ends on 30 Sep 2026
+    with pytest.raises(ContractError, match="period"):
+        write_table("store/returns", table("store/returns", rows), tmp_path, SYNTH)
+    assert not path_for("store/returns", tmp_path).exists()
+
+
+def test_c12_missing_provenance_is_a_contract_error(tmp_path: Path) -> None:
+    write_table("store/returns", table("store/returns", returns_rows()), tmp_path, SYNTH)
+    src = path_for("store/returns", tmp_path)
+    pf = pq.read_table(src)
+    meta = {k: v for k, v in pf.schema.metadata.items() if k != META_PROVENANCE}
+    pq.write_table(pf.replace_schema_metadata(meta), src)
+    with pytest.raises(ContractError, match="provenance"):
+        read_table("store/returns", tmp_path)
+
+
+# ---- P3: one atomic write, never through a planted symlink -------------------------------------
+
+# Temporary names a writer could use next to its target: the shared helper's (contracts.files)
+# and the one write_table used before review P3. A symlink is planted at each.
+TEMP_NAMES = ("{}.tmp", ".{}.part")
+
+
+def plant_symlinks(target: Path, victims: Path) -> dict[str, Path]:
+    """A symlink at every temporary name of `target`, each to its own victim file."""
+    target.parent.mkdir(parents=True, exist_ok=True)
+    victims.mkdir(exist_ok=True)
+    planted = {}
+    for i, pattern in enumerate(TEMP_NAMES):
+        victim = victims / f"victim-{i}.txt"
+        victim.write_text("keep me")
+        name = pattern.format(target.name)
+        (target.parent / name).symlink_to(victim)
+        planted[name] = victim
+    return planted
+
+
+def test_p3_write_table_never_writes_through_a_planted_symlink(tmp_path: Path) -> None:
+    """Review P3: a symlink planted at the temporary name must not redirect the Parquet bytes to
+    another file, and the target must end up a regular file, not a link to the victim."""
+    target = path_for("store/returns", tmp_path / "out")
+    planted = plant_symlinks(target, tmp_path / "victims")
+    write_table("store/returns", table("store/returns", returns_rows()), tmp_path / "out", SYNTH)
+    assert all(victim.read_text() == "keep me" for victim in planted.values())
+    assert target.is_file() and not target.is_symlink()
+    assert read_table("store/returns", tmp_path / "out")[0].num_rows == len(returns_rows())
+    left = {p.name for p in target.parent.iterdir()} - set(planted)
+    assert left == {target.name}
+
+
+def test_p3_write_table_leaves_nothing_when_a_directory_is_in_the_way(tmp_path: Path) -> None:
+    """Review P3: the rename onto a directory fails; no temporary file is left behind."""
+    target = path_for("store/returns", tmp_path)
+    target.mkdir(parents=True)
+    with pytest.raises(OSError):
+        write_table("store/returns", table("store/returns", returns_rows()), tmp_path, SYNTH)
+    assert target.is_dir()
+    assert [p.name for p in target.parent.iterdir()] == [target.name]

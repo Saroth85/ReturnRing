@@ -43,7 +43,6 @@ from contracts.vocab import (
     RevisionTrigger,
     Tone,
 )
-from llm.messages import render_customer_message
 from policy.engine import NAVIGLI_BASE_TERMS, Thresholds, approve, decide, quadrant_for
 from policy.legal_guard import check, is_restrictive
 from policy.simulator import PROPOSAL_EXAMPLE
@@ -969,7 +968,7 @@ def draft(
                 connective_text=text,
                 fields=fields,
                 legal_clause_kind=kind,
-                rendered_text=render_customer_message(text, fields.as_mapping(), lang, kind),
+                rendered_text=s.render_customer_message(text, fields.as_mapping(), lang, kind),
             )
         )
     return s.DraftView(
@@ -1005,7 +1004,7 @@ def outbox_message(
         subject=f"{subject} {decision.return_id}",
         connective_text=text,
         fields=fields,
-        body=render_customer_message(text, fields.as_mapping(), lang, kind),
+        body=s.render_customer_message(text, fields.as_mapping(), lang, kind),
         legal_clause_kind=kind,
         generation_id=generation_id,
         status="sent_simulated",
@@ -2169,8 +2168,7 @@ def insufficient() -> Case:
         ),
         statement(
             "HYPOTHESIS",
-            "With more orders the case can be scored; until then it is neither safe nor "
-            "suspicious.",
+            "With more orders the case can be scored; until then no quadrant is assigned.",
             "C-19921",
         ),
     ]  # fmt: skip

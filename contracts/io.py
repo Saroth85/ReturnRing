@@ -1,10 +1,13 @@
 """Write and read contract tables: validation, provenance metadata, deterministic files (ADR-13).
 
-write_table validates a table against SCHEMAS[name] and contracts/checks.py, embeds the contract
-name, the contract version and the provenance (origin, period, nature: rule 11, NFR-16) in the
-Parquet metadata, and writes it deterministically: the same input gives a byte-identical file
-(DATA-04). read_table checks the contract of the file and, for event tables, keeps only the rows
-available at as_of (rule 7).
+write_table validates a table against SCHEMAS[name] and contracts/checks.py, checks that its
+provenance fits the table family (nature, and for event tables the period of every event_at),
+embeds the contract name, the contract version and the provenance (origin, period, nature: rule
+11, NFR-16) in the Parquet metadata, and writes it deterministically: the same rows give a
+byte-identical file whatever their chunking (DATA-04), atomically (contracts.files). read_table
+checks the contract of the file;
+with as_of it keeps the rows of an event table available at that instant, and refuses an as-of
+table computed after it (rule 7).
 
 Paths are <root>/<name>.parquet, for example data/store/orders.parquet.
 """
@@ -12,7 +15,6 @@ Paths are <root>/<name>.parquet, for example data/store/orders.parquet.
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -22,11 +24,23 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
-from contracts.checks import checks_for, no_nan
-from contracts.parquet import CONTRACT_VERSION, EVENT_TABLES, SCHEMAS, TS
+from contracts.checks import checks_for, finite_floats
+from contracts.files import atomic_write
+from contracts.parquet import AS_OF_TABLES, CONTRACT_VERSION, EVENT_TABLES, SCHEMAS, TS
 
 Nature = Literal["real", "synthetic", "simulated"]
 NATURES: tuple[Nature, ...] = ("real", "synthetic", "simulated")
+
+# The nature each table family may carry (rule 11): ASOS is real, the generator's store and truth
+# are synthetic, features and scores are computed from synthetic or simulated data. A caller may
+# write another nature only by naming it in write_table(..., nature_override=...).
+FAMILY_NATURES: dict[str, tuple[Nature, ...]] = {
+    "raw": ("real",),
+    "store": ("synthetic",),
+    "truth": ("synthetic",),
+    "features": ("synthetic", "simulated"),
+    "scores": ("synthetic", "simulated"),
+}
 
 META_CONTRACT = b"returnring.contract"
 META_VERSION = b"returnring.contract_version"
@@ -154,43 +168,92 @@ def validate_table(name: str, table: pa.Table) -> list[str]:
     errors = _structure_errors(schema, table)
     if errors:  # value checks assume the right columns and types
         return errors
-    table = table.select(schema.names)
-    errors = no_nan(table)
+    table = table.select(schema.names).combine_chunks()
+    errors = finite_floats(table)
     for check in checks_for(name):
         errors.extend(check.violations(table))
     return errors
 
 
-def write_table(name: str, table: pa.Table, root: Path | str, provenance: Provenance) -> Path:
-    """Validate `table` against the contract `name` and write it to <root>/<name>.parquet."""
+def provenance_errors(
+    name: str, table: pa.Table, provenance: Provenance, nature_override: Nature | None = None
+) -> list[str]:
+    """Why `provenance` does not fit the table `name` (rule 11); an empty list means it fits.
+
+    The nature must be one of FAMILY_NATURES for the family, unless the caller names it in
+    nature_override. Every event_at of an event table lies in the provenance period (UTC days)."""
+    _schema(name)
+    errors: list[str] = []
+    family = name.split("/", 1)[0]
+    allowed = FAMILY_NATURES[family]
+    if nature_override is not None:
+        if nature_override != provenance.nature:
+            errors.append(
+                f"nature_override {nature_override!r} differs from the provenance nature "
+                f"{provenance.nature!r}"
+            )
+    elif provenance.nature not in allowed:
+        errors.append(
+            f"provenance nature {provenance.nature!r}: {family}/ tables are {' or '.join(allowed)} "
+            "(pass nature_override to write another nature on purpose)"
+        )
+    if name in EVENT_TABLES and table.num_rows:
+        days = pc.cast(table.column("event_at"), pa.date32())
+        first, last = pc.min(days).as_py(), pc.max(days).as_py()
+        if first < provenance.period_start or last > provenance.period_end:
+            errors.append(
+                f"event_at from {first} to {last} is outside the provenance period "
+                f"{provenance.period_start}..{provenance.period_end}"
+            )
+    return errors
+
+
+def write_table(
+    name: str,
+    table: pa.Table,
+    root: Path | str,
+    provenance: Provenance,
+    *,
+    nature_override: Nature | None = None,
+) -> Path:
+    """Validate `table` against the contract `name` and write it to <root>/<name>.parquet.
+
+    nature_override: write a nature that the family does not normally carry, for example a
+    synthetic test fixture shaped like the real ASOS tables; it must equal provenance.nature."""
     schema = _schema(name)
     errors = validate_table(name, table)
     if errors:
         raise ContractError(f"{name} violates its contract", errors)
+    errors = provenance_errors(name, table, provenance, nature_override)
+    if errors:
+        raise ContractError(f"{name}: provenance does not fit the table", errors)
     metadata = {
         META_CONTRACT: name.encode(),
         META_VERSION: CONTRACT_VERSION.encode(),
         META_PROVENANCE: provenance.to_json().encode(),
     }
-    conformed = table.select(schema.names).cast(schema)
+    # One chunk per column: the row groups and pages written depend on the rows only, never on
+    # how the caller's table happens to be chunked (DATA-04).
+    conformed = table.select(schema.names).cast(schema).combine_chunks()
     conformed = conformed.replace_schema_metadata(metadata)
     path = path_for(name, root)
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    pq.write_table(conformed, tmp, **_WRITE_OPTIONS)
-    os.replace(tmp, path)
-    return path
+    # Through a new temporary file, never a planted symlink; nothing left on failure (P3).
+    return atomic_write(path, lambda out: pq.write_table(conformed, out, **_WRITE_OPTIONS))
 
 
 def read_table(
     name: str, root: Path | str, as_of: datetime | None = None
 ) -> tuple[pa.Table, Provenance]:
-    """Read a contract file and its provenance. With as_of (event tables only), keep the rows
-    whose available_at <= as_of: what was known at that instant (rule 7)."""
+    """Read a contract file and its provenance. With as_of (rule 7):
+
+    - event table: keep the rows whose available_at <= as_of, what was known at that instant;
+    - as-of table: every row must have been computed at or before as_of, else ContractError;
+    - static table (raw/, truth/): refused, they have no decision time."""
     schema = _schema(name)
     if as_of is not None:
-        if name not in EVENT_TABLES:
-            raise ContractError(f"{name} is not an event table: as_of filters only event tables")
+        if name not in EVENT_TABLES and name not in AS_OF_TABLES:
+            raise ContractError(f"{name} is a static table: it has no decision time for as_of")
         if as_of.tzinfo is None or as_of.utcoffset() is None:
             raise ContractError("as_of must be a timezone-aware datetime")
     table = pq.read_table(path_for(name, root))
@@ -203,8 +266,19 @@ def read_table(
         raise ContractError(f"contract version {version!r}, expected {CONTRACT_VERSION!r}")
     if not table.schema.remove_metadata().equals(schema):
         raise ContractError(f"{name}: file schema differs from the contract schema")
-    provenance = Provenance.from_json(meta[META_PROVENANCE])
+    found_provenance = meta.get(META_PROVENANCE)
+    if found_provenance is None:
+        raise ContractError(f"{name}: the file has no provenance metadata (rule 11)")
+    provenance = Provenance.from_json(found_provenance)
     if as_of is not None:
         limit = pa.scalar(as_of.astimezone(UTC), type=TS)
-        table = table.filter(pc.less_equal(table.column("available_at"), limit))
+        if name in EVENT_TABLES:
+            table = table.filter(pc.less_equal(table.column("available_at"), limit))
+        else:
+            later = pc.sum(pc.greater(table.column("as_of"), limit)).as_py() or 0
+            if later:
+                raise ContractError(
+                    f"{name}: {later} rows were computed after as_of {as_of.isoformat()}: "
+                    "they hold facts not known at that instant"
+                )
     return table, provenance

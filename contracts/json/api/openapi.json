@@ -2339,10 +2339,379 @@
             "title": "Recommended"
           },
           "levers": {
+            "allOf": [
+              {
+                "contains": {
+                  "properties": {
+                    "id": {
+                      "const": "return_window_days"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ]
+                },
+                "maxContains": 1,
+                "minContains": 0
+              },
+              {
+                "contains": {
+                  "properties": {
+                    "id": {
+                      "const": "free_return_shipping"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ]
+                },
+                "maxContains": 1,
+                "minContains": 0
+              },
+              {
+                "contains": {
+                  "properties": {
+                    "id": {
+                      "const": "instant_refund"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ]
+                },
+                "maxContains": 1,
+                "minContains": 0
+              },
+              {
+                "contains": {
+                  "properties": {
+                    "id": {
+                      "const": "free_size_exchange"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ]
+                },
+                "maxContains": 1,
+                "minContains": 0
+              },
+              {
+                "contains": {
+                  "properties": {
+                    "id": {
+                      "const": "coupons_enabled"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ]
+                },
+                "maxContains": 1,
+                "minContains": 0
+              },
+              {
+                "contains": {
+                  "properties": {
+                    "id": {
+                      "const": "cluster_coupons_disabled"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ]
+                },
+                "maxContains": 1,
+                "minContains": 0
+              },
+              {
+                "contains": {
+                  "properties": {
+                    "id": {
+                      "const": "transparency_notice"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ]
+                },
+                "maxContains": 1,
+                "minContains": 0
+              },
+              {
+                "contains": {
+                  "properties": {
+                    "id": {
+                      "const": "size_advice"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ]
+                },
+                "maxContains": 1,
+                "minContains": 0
+              },
+              {
+                "contains": {
+                  "properties": {
+                    "id": {
+                      "const": "priority_size_exchange"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ]
+                },
+                "maxContains": 1,
+                "minContains": 0
+              }
+            ],
             "items": {
-              "$ref": "#/components/schemas/Lever"
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "id": {
+                        "const": "return_window_days"
+                      }
+                    },
+                    "required": [
+                      "id"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "value": {
+                        "type": "integer",
+                        "minimum": 14.0
+                      },
+                      "scope": {
+                        "const": "future_orders"
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "id": {
+                        "const": "free_return_shipping"
+                      }
+                    },
+                    "required": [
+                      "id"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "value": {
+                        "type": "boolean"
+                      },
+                      "scope": {
+                        "const": "future_orders"
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "id": {
+                        "const": "instant_refund"
+                      }
+                    },
+                    "required": [
+                      "id"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "value": {
+                        "type": "boolean"
+                      },
+                      "scope": {
+                        "const": "future_orders"
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "id": {
+                        "const": "free_size_exchange"
+                      }
+                    },
+                    "required": [
+                      "id"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "value": {
+                        "type": "boolean",
+                        "const": true
+                      },
+                      "scope": {
+                        "const": "all_orders"
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "id": {
+                        "const": "coupons_enabled"
+                      }
+                    },
+                    "required": [
+                      "id"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "value": {
+                        "type": "boolean"
+                      },
+                      "scope": {
+                        "const": "future_orders"
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "id": {
+                        "const": "cluster_coupons_disabled"
+                      }
+                    },
+                    "required": [
+                      "id"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "value": {
+                        "type": "boolean"
+                      },
+                      "scope": {
+                        "const": "future_orders_cluster"
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "id": {
+                        "const": "transparency_notice"
+                      }
+                    },
+                    "required": [
+                      "id"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "value": {
+                        "type": "boolean"
+                      },
+                      "scope": {
+                        "const": "communication"
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "id": {
+                        "const": "size_advice"
+                      }
+                    },
+                    "required": [
+                      "id"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "value": {
+                        "type": "boolean"
+                      },
+                      "scope": {
+                        "const": "current_order"
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "id": {
+                        "const": "priority_size_exchange"
+                      }
+                    },
+                    "required": [
+                      "id"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "value": {
+                        "type": "boolean",
+                        "const": true
+                      },
+                      "scope": {
+                        "const": "all_orders"
+                      }
+                    }
+                  }
+                }
+              ],
+              "properties": {
+                "id": {
+                  "enum": [
+                    "return_window_days",
+                    "free_return_shipping",
+                    "instant_refund",
+                    "free_size_exchange",
+                    "coupons_enabled",
+                    "cluster_coupons_disabled",
+                    "transparency_notice",
+                    "size_advice",
+                    "priority_size_exchange"
+                  ]
+                },
+                "value": {
+                  "type": [
+                    "integer",
+                    "boolean"
+                  ]
+                },
+                "scope": {
+                  "enum": [
+                    "future_orders",
+                    "future_orders_cluster",
+                    "all_orders",
+                    "current_order",
+                    "communication"
+                  ]
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "id",
+                "value",
+                "scope"
+              ]
             },
             "type": "array",
+            "maxItems": 9,
+            "uniqueItems": true,
             "title": "Levers"
           },
           "net_benefit": {
@@ -5182,10 +5551,379 @@
           "levers": {
             "anyOf": [
               {
+                "allOf": [
+                  {
+                    "contains": {
+                      "properties": {
+                        "id": {
+                          "const": "return_window_days"
+                        }
+                      },
+                      "required": [
+                        "id"
+                      ]
+                    },
+                    "maxContains": 1,
+                    "minContains": 0
+                  },
+                  {
+                    "contains": {
+                      "properties": {
+                        "id": {
+                          "const": "free_return_shipping"
+                        }
+                      },
+                      "required": [
+                        "id"
+                      ]
+                    },
+                    "maxContains": 1,
+                    "minContains": 0
+                  },
+                  {
+                    "contains": {
+                      "properties": {
+                        "id": {
+                          "const": "instant_refund"
+                        }
+                      },
+                      "required": [
+                        "id"
+                      ]
+                    },
+                    "maxContains": 1,
+                    "minContains": 0
+                  },
+                  {
+                    "contains": {
+                      "properties": {
+                        "id": {
+                          "const": "free_size_exchange"
+                        }
+                      },
+                      "required": [
+                        "id"
+                      ]
+                    },
+                    "maxContains": 1,
+                    "minContains": 0
+                  },
+                  {
+                    "contains": {
+                      "properties": {
+                        "id": {
+                          "const": "coupons_enabled"
+                        }
+                      },
+                      "required": [
+                        "id"
+                      ]
+                    },
+                    "maxContains": 1,
+                    "minContains": 0
+                  },
+                  {
+                    "contains": {
+                      "properties": {
+                        "id": {
+                          "const": "cluster_coupons_disabled"
+                        }
+                      },
+                      "required": [
+                        "id"
+                      ]
+                    },
+                    "maxContains": 1,
+                    "minContains": 0
+                  },
+                  {
+                    "contains": {
+                      "properties": {
+                        "id": {
+                          "const": "transparency_notice"
+                        }
+                      },
+                      "required": [
+                        "id"
+                      ]
+                    },
+                    "maxContains": 1,
+                    "minContains": 0
+                  },
+                  {
+                    "contains": {
+                      "properties": {
+                        "id": {
+                          "const": "size_advice"
+                        }
+                      },
+                      "required": [
+                        "id"
+                      ]
+                    },
+                    "maxContains": 1,
+                    "minContains": 0
+                  },
+                  {
+                    "contains": {
+                      "properties": {
+                        "id": {
+                          "const": "priority_size_exchange"
+                        }
+                      },
+                      "required": [
+                        "id"
+                      ]
+                    },
+                    "maxContains": 1,
+                    "minContains": 0
+                  }
+                ],
                 "items": {
-                  "$ref": "#/components/schemas/Lever"
+                  "allOf": [
+                    {
+                      "if": {
+                        "properties": {
+                          "id": {
+                            "const": "return_window_days"
+                          }
+                        },
+                        "required": [
+                          "id"
+                        ]
+                      },
+                      "then": {
+                        "properties": {
+                          "value": {
+                            "type": "integer",
+                            "minimum": 14.0
+                          },
+                          "scope": {
+                            "const": "future_orders"
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "if": {
+                        "properties": {
+                          "id": {
+                            "const": "free_return_shipping"
+                          }
+                        },
+                        "required": [
+                          "id"
+                        ]
+                      },
+                      "then": {
+                        "properties": {
+                          "value": {
+                            "type": "boolean"
+                          },
+                          "scope": {
+                            "const": "future_orders"
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "if": {
+                        "properties": {
+                          "id": {
+                            "const": "instant_refund"
+                          }
+                        },
+                        "required": [
+                          "id"
+                        ]
+                      },
+                      "then": {
+                        "properties": {
+                          "value": {
+                            "type": "boolean"
+                          },
+                          "scope": {
+                            "const": "future_orders"
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "if": {
+                        "properties": {
+                          "id": {
+                            "const": "free_size_exchange"
+                          }
+                        },
+                        "required": [
+                          "id"
+                        ]
+                      },
+                      "then": {
+                        "properties": {
+                          "value": {
+                            "type": "boolean",
+                            "const": true
+                          },
+                          "scope": {
+                            "const": "all_orders"
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "if": {
+                        "properties": {
+                          "id": {
+                            "const": "coupons_enabled"
+                          }
+                        },
+                        "required": [
+                          "id"
+                        ]
+                      },
+                      "then": {
+                        "properties": {
+                          "value": {
+                            "type": "boolean"
+                          },
+                          "scope": {
+                            "const": "future_orders"
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "if": {
+                        "properties": {
+                          "id": {
+                            "const": "cluster_coupons_disabled"
+                          }
+                        },
+                        "required": [
+                          "id"
+                        ]
+                      },
+                      "then": {
+                        "properties": {
+                          "value": {
+                            "type": "boolean"
+                          },
+                          "scope": {
+                            "const": "future_orders_cluster"
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "if": {
+                        "properties": {
+                          "id": {
+                            "const": "transparency_notice"
+                          }
+                        },
+                        "required": [
+                          "id"
+                        ]
+                      },
+                      "then": {
+                        "properties": {
+                          "value": {
+                            "type": "boolean"
+                          },
+                          "scope": {
+                            "const": "communication"
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "if": {
+                        "properties": {
+                          "id": {
+                            "const": "size_advice"
+                          }
+                        },
+                        "required": [
+                          "id"
+                        ]
+                      },
+                      "then": {
+                        "properties": {
+                          "value": {
+                            "type": "boolean"
+                          },
+                          "scope": {
+                            "const": "current_order"
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "if": {
+                        "properties": {
+                          "id": {
+                            "const": "priority_size_exchange"
+                          }
+                        },
+                        "required": [
+                          "id"
+                        ]
+                      },
+                      "then": {
+                        "properties": {
+                          "value": {
+                            "type": "boolean",
+                            "const": true
+                          },
+                          "scope": {
+                            "const": "all_orders"
+                          }
+                        }
+                      }
+                    }
+                  ],
+                  "properties": {
+                    "id": {
+                      "enum": [
+                        "return_window_days",
+                        "free_return_shipping",
+                        "instant_refund",
+                        "free_size_exchange",
+                        "coupons_enabled",
+                        "cluster_coupons_disabled",
+                        "transparency_notice",
+                        "size_advice",
+                        "priority_size_exchange"
+                      ]
+                    },
+                    "value": {
+                      "type": [
+                        "integer",
+                        "boolean"
+                      ]
+                    },
+                    "scope": {
+                      "enum": [
+                        "future_orders",
+                        "future_orders_cluster",
+                        "all_orders",
+                        "current_order",
+                        "communication"
+                      ]
+                    }
+                  },
+                  "additionalProperties": false,
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "value",
+                    "scope"
+                  ]
                 },
-                "type": "array"
+                "type": "array",
+                "maxItems": 9,
+                "uniqueItems": true
               },
               {
                 "type": "null"
@@ -5413,17 +6151,755 @@
             "title": "Missing Evidence"
           },
           "proposed_levers": {
+            "allOf": [
+              {
+                "contains": {
+                  "properties": {
+                    "id": {
+                      "const": "return_window_days"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ]
+                },
+                "maxContains": 1,
+                "minContains": 0
+              },
+              {
+                "contains": {
+                  "properties": {
+                    "id": {
+                      "const": "free_return_shipping"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ]
+                },
+                "maxContains": 1,
+                "minContains": 0
+              },
+              {
+                "contains": {
+                  "properties": {
+                    "id": {
+                      "const": "instant_refund"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ]
+                },
+                "maxContains": 1,
+                "minContains": 0
+              },
+              {
+                "contains": {
+                  "properties": {
+                    "id": {
+                      "const": "free_size_exchange"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ]
+                },
+                "maxContains": 1,
+                "minContains": 0
+              },
+              {
+                "contains": {
+                  "properties": {
+                    "id": {
+                      "const": "coupons_enabled"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ]
+                },
+                "maxContains": 1,
+                "minContains": 0
+              },
+              {
+                "contains": {
+                  "properties": {
+                    "id": {
+                      "const": "cluster_coupons_disabled"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ]
+                },
+                "maxContains": 1,
+                "minContains": 0
+              },
+              {
+                "contains": {
+                  "properties": {
+                    "id": {
+                      "const": "transparency_notice"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ]
+                },
+                "maxContains": 1,
+                "minContains": 0
+              },
+              {
+                "contains": {
+                  "properties": {
+                    "id": {
+                      "const": "size_advice"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ]
+                },
+                "maxContains": 1,
+                "minContains": 0
+              },
+              {
+                "contains": {
+                  "properties": {
+                    "id": {
+                      "const": "priority_size_exchange"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ]
+                },
+                "maxContains": 1,
+                "minContains": 0
+              }
+            ],
             "items": {
-              "$ref": "#/components/schemas/Lever"
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "id": {
+                        "const": "return_window_days"
+                      }
+                    },
+                    "required": [
+                      "id"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "value": {
+                        "type": "integer",
+                        "minimum": 14.0
+                      },
+                      "scope": {
+                        "const": "future_orders"
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "id": {
+                        "const": "free_return_shipping"
+                      }
+                    },
+                    "required": [
+                      "id"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "value": {
+                        "type": "boolean"
+                      },
+                      "scope": {
+                        "const": "future_orders"
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "id": {
+                        "const": "instant_refund"
+                      }
+                    },
+                    "required": [
+                      "id"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "value": {
+                        "type": "boolean"
+                      },
+                      "scope": {
+                        "const": "future_orders"
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "id": {
+                        "const": "free_size_exchange"
+                      }
+                    },
+                    "required": [
+                      "id"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "value": {
+                        "type": "boolean",
+                        "const": true
+                      },
+                      "scope": {
+                        "const": "all_orders"
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "id": {
+                        "const": "coupons_enabled"
+                      }
+                    },
+                    "required": [
+                      "id"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "value": {
+                        "type": "boolean"
+                      },
+                      "scope": {
+                        "const": "future_orders"
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "id": {
+                        "const": "cluster_coupons_disabled"
+                      }
+                    },
+                    "required": [
+                      "id"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "value": {
+                        "type": "boolean"
+                      },
+                      "scope": {
+                        "const": "future_orders_cluster"
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "id": {
+                        "const": "transparency_notice"
+                      }
+                    },
+                    "required": [
+                      "id"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "value": {
+                        "type": "boolean"
+                      },
+                      "scope": {
+                        "const": "communication"
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "id": {
+                        "const": "size_advice"
+                      }
+                    },
+                    "required": [
+                      "id"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "value": {
+                        "type": "boolean"
+                      },
+                      "scope": {
+                        "const": "current_order"
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "id": {
+                        "const": "priority_size_exchange"
+                      }
+                    },
+                    "required": [
+                      "id"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "value": {
+                        "type": "boolean",
+                        "const": true
+                      },
+                      "scope": {
+                        "const": "all_orders"
+                      }
+                    }
+                  }
+                }
+              ],
+              "properties": {
+                "id": {
+                  "enum": [
+                    "return_window_days",
+                    "free_return_shipping",
+                    "instant_refund",
+                    "free_size_exchange",
+                    "coupons_enabled",
+                    "cluster_coupons_disabled",
+                    "transparency_notice",
+                    "size_advice",
+                    "priority_size_exchange"
+                  ]
+                },
+                "value": {
+                  "type": [
+                    "integer",
+                    "boolean"
+                  ]
+                },
+                "scope": {
+                  "enum": [
+                    "future_orders",
+                    "future_orders_cluster",
+                    "all_orders",
+                    "current_order",
+                    "communication"
+                  ]
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "id",
+                "value",
+                "scope"
+              ]
             },
             "type": "array",
+            "maxItems": 9,
+            "uniqueItems": true,
             "title": "Proposed Levers"
           },
           "levers": {
+            "allOf": [
+              {
+                "contains": {
+                  "properties": {
+                    "id": {
+                      "const": "return_window_days"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ]
+                },
+                "maxContains": 1,
+                "minContains": 0
+              },
+              {
+                "contains": {
+                  "properties": {
+                    "id": {
+                      "const": "free_return_shipping"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ]
+                },
+                "maxContains": 1,
+                "minContains": 0
+              },
+              {
+                "contains": {
+                  "properties": {
+                    "id": {
+                      "const": "instant_refund"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ]
+                },
+                "maxContains": 1,
+                "minContains": 0
+              },
+              {
+                "contains": {
+                  "properties": {
+                    "id": {
+                      "const": "free_size_exchange"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ]
+                },
+                "maxContains": 1,
+                "minContains": 0
+              },
+              {
+                "contains": {
+                  "properties": {
+                    "id": {
+                      "const": "coupons_enabled"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ]
+                },
+                "maxContains": 1,
+                "minContains": 0
+              },
+              {
+                "contains": {
+                  "properties": {
+                    "id": {
+                      "const": "cluster_coupons_disabled"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ]
+                },
+                "maxContains": 1,
+                "minContains": 0
+              },
+              {
+                "contains": {
+                  "properties": {
+                    "id": {
+                      "const": "transparency_notice"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ]
+                },
+                "maxContains": 1,
+                "minContains": 0
+              },
+              {
+                "contains": {
+                  "properties": {
+                    "id": {
+                      "const": "size_advice"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ]
+                },
+                "maxContains": 1,
+                "minContains": 0
+              },
+              {
+                "contains": {
+                  "properties": {
+                    "id": {
+                      "const": "priority_size_exchange"
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ]
+                },
+                "maxContains": 1,
+                "minContains": 0
+              }
+            ],
             "items": {
-              "$ref": "#/components/schemas/Lever"
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "id": {
+                        "const": "return_window_days"
+                      }
+                    },
+                    "required": [
+                      "id"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "value": {
+                        "type": "integer",
+                        "minimum": 14.0
+                      },
+                      "scope": {
+                        "const": "future_orders"
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "id": {
+                        "const": "free_return_shipping"
+                      }
+                    },
+                    "required": [
+                      "id"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "value": {
+                        "type": "boolean"
+                      },
+                      "scope": {
+                        "const": "future_orders"
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "id": {
+                        "const": "instant_refund"
+                      }
+                    },
+                    "required": [
+                      "id"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "value": {
+                        "type": "boolean"
+                      },
+                      "scope": {
+                        "const": "future_orders"
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "id": {
+                        "const": "free_size_exchange"
+                      }
+                    },
+                    "required": [
+                      "id"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "value": {
+                        "type": "boolean",
+                        "const": true
+                      },
+                      "scope": {
+                        "const": "all_orders"
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "id": {
+                        "const": "coupons_enabled"
+                      }
+                    },
+                    "required": [
+                      "id"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "value": {
+                        "type": "boolean"
+                      },
+                      "scope": {
+                        "const": "future_orders"
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "id": {
+                        "const": "cluster_coupons_disabled"
+                      }
+                    },
+                    "required": [
+                      "id"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "value": {
+                        "type": "boolean"
+                      },
+                      "scope": {
+                        "const": "future_orders_cluster"
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "id": {
+                        "const": "transparency_notice"
+                      }
+                    },
+                    "required": [
+                      "id"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "value": {
+                        "type": "boolean"
+                      },
+                      "scope": {
+                        "const": "communication"
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "id": {
+                        "const": "size_advice"
+                      }
+                    },
+                    "required": [
+                      "id"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "value": {
+                        "type": "boolean"
+                      },
+                      "scope": {
+                        "const": "current_order"
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "id": {
+                        "const": "priority_size_exchange"
+                      }
+                    },
+                    "required": [
+                      "id"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "value": {
+                        "type": "boolean",
+                        "const": true
+                      },
+                      "scope": {
+                        "const": "all_orders"
+                      }
+                    }
+                  }
+                }
+              ],
+              "properties": {
+                "id": {
+                  "enum": [
+                    "return_window_days",
+                    "free_return_shipping",
+                    "instant_refund",
+                    "free_size_exchange",
+                    "coupons_enabled",
+                    "cluster_coupons_disabled",
+                    "transparency_notice",
+                    "size_advice",
+                    "priority_size_exchange"
+                  ]
+                },
+                "value": {
+                  "type": [
+                    "integer",
+                    "boolean"
+                  ]
+                },
+                "scope": {
+                  "enum": [
+                    "future_orders",
+                    "future_orders_cluster",
+                    "all_orders",
+                    "current_order",
+                    "communication"
+                  ]
+                }
+              },
+              "additionalProperties": false,
+              "type": "object",
+              "required": [
+                "id",
+                "value",
+                "scope"
+              ]
             },
             "type": "array",
+            "maxItems": 9,
+            "uniqueItems": true,
             "title": "Levers"
           },
           "lever_ids": {
@@ -6749,7 +8225,8 @@
             "then": {
               "properties": {
                 "value": {
-                  "type": "boolean"
+                  "type": "boolean",
+                  "const": true
                 },
                 "scope": {
                   "const": "all_orders"
@@ -6859,7 +8336,8 @@
             "then": {
               "properties": {
                 "value": {
-                  "type": "boolean"
+                  "type": "boolean",
+                  "const": true
                 },
                 "scope": {
                   "const": "all_orders"

@@ -17,7 +17,7 @@ from typing import Any
 import pytest
 
 from apps.api import schemas as s
-from llm.validator import ExpectedDecision, LlmOutput, validate
+from llm.decision import serialize_decision
 from policy.engine import (
     NAVIGLI_BASE_TERMS,
     REVIEW_DAYS,
@@ -350,7 +350,10 @@ def test_simulator_example_reproduces_the_proposal_example() -> None:
     assert [h.version for h in v2.history] == ["assumptions-v2", "assumptions-v1"]
 
 
-def drafts() -> Iterator[tuple[str, s.DraftView, s.DecisionView, Any]]:
+DraftItem = tuple[str, s.DraftView, s.DecisionView, Any]
+
+
+def drafts() -> Iterator[DraftItem]:
     for key in ALL_CASES:
         c = card(key)
         assert c.draft is not None
@@ -361,27 +364,20 @@ def drafts() -> Iterator[tuple[str, s.DraftView, s.DecisionView, Any]]:
 
 
 @pytest.mark.parametrize("item", list(drafts()), ids=lambda x: x[0])
-def test_drafts_pass_the_llm_validator(item: tuple[str, s.DraftView, s.DecisionView, Any]) -> None:
-    _, draft, decision, case = item
+def test_drafts_echo_the_engine_decision(
+    item: tuple[str, s.DraftView, s.DecisionView, Any],
+) -> None:
+    """Rule 1: the draft echoes what llm.decision.serialize_decision makes of the decision (the
+    expectation llm.validator compares the model's echo with)."""
+    _, draft, decision, _ = item
+    policy_decision, _ = s.to_policy_decision(decision)
+    _, expected = serialize_decision(policy_decision, BASE)
     echo = draft.decision_echo
-    output = LlmOutput.model_validate(
-        {
-            "decision_echo": {
-                "path": echo.path.value,
-                "quadrant": echo.quadrant.value if echo.quadrant else None,
-                "lever_ids": echo.lever_ids,
-            },
-            "operator_explanation": " ".join(f"{x.label}: {x.text}" for x in draft.explanation),
-            "customer_message": {m.lang: m.connective_text for m in draft.messages},
-        }
+    assert (echo.path.value, echo.quadrant.value if echo.quadrant else None) == (
+        expected.path,
+        expected.quadrant,
     )
-    expected = ExpectedDecision(
-        decision.path.value,
-        decision.quadrant.value if decision.quadrant else None,
-        decision.lever_ids,
-    )
-    result = validate(output.model_dump(), expected, case)
-    assert result.ok, result.errors
+    assert sorted(echo.lever_ids) == sorted(expected.lever_ids)
 
 
 def test_insufficient_evidence_case_lists_what_is_missing() -> None:

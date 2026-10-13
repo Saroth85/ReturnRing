@@ -93,8 +93,11 @@ Rules on these files:
     walks every response model and lists them.
 - **Levers.**
   - Levers are the `{id, value, scope}` objects of `contracts/levers.py` (ADR-13). A list holds the
-    differences from the standard levers on the merchant base, in catalogue order. The `Lever`
-    schema is the catalogue schema (`lever_json_schema()`), and a test checks it.
+    differences from the standard levers on the merchant base, in catalogue order. Every lever
+    array is `lever_list_json_schema()` (each lever at most once, at most one object per
+    catalogue lever, `maxItems` for guided decoding, ADR-14), whose items are the catalogue
+    schema (`lever_json_schema()`); the models check the same with
+    `contracts.levers.check_lever_objects`, and a test checks every exported schema.
   - `levers_from_policy` and `to_policy_levers` convert between this list and `policy.types.Levers`.
   - `lever_ids` is the `"id:value"` form.
 - **Assumption sets (US-602).** One label, one set of values. A stored version (`assumptions-v1`)
@@ -534,8 +537,9 @@ is refused with its CHECK, and accepted once that one CHECK is removed.
 
 - **Removed v1 files.** `contracts/json/decision_request.schema.json`,
   `contracts/json/checkout_evaluate_response.schema.json` and their examples are removed. They
-  are superseded by the generated `contracts/json/api/` files. The lever schema of
-  `api/decision_request` stays the catalogue schema, so ADR-13's test now reads it from there;
+  are superseded by the generated `contracts/json/api/` files. The lever array of
+  `api/decision_request` is the catalogue's `lever_list_json_schema()`, so the ADR-13 and ADR-14
+  tests now read it from there;
   the tests that an override needs a reason and that the checkout window never goes below 14 days
   run against the generated schemas.
 - **Spec 19.B decision body.** Adds `decision_id` and `override_category`. `message` is required.

@@ -35,8 +35,8 @@ BEHAVIOURS = ("normal", "size", "wardrober", "promo_ring", "shared_benign")
 SCENARIOS = ("main", "ood")  # ood: the out-of-distribution scenario, never trained on (US-105)
 ANOMALY_STATUSES = ("open", "task_opened", "resolved")
 ASOS_SPLITS = ("train", "test")
-# The 13 masked ASOS reason codes in source order. The source repeats the label "D" (5th and 6th
-# code); by position the first is D and the second D2 (ADR-13).
+# The 13 masked ASOS reason codes in source order. The source repeats the label "D" (the 4th and
+# the 6th code, after E); by position the first is D and the second D2 (ADR-13).
 ASOS_REASON_CODES = ("A", "B", "C", "D", "E", "D2", "F", "G", "H", "I", "J", "K", "L")
 
 # ---- Schemas -----------------------------------------------------------------------------------
@@ -187,7 +187,10 @@ SCHEMAS: dict[str, pa.Schema] = {
     "features/links": _as_of_table(  # US-203, US-302, US-310; spec 8.3
         pa.field("customer_a", pa.string(), nullable=False),  # customer_a < customer_b
         pa.field("customer_b", pa.string(), nullable=False),
-        pa.field("kinds", pa.list_(pa.field("element", pa.string(), nullable=False))),
+        # Identifier kinds shared by the pair: at least one, each once (checks.ListItems).
+        pa.field(
+            "kinds", pa.list_(pa.field("element", pa.string(), nullable=False)), nullable=False
+        ),
         pa.field("weight", pa.float64(), nullable=False),  # w_ij of 8.3, no decay
         pa.field("weight_decayed", pa.float64(), nullable=False),  # with time and d_k decay
         pa.field("first_shared_at", TS, nullable=False),
@@ -208,14 +211,67 @@ SCHEMAS: dict[str, pa.Schema] = {
         pa.field("cluster_return_rate", pa.float64()),  # null: no line delivered yet
         pa.field("strong_id_share", pa.float64(), nullable=False),
     ),
+    # Behaviour features and the return residual at as_of (US-204 inputs, US-206; amendment 2,
+    # docs/customer-features.md). No customer value here: it never feeds risk (rule 6).
     "features/customer_features": _as_of_table(
         pa.field("customer_id", pa.string(), nullable=False),
-        pa.field("return_rate", pa.float64(), nullable=False),
-        pa.field("changed_mind_share", pa.float64(), nullable=False),
-        pa.field("size_share", pa.float64(), nullable=False),
+        pa.field("n_orders", pa.int32(), nullable=False),
+        pa.field("n_lines", pa.int32(), nullable=False),
+        pa.field("n_delivered_lines", pa.int32(), nullable=False),
+        pa.field("n_observations", pa.int32(), nullable=False),  # lines with a settled outcome
+        pa.field("n_returns", pa.int32(), nullable=False),  # withdrawal-path returns known
+        pa.field("return_rate", pa.float64()),  # over n_observations; null without any
+        pa.field("return_rate_to_date", pa.float64()),  # over delivered lines; null without any
+        pa.field("size_share", pa.float64()),  # reason shares of the n_returns; null without any
+        pa.field("changed_mind_share", pa.float64()),
+        pa.field("not_as_expected_share", pa.float64()),
+        pa.field("other_reason_share", pa.float64()),
         pa.field("median_days_to_return", pa.float64()),
-        pa.field("residual_z", pa.float64()),
+        pa.field("tenure_days", pa.float64(), nullable=False),  # since the account was opened
+        pa.field("n_welcome_coupons_used", pa.int32(), nullable=False),
+        pa.field("n_promo_coupons_used", pa.int32(), nullable=False),  # promo and referral
+        pa.field("coupon_order_share", pa.float64()),  # null without orders
+        pa.field("weekend_order_share", pa.float64()),  # orders on Saturday or Sunday (UTC)
+        pa.field("mean_line_price_eur", pa.float64()),  # null without lines
+        pa.field("expected_returns", pa.float64(), nullable=False),  # sum of p_l, spec 8.2
+        pa.field("residual", pa.float64(), nullable=False),  # R_c
+        pa.field("residual_z", pa.float64()),  # z_c; null when the variance is zero
+        pa.field("reference_model_version", pa.string(), nullable=False),
+    ),
+    # Net margin over 12 months (US-205, spec 8.5): never a risk feature (rule 6).
+    "features/customer_value": _as_of_table(
+        pa.field("customer_id", pa.string(), nullable=False),
+        pa.field("value_eur", EUR, nullable=False),  # V_c
+        pa.field("kept_eur", EUR, nullable=False),  # price of the lines not returned
+        pa.field("returned_eur", EUR, nullable=False),
+        pa.field("discount_eur", EUR, nullable=False),  # coupon discounts redeemed
+        pa.field("orders_total_eur", EUR, nullable=False),  # kept + returned - discount
+        pa.field("n_orders", pa.int32(), nullable=False),
+        pa.field("n_lines", pa.int32(), nullable=False),
+        pa.field("n_returns", pa.int32(), nullable=False),
+        pa.field("window_start", TS, nullable=False),  # orders placed after it count
+        pa.field("assumptions_version", pa.string(), nullable=False),
+    ),
+    # Evidence quality, separate from risk (US-209, US-307).
+    "features/evidence_quality": _as_of_table(
+        pa.field("customer_id", pa.string(), nullable=False),
+        pa.field("evidence_quality", pa.string(), nullable=False),  # policy.types.EvidenceQuality
         pa.field("n_observations", pa.int32(), nullable=False),
+        pa.field("n_observations_linked", pa.int32()),  # own plus linked accounts; null: no graph
+        pa.field("identifier_completeness", pa.float64(), nullable=False),  # weighted, 0..1
+        pa.field(
+            "missing_identifier_kinds",
+            pa.list_(pa.field("element", pa.string(), nullable=False)),
+            nullable=False,
+        ),
+        pa.field("n_reasons", pa.int32(), nullable=False),  # withdrawal returns judged
+        pa.field("reason_coherence", pa.float64()),  # null without returns
+        pa.field(
+            "missing_evidence",  # plain words, empty when sufficient (US-307)
+            pa.list_(pa.field("element", pa.string(), nullable=False)),
+            nullable=False,
+        ),
+        pa.field("thresholds_version", pa.string(), nullable=False),
     ),
     "features/product_anomalies": _as_of_table(
         pa.field("variant_id", pa.string(), nullable=False),
@@ -286,10 +342,22 @@ _FORBIDDEN_WORDS = frozenset(
         "lastname",
         "surname",
         "hash",
+        "nationality",
+        "nation",
+        "citizenship",
     }
 )
 # Also forbidden inside a word, for names written without separators ("shippingcountry").
-_FORBIDDEN_FRAGMENTS = ("gender", "country", "ismale", "yearofbirth", "birth", "hash")
+_FORBIDDEN_FRAGMENTS = (
+    "gender",
+    "country",
+    "ismale",
+    "yearofbirth",
+    "birth",
+    "hash",
+    "nationality",
+    "citizenship",
+)
 # Raw identifiers (pseudonymous personal data) by their whole name, separators removed.
 _RAW_IDENTIFIERS = frozenset(
     {
@@ -307,6 +375,90 @@ _RAW_IDENTIFIERS = frozenset(
         "iban",
     }
 )
+# Identifier stems (C4, P4): a name holding one of these words is a raw identifier or a location
+# proxy (postcode), unless it is clearly an aggregate over identifiers (_is_aggregate).
+_IDENTIFIER_WORDS = frozenset(
+    {
+        "email",
+        "emails",
+        "mail",
+        "address",
+        "addresses",
+        "addr",
+        "ip",
+        "ipv4",
+        "ipv6",
+        "phone",
+        "phones",
+        "msisdn",
+        "device",
+        "devices",
+        "imei",
+        "mac",
+        "postcode",
+        "postcodes",
+        "postal",
+        "zip",
+        "zipcode",
+        "fingerprint",
+        "iban",
+        "pan",  # primary account number of a payment card
+    }
+)
+# Words that name an identifier only as the head noun of the name (customer_mobile,
+# credit_card), not as a modifier or after a preposition (is_mobile, mobile_checkout,
+# paid_by_card, gift_card_used).
+_HEAD_IDENTIFIER_WORDS = frozenset({"mobile", "card", "cards"})
+_NOT_AFTER = frozenset({"is", "by", "via", "with", "on", "gift", "paid", "pay", "per"})
+# The same stems inside a word written without separators ("customeremail", "shippingaddress",
+# "ipprefix24", "cardlast4"). Short stems (ip, zip, card, addr) are matched only in these longer
+# forms or by _IDENTIFIER_WORD_FORMS, so "shipping", "zipper" or "discard" stay allowed. A fragment
+# counts inside one word, or across words only when it starts where a word starts, so "time_in"
+# ("timein") does not read as "imei".
+_IDENTIFIER_FRAGMENTS = (
+    "email",
+    "address",
+    "phone",
+    "device",
+    "postcode",
+    "zipcode",
+    "ipprefix",
+    "ipaddr",
+    "ipv4",
+    "ipv6",
+    "msisdn",
+    "imei",
+    "cardlast",
+    "cardbin",
+    "cardnum",
+    "cardno",
+    "cardid",
+    "cardtoken",
+    "creditcard",
+    "debitcard",
+    "paymentcard",
+    "cclast",
+    "ccnum",
+    "mobilenumber",
+    "mobileno",
+    "mobilephone",
+    "postalcode",
+    "ipblock",
+    "iprange",
+    "ipsubnet",
+    "useragent",
+    "advertisingid",
+    "androidid",
+)
+# Whole words that are a short stem with a prefix or a suffix: ip24, customerip, remoteip,
+# shippingaddr, shippingzip, zip5.
+_IDENTIFIER_WORD_FORMS = re.compile(
+    r"ip\d+\w*|(?:customer|client|remote|user|source|src|login|lastlogin|signup|order|session"
+    r"|checkout|visitor|buyer|registration|account|request)ip"
+    r"|\w*addr\d*|\w*zip|zip\d+|idfa"
+)
+_AGGREGATE_PREFIXES = ("n", "shared")
+_AGGREGATE_SUFFIXES = ("count", "share")
 
 
 def _words(name: str) -> list[str]:
@@ -315,15 +467,54 @@ def _words(name: str) -> list[str]:
     return [w for w in re.split(r"[^a-z0-9]+", spaced.lower()) if w]
 
 
+def _is_aggregate(words: list[str]) -> bool:
+    """n_*, shared_*, *_count and *_share: a count or share over identifiers, not an identifier."""
+    return bool(words) and (words[0] in _AGGREGATE_PREFIXES or words[-1] in _AGGREGATE_SUFFIXES)
+
+
+def _has_fragment(words: list[str]) -> bool:
+    starts, joined, at = set(), "", 0
+    for w in words:
+        starts.add(at)
+        joined += w
+        at += len(w)
+    for fragment in _IDENTIFIER_FRAGMENTS:
+        if any(fragment in w for w in words):
+            return True
+        found = joined.find(fragment)
+        while found != -1:
+            if found in starts:
+                return True
+            found = joined.find(fragment, found + 1)
+    return False
+
+
+def _names_an_identifier(words: list[str], joined: str) -> bool:
+    if joined in _RAW_IDENTIFIERS:
+        return True
+    word = any(w in _IDENTIFIER_WORDS or _IDENTIFIER_WORD_FORMS.fullmatch(w) for w in words)
+    head = (
+        bool(words)
+        and words[-1] in _HEAD_IDENTIFIER_WORDS
+        and (len(words) == 1 or words[-2] not in _NOT_AFTER)
+    )
+    stem = word or head or _has_fragment(words)
+    return stem and not _is_aggregate(words)
+
+
 def is_forbidden_feature(name: str) -> bool:
     """True if a column with this name may never feed a score or a model (case-insensitive):
-    gender, country, age, names and raw identifiers, in any spelling found in our data."""
+    gender, country and nationality, age, names, hashes and raw identifiers (e-mail, address, IP,
+    phone or mobile number, device, IMEI or MAC, payment card, postcode or zip), with or without
+    separators and in their usual abbreviations (addr, ip24, zip5, msisdn, pan). Aggregates over
+    identifiers (n_shared_devices, n_distinct_cards, email_share) stay allowed; aggregates over
+    protected grounds do not."""
     words = _words(name)
     joined = "".join(words)
     return (
         any(w in _FORBIDDEN_WORDS for w in words)
         or any(fragment in joined for fragment in _FORBIDDEN_FRAGMENTS)
-        or joined in _RAW_IDENTIFIERS
+        or _names_an_identifier(words, joined)
     )
 
 

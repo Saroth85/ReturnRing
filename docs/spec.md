@@ -505,17 +505,18 @@ Prima della matrice viene il percorso, e accanto al rischio c'è la qualità del
 
 Gemma 4 31B-it servito da vLLM su ROCm, bf16, contesto 16.384 token, output vincolato a schema JSON, temperatura 0,2. Riceve un caso già deciso: punteggi, tre fattori SHAP tradotti, sintesi del cluster, leve, testo della policy. Il testo libero del cliente arriva tra delimitatori, come dato.
 
-Produce tre campi: spiegazione per l'operatrice, parte personalizzata del messaggio al cliente (italiano e inglese), eco della decisione. La clausola legale non la scrive Gemma: è un testo fisso, aggiunto dal codice; quella sul recesso quando la policy è restrittiva, quella sulla garanzia sempre sul percorso di garanzia (19.C).
+Produce tre campi: spiegazione per l'operatrice, frasi del messaggio al cliente, eco della decisione. Il messaggio al cliente non lo scrive Gemma: sceglie da 2 a 5 id di un frasario rivisto (`llm/phrasebook.py`: un'apertura, al massimo tre frasi intermedie, una chiusura), solo tra quelli ammessi per il caso. Il codice compone il messaggio in italiano e in inglese e aggiunge il corpo obbligatorio dalla decisione del motore: registrazione con scadenza, condizioni se cambiano, avviso di trasparenza (Q3, Q4), registrazione della garanzia. La clausola legale non la scrive Gemma: è un testo fisso, aggiunto dal codice; quella sul recesso quando la policy è restrittiva, quella sulla garanzia sempre sul percorso di garanzia (19.C).
 
-Importi, condizioni e scadenze nel messaggio non li scrive Gemma: sono campi del template riempiti dal codice, e Gemma scrive solo il testo di raccordo. Nella spiegazione all'operatrice ogni affermazione è etichettata come dato osservato, contributo al punteggio o ipotesi da verificare, e cita i fatti del caso che usa: ogni fatto, costruito dal codice, porta entità, metrica, valore, periodo e natura (ADR-14).
+Importi, condizioni e scadenze nel messaggio non li scrive Gemma: sono campi del template riempiti dal codice, e il testo di raccordo viene dal frasario. Gemma scrive testo libero solo per l'operatrice: le affermazioni della spiegazione e le risposte dell'agente (8.8). Nella spiegazione all'operatrice ogni affermazione è etichettata come dato osservato, contributo al punteggio o ipotesi da verificare, e cita i fatti del caso che usa: ogni fatto, costruito dal codice, porta entità, metrica, valore, periodo e natura (ADR-14).
 
 | Regola del validatore | Cosa controlla | Se fallisce |
 | --- | --- | --- |
-| Eco della decisione | Leve e quadrante citati coincidono con quelli del motore | Template di riserva |
-| Ancoraggio dei numeri | Ogni numero di un'affermazione è uguale al valore di un fatto che cita; testo del cliente, testo della policy e identificativi non contano; nel messaggio al cliente nessun numero, nemmeno in lettere, e nessuna unità di tempo o di valuta | Rigenerazione, poi template |
-| Termini vietati | Nessun termine accusatorio o di verdetto (frode, truffa, abuso, sospetto, fraud, scam, stessa persona), né nel messaggio né nella spiegazione, anche con lettere camuffate; nel messaggio niente frasi sui diritti, che copre la clausola | Rigenerazione, poi template |
-| Lingua e lunghezza | Lingua richiesta, massimo 120 parole per il cliente | Rigenerazione |
-| Segnaposto | Solo {terms}, {amount} e {deadline}, se il loro valore esiste per la decisione; {terms} obbligatorio con leve restrittive | Rigenerazione, poi template |
+| Eco della decisione | Leve e quadrante citati coincidono con quelli del motore, anche negati o descritti a parole ("alto rischio", "restrizioni") | Template di riserva |
+| Ancoraggio dei numeri | Ogni numero di un'affermazione è uguale, segno compreso, al valore di un fatto che cita; testo del cliente, testo della policy e identificativi non contano; parentesi, parole di scala o di segno lo rendono non ancorato | Rigenerazione, poi template |
+| Termini vietati | Nessun termine accusatorio o di verdetto (frode, truffa, abuso, sospetto, fraud, scam, stessa persona e sinonimi) nella spiegazione, anche con lettere camuffate; ogni lettera fuori da a-z e dalle vocali accentate italiane fa rigenerare | Rigenerazione, poi template |
+| Frasi del messaggio | Id noti, non ripetuti, nello slot giusto e ammessi per la decisione; le frasi del frasario superano tutti i controlli sul testo (test) | Rigenerazione, poi template |
+| Lingua e lunghezza | Spiegazione in inglese; il messaggio è nella lingua richiesta e sotto le 120 parole prima della clausola per costruzione (test su ogni combinazione) | Rigenerazione |
+| Segnaposto | Solo {terms}, {amount} e {deadline}, messi dal codice se il loro valore esiste; {terms} sempre con leve restrittive | Errore bloccante (bug del codice) |
 | Clausola legale | Presente e identica al testo approvato quando la policy è restrittiva o il percorso è di garanzia | Errore bloccante (bug del codice, non del modello) |
 
 ### 8.8 Agente investigatore e ispezione
@@ -1188,7 +1189,7 @@ Caso inviato a Gemma (esempio, campi già decisi a monte). I soli numeri che la 
 }
 ```
 
-Output di Gemma, imposto da vLLM con l'output guidato. Lo schema è chiuso (nessun campo in più) e limitato: al massimo 8 affermazioni di 300 caratteri, 4 fatti per affermazione, 9 leve, messaggi di 900 caratteri. Ogni affermazione è OBSERVED, SCORE o HYPOTHESIS e ogni suo numero è uguale al valore di un fatto che cita.
+Output di Gemma, imposto da vLLM con l'output guidato. Lo schema è chiuso (nessun campo in più) e limitato: al massimo 8 affermazioni di 300 caratteri, 4 fatti per affermazione, 9 leve, da 2 a 5 id di frasi del frasario. Ogni affermazione è OBSERVED, SCORE o HYPOTHESIS e ogni suo numero è uguale al valore di un fatto che cita. Per ogni caso vLLM riceve l'elenco degli id ammessi; il messaggio lo compone il codice (ADR-14, decisione 8).
 
 ```json
 {
@@ -1201,10 +1202,7 @@ Output di Gemma, imposto da vLLM con l'output guidato. Lo schema è chiuso (ness
     {"label": "SCORE", "fact_ids": ["F1", "F3"], "text": "Risk score 0.87; the largest contribution is cluster_welcome_coupons: 7 linked accounts each used the welcome coupon."},
     {"label": "HYPOTHESIS", "fact_ids": [], "text": "The linked accounts may share a household; check the links before approving."}
   ],
-  "customer_message": {
-    "it": "Ciao, grazie per averci scritto. Abbiamo registrato la tua richiesta di reso e il rimborso è previsto per il {deadline}. ... {terms}.",
-    "en": "Hello, thank you for writing to us. We have registered your return request and your refund is due by {deadline}. ... {terms}."
-  }
+  "customer_message": {"sentence_ids": ["OPEN_SORRY_FIT", "INFO_TERMS", "CLOSE_REGARDS"]}
 }
 ```
 

@@ -1,8 +1,10 @@
 # ADR-14: LLM contracts v2
 
-Status: accepted, 13 Oct 2026. Changes `contracts/json/llm_case.schema.json`,
+Status: accepted, 13 Oct 2026; amended the same day after the second round of the adversarial
+review (decision 8, the customer phrasebook). Changes `contracts/json/llm_case.schema.json`,
 `contracts/json/llm_output.schema.json`, their examples, `llm/` and spec sections 8.7, 19.B, 19.C
-and 19.D. Resolves review findings LLM-1 to LLM-14 of 12 Oct (US-304, US-305).
+and 19.D. Resolves review findings LLM-1 to LLM-14 of 12 Oct (US-304, US-305) and findings R1 to
+R8 of the second adversarial review of 13 Oct.
 
 ## Context
 
@@ -75,7 +77,7 @@ Both schemas close every object (`additionalProperties: false`) and bound every 
 - at most 8 statements of 300 characters;
 - at most 4 fact ids of 4 characters each;
 - at most 9 lever ids of 40 characters each;
-- customer messages of at most 900 characters.
+- a customer message of 2 to 5 phrasebook ids (decision 8), from a closed enum.
 
 There is no regex `pattern` in the output schema, so guided decoding does not depend on regex
 support. The validator checks fact ids and lever ids against the case. `llm/validator.py`
@@ -103,10 +105,12 @@ actions follow the table of spec 8.7:
 | --- | --- |
 | TEMPLATE | DECISION_ECHO |
 | BLOCK | CASE_INVALID: the case does not match the engine decision, a code bug |
-| REGENERATE (then template) | every other code: SCHEMA, grounding, banned terms, literal numbers, units, legal wording, placeholders, language, length |
+| REGENERATE (then template) | every other code: SCHEMA, UNKNOWN_FACT, MISSING_FACT, LABEL_MISMATCH, UNGROUNDED_NUMBER, BANNED_TERM, SCRIPT, SENTENCE_ID, WRONG_LANGUAGE |
 
 A missing or altered legal clause is checked on the rendered message by
-`llm/legal_clause.assert_clause`, which raises `LegalClauseError` (blocking).
+`llm/legal_clause.assert_clause`, which raises `LegalClauseError` (blocking). Since decision 8 the
+placeholders are placed by code, so a placeholder error in `llm/messages.render` is a code bug
+too (`MessageError`).
 
 ### 7. Guarantee clause (LLM-11)
 
@@ -120,20 +124,87 @@ proposed draft follows Directive (EU) 2019/771, art. 13 and 14:
 It is appended always on the guarantee path. It stays a DRAFT pending D-14. It is in spec 19.C,
 and the LEG-06 test compares the code with it.
 
+### 8. The customer message comes from a phrasebook (amendment, round 2, finding R1)
+
+The second round of the adversarial review showed that a blocklist cannot keep free customer
+prose safe. Paraphrases with no listed word still denied the refund ("Non riceverai alcun
+rimborso"), decided the remedy on the guarantee path ("We will give you your money back"),
+contradicted the {terms} ("Il reso lo paghiamo noi") or stated a decision ("Your return is
+okayed"). Each new word list would only move the gap.
+
+So Gemma no longer writes customer prose:
+
+- `llm/phrasebook.py` holds 19 reviewed connective sentences. Each has a stable id (OPEN_THANKS,
+  HELP_SIZE, CLOSE_VALUED...), fixed Italian and English texts, a slot (opening, extra, closing)
+  and the decision kinds where it is allowed (guarantee, insufficient, Q1 to Q4), with lever
+  conditions (HELP_SIZE is ruled out when the free size exchange is withdrawn; INFO_TERMS needs
+  terms to talk about). The sentences are warm and neutral (spec 16), with no number, amount,
+  deadline, term, legal wording or decision word.
+- `customer_message` is `{"sentence_ids": [...]}`, 2 to 5 ids from a closed enum: one opening, at
+  most three extras, one closing.
+- Code writes the message per language: opening, the mandatory body, the extras, the closing,
+  then the legal clause (`render`). The body is built from the engine decision and never chosen
+  by the model: the registration with {deadline} (and {amount} when known), the {terms} sentence
+  when future terms change, the unchanged-terms sentence for insufficient evidence, the
+  transparency notice (Q3, Q4) and the guarantee registration. Placeholders, `render`,
+  `required_clause` and `assert_clause` work as before.
+- The validator turns an id that is repeated, in the wrong slot or not allowed for the decision
+  into SENTENCE_ID (regenerate, then template). An unknown id fails the enum: SCHEMA.
+- The fallback template is a default id selection per decision kind. The mock model uses it.
+- `llm/prompts.py` lists, after the case, only the ids allowed for the case with their English
+  text. `VllmClient` sends a per-case schema whose `sentence_ids` enum is narrowed to those ids;
+  `decision_echo` stays open, so a misread decision is still caught as DECISION_ECHO.
+- The text checks that only served the customer message (literal numbers and units, legal,
+  terms and decision wording) stay in `llm/text.py` as the review gate of the phrasebook:
+  `phrase_problems` runs them on every sentence and on every pair of parts that can stand side
+  by side, in both languages. Tests render every allowed selection for every kind of engine
+  decision, with and without a known refund: the required clause is there once, amounts, terms
+  and deadlines are the template fields, the language is right and the message stays within
+  120 words before the clause.
+
+What Gemma still writes: the operator statements (`operator_explanation`) and the answers of the
+investigator agent (`llm/agent.py`). Both keep the text checks, hardened in the same round:
+
+- R2: a lever value is read through negations ("coupons are not disabled" claims
+  coupons_enabled:true), contradictions ("false? No, true") and Italian or camelCase names; a
+  value that cannot be read is "?" and never matches. Q(I-IV) is a quadrant label. A quadrant
+  described by its levels ("high-risk, low-value") must be the engine's. Without restrictive
+  levers, "restrictive" and places in the matrix ("top left") are refused.
+- R3: more same-person synonyms (consumer, purchaser, identity, household with a qualifier...),
+  up to two words between qualifier and noun, and ownership of all the accounts ("the customer
+  owns all the linked accounts", "sono tutti tuoi").
+- R4: the agent checks each sentence of a question, with digits read as letters and dashes
+  joined, and more verbs (accept, blacklist, Italian first person plural...). An answer with an
+  imperative, an obligation ("must be disabled") or a claim of an action ("Done", "now off")
+  falls back. A number in a clause that names a record (a link, a cluster, an order, the case)
+  must be a value of that record.
+- R5: a script allowlist. After NFKC, any letter outside a-z and the Italian accented vowels, or
+  a combining mark left over, is a new code SCRIPT (regenerate) in a statement and a fallback in
+  an answer.
+- R6: a short cardinal glued to an abbreviated unit ("tenhrs", "dueh") and slang amounts
+  ("tenner", "sennight") are numbers; abbreviations, holidays, periods and relative days are
+  units in the phrasebook gate.
+- R7: a sign after spaces ("- 42.1"), parentheses ("(42.1)"), plus-minus, a trailing dash, more
+  scale and unit words ("grand", "kEUR", "percent", "bps") and sign words ("owed", "debt",
+  "shortfall") make a number ungrounded.
+- R8: `check_local_url` drops fc00::/7, because the compose network is IPv4 only; this refuses
+  the EC2 IPv6 metadata endpoint fd00:ec2::254.
+
 ## Consequences
 
 - `llm_case.json` is produced by `llm.case.build_case` for the golden Q4 decision, and a test
   rebuilds it. `llm_output.json` passes the validator.
 - `infra/spikes/g1_guided_json.py` still loads `llm_output.schema.json`, so SPK-G1 tests the new
-  shape. Its prompt still describes `operator_explanation` as a string, and should be updated
-  when infra changes next.
+  shape. Its system text describes statements and sentence ids; its user text still mentions the
+  {terms} placeholder, which guided decoding makes irrelevant. SPK-G1 also measures whether
+  xgrammar handles the 19-id enum without slowing down.
 - The CI coverage gate should include the safety-critical LLM modules: `llm/text.py`,
   `llm/messages.py`, `llm/legal_clause.py`, `llm/decision.py` and `llm/templates.py`.
 - After the adversarial review of 13 Oct, the validator is stricter (all in `llm/`, with
   regression tests):
-  - a new code TERMS_WORDING (regenerate) rejects customer messages that state terms or the
-    decision in words: lever words (free, instant, shipping, coupons, exchange, window...), who
-    pays, full or partial refund, and decision verbs (approve, reject, block, investigate...);
+  - terms and decisions written in words (lever words, who pays, full or partial refund,
+    decision verbs) were first rejected in customer messages by a code TERMS_WORDING; since
+    decision 8 the same check is part of the phrasebook gate, and the code is gone;
   - an operator statement that names a quadrant or a lever value other than the engine's is a
     DECISION_ECHO (template). Only the engine's quadrant is stripped as an identifier;
   - number words also cover ordinals, zero, fractions, multiples and numbers glued to a unit;
@@ -143,18 +214,39 @@ and the LEG-06 test compares the code with it.
     similar nouns, in English and Italian;
   - any dash or minus right before a digit is a sign. A scale suffix ("42.1k"), a percent sign
     or a sign word ("minus", "a loss of") next to a number makes it ungrounded;
-  - `check_local_url` allows only 127.0.0.0/8, ::1, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
-    and fc00::/7, after unwrapping IPv4-mapped addresses;
+  - `check_local_url` allows only 127.0.0.0/8, ::1, 10.0.0.0/8, 172.16.0.0/12 and
+    192.168.0.0/16, after unwrapping IPv4-mapped addresses (fc00::/7 dropped in round 2);
   - the agent refuses more write requests (turn off, Italian plural imperatives, participles
     such as "wants coupons disabled"). It falls back when an answer has a decision verb, advice,
     a same-person synonym or a number word. An integer in an answer must equal a tool value.
+- Decision 8 changes the output contract: the validator codes LITERAL_NUMBER, LITERAL_UNIT,
+  LEGAL_WORDING, TERMS_WORDING, PLACEHOLDER_SYNTAX, PLACEHOLDER_UNAVAILABLE, TERMS_MISSING and
+  TOO_LONG are gone (no model text left for them); SENTENCE_ID and SCRIPT are new.
+  `ExpectedDecision` gains `restrictive`, from `policy/legal_guard.is_restrictive`.
+- Spec 19.D still shows the v2 prompt with task 3 as free prose. Its update is outside this
+  change; until then the prompt test compares every other line with 19.D and checks that only
+  the customer-message lines differ.
 - Known limits:
-  - the banned-term, terms, number-word and lever-name checks are blocklists;
+  - the customer message is safe by construction only as far as the phrasebook is: a new
+    sentence needs review, and the gate tests run the text checks on it. The model still
+    chooses which allowed sentences to use, so a selection can be less apt for the case (for
+    example a size sentence when size was not the reason), never wrong about the decision;
+  - the operator statements and the agent answers are still free text: the banned-term,
+    number-word, lever-name, action and ownership checks there are blocklists, narrowed by the
+    script allowlist and by grounding on cited facts and named records. A paraphrase they miss
+    reaches the operator, not the customer, and the operator approves every restrictive action;
+  - the agent's action check refuses some state answers that start with a verb-like noun
+    ("Refund deadline: ..."); they fall back to the list of evidence consulted;
   - Roman numerals written with ASCII letters are not detected;
   - "sei" and "may" are left out on purpose (a verb and a modal). "day", "giornata" and
     "weekend" are allowed only after a greeting adjective ("buona giornata");
-  - "uno" and "one" are rejected in customer messages and cause regenerations when used as
-    articles or pronouns; so do "secondo" (also "according to"), "double", "half" and "quarter"
-    in product names, and "first" and "second" in operator statements;
+  - "uno", "one", "secondo" (also "according to"), "double", "half" and "quarter" are refused
+    by the phrasebook gate, so no sentence uses them; "first" and "second" cause regenerations
+    in operator statements;
+  - the 120-word limit of spec 8.7 holds for the message before the fixed legal clause (at most
+    116 words today); the guarantee clause alone is about 75 words. The default selections stay
+    within 120 words with the clause;
+  - a quadrant described by one of the matrix places ("top left") is refused only without
+    restrictive levers, since the case does not say how the matrix is drawn;
   - "un cliente" and "una persona" count as "same person" only in a sentence about accounts;
   - a sign given by other words ("the margin is below what it was") is not detected.

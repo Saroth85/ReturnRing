@@ -1,6 +1,11 @@
 """The output validator (docs/spec.md 8.7, ADR-14): LLM-02 decision echo, LLM-03 number grounding,
 LLM-04 banned terms, LLM-06 language, and the customer-message rules of LLM-10 (review findings
-LLM-1, LLM-3 to LLM-6, LLM-9 and LLM-13, and the adversarial review of 13 Oct)."""
+LLM-1, LLM-3 to LLM-6, LLM-9 and LLM-13, and the adversarial review of 13 Oct, rounds 1 and 2).
+
+Since round 2 the model writes no customer prose: it picks phrasebook ids (llm/phrasebook.py). The
+customer-text probes below therefore check two things: the phrasebook gate (`phrase_problems`,
+which every sentence must pass) still finds them, and the validator refuses any customer prose
+as a SCHEMA error."""
 
 from __future__ import annotations
 
@@ -14,7 +19,10 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
+from llm.messages import placeholder_problems
+from llm.phrasebook import compose, context_of, phrase_problems
 from llm.templates import template_output
+from llm.text import Lang
 from llm.validator import (
     ACTIONS,
     Action,
@@ -25,6 +33,7 @@ from llm.validator import (
     validate,
 )
 from tests.llm_factories import SCENARIOS, Built, good_output, make
+from tests.test_llm_text import FOREIGN_LETTERS
 
 GOLDEN = make("Q4_cluster")
 FACT_VALUES = {f["id"]: Decimal(str(f["value"])) for f in GOLDEN.case["facts"]}
@@ -44,12 +53,9 @@ def with_statement(text: str, fact_ids: list[str], label: str = "OBSERVED") -> d
     return out
 
 
-def with_message(it: str | None = None, en: str | None = None) -> dict[str, Any]:
+def with_ids(*ids: str) -> dict[str, Any]:
     out = good_output()
-    if it is not None:
-        out["customer_message"]["it"] = it
-    if en is not None:
-        out["customer_message"]["en"] = en
+    out["customer_message"] = {"sentence_ids": list(ids)}
     return out
 
 
@@ -58,6 +64,26 @@ IT_OK = (
     "{terms}."
 )
 EN_OK = "Hello, thank you for writing to us: these terms apply to your next orders: {terms}."
+
+
+def with_prose(it: str | None = None, en: str | None = None) -> dict[str, Any]:
+    """An output whose customer message is model prose (the shape before round 2)."""
+    out = good_output()
+    out["customer_message"] = {"it": it or IT_OK, "en": en or EN_OK}
+    return out
+
+
+def gate(text: str, lang: Lang) -> set[str]:
+    """The checks of the phrasebook gate that a customer text fails."""
+    return {check for check, _ in phrase_problems(text, lang)}
+
+
+def assert_customer_text_refused(text: str, lang: Lang, check: str) -> None:
+    """The phrasebook gate finds the problem, and the validator refuses the prose anyway."""
+    assert check in gate(text, lang), phrase_problems(text, lang)
+    result = run(with_prose(**{lang: text}))
+    assert codes(result) == {Code.SCHEMA}
+    assert result.action is Action.REGENERATE
 
 
 def test_valid_output_passes_and_is_returned() -> None:
@@ -73,12 +99,12 @@ def test_every_code_has_the_action_of_the_8_7_table() -> None:
     assert ACTIONS[Code.DECISION_ECHO] is Action.TEMPLATE
     assert ACTIONS[Code.CASE_INVALID] is Action.BLOCK
     regenerate = {
+        Code.SCHEMA,
         Code.UNGROUNDED_NUMBER,
         Code.BANNED_TERM,
         Code.WRONG_LANGUAGE,
-        Code.TOO_LONG,
-        Code.LITERAL_NUMBER,
-        Code.TERMS_WORDING,
+        Code.SCRIPT,
+        Code.SENTENCE_ID,
     }
     assert all(ACTIONS[c] is Action.REGENERATE for c in regenerate)
 
@@ -86,7 +112,7 @@ def test_every_code_has_the_action_of_the_8_7_table() -> None:
 def test_errors_are_structured_and_output_is_none_when_not_ok() -> None:
     out = good_output()
     out["decision_echo"]["quadrant"] = "Q1"
-    out["customer_message"]["it"] = "Hai 14 giorni."
+    out["customer_message"]["sentence_ids"] = ["CLOSE_REGARDS", "OPEN_THANKS"]
     result = run(out)
     assert result.output is None
     assert not result.ok
@@ -94,7 +120,7 @@ def test_errors_are_structured_and_output_is_none_when_not_ok() -> None:
     for error in result.errors:
         assert error.action is ACTIONS[error.code]
         assert error.where
-    assert "DECISION_ECHO" in result.codes
+    assert result.codes == ["DECISION_ECHO", "SENTENCE_ID"]
 
 
 # ---- LLM-02: decision echo -----------------------------------------------------------------------
@@ -195,6 +221,18 @@ def test_finding3_explanation_naming_another_decision_uses_the_template(
         ("instant_refund -> false", ["instant_refund:false"]),
         ("The instant refund lever is off.", ["instant_refund:false"]),
         ("Coupon codes disabled.", ["coupons_enabled:false"]),
+        # Round 2, finding R2: negations, "kept", contradictions and unreadable values
+        ("The return window is not 30 days.", ["return_window_days:?"]),
+        ("The return window was extended.", ["return_window_days:?"]),
+        ("Instant refund is kept.", ["instant_refund:true"]),
+        ("Instant refund was kept off.", ["instant_refund:false"]),
+        ("Instant refund: no.", ["instant_refund:false"]),
+        ("Instant refund: no. True.", ["instant_refund:?"]),
+        ("Instant refund is not for this order.", ["instant_refund:?"]),
+        ("Coupons disabled, no instant refund.", ["coupons_enabled:false", "instant_refund:false"]),
+        ("The customer pays for the return shipping.", ["free_return_shipping:false"]),
+        ("Codici sconto: disattivati.", ["coupons_enabled:false"]),
+        ("InstantRefund (false)", ["instant_refund:false"]),
     ],
 )
 def test_lever_claims(text: str, claims: list[str]) -> None:
@@ -212,6 +250,15 @@ def test_lever_claims(text: str, claims: list[str]) -> None:
         ("Q3", "Q3, instant refund off and transparency notice on."),
         ("Q2", "Standard terms: no lever changes."),
         ("guarantee", "The guarantee path has no quadrant and no restrictive levers."),
+        # Round 2, finding R2: what the engine decided may still be said
+        ("Q4_cluster", "The rules engine placed the case in the high-risk, low-value quadrant."),
+        ("Q4_cluster", "Instant refund: no. Coupons are not available."),
+        ("Q4_cluster", "Instant refund is not enabled for future orders."),
+        ("Q4_cluster", "The customer pays return shipping; restrictive levers apply."),
+        ("Q4_cluster", "Cluster coupons are not enabled."),
+        ("Q1", "The case is in QI, the high-value, low-risk quadrant."),
+        ("Q1", "Restrictions do not apply: no restrictive levers."),
+        ("insufficient", "No quadrant is assigned and nothing is restricted."),
     ],
 )
 def test_explanation_naming_the_engine_decision_passes(name: str, text: str) -> None:
@@ -243,8 +290,15 @@ def test_identifiers_are_not_read_as_quadrants() -> None:
         lambda o: o["operator_explanation"][0].update(fact_ids=["F12345"]),
         lambda o: o["operator_explanation"][0].update(text="x" * 301),
         lambda o: o["operator_explanation"][0].update(extra=True),
-        lambda o: o["customer_message"].update(it=""),
+        lambda o: o["customer_message"].update(sentence_ids=[]),
+        lambda o: o["customer_message"].update(sentence_ids=["OPEN_THANKS"]),
+        lambda o: o["customer_message"].update(sentence_ids=["OPEN_THANKS", "Hello"]),
+        lambda o: o["customer_message"].update(
+            sentence_ids=["OPEN_THANKS"] + ["THANKS_FEEDBACK"] * 5
+        ),
         lambda o: o["customer_message"].update(fr="Bonjour"),
+        lambda o: o["customer_message"].update(it="Ciao, grazie."),
+        lambda o: o.update(customer_message={"it": IT_OK, "en": EN_OK}),
         lambda o: o["decision_echo"].pop("quadrant"),
         lambda o: o["decision_echo"].update(lever_ids=["x" * 41]),
     ],
@@ -354,21 +408,34 @@ def test_llm03_customer_text_policy_text_and_identifiers_never_feed_grounding() 
 _TOKENS = st.one_of(
     st.sampled_from(["0.87", "0,87", "42.1", "42.10", "7", "6", "14", "0.9", "99", "1,000", "-7"]),
     st.sampled_from(["–42.1", ":-42.1", "−7", "—0.87", ".87", "42.1k", "42.1M", "7%", "-\u200b7"]),
+    # Round 2, finding R7: signs after a space, parentheses, plus-minus, trailing dashes
+    st.sampled_from(
+        ["−", "-", "➖", "– 42.1", "(42.1)", "(0.87)", "±42.1", "42.1-", "7-", "(", ")"]
+    ),
     st.decimals(min_value=-1000, max_value=1000, places=2, allow_nan=False).map(str),
     st.sampled_from(["risk", "linked", "accounts", "Q4", "RET-1", "R-MARCO", "returns", "of"]),
     st.sampled_from(["minus", "meno", "negative", "negativo", "k", "M", "mln", "x", "EUR"]),
+    st.sampled_from(
+        ["mil", "mill", "grand", "B", "kEUR", "MEUR", "percent", "per cent", "bps", "pp", "owed"]
+        + ["debt", "debit", "shortfall", "lost", "unprofitable", "lossmaking", "in debt"]
+    ),
 )
 _IDENTIFIERS = re.compile(r"\bQ4\b|\bRET-1\b|\bR-MARCO\b")
-# Independent reading of a written number: an optional sign word, any dash or minus before the
-# digits, a leading separator, and what follows (letters or percent, glued or after a space).
+# Independent reading of a written number: parentheses right around it, a plus-minus, any dash or
+# minus before the digits (spaces between allowed), a leading separator, a dash right after it,
+# and what follows (letters or percent, glued or after a space).
 _WRITTEN_NUMBER = re.compile(
-    r"(?P<word>(?:minus|meno|negative|negativo)\W*)?"
-    r"(?P<sign>[-–—−])?\u200b?(?P<num>[.,]?\d+(?:[.,]\d+)?)(?P<after>%|\s?[^\W\d_]+)?"
+    r"(?P<open>\(\s*)?(?P<pm>[±∓]\s*)?(?P<sign>[-–—−➖][\s\u200b]*)?"
+    r"(?P<num>[.,]?\d+(?:[.,]\d+)?)(?P<trail>[-–—−➖](?!\d))?(?P<close>\s*\))?"
+    r"(?P<after>%|\s?[^\W\d_]+)?"
 )
-_SCALE_WORDS = {"k", "m", "mln"}
+_SCALE_WORDS = {"k", "m", "mln", "mil", "mill", "grand", "b", "keur", "meur", "percent", "per"}
+_SCALE_WORDS |= {"bps", "pp"}
+_SIGN_WORDS = {"minus", "meno", "negative", "negativo", "owed", "debt", "debit", "shortfall"}
+_SIGN_WORDS |= {"lost", "unprofitable", "lossmaking"}
 
 
-@settings(max_examples=300, deadline=None)
+@settings(max_examples=400, deadline=None)
 @given(
     tokens=st.lists(_TOKENS, min_size=1, max_size=8),
     fact_ids=st.lists(st.sampled_from([*FACT_VALUES, "F99"]), max_size=4),
@@ -378,18 +445,34 @@ def test_llm03_every_number_after_the_validator_is_a_cited_fact(
     tokens: list[str], fact_ids: list[str], label: str
 ) -> None:
     """LLM-03, 100% after the validator: checked with an independent number pattern, signs,
-    sign words and scale suffixes included (adversarial review of 13 Oct, finding 5)."""
+    sign words, parentheses, scale and unit words included (adversarial review of 13 Oct,
+    finding 5; round 2, finding R7)."""
     text = " ".join(tokens) + "."
     result = run(with_statement(text, fact_ids, label))
     if not result.ok:
         return
     cited = {FACT_VALUES[f] for f in fact_ids}
-    for match in _WRITTEN_NUMBER.finditer(_IDENTIFIERS.sub(" ", text)):
+    plain = _IDENTIFIERS.sub(" ", text)
+    for match in _WRITTEN_NUMBER.finditer(plain):
         after = match["after"] or ""
-        assert not match["word"], (text, fact_ids)
+        assert not _SIGN_WORDS & set(re.findall(r"[a-z]+", plain.lower())), (text, fact_ids)
+        assert not (match["open"] and match["close"]) and not match["pm"] and not match["trail"]
         assert after == "" or (after[0].isspace() and after.strip().lower() not in _SCALE_WORDS)
         value = Decimal(match["num"].replace(",", "."))
         assert (-value if match["sign"] else value) in cited, (text, fact_ids)
+
+
+@settings(max_examples=200, deadline=None)
+@given(
+    letter=st.sampled_from(FOREIGN_LETTERS),
+    where=st.sampled_from(["The linked accounts share a {}evice.", "Risk {} 0.87.", "{}"]),
+)
+def test_r5_a_statement_with_a_letter_of_another_script_is_regenerated(
+    letter: str, where: str
+) -> None:
+    result = run(with_statement(where.format(letter), ["F1"], "SCORE"))
+    assert Code.SCRIPT in codes(result)
+    assert result.action in (Action.REGENERATE, Action.TEMPLATE)
 
 
 def test_unknown_fact_ids_are_rejected() -> None:
@@ -421,8 +504,8 @@ def test_explanation_in_italian_is_regenerated() -> None:
     ["frode", "TRUFFA", "abuso", "fraud", "suspicious", "same person", "fr­ode", "frоde"],
 )
 def test_llm04_banned_terms_in_the_customer_message(word: str) -> None:
-    result = run(with_message(it=f"Ciao, abbiamo rilevato {word} nei tuoi ordini: {{terms}}."))
-    assert Code.BANNED_TERM in codes(result)
+    text = f"Ciao, abbiamo rilevato {word} nei tuoi ordini: {{terms}}."
+    assert_customer_text_refused(text, "it", "BANNED_TERM")
 
 
 @pytest.mark.parametrize(
@@ -452,7 +535,7 @@ def test_llm04_verdict_words_in_the_operator_explanation(text: str) -> None:
 )
 def test_finding4_same_person_synonyms_in_statements_and_messages(text: str) -> None:
     assert Code.BANNED_TERM in codes(run(with_statement(text, [], "HYPOTHESIS")))
-    assert Code.BANNED_TERM in codes(run(with_message(en=f"{EN_OK} {text}")))
+    assert_customer_text_refused(f"{EN_OK} {text}", "en", "BANNED_TERM")
 
 
 @pytest.mark.parametrize(
@@ -464,62 +547,60 @@ def test_finding4_same_person_synonyms_in_statements_and_messages(text: str) -> 
     ],
 )
 def test_finding4_same_person_synonyms_in_italian_messages(it: str) -> None:
-    assert Code.BANNED_TERM in codes(run(with_message(it=f"{IT_OK} {it}")))
+    assert_customer_text_refused(f"{IT_OK} {it}", "it", "BANNED_TERM")
 
 
-# ---- LLM-1: the customer message carries no number, unit or legal wording -----------------------
+# ---- LLM-1: no number, unit or legal wording reaches the customer (phrasebook gate) -------
 
 
 @pytest.mark.parametrize(
     "it, code",
     [
-        ("Ciao, hai 14 giorni: {terms}.", Code.LITERAL_NUMBER),
-        ("Ciao, hai quattordici giorni per i tuoi ordini: {terms}.", Code.LITERAL_NUMBER),
-        ("Ciao, entro una quindicina di giorni per i tuoi ordini: {terms}.", Code.LITERAL_NUMBER),
-        ("Ciao, il tuo rimborso di ½ per i tuoi ordini: {terms}.", Code.LITERAL_NUMBER),
+        ("Ciao, hai 14 giorni: {terms}.", "LITERAL_NUMBER"),
+        ("Ciao, hai quattordici giorni per i tuoi ordini: {terms}.", "LITERAL_NUMBER"),
+        ("Ciao, entro una quindicina di giorni per i tuoi ordini: {terms}.", "LITERAL_NUMBER"),
+        ("Ciao, il tuo rimborso di ½ per i tuoi ordini: {terms}.", "LITERAL_NUMBER"),
         (
             "Ciao, il rimborso arriva tra qualche giorno per i tuoi ordini: {terms}.",
-            Code.LITERAL_UNIT,
+            "LITERAL_UNIT",
         ),
-        ("Ciao, il costo è in € per i tuoi ordini: {terms}.", Code.LITERAL_UNIT),
-        ("Ciao, il costo è in EUR per i tuoi ordini: {terms}.", Code.LITERAL_UNIT),
-        ("Ciao, per settimane e mesi i tuoi ordini: {terms}.", Code.LITERAL_UNIT),
+        ("Ciao, il costo è in € per i tuoi ordini: {terms}.", "LITERAL_UNIT"),
+        ("Ciao, il costo è in EUR per i tuoi ordini: {terms}.", "LITERAL_UNIT"),
+        ("Ciao, per settimane e mesi i tuoi ordini: {terms}.", "LITERAL_UNIT"),
         (
             "Ciao, puoi esercitare il diritto di recesso per i tuoi ordini: {terms}.",
-            Code.LEGAL_WORDING,
+            "LEGAL_WORDING",
         ),
-        ("Ciao, la garanzia copre i tuoi ordini: {terms}.", Code.LEGAL_WORDING),
+        ("Ciao, la garanzia copre i tuoi ordini: {terms}.", "LEGAL_WORDING"),
         (
             "Ciao, il rimborso arriverà entro il {deadline} per i tuoi ordini: {terms}.",
-            Code.LEGAL_WORDING,
+            "LEGAL_WORDING",
         ),
     ],
 )
-def test_customer_message_italian_rules(it: str, code: Code) -> None:
-    result = run(with_message(it=it))
-    assert code in codes(result)
-    assert result.action is Action.REGENERATE
+def test_customer_message_italian_rules(it: str, code: str) -> None:
+    assert_customer_text_refused(it, "it", code)
 
 
 @pytest.mark.parametrize(
     "en, code",
     [
-        ("Hello, you have 14 days for your orders: {terms}.", Code.LITERAL_NUMBER),
-        ("Hello, you have fourteen of them for your orders: {terms}.", Code.LITERAL_NUMBER),
-        ("Hello, you have a fortnight for your orders: {terms}.", Code.LITERAL_NUMBER),
-        ("Hello, it takes some weeks for your orders: {terms}.", Code.LITERAL_UNIT),
-        ("Hello, the cost is in $ for your orders: {terms}.", Code.LITERAL_UNIT),
-        ("Hello, you can withdraw from your orders: {terms}.", Code.LEGAL_WORDING),
-        ("Hello, you have the right to return your orders: {terms}.", Code.LEGAL_WORDING),
-        ("Hello, the warranty covers your orders: {terms}.", Code.LEGAL_WORDING),
+        ("Hello, you have 14 days for your orders: {terms}.", "LITERAL_NUMBER"),
+        ("Hello, you have fourteen of them for your orders: {terms}.", "LITERAL_NUMBER"),
+        ("Hello, you have a fortnight for your orders: {terms}.", "LITERAL_NUMBER"),
+        ("Hello, it takes some weeks for your orders: {terms}.", "LITERAL_UNIT"),
+        ("Hello, the cost is in $ for your orders: {terms}.", "LITERAL_UNIT"),
+        ("Hello, you can withdraw from your orders: {terms}.", "LEGAL_WORDING"),
+        ("Hello, you have the right to return your orders: {terms}.", "LEGAL_WORDING"),
+        ("Hello, the warranty covers your orders: {terms}.", "LEGAL_WORDING"),
         (
             "Hello, we refund you within the time limit for your orders: {terms}.",
-            Code.LEGAL_WORDING,
+            "LEGAL_WORDING",
         ),
     ],
 )
-def test_customer_message_english_rules(en: str, code: Code) -> None:
-    assert code in codes(run(with_message(en=en)))
+def test_customer_message_english_rules(en: str, code: str) -> None:
+    assert_customer_text_refused(en, "en", code)
 
 
 # Adversarial review of 13 Oct, finding 1: terms and the decision in words (rules 1, 3 and 10).
@@ -562,9 +643,8 @@ FINDING1_IT = (
 def test_finding1_terms_and_decisions_in_words_are_regenerated(
     it: str | None, en: str | None
 ) -> None:
-    result = run(with_message(it=it, en=en))
-    assert Code.TERMS_WORDING in codes(result), result.errors
-    assert not result.ok and result.action is Action.REGENERATE
+    lang: Lang = "it" if it is not None else "en"
+    assert_customer_text_refused(it or en or "", lang, "TERMS_WORDING")
 
 
 @pytest.mark.parametrize("name", sorted(SCENARIOS))
@@ -574,7 +654,53 @@ def test_templates_have_no_terms_wording(name: str) -> None:
     assert result.ok, result.errors
 
 
-# ---- LLM-9: one placeholder grammar --------------------------------------------------------------
+# ---- Round 2, finding R1: phrasebook ids only -------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "ids, detail",
+    [
+        (["CLOSE_REGARDS", "OPEN_THANKS"], "used as the opening"),
+        (["OPEN_THANKS", "CONTACT_REPLY", "CONTACT_REPLY", "CLOSE_DAY"], "repeated"),
+        (["OPEN_THANKS", "OPEN_MESSAGE", "CLOSE_DAY"], "used as the extra"),
+        (["OPEN_THANKS", "CONTACT_REPLY"], "used as the closing"),
+        (["OPEN_SORRY_ITEM", "CLOSE_PATIENCE"], "not allowed"),  # guarantee sentences on Q4
+        (["OPEN_THANKS", "GUARANTEE_PHOTO", "CLOSE_DAY"], "not allowed"),
+    ],
+)
+def test_r1_sentence_ids_must_fit_their_slot_and_the_decision(ids: list[str], detail: str) -> None:
+    result = run(with_ids(*ids))
+    assert codes(result) == {Code.SENTENCE_ID}
+    assert result.action is Action.REGENERATE
+    assert detail in result.errors[0].detail
+
+
+@pytest.mark.parametrize(
+    "name, ids",
+    [
+        ("Q2", ["OPEN_THANKS", "INFO_TERMS", "CLOSE_REGARDS"]),  # no terms to talk about
+        ("guarantee", ["OPEN_SORRY_FIT", "CLOSE_PATIENCE"]),
+        ("guarantee", ["OPEN_THANKS", "HELP_SIZE", "CLOSE_DAY"]),
+        ("insufficient", ["OPEN_THANKS", "CLOSE_PATIENCE"]),
+    ],
+)
+def test_r1_sentences_of_another_decision_are_regenerated(name: str, ids: list[str]) -> None:
+    built = make(name)
+    out = template_output(built.case, built.expected)
+    out["customer_message"]["sentence_ids"] = ids
+    assert codes(validate(out, built.expected, built.case)) == {Code.SENTENCE_ID}
+
+
+def test_r1_a_valid_selection_passes_and_is_returned() -> None:
+    result = run(
+        with_ids("OPEN_SORRY_FIT", "HELP_ADVICE", "INFO_TERMS", "THANKS_FEEDBACK", "CLOSE_SOON")
+    )
+    assert result.ok, result.errors
+    assert result.output is not None
+    assert result.output.customer_message.sentence_ids[-1] == "CLOSE_SOON"
+
+
+# ---- LLM-9: one placeholder grammar, now used by code only (llm/messages.render) ---------------
 
 
 @pytest.mark.parametrize(
@@ -582,56 +708,47 @@ def test_templates_have_no_terms_wording(name: str) -> None:
     ["{refund}", "{{terms}}", "{Terms}", "[terms]", "<b>", "{ terms }", "｛terms｝", "{", "]"],
 )
 def test_only_the_three_placeholders_are_allowed(token: str) -> None:
-    result = run(with_message(it=f"{IT_OK} {token}"))
-    assert Code.PLACEHOLDER_SYNTAX in codes(result)
+    problems = placeholder_problems(f"{IT_OK} {token}", {"terms", "deadline"}, True)
+    assert "PLACEHOLDER_SYNTAX" in {p.code for p in problems}
 
 
 def test_terms_are_required_when_the_decision_restricts() -> None:
-    result = run(with_message(it="Ciao, grazie per averci scritto e per la tua pazienza."))
-    assert codes(result) == {Code.TERMS_MISSING}
+    text = "Ciao, grazie per averci scritto e per la tua pazienza."
+    assert [p.code for p in placeholder_problems(text, {"terms"}, True)] == ["TERMS_MISSING"]
+    for name in ("Q3", "Q4", "Q4_cluster"):  # the body written by code always has it
+        built = make(name)
+        assert built.expected.requires_terms
+        ctx = context_of(built.expected)
+        assert "{terms}" in compose(["OPEN_THANKS", "CLOSE_REGARDS"], ctx, "it")
 
 
 def test_a_placeholder_without_a_value_is_rejected() -> None:
-    assert Code.PLACEHOLDER_UNAVAILABLE in codes(run(with_message(en=f"{EN_OK} {{amount}}")))
-    q2 = make("Q2")  # standard terms: no {terms} to fill
-    out = good_output()
-    out["decision_echo"].update(quadrant="Q2", lever_ids=[])
-    out["operator_explanation"] = [{"label": "OBSERVED", "fact_ids": [], "text": "Q2 case."}]
-    assert Code.PLACEHOLDER_UNAVAILABLE in codes(validate(out, q2.expected, q2.case))
-    guarantee = make("guarantee")  # no refund deadline on the guarantee path
-    out["decision_echo"].update(path="guarantee", quadrant=None)
-    out["operator_explanation"] = [{"label": "OBSERVED", "fact_ids": [], "text": "A defect."}]
-    out["customer_message"] = {
-        "it": "Ciao, grazie per averci scritto: ti aggiorniamo per il {deadline}.",
-        "en": "Hello, thank you for writing to us: we will update you by {deadline}.",
-    }
-    result = validate(out, guarantee.expected, guarantee.case)
-    assert codes(result) == {Code.PLACEHOLDER_UNAVAILABLE}
+    problems = placeholder_problems(f"{EN_OK} {{amount}}", {"terms", "deadline"}, True)
+    assert [p.code for p in problems] == ["PLACEHOLDER_UNAVAILABLE"]
+    for name in ("guarantee", "Q2"):  # the body never uses a placeholder without a value
+        built = make(name)
+        text = compose(
+            template_output(built.case, built.expected)["customer_message"]["sentence_ids"],
+            context_of(built.expected),
+            "en",
+        )
+        assert placeholder_problems(text, built.expected.placeholders, False) == []
 
 
 def test_amount_is_available_when_the_refund_is_known() -> None:
-    from decimal import Decimal
-
     built = make("Q4_cluster", refund_eur=Decimal("59.90"))
-    out = with_message(en=f"{EN_OK} Your refund of {{amount}} is due by {{deadline}}.")
-    assert validate(out, built.expected, built.case).ok
+    text = compose(["OPEN_THANKS", "CLOSE_REGARDS"], context_of(built.expected), "en")
+    assert "your refund of {amount} is due by {deadline}" in text
+    assert validate(good_output(), built.expected, built.case).ok
 
 
-# ---- Language and length ------------------------------------------------------------------------
+# ---- Language: the customer message is in the right language by construction ------------------
 
 
-def test_llm06_messages_in_the_wrong_language_are_regenerated() -> None:
-    result = run(with_message(it=EN_OK, en=IT_OK))
-    assert {e.where for e in result.errors if e.code is Code.WRONG_LANGUAGE} == {
-        "customer_message.it",
-        "customer_message.en",
-    }
-    assert result.action is Action.REGENERATE
-
-
-def test_too_long_message() -> None:
-    result = run(with_message(it=IT_OK + " ok" * 120))
-    assert Code.TOO_LONG in codes(result)
+def test_llm06_the_gate_finds_a_message_in_the_wrong_language() -> None:
+    assert "WRONG_LANGUAGE" in gate(EN_OK, "it")
+    assert "WRONG_LANGUAGE" in gate(IT_OK, "en")
+    assert codes(run(with_prose(it=EN_OK, en=IT_OK))) == {Code.SCHEMA}
 
 
 # ---- BLOCK: the case must say what the engine decided -------------------------------------------

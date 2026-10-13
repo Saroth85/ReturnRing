@@ -1,17 +1,23 @@
 """Lexical checks of llm/text.py: parametrized probes for review findings LLM-1, LLM-5, LLM-6, the
 language check of LLM-10 (docs/spec.md 8.7 and 16) and the adversarial review of 13 Oct (findings
-1, 2, 4 and 5: terms and decisions in words, numbers in letters, same-person synonyms, signs)."""
+1, 2, 4 and 5: terms and decisions in words, numbers in letters, same-person synonyms, signs; round
+2, findings R2 to R7: quadrant descriptions, ownership, the script allowlist, glued numbers)."""
 
 from __future__ import annotations
 
+import re
+import unicodedata
 from decimal import Decimal
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from llm.text import (
     banned_terms,
     decision_wording,
     fold,
+    foreign_letters,
     language_of,
     legal_wording,
     literal_numbers,
@@ -22,7 +28,10 @@ from llm.text import (
     numbers_in_text,
     other_numeric_characters,
     parse_number,
+    quadrant_axes,
     quadrant_labels,
+    quadrant_positions,
+    restriction_words,
     strip_tokens,
     terms_wording,
     word_count,
@@ -161,6 +170,16 @@ def test_same_person_synonyms_are_found(text: str) -> None:
         "The return terms of your orders stay the same as always.",
         "The links share the same user agent and the same address.",
         "A customer wrote to us.",
+        # Round 2, finding R3: ownership and group words that are not a same-person claim
+        "Each linked account has its own card.",
+        "All linked accounts use their own devices.",
+        "The linked accounts may share a household; check the links.",
+        "All linked accounts belong to cluster R-MARCO.",
+        "One of the customers returned the item.",
+        "The accounts all have different owners.",
+        "Gli account collegati sono tutti nel cluster R-MARCO.",
+        "Unlike the Rossi family, the linked accounts share a card.",
+        "A common card is shared by the linked accounts.",
     ],
 )
 def test_innocent_words_are_not_banned(text: str) -> None:
@@ -292,6 +311,9 @@ def test_finding2_numbers_dates_and_units_in_letters_are_found(text: str, lang: 
         ("prima di ogni acquisto", "it"),
         ("il medesimo ordine, un battesimo", "it"),
         ("ventilato, trentino, millennio, centimetri", "it"),
+        # round 2, finding R6: words that start with a short cardinal
+        ("customers tend to reply, trench coat, treccia", "en"),
+        ("ti tremo, ottone, tenda", "it"),
     ],
 )
 def test_words_that_are_not_numbers(text: str, lang: str) -> None:
@@ -474,6 +496,10 @@ def test_numbers_in_text_reads_any_dash_before_a_digit_as_a_sign() -> None:
         ("margin -\u200b42.1", "-42.1"),  # a format character between sign and digits
         ("risk .87", "0.87"),  # a leading separator is still a number
         ("risk ,87", "0.87"),
+        # round 2, finding R7: a sign with spaces before the digits
+        ("margin: − 42.1 EUR", "-42.1"),
+        ("weight - 0.98", "-0.98"),
+        ("margin ➖  42.1", "-42.1"),
     ],
 )
 def test_numbers_in_text_signs_and_leading_separators(text: str, value: str) -> None:
@@ -508,7 +534,18 @@ def test_finding5_scaled_or_worded_signs_are_found(text: str) -> None:
 
 @pytest.mark.parametrize(
     "text",
-    ["42.1 EUR", "0.87; the largest", "7 linked accounts", "the margin is negative", "Q4"],
+    [
+        "42.1 EUR",
+        "0.87; the largest",
+        "7 linked accounts",
+        "the margin is negative",
+        "Q4",
+        # round 2, finding R7: not a sign, a scale or a unit
+        "a 14-day window",
+        "7 linked accounts share a debit card",
+        "weight 0.98 (cluster of 7 linked accounts)",
+        "0.87 – the largest",
+    ],
 )
 def test_plain_numbers_have_no_modifiers(text: str) -> None:
     assert number_modifiers(text) == []
@@ -659,6 +696,11 @@ def test_decision_wording(text: str, found: bool) -> None:
         ("the 2nd quadrant", ["Q2"]),
         ("no quadrant is assigned", []),
         ("FAQ 1 and Q12", []),
+        # round 2, finding R2: Roman numerals after Q
+        ("The case sits in QI.", ["Q1"]),
+        ("The case is in QIV.", ["Q4"]),
+        ("q-iii and Q II", ["Q3", "Q2"]),
+        ("FAQ I, qiv8 and quinto", []),
     ],
 )
 def test_quadrant_labels(text: str, labels: list[str]) -> None:
@@ -668,3 +710,122 @@ def test_quadrant_labels(text: str, labels: list[str]) -> None:
 def test_number_words_skip_and_forms() -> None:
     assert number_words("one or two", "en", skip={"one"}) == ["two"]
     assert number_words("quattor-dici e quattor‑dici", "it") == ["quattordici"]
+
+
+# ---- Quadrant descriptions and restrictions (round 2, finding R2) ------------------------------
+
+
+@pytest.mark.parametrize(
+    "text, axes",
+    [
+        ("the high-risk, low-value quadrant", ["risk:high", "value:low"]),
+        ("Value is high and risk is low.", ["value:high", "risk:low"]),
+        ("rischio alto, valore basso", ["risk:high", "value:low"]),
+        ("un cliente di alto valore e basso rischio", ["value:high", "risk:low"]),
+        ("Risk score 0.87 from the model.", []),
+        ("the highest contribution to the score", []),
+    ],
+)
+def test_quadrant_axes(text: str, axes: list[str]) -> None:
+    assert quadrant_axes(text) == axes
+
+
+def test_quadrant_positions() -> None:
+    assert quadrant_positions("the top-left quadrant, then in basso a destra") == [
+        "top left",
+        "in basso a destra",
+    ]
+    assert quadrant_positions("the left side of the dashboard") == []
+
+
+@pytest.mark.parametrize(
+    "text, found",
+    [
+        ("Restrictive levers apply.", ["restrictive"]),
+        ("The account is restricted; restrizioni attive.", ["restricted", "restrizioni"]),
+        ("No restrictive levers.", []),
+        ("Without a risk score or restrictive levers.", []),
+        ("Restrictions do not apply.", []),
+        ("The terms are standard, restrictive levers apply.", ["restrictive"]),
+    ],
+)
+def test_restriction_words(text: str, found: list[str]) -> None:
+    assert restriction_words(text) == found
+
+
+# ---- Script allowlist (round 2, finding R5) ----------------------------------------------------
+
+_ALLOWED_NAME = re.compile(r"LATIN (?:SMALL|CAPITAL) LETTER (?:[A-Z]|[AEIOU] WITH (?:GRAVE|ACUTE))")
+
+
+def _oracle(text: str) -> set[str]:
+    """Independent reading by Unicode name: after NFKC, a letter is allowed only if it is a Latin
+    letter A to Z or a vowel with a grave or acute accent; a combining mark is never allowed."""
+    return {
+        ch
+        for ch in unicodedata.normalize("NFKC", text)
+        if (ch.isalpha() and not _ALLOWED_NAME.fullmatch(unicodedata.name(ch, "")))
+        or unicodedata.category(ch).startswith("M")
+    }
+
+
+def _block(first: int, last: int) -> list[str]:
+    return [chr(c) for c in range(first, last + 1) if unicodedata.category(chr(c)) != "Cn"]
+
+
+MIXED_SCRIPTS = (
+    list("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ àèéìíòóùúÀÈÉÌÒÙ .,;:-'")
+    + _block(0x0100, 0x024F)  # Latin Extended-A and B
+    + _block(0x0250, 0x02FF)  # IPA, modifier letters
+    + _block(0x0300, 0x036F)  # combining marks
+    + _block(0x0370, 0x03FF)  # Greek
+    + _block(0x0400, 0x04FF)  # Cyrillic
+    + _block(0x0530, 0x058F)  # Armenian
+    + _block(0x13A0, 0x13F4)  # Cherokee
+    + _block(0x1D00, 0x1D7F)  # phonetic extensions, small capitals
+    + _block(0x2100, 0x214F)  # letterlike symbols
+    + _block(0xFF21, 0xFF5A)  # full width
+    + _block(0x1D400, 0x1D4FF)  # mathematical alphanumerics
+)
+FOREIGN_LETTERS = [ch for ch in MIXED_SCRIPTS if ch.isalpha() and _oracle(ch)]
+
+
+@settings(max_examples=500, deadline=None)
+@given(st.text(alphabet=st.sampled_from(MIXED_SCRIPTS), max_size=40))
+def test_r5_foreign_letters_agree_with_the_unicode_names(text: str) -> None:
+    assert set(foreign_letters(text)) == _oracle(text)
+
+
+@settings(max_examples=500, deadline=None)
+@given(
+    word=st.sampled_from(["fraud", "frode", "scam", "truffa", "abuse", "suspicious", "approved"]),
+    index=st.integers(min_value=0, max_value=9),
+    letter=st.sampled_from(FOREIGN_LETTERS),
+)
+def test_r5_a_disguised_word_never_passes_both_checks(word: str, index: int, letter: str) -> None:
+    """Any letter of another script swapped into a banned or decision word is caught: by the
+    script allowlist, or by the blocklists once folded."""
+    position = index % len(word)
+    disguised = word[:position] + letter + word[position + 1 :]
+    text = f"This is {disguised}."
+    assert foreign_letters(text) or banned_terms(text) or decision_wording(text)
+
+
+@pytest.mark.parametrize(
+    "text, found",
+    [
+        ("This is frօud.", ["օ"]),
+        ("This is frᴀud.", ["ᴀ"]),
+        ("This is ғraud.", ["ғ"]),
+        ("a scɑm, a fraʋd", ["ɑ", "ʋ"]),
+        ("perché è così, città", []),
+        ("Ｆｕｌｌ ｗｉｄｔｈ and 𝐛𝐨𝐥𝐝 and ﬁne", []),  # NFKC folds them to a-z
+        ("frau\u0301d", []),  # composes to ú
+        ("x\u0301", ["\u0301"]),  # a mark that composes to nothing allowed
+        ("naïve", ["ï"]),
+        ("İstanbul", ["İ"]),
+        ("€ 42.1, 7%", []),
+    ],
+)
+def test_r5_foreign_letters(text: str, found: list[str]) -> None:
+    assert foreign_letters(text) == found

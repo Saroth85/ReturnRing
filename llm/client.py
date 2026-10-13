@@ -1,14 +1,18 @@
 """Clients for Gemma: a deterministic mock (LLM_MODE=mock) and the local vLLM (LLM_MODE=vllm).
 
 Rule 2: the only model endpoint is the local vLLM. VllmClient accepts only the compose service
-name "vllm", "localhost" or an IP address in a loopback or private network (an allow-list, with
-IPv4-mapped IPv6 addresses unwrapped first); it never uses proxies and never follows redirects.
+name "vllm", "localhost" or an IP address in a loopback or private IPv4 network (an allow-list,
+with IPv4-mapped IPv6 addresses unwrapped first); it never uses proxies and never follows
+redirects. The guided-JSON schema is narrowed per case: customer_message.sentence_ids may only
+hold the phrasebook ids allowed for the decision; decision_echo stays open, so a misunderstood
+decision is still caught by the validator.
 Standard library only (urllib): no new runtime dependency. No retries inside the client:
 llm/generate.py decides what happens after a failure.
 """
 
 from __future__ import annotations
 
+import copy
 import http.client
 import ipaddress
 import json
@@ -22,23 +26,20 @@ from pathlib import Path
 from typing import Any, Protocol
 from urllib.parse import urlsplit
 
+from llm.phrasebook import allowed_sentences, context_of_case
 from llm.prompts import case_messages
 from llm.templates import output_from_case
 
 OUTPUT_SCHEMA_PATH = Path(__file__).resolve().parents[1] / "contracts/json/llm_output.schema.json"
 LOCAL_HOSTNAMES = frozenset({"vllm", "localhost"})
 # Loopback and private networks only (adversarial review of 13 Oct, finding 6): link-local,
-# reserved, documentation, benchmark, broadcast, 6to4 and NAT64 addresses are all refused.
+# reserved, documentation, benchmark, broadcast, 6to4 and NAT64 addresses are all refused. The
+# compose network is IPv4 only (infra/docker-compose.yml enables no IPv6), so IPv6 unique local
+# addresses (fc00::/7) are refused too, the EC2 metadata endpoint fd00:ec2::254 among them
+# (round 2, finding R8).
 LOCAL_NETWORKS: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...] = tuple(
     ipaddress.ip_network(network)
-    for network in (
-        "127.0.0.0/8",
-        "::1/128",
-        "10.0.0.0/8",
-        "172.16.0.0/12",
-        "192.168.0.0/16",
-        "fc00::/7",
-    )
+    for network in ("127.0.0.0/8", "::1/128", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
 )
 DEFAULT_MODEL = "google/gemma-4-31B-it"
 TEMPERATURE = 0.2
@@ -97,6 +98,15 @@ def output_schema() -> dict[str, Any]:
     schema: dict[str, Any] = json.loads(OUTPUT_SCHEMA_PATH.read_text(encoding="utf-8"))
     schema.pop("$schema", None)
     return schema
+
+
+def case_output_schema(case: Mapping[str, Any], schema: Mapping[str, Any]) -> dict[str, Any]:
+    """The output schema for one case: the sentence id enum narrowed to the phrasebook ids
+    allowed for its decision; everything else, decision_echo included, unchanged."""
+    narrowed: dict[str, Any] = copy.deepcopy(dict(schema))
+    ids = narrowed["properties"]["customer_message"]["properties"]["sentence_ids"]
+    ids["items"]["enum"] = [s.id for s in allowed_sentences(context_of_case(case))]
+    return narrowed
 
 
 def check_local_url(base_url: str) -> str:
@@ -199,7 +209,11 @@ class VllmClient:
             "max_tokens": self.config.max_tokens,
             "response_format": {
                 "type": "json_schema",
-                "json_schema": {"name": "llm_output", "schema": self._schema, "strict": True},
+                "json_schema": {
+                    "name": "llm_output",
+                    "schema": case_output_schema(case, self._schema),
+                    "strict": True,
+                },
             },
         }
         data, elapsed = self._post(body)

@@ -21,6 +21,10 @@ files = ["policy", "llm", "apps", "pipeline", "contracts", "scripts"]
 module = ["pyarrow.*", "pandas.*"]  # no type information shipped (pandas-stubs is not a dependency)
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+module = ["networkx.*"]  # no type information shipped (types-networkx is not a dependency)
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]

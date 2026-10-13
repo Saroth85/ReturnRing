@@ -56,7 +56,7 @@ def test_the_flagged_cell_is_written_through_the_contract(tmp_path: Path) -> Non
     assert row["z"] > 3 and row["expected"] > 0
     assert pd.Timestamp(row["as_of"]) == pd.Timestamp(T)
     assert prov.nature == "synthetic"
-    assert "anomalies-v1-2026-10-13" in prov.origin and "test fixture" in prov.origin
+    assert "anomalies-v1-2026-10-13" in prov.origin and "test fixture" in prov.chain
     assert summary["rows"] == 1 and summary["decision_times"] == 1
 
 

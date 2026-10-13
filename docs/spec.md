@@ -225,15 +225,15 @@ Definition of Done valida per ogni storia: test verdi in modalità CPU e mock, c
 
 | ID | Storia | Criteri di accettazione | Priorità | Stato |
 | --- | --- | --- | --- | --- |
-| US-201 | Come sistema voglio la probabilità di reso per articolo appresa su ASOS | XGBoost su GPU valutato con i due protocolli di ADR-10: protocollo del paper (F1 ≥ 0,75 sul test ASOS, paper: 0,774) solo per benchmark e confronto; protocollo ReturnRing, l'unico usato dal prodotto, che batte la migliore regola leave-one-out a una feature su F1 ed entropia incrociata; probabilità calibrate; solo feature disponibili al momento della decisione | Must | Da fare |
+| US-201 | Come sistema voglio la probabilità di reso per articolo appresa su ASOS | XGBoost su GPU valutato con i due protocolli di ADR-10: protocollo del paper (F1 ≥ 0,75 sul test ASOS, paper: 0,774) solo per benchmark e confronto; protocollo ReturnRing, l'unico usato dal prodotto, che batte la migliore regola leave-one-out a una feature su F1 ed entropia incrociata; probabilità calibrate; solo feature disponibili al momento della decisione | Must | In parte: fatto su CPU (protocollo ReturnRing: GO contro la baseline; protocollo del paper F1 0,786); run sulla MI300X in fase 6 |
 | US-202 | Come giudice voglio il confronto GraphSAGE contro XGBoost su AMD | F1 GraphSAGE e tempi CPU e MI300X su ASOS; presentato come benchmark del compito ASOS, non come prova sui ring | Should | Da fare |
-| US-203 | Come sistema voglio proporre collegamenti tra account con le loro evidenze | Ogni legame con tipo, data e frequenza; nodi molto comuni pesati meno; precision ≥ 0,90 e recall ≥ 0,80 sui ring; famiglia Rossi, anche con carta condivisa, mai in Q3 o Q4 | Must | Da fare |
-| US-204 | Come sistema voglio il rischio di abuso per cliente e per reso | Stessi split per regole, XGBoost, grafo e GraphSAGE; feature vietate assenti (test); SHAP top 3 presentato come contributo al punteggio, non come causa | Must | Da fare |
-| US-205 | Come sistema voglio il valore del cliente come margine netto a 12 mesi | Riconciliato con gli ordini (test); il valore non entra mai nel punteggio di rischio (test) | Must | Da fare |
-| US-206 | Come sistema voglio il residuo di reso rispetto a un riferimento di prodotto e coorte | Atteso calcolato senza lo storico del cliente; confronto documentato con il predittore personalizzato; presentato come indicatore, non come probabilità di abuso | Must | Da fare |
+| US-203 | Come sistema voglio proporre collegamenti tra account con le loro evidenze | Ogni legame con tipo, data e frequenza; nodi molto comuni pesati meno; precision ≥ 0,90 e recall ≥ 0,80 sui ring; famiglia Rossi, anche con carta condivisa, mai in Q3 o Q4 | Must | Fatto su CPU: legami con tipo, data e frequenza, nodi comuni pesati meno; negozio principale precision e recall 1,000, vere per costruzione (8.3); OOD precision 0,928, recall 0,135 (riportato); Rossi mai in Q3 o Q4 a ogni fine mese |
+| US-204 | Come sistema voglio il rischio di abuso per cliente e per reso | Stessi split per regole, XGBoost, grafo e GraphSAGE; feature vietate assenti (test); SHAP top 3 presentato come contributo al punteggio, non come causa | Must | In parte: A0–A3 e modello per richiesta su CPU, stessi split, feature vietate assenti, SHAP top 3; A4 (GraphSAGE) in fase 6. FAIR-02 non superato (categoria principale, 6,78 punti); FAIR-03 superato alla valutazione, non a un fine mese in-sample (1 caso il 2025-12-01) |
+| US-205 | Come sistema voglio il valore del cliente come margine netto a 12 mesi | Riconciliato con gli ordini (test); il valore non entra mai nel punteggio di rischio (test) | Must | Fatto: riconciliato con gli ordini al centesimo; il valore non entra nel rischio (test) |
+| US-206 | Come sistema voglio il residuo di reso rispetto a un riferimento di prodotto e coorte | Atteso calcolato senza lo storico del cliente; confronto documentato con il predittore personalizzato; presentato come indicatore, non come probabilità di abuso | Must | Fatto: residuo sul riferimento di prodotto e coorte, confronto col predittore personalizzato documentato (MOD-09) |
 | US-207 | Come Luca voglio il CLV con BG/NBD e Gamma-Gamma | Tagliata il 12 ottobre: sostituita dal simulatore economico (US-602) | Should | Tagliata |
-| US-208 | Come Luca voglio che le anomalie di prodotto emergano separate dai comportamenti dei clienti | Segnale per variante, motivo e settimana contro la base della categoria; campione minimo; precision ≥ 0,80 sulle varianti difettose sintetiche | Must | Da fare |
-| US-209 | Come sistema voglio misurare la qualità dell'evidenza separata dal rischio | Numero di osservazioni, completezza degli identificatori, coerenza dei motivi; sotto soglia il caso va in dati insufficienti | Must | Da fare |
+| US-208 | Come Luca voglio che le anomalie di prodotto emergano separate dai comportamenti dei clienti | Segnale per variante, motivo e settimana contro la base della categoria; campione minimo; precision ≥ 0,80 sulle varianti difettose sintetiche | Must | Fatto su CPU: precision 0,971 sul negozio principale (in-sample per la scelta della regola, 8.9), 1,000 su OOD; caso Elena segnalato |
+| US-209 | Come sistema voglio misurare la qualità dell'evidenza separata dal rischio | Numero di osservazioni, completezza degli identificatori, coerenza dei motivi; sotto soglia il caso va in dati insufficienti | Must | Fatto: osservazioni dell'account, completezza degli identificatori, coerenza dei motivi; gli account collegati sono solo riportati |
 
 ### E3 — Richiesta di reso
 
@@ -530,11 +530,13 @@ L'ispezione usa la parte visiva dello stesso modello per suggerire una checklist
 
 ### 8.9 Diagnosi di prodotto
 
-Per ogni variante, motivo e settimana si confrontano i resi osservati O con quelli attesi E dalla base della categoria. Si segnala un'anomalia quando lo scarto supera 3 con almeno 20 vendite nella settimana (soglie di progetto):
+Per ogni variante, motivo e settimana di vendita si confrontano i resi osservati O con quelli attesi E dalla base della categoria: altre varianti, settimane precedenti, righe della stessa età, con la regola di successione di Laplace, p\_l = (h\_l + 1) / (S + 2), così un motivo mai visto nella categoria ha comunque un atteso. Si segnala un'anomalia con almeno 20 vendite nella settimana, z > 3 e coda esatta di Poisson P(X ≥ O) con X ~ Poisson(E) al più 0,00135 / 8: il livello del test a tre sigma è condiviso dagli 8 motivi della variante-settimana (Bonferroni), perché con E sotto 1, il caso più comune, l'approssimazione normale di z non regge (soglie di progetto, versione anomalies-v1-2026-10-13):
 
 ```latex
 z_{v,m,t} = \frac{O_{v,m,t} - E_{v,m,t}}{\sqrt{E_{v,m,t}}}
 ```
+
+La regola è stata scelta dopo aver misurato quella letterale (solo z > 3) sul negozio principale: le cifre MOD-10 del negozio principale sono quindi in-sample per questa scelta, e lo scenario fuori distribuzione cambia i clienti, non il meccanismo dei difetti (docs/product-anomalies.md).
 
 L'anomalia apre un'attività di catalogo (descrizione, guida alle misure, controllo del lotto), separata dalle ipotesi sui clienti: il reso di Elena resta regolare. Dopo la correzione si segue l'andamento dei resi della variante; una diminuzione da sola non dimostra l'effetto della correzione, che richiede un confronto controllato.
 
@@ -955,7 +957,7 @@ Tre formati, una storia sola: lo stesso indicatore superficiale porta ad azioni 
 
 | Tempo | Cosa si vede | Cosa si dice |
 | --- | --- | --- |
-| 0:00–0:25 | Giulia e Marco affiancati, stesso tasso di reso | Stesso indicatore, azioni diverse; una soglia unica, come quella di ASOS, li colpirebbe entrambi |
+| 0:00–0:25 | Giulia e Marco affiancati: entrambi restituiscono pochi giorni dopo la consegna (mediana da 3 a 4 giorni; tasso di reso 0,25 contro 0,8–1,0) | Stesso segnale, azioni diverse: la regola dei resi rapidi scatta per entrambi, ma non dice chi sbaglia taglia e chi agisce con sei account collegati; le regole a soglie tipo returnguard non segnalano nessuno dei due, ReturnRing propone Q1 per Giulia e Q4, con approvazione, per Marco |
 | 0:25–1:05 | Scheda di Marco: legami con tipo e data, sequenza dei coupon, elementi favorevoli e contrari, condizioni per gli ordini futuri, approvazione di Sara | Il grafo propone collegamenti e mostra le evidenze, le regole decidono, una persona approva |
 | 1:05–1:35 | Famiglia Rossi, anche con carta condivisa; Sara aggiunge un'evidenza favorevole e il caso si ricalcola | Il collegamento da solo non basta; il controllo umano si vede, con il prima e il dopo |
 | 1:35–2:00 | Elena: anomalia concentrata sulla variante, attività di catalogo | ReturnRing aiuta a correggere il negozio, non solo a gestire i clienti |
@@ -1094,7 +1096,7 @@ Quindici questioni: una è già risolta (Evolus escluso), sei si chiudono al Q&A
 | D-12 | Gemma 4 31B o 26B-A4B | Token al secondo misurati in SPK-G1 e B3 | Oct 15, 2026 | Aperta |
 | D-13 | Da solo o in team | Decisione di Rosario prima del kickoff | Oct 12, 2026 | Aperta |
 | D-14 | Validazione legale delle leve e del percorso di garanzia, anche informale | Contatto con un legale di diritto dei consumatori | Oct 16, 2026 | Aperta |
-| D-15 | Soglie di progetto: anomalie (scarto 3, 20 vendite), riesame (90 giorni), decadimento dei legami (180 giorni), qualità dell'evidenza | Taratura sui dati generati e verifica sui casi d'oro | Oct 14, 2026 | Aperta |
+| D-15 | Soglie di progetto: anomalie (scarto 3, 20 vendite), riesame (90 giorni), decadimento dei legami (180 giorni), qualità dell'evidenza | Taratura sui dati generati e verifica sui casi d'oro | Oct 14, 2026 | In parte, 13 ottobre: anomalie con 20 vendite, z > 3, coda esatta di Poisson e livello condiviso dagli 8 motivi (8.9, scelta sul negozio principale); evidenza evidence-v1 con le sole osservazioni dell'account. Riesame (90 giorni) e decadimento (180 giorni) restano ipotesi |
 
 Le interviste di D-09 sono il moltiplicatore più forte del Business Value: una frase di un operatore reale nel pitch vale più di qualsiasi stima.
 
@@ -1336,6 +1338,7 @@ Rules for every text:
 
 | Data | Modifica | Dove |
 | --- | --- | --- |
+| 13 ott 2026 | Revisione della fase 2: regola delle anomalie come implementata (D-15 in parte); stati delle storie E2; soglie salvate con ogni quadrante, origine breve con catena di provenienza, nessuna versione di modello sul percorso di garanzia; evidenza delle sole osservazioni dell'account; FAIR-02 come scarto tra segmenti; apertura del pitch coerente con i casi d'oro | 5, 8.9, 16, 18, ADR-13 (emendamento 5) |
 | 13 ott 2026 | Contratti LLM v2: fatti costruiti dal codice e citati dalla spiegazione, segnaposto disponibili e richiesti, nessun punteggio nei casi di garanzia o con dati insufficienti; clausola di garanzia proposta (art. 13 della direttiva 2019/771); prompt adattato | 8.7, 19.B, 19.C, 19.D, ADR-14 |
 | 13 ott 2026 | Feature cliente al momento della decisione, riferimento di prodotto e coorte, residuo, valore e qualità dell'evidenza; tabelle customer\_value ed evidence\_quality | 7, ADR-13 (emendamento 3), docs/customer-features.md |
 | 13 ott 2026 | Contratti dati v2: consegne e stati del reso come eventi separati, catalogo varianti, legami, ground truth delle varianti e scenario, contratti ASOS e di calibrazione, catalogo delle leve, metadati di provenienza; regola 12 precisata | 7, 19.A, ADR-13 |

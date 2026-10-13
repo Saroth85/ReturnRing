@@ -20,7 +20,7 @@ from typing import Any, Final
 import pandas as pd
 import pyarrow as pa
 
-from contracts.io import Provenance, read_table, write_table
+from contracts.io import Provenance, read_table, require_derived, write_table
 from contracts.parquet import SCHEMAS
 from ml.reference.model import MODEL_VERSION, Priced, TrainConfig, observed_line_probabilities
 from pipeline.features.customer import behaviour_features
@@ -99,24 +99,36 @@ def tables(sets: Sequence[FeatureSet]) -> dict[str, pa.Table]:
     return {name: pa.concat_tables(chunks) for name, chunks in parts.items()}
 
 
-def provenance(store: StoreSnapshot, as_ofs: Sequence[datetime], source: str = "") -> Provenance:
-    """Origin names the code versions and the store it was computed from (rule 11); the period
-    runs from the store's first day to the last decision time."""
+def provenance(
+    store: StoreSnapshot, as_ofs: Sequence[datetime], source: Provenance | None = None
+) -> Provenance:
+    """Origin names the code versions (rule 11) in at most 300 characters; the lineage adds the
+    store the reference was trained on (`source`, when another store) and ends with the chain of
+    the store the features were computed from (ADR-13 amendment 5). The period runs from the
+    store's first day to the last decision time."""
     base = store.provenance["store/orders"]
     origin = (
-        f"ReturnRing {FEATURES_VERSION} (pipeline.features; reference model {MODEL_VERSION}; "
-        f"value {VALUE_ASSUMPTIONS.version}; evidence {EVIDENCE_THRESHOLDS.version}"
-        f"{'; reference trained on ' + source if source else ''}), computed from: {base.origin}"
+        f"ReturnRing {FEATURES_VERSION} (pipeline.features; reference model {MODEL_VERSION}"
+        f"{', trained on another store' if source is not None else ''}; value "
+        f"{VALUE_ASSUMPTIONS.version}; evidence {EVIDENCE_THRESHOLDS.version}), computed from "
+        f"the store of the lineage"
     )
+    detail = "" if source is None else f"reference trained on: {source.chain}"
     last = (max(as_ofs) - timedelta(microseconds=1)).date()
-    return Provenance(origin, base.period_start, max(last, base.period_start), base.nature)
+    return base.derive(origin, base.period_start, max(last, base.period_start), detail=detail)
 
 
-def clusters_at(root: Path | str | None, as_of: datetime) -> pd.DataFrame | None:
-    """features/clusters rows computed exactly at `as_of`, if that file exists under root."""
+def clusters_at(
+    root: Path | str | None, as_of: datetime, store: Provenance | None = None
+) -> pd.DataFrame | None:
+    """features/clusters rows computed exactly at `as_of`, if that file exists under root.
+    `store`: the provenance of the store/identifiers it is joined to; a file built from other
+    data (an older store) raises ContractError (review F22)."""
     if root is None or not (Path(root) / "features" / "clusters.parquet").exists():
         return None
-    table, _ = read_table("features/clusters", root)
+    table, prov = read_table("features/clusters", root)
+    if store is not None:
+        require_derived(prov, store, "features/clusters", "store/identifiers")
     frame = table.select(["customer_id", "cluster_id", "as_of"]).to_pandas()
     rows = frame.loc[frame["as_of"] == pd.Timestamp(utc(as_of))]
     return rows[["customer_id", "cluster_id"]] if len(rows) else None
@@ -140,10 +152,10 @@ def build(
     sets = []
     for t in instants:
         source = source_full.restrict(t) if source_full is not None else None
-        clusters = clusters_at(clusters_root, t)
+        clusters = clusters_at(clusters_root, t, full.provenance["store/identifiers"])
         sets.append(features_at(full.restrict(t), config=config, source=source, clusters=clusters))
-    origin = "" if source_full is None else source_full.provenance["store/orders"].origin
-    prov = provenance(full, instants, origin)
+    source_prov = None if source_full is None else source_full.provenance["store/orders"]
+    prov = provenance(full, instants, source_prov)
     written = {}
     for name, table in tables(sets).items():
         written[name] = os.fspath(write_table(name, table, out_root, prov))

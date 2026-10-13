@@ -15,7 +15,7 @@ Paths are <root>/<name>.parquet, for example data/store/orders.parquet.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -45,6 +45,13 @@ FAMILY_NATURES: dict[str, tuple[Nature, ...]] = {
 META_CONTRACT = b"returnring.contract"
 META_VERSION = b"returnring.contract_version"
 META_PROVENANCE = b"returnring.provenance"
+# The full chain of origins of a derived file (ADR-13 amendment 5, review F17): this file's origin
+# and details, then " <- " and the chain of the file it was computed from.
+META_LINEAGE = b"returnring.lineage"
+LINEAGE_SEPARATOR = " <- "
+# The API's Provenance.origin (ADR-15) holds at most 300 characters (review F17): every origin
+# fits, so any number of a contract file can reach a case card with its provenance (rule 11).
+MAX_ORIGIN_CHARS = 300
 
 # Fixed writer settings: no wall-clock value is written, so equal input gives equal bytes.
 _WRITE_OPTIONS: dict[str, Any] = {
@@ -69,16 +76,31 @@ class ContractError(ValueError):
 
 @dataclass(frozen=True)
 class Provenance:
-    """Where the numbers of a file come from (rule 11): origin, period and nature."""
+    """Where the numbers of a file come from (rule 11): origin, period and nature.
+
+    origin is short (at most MAX_ORIGIN_CHARS): the method, its versions and what it read, in a
+    form the API can show. lineage, empty for a source file, is the full chain of origins of a
+    derived file: its origin (and details) first, then LINEAGE_SEPARATOR and the chain of the file
+    it was computed from (derive). It is written under its own metadata key (META_LINEAGE)."""
 
     origin: str
     period_start: date
     period_end: date
     nature: Nature
+    lineage: str = ""
 
     def __post_init__(self) -> None:
         if not isinstance(self.origin, str) or not self.origin.strip():
             raise ContractError("provenance origin is required")
+        if len(self.origin) > MAX_ORIGIN_CHARS:
+            raise ContractError(
+                f"provenance origin has {len(self.origin)} characters, at most "
+                f"{MAX_ORIGIN_CHARS} (the API's limit): put the full chain in the lineage"
+            )
+        if not isinstance(self.lineage, str) or (
+            self.lineage and not self.lineage.startswith(self.origin)
+        ):
+            raise ContractError("provenance lineage must start with the origin")
         for field in ("period_start", "period_end"):
             value = getattr(self, field)
             if isinstance(value, datetime) or not isinstance(value, date):
@@ -88,7 +110,33 @@ class Provenance:
         if self.nature not in NATURES:
             raise ContractError(f"provenance nature must be one of {NATURES}, not {self.nature!r}")
 
+    @property
+    def chain(self) -> str:
+        """The full chain of origins: the lineage, or the origin of a source file."""
+        return self.lineage or self.origin
+
+    def derive(
+        self,
+        origin: str,
+        period_start: date,
+        period_end: date,
+        *,
+        detail: str = "",
+        nature: Nature | None = None,
+    ) -> Provenance:
+        """The provenance of a file computed from this one: a short origin, and a lineage of the
+        origin, the details (parameters too long for the origin) and this file's chain."""
+        head = f"{origin}; {detail}" if detail else origin
+        return Provenance(
+            origin,
+            period_start,
+            period_end,
+            nature or self.nature,
+            f"{head}{LINEAGE_SEPARATOR}{self.chain}",
+        )
+
     def to_json(self) -> str:
+        """The four fields of the API's Provenance; the lineage has a metadata key of its own."""
         return json.dumps(
             {
                 "origin": self.origin,
@@ -115,6 +163,20 @@ class Provenance:
             raise
         except (KeyError, TypeError, ValueError) as exc:
             raise ContractError(f"invalid provenance metadata: {exc!r}") from None
+
+
+def require_derived(
+    child: Provenance, parent: Provenance, child_name: str, parent_name: str
+) -> None:
+    """Raise ContractError unless `child` was computed from the data of `parent` (review F22): its
+    chain ends with the parent's whole chain. A table built from an older store (another seed, a
+    store regenerated since) must never be joined to the current one."""
+    if not child.chain.endswith(LINEAGE_SEPARATOR + parent.chain):
+        raise ContractError(
+            f"{child_name} was not computed from the {parent_name} it is joined to (stale file?): "
+            f"its lineage ends with {child.chain[-160:]!r}, the {parent_name} origin is "
+            f"{parent.chain[-160:]!r}; rebuild it from the current data"
+        )
 
 
 def _schema(name: str) -> pa.Schema:
@@ -232,6 +294,8 @@ def write_table(
         META_VERSION: CONTRACT_VERSION.encode(),
         META_PROVENANCE: provenance.to_json().encode(),
     }
+    if provenance.lineage:
+        metadata[META_LINEAGE] = provenance.lineage.encode()
     # One chunk per column: the row groups and pages written depend on the rows only, never on
     # how the caller's table happens to be chunked (DATA-04).
     conformed = table.select(schema.names).cast(schema).combine_chunks()
@@ -270,6 +334,12 @@ def read_table(
     if found_provenance is None:
         raise ContractError(f"{name}: the file has no provenance metadata (rule 11)")
     provenance = Provenance.from_json(found_provenance)
+    lineage = meta.get(META_LINEAGE)
+    if lineage is not None:
+        try:
+            provenance = replace(provenance, lineage=lineage.decode())
+        except UnicodeDecodeError:
+            raise ContractError(f"{name}: invalid lineage metadata") from None
     if as_of is not None:
         limit = pa.scalar(as_of.astimezone(UTC), type=TS)
         if name in EVENT_TABLES:

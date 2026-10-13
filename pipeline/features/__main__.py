@@ -8,8 +8,10 @@ month). It reads <store>/store only, never data/truth (rule 12).
 
 --source: train the reference model on that store instead, at each decision time (use the main
 store for the out-of-distribution store, which is never trained on: US-105).
---clusters: read features/clusters under that root, rows computed at each decision time, for the
-linked-account observations of the evidence quality.
+--clusters: read features/clusters under that root, rows computed at each decision time, to
+report the linked-account observations (n_observations_linked) of the evidence quality. They are
+never counted towards sufficient evidence (review F14), and the file must have been built from
+this store (review F22). The pipeline does not pass it.
 
 Exit codes: 0 done, 2 usage.
 """

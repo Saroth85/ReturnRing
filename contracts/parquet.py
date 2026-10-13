@@ -284,17 +284,22 @@ SCHEMAS: dict[str, pa.Schema] = {
         pa.field("status", pa.string(), nullable=False),  # ANOMALY_STATUSES
     ),
     # ---- scores ----
+    # The thresholds of spec 8.6 are stored with each quadrant (ADR-13 amendment 5, review F15):
+    # the API shows and reproduces them without reading features/ or the models.
     "scores/scores": _as_of_table(
         pa.field("customer_id", pa.string(), nullable=False),
         pa.field("risk", pa.float64(), nullable=False),
+        pa.field("risk_threshold", pa.float64(), nullable=False),  # of the customer model
         pa.field("evidence_quality", pa.string(), nullable=False),
         pa.field("value_eur", EUR, nullable=False),
+        pa.field("value_threshold_eur", EUR, nullable=False),  # 70th percentile at as_of
         pa.field("quadrant", pa.string()),
         pa.field("shap_top3", pa.string()),  # JSON: contributions to the score, not causes
         pa.field("model_version", pa.string(), nullable=False),
     ),
     # Per return request, scored as known when the request arrived (US-204, spec 8.4; ADR-13
-    # amendment 4). A guarantee-path request is listed with its path and no score (rule 4).
+    # amendments 4 and 5). A guarantee-path request is listed with its path and no score, no
+    # evidence and no model version (rule 4).
     "scores/request_scores": _as_of_table(
         pa.field("return_id", pa.string(), nullable=False),
         pa.field("customer_id", pa.string(), nullable=False),
@@ -302,11 +307,13 @@ SCHEMAS: dict[str, pa.Schema] = {
         pa.field("path", pa.string(), nullable=False),  # policy.types.Path
         pa.field("context_as_of", TS),  # the customer snapshot used: the last before decided_at
         pa.field("risk", pa.float64()),  # null on the guarantee path: not scored
-        pa.field("evidence_quality", pa.string()),  # at context_as_of; null without one
+        pa.field("risk_threshold", pa.float64()),  # of the request model; with risk
+        pa.field("evidence_quality", pa.string()),  # at context_as_of; insufficient without one
         pa.field("value_eur", EUR),  # at context_as_of; null without one
+        pa.field("value_threshold_eur", EUR),  # 70th percentile at context_as_of; with value
         pa.field("quadrant", pa.string()),  # null: guarantee path or insufficient evidence
         pa.field("shap_top3", pa.string()),  # JSON: contributions to the score, not causes
-        pa.field("model_version", pa.string(), nullable=False),
+        pa.field("model_version", pa.string()),  # with risk; null on the guarantee path
     ),
 }
 
@@ -536,3 +543,30 @@ def is_forbidden_feature(name: str) -> bool:
 def forbidden_features(names: Iterable[str]) -> list[str]:
     """The forbidden names among `names`, in order: run it on every model's feature list."""
     return [name for name in names if is_forbidden_feature(name)]
+
+
+# ---- Labels and row keys (review F6): never model features ---------------------------------------
+
+# Every column of the ground truth (labels and defective variants), and the binary label the
+# offline jobs derive from it. is_forbidden_feature allows customer_id, variant_id and cluster_id
+# by design (feature tables carry them as keys), so these are checked apart.
+GROUND_TRUTH_COLUMNS = frozenset(
+    {f.name for name in SCHEMAS if name.startswith("truth/") for f in SCHEMAS[name]}
+    | {"abusive", "label"}
+)
+# Row keys: every column named *_id of any contract, the pair of a link, coupon codes and hashed
+# values. A key follows creation order or a random draw, never behaviour, and may proxy a label.
+KEY_COLUMNS = frozenset(
+    {f.name for schema in SCHEMAS.values() for f in schema if f.name.endswith("_id")}
+    | {"customer_a", "customer_b", "coupon_code", "value_hash"}
+)
+
+
+def label_or_key_features(names: Iterable[str]) -> list[str]:
+    """The names among `names` that are ground-truth columns or row keys (any name ending in
+    _id included), in order: no model may use one (rule 6, FAIR-01; review F6)."""
+    return [
+        name
+        for name in names
+        if name in GROUND_TRUTH_COLUMNS or name in KEY_COLUMNS or name.lower().endswith("_id")
+    ]

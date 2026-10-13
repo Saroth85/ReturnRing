@@ -4,8 +4,8 @@ Stories US-205, US-206 and US-209 (tests UNIT-02, UNIT-03, MOD-06, MOD-08, MOD-0
 
 Rewritten by `python -m ml.reference.report --data data --results docs/results/customer-quantities.md` from the data alone (no wall-clock value), so the same store gives the same file. Every number below is synthetic: measured on the Navigli Fashion store, whose behaviours and rules are design hypotheses calibrated on real ASOS aggregates. None is a measure on real customers.
 
-- Main store origin: Navigli Fashion generator, calibrated on ASOS GraphReturns aggregates (calibration: ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; calibration: aggregates of the train split by pipeline/ingest/asos_profile.py. Rates, counts and purchases per customer come from the train events (2021-09-01..2021-10-31); product types, prices, return rates and reason shares come from the train product table, whose aggregates equal the test table's for every shared variant, so their window is the test window too (ADR-10); hence the period 2021-09-01..2021-11-30; calibration nature real; sha256 f49ce3711edd; seed 42, scale 1, scenario main; store period 2025-10-01..2026-09-30); period 2025-10-01 to 2026-09-30; nature synthetic.
-- OOD store origin: Navigli Fashion generator, calibrated on ASOS GraphReturns aggregates (calibration: ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; calibration: aggregates of the train split by pipeline/ingest/asos_profile.py. Rates, counts and purchases per customer come from the train events (2021-09-01..2021-10-31); product types, prices, return rates and reason shares come from the train product table, whose aggregates equal the test table's for every shared variant, so their window is the test window too (ADR-10); hence the period 2021-09-01..2021-11-30; calibration nature real; sha256 f49ce3711edd; seed 42, scale 1, scenario ood; store period 2025-10-01..2026-09-30); nature synthetic.
+- Main store origin: Navigli Fashion generator, calibrated on ASOS GraphReturns aggregates (seed 42, scale 1, scenario main; calibration real, sha256 f49ce3711edd: ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0); store period 2025-10-01..2026-09-30; calibration: ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; calibration: aggregates of the train split by pipeline/ingest/asos_profile.py. Rates, counts and purchases per customer come from the train events (2021-09-01..2021-10-31); product types, prices, return rates and reason shares come from the train product table, whose aggregates equal the test table's for every shared variant, so their window is the test window too (ADR-10); hence the period 2021-09-01..2021-11-30; calibration nature real; sha256 f49ce3711edd0edf1a7fd30bcbfed790a0a60ea334545c5c1b5a107c01e9f0af; period 2025-10-01 to 2026-09-30; nature synthetic.
+- OOD store origin: Navigli Fashion generator, calibrated on ASOS GraphReturns aggregates (seed 42, scale 1, scenario ood; calibration real, sha256 f49ce3711edd: ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0); store period 2025-10-01..2026-09-30; calibration: ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; calibration: aggregates of the train split by pipeline/ingest/asos_profile.py. Rates, counts and purchases per customer come from the train events (2021-09-01..2021-10-31); product types, prices, return rates and reason shares come from the train product table, whose aggregates equal the test table's for every shared variant, so their window is the test window too (ADR-10); hence the period 2021-09-01..2021-11-30; calibration nature real; sha256 f49ce3711edd0edf1a7fd30bcbfed790a0a60ea334545c5c1b5a107c01e9f0af; nature synthetic.
 - Code: features-v1, reference model v1, value value-v1-2026-10-13, evidence evidence-v1-2026-10-13.
 
 ## A. Reference model: calibration on the last three months (US-206, MOD-06)
@@ -115,24 +115,24 @@ V_c = 0.55 x kept line prices - 8.00 EUR x returns - coupon discounts, over the 
 
 | Decision time | Customers | Mismatches | Order totals | Sum of V | p10 | p30 | p50 | p70 | p90 | V < 0 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 2026-07-01 00:00Z | 18,636 | 0 | 4,656,821.53 | 1,381,581.74 | -0.02 | 29.14 | 59.06 | 97.48 | 172.41 | 10.0% |
-| 2026-08-01 00:00Z | 19,238 | 0 | 5,363,460.89 | 1,604,631.89 | 1.76 | 35.79 | 67.31 | 107.88 | 189.25 | 9.0% |
-| 2026-09-01 00:00Z | 19,829 | 0 | 5,824,226.26 | 1,730,911.60 | 3.30 | 37.17 | 70.59 | 112.80 | 197.83 | 8.7% |
-| 2026-10-01 00:00Z | 20,000 | 0 | 6,307,945.09 | 1,874,554.53 | 4.38 | 41.46 | 76.27 | 120.05 | 211.07 | 8.5% |
+| 2026-07-01 00:00Z | 18,636 | 0 | 4,656,721.53 | 1,381,481.74 | -0.03 | 29.11 | 59.06 | 97.61 | 172.36 | 10.0% |
+| 2026-08-01 00:00Z | 19,238 | 0 | 5,363,360.89 | 1,604,531.89 | 1.74 | 35.76 | 67.31 | 107.89 | 189.23 | 9.1% |
+| 2026-09-01 00:00Z | 19,829 | 0 | 5,824,126.26 | 1,730,811.60 | 3.30 | 37.17 | 70.59 | 112.80 | 197.83 | 8.7% |
+| 2026-10-01 00:00Z | 20,000 | 0 | 6,307,845.09 | 1,874,454.53 | 4.38 | 41.39 | 76.27 | 120.05 | 211.07 | 8.5% |
 
 By behaviour at 2026-10-01 00:00Z (truth, offline). Value orients benefits; it is never a sign of abuse and never feeds the risk score (rule 6). The last column is the share above the store's 70th percentile of value, the Q1/Q3 side of spec 8.6.
 
 | Behaviour | Customers | Median V (EUR) | Above p70 |
 | --- | --- | --- | --- |
 | normal | 16,000 | 79.17 | 31.0% |
-| size | 2,400 | 85.91 | 33.6% |
+| size | 2,400 | 86.00 | 33.5% |
 | shared_benign | 700 | 84.38 | 30.7% |
 | wardrober | 600 | -4.58 | 3.2% |
-| promo_ring | 300 | -64.62 | 0.0% |
+| promo_ring | 300 | -64.67 | 0.0% |
 
 ## D. Evidence quality (US-209, D-15)
 
-Thresholds evidence-v1-2026-10-13: at least 4 settled lines (own, or with linked accounts when the account graph is given), identifier completeness at least 0.6, reason coherence at least 0.5 from 2 withdrawal returns on. Origin: main store at the decision times of the risk split, and the OOD store at the end (separate row); nature: synthetic. The account graph (features/clusters) was not available, so these use own observations only. Columns 4-6: share of customers missing that piece of evidence.
+Thresholds evidence-v1-2026-10-13: at least 4 settled lines of the account's own, identifier completeness at least 0.6, reason coherence at least 0.5 from 2 withdrawal returns on. Origin: main store at the decision times of the risk split, and the OOD store at the end (separate row); nature: synthetic. n_observations_linked is null in every row: this evidence was computed without the account graph. The outcome counts each account's own settled lines only, with or without it (review F14). Columns 4-6: share of customers missing that piece of evidence.
 
 | Decision time | Customers | Insufficient | Observations | Identifiers | Reasons | Insufficient, abusive | Insufficient, other |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -140,7 +140,7 @@ Thresholds evidence-v1-2026-10-13: at least 4 settled lines (own, or with linked
 | 2026-08-01 00:00Z | 19,238 | 25.0% | 24.6% | 0.2% | 0.4% | 31.7% | 24.7% |
 | 2026-09-01 00:00Z | 19,829 | 19.8% | 19.4% | 0.2% | 0.4% | 22.8% | 19.7% |
 | 2026-10-01 00:00Z | 20,000 | 16.7% | 16.3% | 0.0% | 0.5% | 19.9% | 16.6% |
-| OOD 2026-10-01 00:00Z | 20,000 | 24.1% | 16.6% | 8.6% | 0.5% | 24.3% | 24.1% |
+| OOD 2026-10-01 00:00Z | 20,000 | 24.1% | 16.6% | 8.6% | 0.5% | 24.2% | 24.1% |
 
 D-15, train period only (2026-07-01 00:00Z, main store): the observations threshold against the share of customers it sends to insufficient evidence and the AUC of the reference z for abusive customers among those it keeps (truth, offline).
 
@@ -176,10 +176,10 @@ Identifier completeness below each threshold (main at the train end; OOD at the 
 | Threshold | Main | OOD |
 | --- | --- | --- |
 | 0.4 | 0.0% | 0.6% |
-| 0.5 | 0.0% | 3.1% |
+| 0.5 | 0.0% | 3.0% |
 | 0.6 | 0.1% | 8.6% |
-| 0.7 | 0.1% | 23.0% |
-| 0.8 | 0.2% | 35.8% |
+| 0.7 | 0.1% | 22.9% |
+| 0.8 | 0.2% | 35.7% |
 
 Reason coherence below each threshold, customers with at least 2 withdrawal returns (main, train end):
 

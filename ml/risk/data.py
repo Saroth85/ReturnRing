@@ -21,7 +21,7 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
 
-from contracts.io import Provenance, read_table
+from contracts.io import Provenance, read_table, require_derived
 from contracts.parquet import TS
 from ml.risk.features import CUSTOMER_FEATURES_ALL, customer_frame, request_frame
 from pipeline.graph.build import build_graph
@@ -50,13 +50,24 @@ class GraphSnapshots:
     """features/clusters rows at decision times up to `until`, from one read of the store."""
 
     def __init__(
-        self, store_root: Path | str, until: datetime, existing: pd.DataFrame | None = None
+        self,
+        store_root: Path | str,
+        until: datetime,
+        existing: pd.DataFrame | None = None,
+        existing_provenance: Provenance | None = None,
     ) -> None:
+        """existing: rows of a features/clusters file, with its provenance; a file computed
+        from another store (an older seed) raises ContractError (review F22)."""
         self.until = utc(until)
         self.tables: dict[str, pa.Table] = {}
         self.provenance: dict[str, Provenance] = {}
         for name in SNAPSHOT_TABLES:
             self.tables[name], self.provenance[name] = read_table(name, store_root, as_of=until)
+        if existing is not None:
+            if existing_provenance is None:
+                raise ValueError("existing features/clusters rows need their provenance")
+            store = self.provenance["store/identifiers"]
+            require_derived(existing_provenance, store, "features/clusters", "store/identifiers")
         self.existing = existing
         self.sources: dict[datetime, str] = {}
         self._cache: dict[datetime, pd.DataFrame] = {}

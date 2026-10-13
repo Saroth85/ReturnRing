@@ -44,6 +44,7 @@ from ml.reference.features import (
     PERSONALIZED_FEATURES,
     REFERENCE_FEATURES,
     Encoding,
+    check_feature_names,
     design,
     history_frame,
     line_queries,
@@ -85,7 +86,9 @@ class TrainConfig:
 
 
 def role_features(role: Role) -> tuple[str, ...]:
-    return REFERENCE_FEATURES if role == "reference" else PERSONALIZED_FEATURES
+    names = REFERENCE_FEATURES if role == "reference" else PERSONALIZED_FEATURES
+    check_feature_names(names)  # FAIR-01, rule 6, review F6
+    return names
 
 
 def log_loss(y: npt.ArrayLike, p: npt.ArrayLike) -> float:

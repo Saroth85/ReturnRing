@@ -12,7 +12,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from contracts.parquet import SCHEMAS, forbidden_features
+from contracts.parquet import SCHEMAS, forbidden_features, label_or_key_features
+from ml.reference.features import check_feature_names as reference_check
 from ml.risk.data import latest_before
 from ml.risk.features import (
     A0,
@@ -93,6 +94,37 @@ def test_the_ablation_adds_one_group_per_step() -> None:
 def test_check_feature_names_refuses(names: tuple[str, ...]) -> None:
     with pytest.raises(ValueError):
         check_feature_names(names)
+
+
+@pytest.mark.parametrize(
+    "names",
+    [
+        ("customer_id",),
+        ("cluster_id", "return_rate"),
+        ("ring_id",),
+        ("family_id",),
+        ("behaviour",),
+        ("abusive",),
+        ("scenario",),
+        ("defective",),
+        ("base_return_rate",),
+        ("defect_reason",),
+        ("variant_id",),
+        ("order_id",),
+        ("coupon_code",),
+        ("customer_a",),
+        ("terms_snapshot_id",),
+        ("Customer_ID",),
+    ],
+)
+def test_f6_labels_and_row_keys_are_never_features(names: tuple[str, ...]) -> None:
+    """F6 (rule 6, FAIR-01): a ground-truth column, the derived label or a row key (the
+    customer_id number follows creation order and separates rings) never passes the guard."""
+    with pytest.raises(ValueError, match="labels and row keys"):
+        check_feature_names(names)
+    assert label_or_key_features(names)
+    with pytest.raises(ValueError, match="row keys"):
+        reference_check(names)  # the same guard on the reference and personalized predictors
 
 
 def test_customer_frame_takes_the_rows_computed_at_exactly_the_decision_time() -> None:

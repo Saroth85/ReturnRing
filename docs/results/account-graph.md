@@ -8,9 +8,9 @@ rewritten from the data.
 | --- | --- |
 | Nature | **Synthetic**: measured on the generated Navigli Fashion store |
 | Decision time (as_of) | 2026-10-01T00:00:00+00:00: only rows available then (rule 7) |
-| Store, main | Navigli Fashion generator, calibrated on ASOS GraphReturns aggregates (calibration: ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; calibration: aggregates of the train split by pipeline/ingest/asos_profile.py. Rates, counts and purchases per customer come from the train events (2021-09-01..2021-10-31); product types, prices, return rates and reason shares come from the train product table, whose aggregates equal the test table's for every shared variant, so their window is the test window too (ADR-10); hence the period 2021-09-01..2021-11-30; calibration nature real; sha256 f49ce3711edd; seed 42, scale 1, scenario main; store period 2025-10-01..2026-09-30) |
+| Store, main | Navigli Fashion generator, calibrated on ASOS GraphReturns aggregates (seed 42, scale 1, scenario main; calibration real, sha256 f49ce3711edd: ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0); store period 2025-10-01..2026-09-30; calibration: ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; calibration: aggregates of the train split by pipeline/ingest/asos_profile.py. Rates, counts and purchases per customer come from the train events (2021-09-01..2021-10-31); product types, prices, return rates and reason shares come from the train product table, whose aggregates equal the test table's for every shared variant, so their window is the test window too (ADR-10); hence the period 2021-09-01..2021-11-30; calibration nature real; sha256 f49ce3711edd0edf1a7fd30bcbfed790a0a60ea334545c5c1b5a107c01e9f0af |
 | Period, main | 2019-05-10 to 2026-09-30: oldest account to the last day of data at as_of |
-| Store, ood | Navigli Fashion generator, calibrated on ASOS GraphReturns aggregates (calibration: ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; calibration: aggregates of the train split by pipeline/ingest/asos_profile.py. Rates, counts and purchases per customer come from the train events (2021-09-01..2021-10-31); product types, prices, return rates and reason shares come from the train product table, whose aggregates equal the test table's for every shared variant, so their window is the test window too (ADR-10); hence the period 2021-09-01..2021-11-30; calibration nature real; sha256 f49ce3711edd; seed 42, scale 1, scenario ood; store period 2025-10-01..2026-09-30) |
+| Store, ood | Navigli Fashion generator, calibrated on ASOS GraphReturns aggregates (seed 42, scale 1, scenario ood; calibration real, sha256 f49ce3711edd: ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0); store period 2025-10-01..2026-09-30; calibration: ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; calibration: aggregates of the train split by pipeline/ingest/asos_profile.py. Rates, counts and purchases per customer come from the train events (2021-09-01..2021-10-31); product types, prices, return rates and reason shares come from the train product table, whose aggregates equal the test table's for every shared variant, so their window is the test window too (ADR-10); hence the period 2021-09-01..2021-11-30; calibration nature real; sha256 f49ce3711edd0edf1a7fd30bcbfed790a0a60ea334545c5c1b5a107c01e9f0af |
 | Period, ood | 2021-10-02 to 2026-09-30: oldest account to the last day of data at as_of |
 | Ground truth | truth/labels, read by this offline job only (rule 12, ADR-13) |
 
@@ -26,21 +26,31 @@ Target (spec 12): pairwise precision >= 0.90 and recall >= 0.80 on the rings of 
 | Scenario | Rings (accounts) | Pairwise precision | Pairwise recall | Pairs predicted / true / actual | Member precision | Member recall | Rings exact | Rings whole | Ring accounts in no cluster | MOD-03 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | main | 40 (300) | 1.000 | 1.000 | 1,012 / 1,012 / 1,012 | 1.000 | 1.000 | 40 | 40 | 0 | pass |
-| ood | 75 (300) | 1.000 | 0.152 | 72 / 72 / 475 | 1.000 | 0.307 | 1 | 1 | 206 | fail (MOD-12: reported) |
+| ood | 75 (300) | 0.928 | 0.135 | 69 / 64 / 475 | 0.968 | 0.293 | 2 | 2 | 209 | fail (MOD-12: reported) |
+
+Pairs of accounts of different groups (a ring, a family or one unrelated account) that share a strong identifier, by kind: what the precision at the 0.8 threshold can measure.
+
+| Scenario | card | email | device |
+| --- | --- | --- | --- |
+| main | 0 | 0 | 0 |
+| ood | 18 | 0 | 100 |
+
+- main: no card, e-mail or device is shared by accounts of different groups, and addresses with IP prefixes reach at most 1 - 0.4 x 0.8 = 0.68. So the pairwise precision at the 0.8 threshold and the absence of unrelated pairs in one cluster hold **by construction** here: they confirm the code, not the method (review F3).
+- ood: 118 pairs of accounts of different groups share a strong identifier, so the precision at the 0.8 threshold is measured here, not given.
 
 Pairs of accounts of the same ring by the weight of their direct link (a pair below 0.8 can still share a cluster through other members):
 
 | Scenario | no link | below 0.6 | 0.6 to 0.8 | 0.8 or more |
 | --- | --- | --- | --- | --- |
-| main | 44 | 35 | 29 | 904 |
-| ood | 331 | 26 | 49 | 69 |
+| main | 31 | 49 | 52 | 880 |
+| ood | 329 | 40 | 47 | 59 |
 
 ## MOD-11: common addresses and families
 
 | Scenario | Unrelated pairs in one cluster | Mixed clusters | Common addresses (users) | Largest common address | Above the hub degree | Unrelated pairs joined at them | Families exact / whole / total |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | main | 0 | 0 | 40 (1,742) | 213 users | 10 | 0 | 261 / 261 / 261 |
-| ood | 0 | 0 | 40 (1,710) | 240 users | 10 | 0 | 252 / 252 / 252 |
+| ood | 154 | 117 | 40 (1,710) | 240 users | 10 | 18 | 238 / 252 / 252 |
 
 Golden groups: is their cluster exactly their accounts?
 
@@ -49,7 +59,7 @@ Golden groups: is their cluster exactly their accounts?
 | main | R-MARCO | 7 | 1 | 0 | 0 | yes | 11.0 | 3 | 1.00 | 0.903 | 0.57 |
 | main | F-ROSSI | 3 | 1 | 0 | 0 | yes | 1382.0 | 3 | 0.00 | 0.222 | 0.33 |
 | main | F-ROSSI-CARD | 3 | 1 | 0 | 0 | yes | 1224.3 | 2 | 0.00 | 0.250 | 0.50 |
-| ood | F-OOD-HARD | 5 | 1 | 0 | 0 | yes | 7.3 | 1 | 1.00 | 0.250 | 0.50 |
+| ood | F-OOD-HARD | 5 | 1 | 0 | 0 | yes | 7.3 | 2 | 1.00 | 0.250 | 0.50 |
 
 Most used common addresses, main (values not shown: pseudonymous data):
 
@@ -70,48 +80,48 @@ Most used common addresses, ood (values not shown: pseudonymous data):
 
 | Rank | Users | Groups among users | Users in a cluster | Their clusters | Unrelated pairs joined |
 | --- | --- | --- | --- | --- | --- |
-| 1 | 240 | 240 | 10 | 10 | 0 |
-| 2 | 236 | 236 | 9 | 9 | 0 |
-| 3 | 207 | 207 | 5 | 5 | 0 |
-| 4 | 201 | 201 | 8 | 8 | 0 |
-| 5 | 129 | 129 | 3 | 3 | 0 |
+| 1 | 240 | 240 | 12 | 12 | 0 |
+| 2 | 236 | 236 | 10 | 10 | 0 |
+| 3 | 207 | 207 | 7 | 7 | 0 |
+| 4 | 201 | 201 | 9 | 9 | 0 |
+| 5 | 129 | 129 | 4 | 4 | 0 |
 | 6 | 125 | 125 | 9 | 9 | 0 |
 | 7 | 81 | 81 | 5 | 5 | 0 |
-| 8 | 79 | 79 | 1 | 1 | 0 |
+| 8 | 79 | 79 | 5 | 5 | 0 |
 | 9 | 73 | 73 | 4 | 4 | 0 |
-| 10 | 67 | 67 | 2 | 2 | 0 |
+| 10 | 67 | 67 | 3 | 3 | 0 |
 
 ## Largest clusters and their composition
 
 main (composition by ground-truth behaviour):
 
-| Cluster | Size | Composition | Groups | Unrelated pairs | Creation spread (days) | Distinct cards | Welcome coupons per account | Return rate | Strong-identifier share |
+| Rank | Size | Composition | Groups | Unrelated pairs | Creation spread (days) | Distinct cards | Welcome coupons per account | Return rate | Strong-identifier share |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| CL-06c3dc46e03f | 9 | promo_ring 9 | 1 | 0 | 8.3 | 5 | 1.00 | 0.966 | 0.38 |
-| CL-0d45cbdb22b8 | 9 | promo_ring 9 | 1 | 0 | 5.6 | 4 | 1.00 | 0.937 | 0.57 |
-| CL-1ee018b5c1b1 | 9 | promo_ring 9 | 1 | 0 | 3.0 | 5 | 1.00 | 0.875 | 0.57 |
-| CL-38a17d335a3e | 9 | promo_ring 9 | 1 | 0 | 11.8 | 7 | 1.00 | 0.967 | 0.57 |
-| CL-67d5f8aa90e7 | 9 | promo_ring 9 | 1 | 0 | 7.3 | 4 | 1.00 | 0.967 | 0.50 |
-| CL-6c9734dc45eb | 9 | promo_ring 9 | 1 | 0 | 11.6 | 4 | 1.00 | 0.870 | 0.50 |
-| CL-8eb0b85dcd9c | 9 | promo_ring 9 | 1 | 0 | 10.9 | 6 | 1.00 | 0.952 | 0.43 |
-| CL-a7c3f0c9aff7 | 9 | promo_ring 9 | 1 | 0 | 8.3 | 5 | 1.00 | 0.928 | 0.38 |
-| CL-b0445e9bdb16 | 9 | promo_ring 9 | 1 | 0 | 3.9 | 7 | 1.00 | 0.934 | 0.50 |
-| CL-c2f76aea0d2f | 9 | promo_ring 9 | 1 | 0 | 5.3 | 5 | 1.00 | 0.934 | 0.40 |
+| 1 | 9 | promo_ring 9 | 1 | 0 | 8.3 | 5 | 1.00 | 0.966 | 0.50 |
+| 2 | 9 | promo_ring 9 | 1 | 0 | 5.6 | 6 | 1.00 | 0.937 | 0.43 |
+| 3 | 9 | promo_ring 9 | 1 | 0 | 3.0 | 8 | 1.00 | 0.875 | 0.50 |
+| 4 | 9 | promo_ring 9 | 1 | 0 | 11.8 | 4 | 1.00 | 0.967 | 0.38 |
+| 5 | 9 | promo_ring 9 | 1 | 0 | 7.3 | 3 | 1.00 | 0.967 | 0.43 |
+| 6 | 9 | promo_ring 9 | 1 | 0 | 11.6 | 8 | 1.00 | 0.870 | 0.44 |
+| 7 | 9 | promo_ring 9 | 1 | 0 | 10.9 | 5 | 1.00 | 0.952 | 0.50 |
+| 8 | 9 | promo_ring 9 | 1 | 0 | 8.3 | 8 | 1.00 | 0.928 | 0.57 |
+| 9 | 9 | promo_ring 9 | 1 | 0 | 3.9 | 6 | 1.00 | 0.934 | 0.57 |
+| 10 | 9 | promo_ring 9 | 1 | 0 | 5.3 | 4 | 1.00 | 0.934 | 0.50 |
 
 ood (composition by ground-truth behaviour):
 
-| Cluster | Size | Composition | Groups | Unrelated pairs | Creation spread (days) | Distinct cards | Welcome coupons per account | Return rate | Strong-identifier share |
+| Rank | Size | Composition | Groups | Unrelated pairs | Creation spread (days) | Distinct cards | Welcome coupons per account | Return rate | Strong-identifier share |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| CL-586590b2af58 | 5 | shared_benign 5 | 1 | 0 | 7.3 | 1 | 1.00 | 0.250 | 0.50 |
-| CL-01830d64c135 | 4 | shared_benign 4 | 1 | 0 | 1084.3 | 3 | 0.50 | 0.348 | 0.50 |
-| CL-038ecbd24a6e | 4 | shared_benign 4 | 1 | 0 | 823.8 | 2 | 0.00 | 0.206 | 0.50 |
-| CL-053dd7db227b | 4 | shared_benign 4 | 1 | 0 | 2.8 | 1 | 1.00 | 0.273 | 0.50 |
-| CL-0726c06a847f | 4 | shared_benign 4 | 1 | 0 | 1355.1 | 3 | 0.00 | 0.267 | 0.50 |
-| CL-0c49d42f2f87 | 4 | shared_benign 4 | 1 | 0 | 1611.6 | 4 | 0.25 | 0.109 | 0.50 |
-| CL-0d9cbbbd6ae9 | 4 | shared_benign 4 | 1 | 0 | 1342.5 | 4 | 0.00 | 0.289 | 0.50 |
-| CL-141058cc9aa0 | 4 | shared_benign 4 | 1 | 0 | 1433.4 | 4 | 0.00 | 0.200 | 0.33 |
-| CL-1d6f87654753 | 4 | shared_benign 4 | 1 | 0 | 688.4 | 3 | 0.00 | 0.219 | 0.33 |
-| CL-28cb806cdee1 | 4 | shared_benign 4 | 1 | 0 | 1178.5 | 4 | 0.00 | 0.143 | 0.33 |
+| 1 | 6 | shared_benign 6 | 2 | 8 | 1396.5 | 4 | 0.67 | 0.356 | 0.50 |
+| 2 | 6 | shared_benign 6 | 2 | 8 | 470.1 | 6 | 0.50 | 0.242 | 0.50 |
+| 3 | 5 | shared_benign 5 | 1 | 0 | 7.3 | 2 | 1.00 | 0.250 | 0.50 |
+| 4 | 5 | normal 2, shared_benign 3 | 3 | 7 | 1059.1 | 6 | 0.00 | 0.121 | 0.67 |
+| 5 | 5 | normal 1, shared_benign 4 | 2 | 4 | 1399.8 | 3 | 0.20 | 0.212 | 0.60 |
+| 6 | 5 | normal 1, shared_benign 4 | 2 | 4 | 1066.8 | 2 | 0.20 | 0.171 | 0.60 |
+| 7 | 4 | shared_benign 4 | 1 | 0 | 1084.3 | 2 | 0.50 | 0.348 | 0.50 |
+| 8 | 4 | shared_benign 4 | 1 | 0 | 823.8 | 4 | 0.00 | 0.206 | 0.50 |
+| 9 | 4 | shared_benign 4 | 1 | 0 | 2.8 | 1 | 1.00 | 0.273 | 0.50 |
+| 10 | 4 | shared_benign 4 | 1 | 0 | 1355.1 | 3 | 0.00 | 0.267 | 0.50 |
 
 ## Cluster features by cluster type
 
@@ -119,19 +129,19 @@ Medians over the clusters of each type (type from the ground truth). The graph p
 
 | Scenario | Type | Clusters | Size | Creation spread (days) | Cards per account | Welcome coupons per account | Return rate | Strong-identifier share |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| main | ring | 40 | 7.0 | 6.4 | 0.62 | 1.00 | 0.950 | 0.50 |
+| main | ring | 40 | 7.0 | 6.4 | 0.83 | 1.00 | 0.950 | 0.50 |
 | main | family | 261 | 3.0 | 811.3 | 1.00 | 0.00 | 0.237 | 0.33 |
 | main | mixed | 0 | n/a | n/a | n/a | n/a | n/a | n/a |
-| ood | ring | 40 | 2.0 | 25.1 | 1.00 | 0.88 | 0.712 | 1.00 |
-| ood | family | 252 | 3.0 | 671.9 | 0.67 | 0.00 | 0.220 | 0.50 |
-| ood | mixed | 0 | n/a | n/a | n/a | n/a | n/a | n/a |
+| ood | ring | 37 | 2.0 | 31.6 | 1.00 | 0.67 | 0.714 | 1.00 |
+| ood | family | 238 | 3.0 | 671.9 | 0.75 | 0.00 | 0.222 | 0.50 |
+| ood | mixed | 117 | 2.0 | 652.6 | 1.00 | 0.00 | 0.235 | 1.00 |
 
 ## Hub pruning against the brute force
 
 | Scenario | Links written | Pairs of the brute force | Pairs left out | Largest weight left out | All below the threshold | Kept links identical | Clusters identical | Hub values (by kind) | Largest hub |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| main | 23,201 | 207,521 | 184,320 | 0.60 | yes | yes | yes | 240 (address 10, ip_prefix 230) | 213 users |
-| ood | 33,770 | 187,766 | 153,996 | 0.60 | yes | yes | yes | 118 (address 10, ip_prefix 108) | 240 users |
+| main | 19,344 | 216,320 | 196,976 | 0.60 | yes | yes | yes | 268 (address 10, ip_prefix 258) | 213 users |
+| ood | 31,813 | 195,382 | 163,569 | 0.60 | yes | yes | yes | 148 (address 10, ip_prefix 138) | 240 users |
 
 ## Variants (sensitivity and ablation, reported as measured)
 
@@ -139,13 +149,13 @@ The product uses the spec 8.3 values; these rows only show what other choices wo
 
 | Scenario | Variant | Links | Cluster links | Clusters | Largest | Pairwise precision | Pairwise recall | Rings exact | Unrelated pairs in one cluster | Families exact |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| main | spec 8.3 (product) | 23,201 | 1,568 | 301 | 9 | 1.000 | 1.000 | 40 | 0 | 261 |
-| main | clusters on weight_decayed | 23,201 | 16 | 16 | 2 | n/a | 0.000 | 0 | 0 | 14 |
-| main | threshold 0.6 | 136,183 | 115,839 | 340 | 205 | 0.332 | 0.923 | 31 | 106,033 | 258 |
-| main | threshold 0.7 | 23,201 | 1,568 | 301 | 9 | 1.000 | 1.000 | 40 | 0 | 261 |
-| main | threshold 0.9 | 23,201 | 1,332 | 302 | 9 | 1.000 | 0.890 | 25 | 0 | 261 |
-| ood | spec 8.3 (product) | 33,770 | 774 | 292 | 5 | 1.000 | 0.152 | 1 | 0 | 252 |
-| ood | clusters on weight_decayed | 33,770 | 23 | 23 | 2 | n/a | 0.000 | 0 | 0 | 13 |
-| ood | threshold 0.6 | 158,731 | 127,093 | 351 | 233 | 0.095 | 0.297 | 9 | 118,270 | 240 |
-| ood | threshold 0.7 | 33,770 | 774 | 292 | 5 | 1.000 | 0.152 | 1 | 0 | 252 |
-| ood | threshold 0.9 | 33,770 | 730 | 266 | 5 | 1.000 | 0.059 | 0 | 0 | 252 |
+| main | spec 8.3 (product) | 19,344 | 1,544 | 301 | 9 | 1.000 | 1.000 | 40 | 0 | 261 |
+| main | clusters on weight_decayed | 19,344 | 16 | 16 | 2 | n/a | 0.000 | 0 | 0 | 12 |
+| main | threshold 0.6 | 132,323 | 115,838 | 340 | 206 | 0.314 | 0.919 | 30 | 106,187 | 258 |
+| main | threshold 0.7 | 19,344 | 1,544 | 301 | 9 | 1.000 | 1.000 | 40 | 0 | 261 |
+| main | threshold 0.9 | 19,344 | 1,338 | 302 | 9 | 1.000 | 0.875 | 26 | 0 | 261 |
+| ood | spec 8.3 (product) | 31,813 | 882 | 392 | 6 | 0.928 | 0.135 | 2 | 154 | 238 |
+| ood | clusters on weight_decayed | 31,813 | 30 | 30 | 2 | n/a | 0.000 | 0 | 6 | 13 |
+| ood | threshold 0.6 | 156,769 | 127,181 | 427 | 232 | 0.066 | 0.261 | 4 | 116,919 | 227 |
+| ood | threshold 0.7 | 31,813 | 882 | 392 | 6 | 0.928 | 0.135 | 2 | 154 | 238 |
+| ood | threshold 0.9 | 31,813 | 751 | 290 | 5 | 1.000 | 0.059 | 1 | 18 | 252 |

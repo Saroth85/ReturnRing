@@ -139,7 +139,7 @@ and no customer feature reads it (rule 6, tested).
 
 | Component | Definition | Threshold (`evidence-v1-2026-10-13`) |
 | --- | --- | --- |
-| Observations | Settled lines; with the account graph, plus those of the linked accounts | At least 4 |
+| Observations | The account's own settled lines; the linked accounts' are reported (`n_observations_linked`, with the account graph) and never counted (review F14) | At least 4 |
 | Identifier completeness | Share of the spec 8.3 identifier weight recorded (card 1.0, e-mail 0.9, device 0.8, address 0.6, phone 0.6, IP prefix 0.2) | At least 0.6: missing any two of card, e-mail and device is insufficient; missing the phone alone is not |
 | Reason coherence | Share of withdrawal returns whose reason is specific (size, changed mind, not as expected) and fits the item (a size reason on a sized item) | At least 0.5, judged from 2 withdrawal returns on |
 
@@ -168,11 +168,14 @@ of a cart at checkout with the personalized predictor (M1, US-401 input).
 
 - The first month of the store has no settled history (no line settles before about 1 November
   2025), so its lines are priced from the price, category and order context only.
-- The account graph (`features/clusters`) is read when present at the same `as_of`; until US-203
-  writes it, evidence uses own observations only, and a new account in a ring is often
-  insufficient on its own: at the end of the data, C-MARCO-2, -4 and -6 have 3 settled lines each
-  and are insufficient alone, while C-MARCO-7, whose return is the demo case, has 5 (results file,
-  golden cases; synthetic).
+- Evidence counts the account's own observations only (review F14). Counting the linked
+  accounts' lines let an account with no settled line of its own into Q4 (C-ROSSI-2 at 2026-01-01
+  in the review), and the FAIR-03 counterfactual, which keeps the evidence fixed, could not see it.
+  So a new account in a ring is often insufficient on its own: at the end of the data, C-MARCO-2,
+  -4 and -6 have 3 settled lines each and are insufficient alone, while C-MARCO-7, whose return is
+  the demo case, has 5 (results file, golden cases; synthetic). The Q4 proposal on their cluster
+  (coupons disabled) still covers them. `pipeline.features --clusters` fills
+  `n_observations_linked` for display; the pipeline does not pass it.
 - Evidence on own observations sends more abusive than other customers to insufficient evidence
   at the train end (rings are new accounts, wardrobers buy fewer lines): standard terms for them,
   never a restriction. The results file reports the gap at every decision time.

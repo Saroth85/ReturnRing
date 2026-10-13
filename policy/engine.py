@@ -90,12 +90,7 @@ def guarantee_terms(order_terms: ReturnTerms, base: ReturnTerms) -> ReturnTerms:
 
 
 def standard_levers(base: ReturnTerms) -> Levers:
-    return Levers(
-        future_terms=base,
-        cluster_coupons_disabled=False,
-        transparency_notice=False,
-        size_advice=True,
-    )
+    return Levers.standard(base)
 
 
 def levers_for(quadrant: Quadrant, base: ReturnTerms, has_cluster: bool) -> Levers:

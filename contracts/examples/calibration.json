@@ -1,0 +1,104 @@
+{
+  "contract_version": "2.0.0",
+  "provenance": {
+    "origin": "Illustrative contract example: values are not measured. The US-101 profiler writes the real file from ASOS GraphReturns (OSF c793h, CC BY 4.0)",
+    "period": {
+      "start": "2021-09-01",
+      "end": "2021-10-31"
+    },
+    "nature": "synthetic"
+  },
+  "splits": [
+    "train"
+  ],
+  "overall": {
+    "event_label_rate": 0.5,
+    "product_sales_weighted_return_rate": 0.3,
+    "n_events": 1000,
+    "n_customers": 600,
+    "n_variants": 400
+  },
+  "product_types": {
+    "productType_J": {
+      "variant_share": 0.5,
+      "sales_share": 0.45,
+      "price_quantiles_gbp": {
+        "p10": 8.0,
+        "p25": 12.0,
+        "p50": 20.0,
+        "p75": 32.0,
+        "p90": 50.0
+      },
+      "return_rate_quantiles": {
+        "p10": 0.1,
+        "p25": 0.2,
+        "p50": 0.3,
+        "p75": 0.45,
+        "p90": 0.6
+      }
+    },
+    "productType_B": {
+      "variant_share": 0.3,
+      "sales_share": 0.35,
+      "price_quantiles_gbp": {
+        "p10": 5.0,
+        "p25": 8.0,
+        "p50": 14.0,
+        "p75": 22.0,
+        "p90": 35.0
+      },
+      "return_rate_quantiles": {
+        "p10": 0.05,
+        "p25": 0.1,
+        "p50": 0.2,
+        "p75": 0.3,
+        "p90": 0.4
+      }
+    },
+    "Jeans": {
+      "variant_share": 0.2,
+      "sales_share": 0.2,
+      "price_quantiles_gbp": {
+        "p10": 20.0,
+        "p25": 28.0,
+        "p50": 40.0,
+        "p75": 55.0,
+        "p90": 70.0
+      },
+      "return_rate_quantiles": {
+        "p10": 0.2,
+        "p25": 0.3,
+        "p50": 0.4,
+        "p75": 0.5,
+        "p90": 0.6
+      }
+    }
+  },
+  "reason_shares": {
+    "A": 0.3,
+    "B": 0.1,
+    "C": 0.05,
+    "D": 0.1,
+    "E": 0.05,
+    "D2": 0.05,
+    "F": 0.1,
+    "G": 0.05,
+    "H": 0.05,
+    "I": 0.05,
+    "J": 0.04,
+    "K": 0.03,
+    "L": 0.03
+  },
+  "purchases_per_customer": {
+    "p10": 1,
+    "p25": 1,
+    "p50": 2,
+    "p75": 4,
+    "p90": 8
+  },
+  "join_coverage": {
+    "events_with_customer": 0.9,
+    "events_with_variant": 0.7,
+    "events_with_both": 0.6
+  }
+}

@@ -391,6 +391,7 @@ Contratti versione 2 (ADR-13), in `contracts/`. Ogni file Parquet porta nei meta
 | features/customer\_value.parquet | features | policy, simulatore | value\_eur (V\_c di 8.5) e componenti, finestra, versione delle ipotesi; mai letto dal rischio |
 | features/evidence\_quality.parquet | features | policy, API | evidence\_quality, osservazioni (anche con account collegati), completezza degli identificatori, coerenza dei motivi, evidenze mancanti, versione delle soglie |
 | scores/scores.parquet | risk, value | policy, API | customer\_id, risk, evidence\_quality, value\_eur, quadrant, shap\_top3, model\_version |
+| scores/request\_scores.parquet | risk | policy, API, coda | return\_id, customer\_id, decided\_at, path, context\_as\_of (ultimo snapshot del cliente prima della richiesta), risk (nullo sul percorso di garanzia), evidence\_quality, value\_eur, quadrant, shap\_top3, model\_version (ADR-13, emendamento 4) |
 | decisions, audit\_log, outbox (PostgreSQL) | API | UI, export | decision\_id, return\_id, path, evidence\_quality, alternatives, levers, requires\_approval, approver, review\_at, rules\_version, model\_versions, llm\_output, created\_at |
 | features/product\_anomalies.parquet | anomalies | API, attività di catalogo | variant\_id, reason, week, observed, expected, z, n, status (open, task\_opened, resolved) |
 

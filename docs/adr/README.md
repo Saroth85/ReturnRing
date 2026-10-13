@@ -11,8 +11,8 @@
 | ADR-07 | React instead of Streamlit | Presentation is a quarter of the score; Streamlit is plan B |
 | ADR-08 | Amounts, terms and deadlines from templates | A wrong number in a customer message is costly |
 | ADR-09 | Guarantee path decided before scoring | A defect is not customer behaviour and has its own legal regime |
-| ADR-10 | [ASOS evaluated with two protocols](ADR-10-asos-two-protocols.md) | ASOS aggregates contain the label; only decision-time features may measure the product |
+| ADR-10 | [ASOS evaluated with two protocols](ADR-10-asos-two-protocols.md) | ASOS aggregates contain the label; only decision-time features may measure the product. Amendment 1: protocol B's decision-time population, risk R-07 |
 | ADR-11 | [Age is a forbidden feature](ADR-11-age-excluded.md) | Protected ground; the ASOS column is also dirty |
 | ADR-12 | [Rule 15 covers the repository, not pulled images](ADR-12-container-licences.md) | ROCm and vLLM images ship GPL and other licences and are never redistributed |
-| ADR-13 | [Data contracts v2](ADR-13-data-contracts-v2.md) | A row holds only facts known at its available_at; one lever vocabulary; every file carries contract version and provenance. Amendment 3: customer features, value and evidence tables |
+| ADR-13 | [Data contracts v2](ADR-13-data-contracts-v2.md) | A row holds only facts known at its available_at; one lever vocabulary; every file carries contract version and provenance. Amendment 3: customer features, value and evidence tables. Amendment 4: scores/request_scores and two checks on scores/scores |
 | ADR-14 | [LLM contracts v2](ADR-14-llm-contracts-v2.md) | Numbers in an explanation are grounded on code-built facts the statement cites; one placeholder grammar; no scores on guarantee or insufficient-evidence cases |

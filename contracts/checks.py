@@ -33,7 +33,7 @@ from contracts.parquet import (
     SCHEMAS,
 )
 from policy.legal_guard import LEGAL_WITHDRAWAL_DAYS
-from policy.types import EvidenceQuality, Quadrant, ReturnReason
+from policy.types import EvidenceQuality, Path, Quadrant, ReturnReason
 
 Number = int | float | Decimal
 _SHOWN = 5  # offending values quoted in a message
@@ -424,6 +424,21 @@ CHECKS: dict[str, tuple[Check, ...]] = {
         InRange("risk", *_SHARE),
         OneOf("evidence_quality", tuple(e.value for e in EvidenceQuality)),
         OneOf("quadrant", _QUADRANTS),
+        NullUnless("quadrant", "evidence_quality", (EvidenceQuality.SUFFICIENT.value,)),
+        NotBlank("model_version"),
+    ),
+    "scores/request_scores": (
+        Unique(("return_id", "as_of")),
+        OneOf("path", tuple(p.value for p in Path)),
+        PresentWhen("risk", "path", (Path.WITHDRAWAL.value,), only_then=True),
+        PresentWhen("shap_top3", "path", (Path.WITHDRAWAL.value,), only_then=True),
+        InRange("risk", *_SHARE),
+        OneOf("evidence_quality", tuple(e.value for e in EvidenceQuality)),
+        OneOf("quadrant", _QUADRANTS),
+        NullUnless("quadrant", "evidence_quality", (EvidenceQuality.SUFFICIENT.value,)),
+        NullUnless("quadrant", "path", (Path.WITHDRAWAL.value,)),
+        NotAfter("context_as_of", "decided_at", strict=True),
+        NotBlank("model_version"),
     ),
 }
 

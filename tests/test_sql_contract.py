@@ -1,7 +1,11 @@
 """Persistence contract (contracts/sql.py, ADR-15): tables, CHECK constraints, append-only logs.
 
 Runs on SQLite through aiosqlite. Set RETURNRING_TEST_POSTGRES_URL (postgresql+asyncpg://...) to
-run the same tests on PostgreSQL; without it the PostgreSQL DDL is only compiled and inspected.
+run the same tests on PostgreSQL 16; without it the PostgreSQL DDL is only compiled and inspected.
+
+Each invalid row breaks exactly one named CHECK, and the test proves it: the same row is accepted
+once that one CHECK is removed. So SQLite and PostgreSQL (which reports the first violated CHECK
+in name order) name the same constraint.
 """
 
 from __future__ import annotations
@@ -10,14 +14,16 @@ import asyncio
 import json
 import os
 from collections.abc import Awaitable, Callable
-from datetime import UTC, date, datetime, timedelta
+from dataclasses import asdict
+from datetime import UTC, date, datetime, timedelta, timezone
 from decimal import Decimal
+from itertools import product
 from pathlib import Path
 from typing import Any
 
 import pytest
-from sqlalchemy import Table, create_mock_engine, delete, func, select, update
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy import MetaData, Table, create_mock_engine, delete, func, select, update
+from sqlalchemy.exc import DBAPIError, StatementError
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlalchemy.schema import CheckConstraint
 
@@ -34,8 +40,10 @@ from contracts.vocab import (
     INSPECTION_STATES,
     OUTBOX_STATUSES,
     OVERRIDE_CATEGORIES,
+    REVISION_TRIGGERS,
 )
 from policy.engine import NAVIGLI_BASE_TERMS
+from policy.types import ReturnTerms
 
 ROOT = Path(__file__).resolve().parents[1]
 EXAMPLES = ROOT / "contracts" / "examples" / "api"
@@ -43,6 +51,7 @@ POSTGRES_URL = os.environ.get("RETURNRING_TEST_POSTGRES_URL")
 T0 = datetime(2026, 9, 30, 18, 0, tzinfo=UTC)
 DAY = date(2026, 9, 28)
 BASE_TERMS = s.Terms.from_policy(NAVIGLI_BASE_TERMS).model_dump()
+BASE_COLUMNS = {f"base_{k}": v for k, v in BASE_TERMS.items()}
 Q4_LEVERS = [
     {"id": "return_window_days", "value": 14, "scope": "future_orders"},
     {"id": "transparency_notice", "value": True, "scope": "communication"},
@@ -183,6 +192,24 @@ def decision(decision_id: str, return_id: str, **changes: Any) -> Row:
     return {**row, **changes}
 
 
+def audit_state(state: str, approver: str | None) -> Row:
+    """The typed before/after payload of an audit entry about a decision (DecisionAuditState)."""
+    payload = {
+        "decision_id": "DEC-000102-1",
+        "version": 1,
+        "state": state,
+        "quadrant": "Q4",
+        "risk": 0.87,
+        "lever_ids": ["return_window_days:14", "transparency_notice:true"],
+        "requires_approval": True,
+        "review_at": (DAY + timedelta(days=90)).isoformat(),
+        "approver": approver,
+        "override_category": None,
+        "coupon_application_id": "CRA-000031",
+    }
+    return s.DecisionAuditState.model_validate(payload).model_dump(mode="json")
+
+
 SEEDS: list[tuple[str, list[Row]]] = [
     ("return_requests", [return_request(f"RET-{n:06d}") for n in range(101, 113)]),
     ("llm_generations", [generation("GEN-1")]),
@@ -190,6 +217,20 @@ SEEDS: list[tuple[str, list[Row]]] = [
     ("coupon_rules", [coupon_rule("coupon-rule-v1", 1)]),
     ("decisions", [decision("DEC-000102-1", "RET-000102")]),
 ]
+UNCONFIRMED: Row = {"confirmed_observations": None, "confirmed_by": None, "confirmed_at": None}
+NO_COMPENSATION: Row = {
+    "compensation_applied": False,
+    "compensation_eur": None,
+    "compensation_rule_id": None,
+}
+SECOND_VERSION: Row = {"version": 2, "supersedes_decision_id": "DEC-000102-1"}
+BASE_SNAPSHOT: Row = {
+    "source": "base",
+    "source_decision_id": None,
+    "quadrant_at_purchase": None,
+    "review_at": None,
+    **BASE_TERMS,
+}
 
 
 def fresh_rows() -> dict[str, Row]:
@@ -234,8 +275,8 @@ def fresh_rows() -> dict[str, Row]:
             "return_id": "RET-000102",
             "decision_id": "DEC-000102-1",
             "reason": None,
-            "before": {"state": "proposed"},
-            "after": {"state": "approved"},
+            "before": audit_state("proposed", None),
+            "after": audit_state("approved", "sara"),
             "rules_version": "policy-2026-10-12",
             "model_versions": {"risk": "risk-xgb-0.1.0"},
             "assumptions_version": "assumptions-v1",
@@ -248,6 +289,7 @@ def fresh_rows() -> dict[str, Row]:
             "customer_id": "C-MARCO-1",
             "lang": "it",
             "subject": "Il tuo reso RET-000102",
+            "connective_text": "Ciao, il rimborso arriverà entro il {deadline}.",
             "body": "Ciao...",
             "legal_clause_kind": "withdrawal",
             "template_fields": {"terms": "...", "deadline": "12 ottobre 2026"},
@@ -268,6 +310,8 @@ def fresh_rows() -> dict[str, Row]:
             "instant_refund": False,
             "free_size_exchange": True,
             "coupons_enabled": False,
+            **BASE_COLUMNS,
+            "review_at": DAY + timedelta(days=90),
             "coupon_application_id": None,
             "cart": [{"variant_id": "V-JKT-2207", "size": "M", "quantity": 1}],
             "shown_at": T0,
@@ -351,14 +395,17 @@ def database_url(request: pytest.FixtureRequest, tmp_path: Path) -> str:
     return f"sqlite+aiosqlite:///{tmp_path / 'returnring.db'}"
 
 
-async def _session(url: str, action: Action) -> None:
+async def _session(url: str, action: Action, metadata: MetaData | None) -> None:
     engine = create_async_engine(url)
     sql.enable_sqlite_foreign_keys(engine)
     try:
-        if engine.dialect.name == "postgresql":
+        async with engine.begin() as conn:
+            await conn.run_sync(sql.metadata.drop_all)
+        if metadata is None:
+            await sql.create_all(engine)
+        else:
             async with engine.begin() as conn:
-                await conn.run_sync(sql.metadata.drop_all)
-        await sql.create_all(engine)
+                await conn.run_sync(metadata.create_all)
         async with engine.begin() as conn:
             for name, rows in SEEDS:
                 await conn.execute(sql.metadata.tables[name].insert(), rows)
@@ -367,8 +414,9 @@ async def _session(url: str, action: Action) -> None:
         await engine.dispose()
 
 
-def run(url: str, action: Action) -> None:
-    asyncio.run(_session(url, action))
+def run(url: str, action: Action, metadata: MetaData | None = None) -> None:
+    """Run `action` on fresh tables (sql.metadata, or `metadata`) holding the SEEDS."""
+    asyncio.run(_session(url, action, metadata))
 
 
 async def insert(engine: AsyncEngine, table: str, row: Row) -> None:
@@ -376,14 +424,36 @@ async def insert(engine: AsyncEngine, table: str, row: Row) -> None:
         await conn.execute(sql.metadata.tables[table].insert(), [row])
 
 
-def assert_rejected(url: str, table: str, row: Row, names: tuple[str, ...]) -> None:
+def without_check(table: str, name: str) -> MetaData:
+    """A copy of the tables without one named CHECK (and without the append-only triggers)."""
+    copy = MetaData(naming_convention=sql.NAMING_CONVENTION)
+    for t in sql.metadata.sorted_tables:
+        t.to_metadata(copy)
+    target = copy.tables[table]
+    found = [
+        c
+        for c in target.constraints
+        if isinstance(c, CheckConstraint) and c.name == f"ck_{table}_{name}"
+    ]
+    assert len(found) == 1, f"ck_{table}_{name} is not declared"
+    target.constraints.discard(found[0])
+    return copy
+
+
+def assert_rejected(url: str, table: str, row: Row, name: str) -> None:
     async def action(engine: AsyncEngine) -> None:
         with pytest.raises(DBAPIError) as caught:
             await insert(engine, table, row)
-        message = str(caught.value)
-        assert any(f"ck_{table}_{n}" in message for n in names), message
+        assert f"ck_{table}_{name}" in str(caught.value), str(caught.value)
 
     run(url, action)
+
+
+def assert_accepted(url: str, table: str, row: Row, metadata: MetaData | None = None) -> None:
+    async def action(engine: AsyncEngine) -> None:
+        await insert(engine, table, row)
+
+    run(url, action, metadata)
 
 
 # ---- Tests ---------------------------------------------------------------------------------------
@@ -403,191 +473,264 @@ def test_create_all_creates_every_table_and_accepts_valid_rows(database_url: str
     assert {t.name for t in sql.TABLES} == set(fresh_rows())
 
 
-VIOLATIONS: list[tuple[str, dict[str, Any], tuple[str, ...]]] = [
+def valid_rows_with_nulls() -> list[tuple[str, Row]]:
+    """Valid rows whose nullable JSON and timestamp columns are an explicit None."""
+    rows = fresh_rows()
+    awaiting = {**rows["inspections"], "state": "awaiting_confirmation", **UNCONFIRMED}
+    awaiting.update(NO_COMPENSATION)
+    manual = {**awaiting, "state": "manual_review", "proposal": None}
+    manual["manual_review_reason"] = "Photo too dark to check the tag"
+    proposed = {**rows["decisions"], "state": "proposed", "approver": None, "approved_at": None}
+    proposed.update(generation_id=None, generation_path=None)
+    shown = {**rows["terms_snapshots"], "order_id": None, "confirmed_at": None}
+    application = {**rows["coupon_rule_applications"], "state": "proposed"}
+    application.update(confirmed_by=None, confirmed_at=None)
+    audit = {**rows["audit_log"], "action": "message_queued", "entity_type": "outbox_message"}
+    audit.update(before=None, after=None, model_versions=None, actor="system", actor_role="system")
+    return [
+        ("inspections", awaiting),
+        ("inspections", manual),
+        ("decisions", proposed),
+        ("terms_snapshots", shown),
+        ("terms_snapshots", {**shown, "terms_snapshot_id": "TS-CHK-2", **BASE_SNAPSHOT}),
+        ("coupon_rule_applications", application),
+        ("audit_log", audit),
+        ("link_disputes", {**rows["link_disputes"], "before": None, "after": None}),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("table", "row"), valid_rows_with_nulls(), ids=lambda x: x if isinstance(x, str) else ""
+)
+def test_valid_rows_with_explicit_nulls_are_accepted(
+    database_url: str, table: str, row: Row
+) -> None:
+    """A Python None in a JSON column is SQL NULL, not the JSON null the CHECKs would refuse."""
+    assert_accepted(database_url, table, row)
+
+
+def test_timestamps_round_trip_as_aware_utc(database_url: str) -> None:
+    """Every timestamp reads back timezone-aware in UTC, so rows validate as API models."""
+
+    async def action(engine: AsyncEngine) -> None:
+        rows = fresh_rows()
+        cest = timezone(timedelta(hours=2))
+        await insert(engine, "audit_log", {**rows["audit_log"], "at": T0.astimezone(cest)})
+        await insert(engine, "coupon_rule_applications", rows["coupon_rule_applications"])
+        async with engine.connect() as conn:
+            entry = (await conn.execute(select(sql.audit_log))).mappings().one()
+            app = (
+                (
+                    await conn.execute(
+                        select(sql.coupon_rule_applications).where(
+                            sql.coupon_rule_applications.c.application_id == "CRA-000032"
+                        )
+                    )
+                )
+                .mappings()
+                .one()
+            )
+        assert entry["at"] == T0 and entry["at"].utcoffset() == timedelta(0)
+        assert app["confirmed_at"].tzinfo is not None
+        assert s.AuditEntry.model_validate(dict(entry)).at == T0
+        assert s.CouponRuleApplication.model_validate(dict(app)).confirmed_at == T0
+
+    run(database_url, action)
+
+
+def test_naive_timestamps_are_refused(database_url: str) -> None:
+    async def action(engine: AsyncEngine) -> None:
+        row = {**fresh_rows()["audit_log"], "at": T0.replace(tzinfo=None)}
+        with pytest.raises(StatementError, match="timezone"):
+            await insert(engine, "audit_log", row)
+
+    run(database_url, action)
+
+
+VIOLATIONS: list[tuple[str, dict[str, Any], str]] = [
     # decisions: spec 8.6, rules 3 to 5, US-306, US-307, US-607
-    ("decisions", {"path": "guarantee"}, ("guarantee_unscored",)),
-    ("decisions", {"path": "guarantee", "quadrant": None, "risk": None}, ("guarantee_unscored",)),
-    ("decisions", {"evidence_quality": "insufficient"}, ("insufficient_no_quadrant",)),
-    ("decisions", {"requires_approval": False, "review_at": None}, ("q3_q4_need_approval",)),
-    ("decisions", {"review_at": None}, ("restriction_has_review", "approved_restriction")),
-    ("decisions", {"review_at": DAY - timedelta(days=1)}, ("review_after_decision",)),
-    ("decisions", {"approver": None}, ("approved_restriction", "acted_has_approver")),
-    ("decisions", {"approver": "system"}, ("approved_restriction", "acted_has_approver")),
-    ("decisions", {"approver": "  "}, ("approved_restriction", "acted_has_approver")),
-    ("decisions", {"approved_at": None}, ("approved_restriction", "acted_has_approver")),
-    ("decisions", {"state": "proposed"}, ("acted_has_approver",)),
-    ("decisions", {"state": "overridden"}, ("override_has_reason",)),
+    ("decisions", {"path": "guarantee"}, "guarantee_unscored"),
+    ("decisions", {"path": "guarantee", "quadrant": None, "risk": None}, "guarantee_unscored"),
+    ("decisions", {"evidence_quality": "insufficient"}, "insufficient_no_quadrant"),
+    ("decisions", {"requires_approval": False, "review_at": None}, "q3_q4_need_approval"),
+    ("decisions", {"review_at": None}, "restriction_has_review"),
+    (
+        "decisions",
+        {"quadrant": "Q2", "proposed_levers": [], "levers": [], "requires_approval": False},
+        "review_only_restriction",
+    ),
+    ("decisions", {"review_at": DAY - timedelta(days=1)}, "review_after_decision"),
+    ("decisions", {"approver": None}, "acted_has_approver"),
+    ("decisions", {"approver": "system"}, "acted_has_approver"),
+    ("decisions", {"approver": "  "}, "acted_has_approver"),
+    ("decisions", {"approved_at": None}, "acted_has_approver"),
+    ("decisions", {"state": "proposed"}, "acted_has_approver"),
+    ("decisions", {"state": "overridden"}, "override_has_reason"),
     (
         "decisions",
         {"state": "overridden", "override_reason": "  ", "override_category": "other"},
-        ("override_has_reason",),
+        "override_has_reason",
     ),
     (
         "decisions",
         {"state": "overridden", "override_reason": "a real reason", "override_category": None},
-        ("override_has_reason",),
+        "override_has_reason",
     ),
     (
         "decisions",
         {"override_reason": "a real reason", "override_category": "other"},
-        ("override_has_reason",),
+        "override_has_reason",
     ),
     (
         "decisions",
         {"state": "rejected", "override_reason": "not justified", "override_category": "other"},
-        ("rejected_not_restrictive",),
+        "rejected_not_restrictive",
     ),
-    ("decisions", {"state": "archived"}, ("state",)),
-    ("decisions", {"path": "exchange"}, ("path", "guarantee_unscored")),
-    ("decisions", {"evidence_quality": "partial"}, ("evidence_quality",)),
-    ("decisions", {"quadrant": "Q5"}, ("quadrant",)),
-    ("decisions", {"override_category": "mood"}, ("override_category", "override_has_reason")),
-    ("decisions", {"risk": 1.5}, ("risk_range",)),
-    ("decisions", {"risk_threshold": 0.0}, ("risk_threshold_range",)),
-    ("decisions", {"version": 0}, ("version_positive", "version_chain")),
-    ("decisions", {"version": 2}, ("version_chain",)),
-    ("decisions", {"revision_trigger": "manual"}, ("revision_trigger", "version_chain")),
-    ("decisions", {"coupon_application_id": "CRA-X"}, ("coupon_application_has_rule",)),
-    ("decisions", {"generation_id": None}, ("generation_pair",)),
-    ("decisions", {"generation_path": "free_text"}, ("generation_path",)),
+    ("decisions", {"state": "archived"}, "state"),
+    ("decisions", {"path": "exchange"}, "path"),
+    ("decisions", {"evidence_quality": "partial"}, "evidence_quality"),
+    ("decisions", {"quadrant": "Q5"}, "quadrant"),
+    (
+        "decisions",
+        {"state": "overridden", "override_reason": "a real reason", "override_category": "mood"},
+        "override_category",
+    ),
+    ("decisions", {"risk": 1.5}, "risk_range"),
+    ("decisions", {"risk_threshold": 0.0}, "risk_threshold_range"),
+    ("decisions", {"version": 0}, "version_positive"),
+    ("decisions", {"version": 2}, "version_chain"),
+    ("decisions", {**SECOND_VERSION, "revision_trigger": "manual"}, "revision_trigger"),
+    ("decisions", {**SECOND_VERSION, "revision_trigger": "review"}, "review_lifts"),
+    ("decisions", {"coupon_application_id": "CRA-X"}, "coupon_application_has_rule"),
+    ("decisions", {"generation_id": None}, "generation_pair"),
+    ("decisions", {"generation_path": "free_text"}, "generation_path"),
     # audit_log: rule 5, US-604
-    ("audit_log", {"actor": "system"}, ("system_role",)),
-    ("audit_log", {"actor_role": "system"}, ("system_role",)),
+    ("audit_log", {"actor": "system"}, "system_role"),
+    ("audit_log", {"actor_role": "system", "action": "decision_proposed"}, "system_role"),
+    ("audit_log", {"actor": "system", "actor_role": "system"}, "human_action"),
+    ("audit_log", {"action": "decision_overridden"}, "reason_required"),
     (
         "audit_log",
-        {"actor": "system", "actor_role": "system"},
-        ("human_action",),
+        {"action": "link_disputed", "entity_type": "link_dispute", "reason": "no"},
+        "reason_required",
     ),
-    ("audit_log", {"action": "decision_overridden"}, ("reason_required",)),
-    ("audit_log", {"action": "link_disputed", "reason": "no"}, ("reason_required",)),
-    ("audit_log", {"actor": " "}, ("actor",)),
-    ("audit_log", {"action": "row_deleted"}, ("action",)),
-    ("audit_log", {"entity_type": "customer"}, ("entity_type",)),
-    ("audit_log", {"actor_role": "admin"}, ("actor_role",)),
+    ("audit_log", {"actor": " "}, "actor"),
+    ("audit_log", {"action": "row_deleted", "entity_type": "outbox_message"}, "action"),
+    ("audit_log", {"entity_type": "customer", "action": "message_queued"}, "entity_type"),
+    ("audit_log", {"actor_role": "admin"}, "actor_role"),
+    ("audit_log", {"entity_type": "outbox_message"}, "decision_entity"),
     # outbox
-    ("outbox", {"created_by": "system"}, ("created_by_person",)),
-    ("outbox", {"lang": "fr"}, ("lang",)),
-    ("outbox", {"body": " "}, ("body",)),
-    ("outbox", {"legal_clause_kind": "marketing"}, ("legal_clause_kind",)),
-    ("outbox", {"status": "bounced"}, ("status",)),
-    # terms_snapshots: rule 3, ADR-05, E2E-02
-    ("terms_snapshots", {"return_window_days": 7}, ("window_legal",)),
-    ("terms_snapshots", {"confirmed_at": None}, ("confirmed_with_order",)),
-    ("terms_snapshots", {"order_id": None}, ("confirmed_with_order",)),
-    ("terms_snapshots", {"confirmed_at": T0 - timedelta(hours=1)}, ("confirmed_after_shown",)),
-    ("terms_snapshots", {"source": "base"}, ("source",)),
-    ("terms_snapshots", {"quadrant_at_purchase": None}, ("source",)),
-    ("terms_snapshots", {"quadrant_at_purchase": "Q9"}, ("quadrant",)),
+    ("outbox", {"created_by": "system"}, "created_by_person"),
+    ("outbox", {"lang": "fr"}, "lang"),
+    ("outbox", {"body": " "}, "body"),
+    ("outbox", {"connective_text": " "}, "connective_text"),
+    ("outbox", {"legal_clause_kind": "marketing"}, "legal_clause_kind"),
+    ("outbox", {"status": "bounced"}, "status"),
+    # terms_snapshots: rule 3, ADR-05, E2E-02, US-607
+    ("terms_snapshots", {"return_window_days": 7}, "window_legal"),
+    ("terms_snapshots", {"confirmed_at": None}, "confirmed_with_order"),
+    ("terms_snapshots", {"order_id": None}, "confirmed_with_order"),
+    ("terms_snapshots", {"confirmed_at": T0 - timedelta(hours=1)}, "confirmed_after_shown"),
+    ("terms_snapshots", {"source_decision_id": None}, "source"),
+    ("terms_snapshots", {"quadrant_at_purchase": None}, "source"),
+    ("terms_snapshots", {"quadrant_at_purchase": "Q9"}, "quadrant"),
+    ("terms_snapshots", {**BASE_SNAPSHOT, "return_window_days": 60}, "base_terms"),
+    ("terms_snapshots", {**BASE_SNAPSHOT, "review_at": DAY}, "base_no_review"),
+    ("terms_snapshots", {"review_at": None}, "restriction_has_review"),
     # inspections: US-501..503, LEG-05
-    ("inspections", {"compensation_rule_id": None}, ("compensation_evidence",)),
-    ("inspections", {"compensation_eur": Decimal("0")}, ("compensation_evidence",)),
-    ("inspections", {"compensation_applied": False}, ("compensation_pair",)),
+    ("inspections", {"compensation_rule_id": None}, "compensation_evidence"),
+    ("inspections", {"compensation_eur": Decimal("0")}, "compensation_evidence"),
+    ("inspections", {"compensation_applied": False}, "compensation_pair"),
+    ("inspections", {"state": "awaiting_confirmation", **NO_COMPENSATION}, "confirmed_fields"),
+    ("inspections", {"confirmed_by": None}, "confirmed_fields"),
+    ("inspections", {"manual_review_reason": "Photo too dark"}, "unsure_no_proposal"),
     (
         "inspections",
-        {"state": "awaiting_confirmation"},
-        ("confirmed_fields", "compensation_evidence"),
+        {"state": "manual_review", **UNCONFIRMED, **NO_COMPENSATION, "proposal": None},
+        "manual_reason",
     ),
-    ("inspections", {"confirmed_by": None}, ("confirmed_fields",)),
-    ("inspections", {"manual_review_reason": "Photo too dark"}, ("unsure_no_proposal",)),
-    (
-        "inspections",
-        {
-            "state": "manual_review",
-            "confirmed_observations": None,
-            "confirmed_by": None,
-            "confirmed_at": None,
-            "compensation_applied": False,
-            "compensation_eur": None,
-            "compensation_rule_id": None,
-            "proposal": None,
-        },
-        ("manual_reason",),
-    ),
-    ("inspections", {"min_model_confidence": 1.2}, ("confidence_range",)),
-    ("inspections", {"state": "lost"}, ("state", "confirmed_fields")),
-    ("inspections", {"inspector": "system"}, ("inspector_person",)),
-    ("inspections", {"photo_media_type": "image/gif"}, ("photo_media_type",)),
+    ("inspections", {"min_model_confidence": 1.2}, "confidence_range"),
+    ("inspections", {"state": "lost", **UNCONFIRMED, **NO_COMPENSATION}, "state"),
+    ("inspections", {"inspector": "system"}, "inspector_person"),
+    ("inspections", {"photo_media_type": "image/gif"}, "photo_media_type"),
     # link_disputes and evidence: US-310
     (
         "link_disputes",
         {"customer_a": "C-20871", "customer_b": "C-10233", "link_id": "C-20871~C-10233"},
-        ("ordered_pair",),
+        "ordered_pair",
     ),
-    ("link_disputes", {"link_id": "C-10233-C-20871"}, ("link_id",)),
-    ("link_disputes", {"reason": "no"}, ("reason",)),
-    ("link_disputes", {"author": "system"}, ("author_person",)),
-    ("evidence_additions", {"kind": "rumour"}, ("kind",)),
-    ("evidence_additions", {"note": "ok"}, ("note",)),
-    ("evidence_additions", {"author": "system"}, ("author_person",)),
-    ("evidence_additions", {"decision_after_id": "DEC-000102-1"}, ("new_version",)),
+    ("link_disputes", {"link_id": "C-10233-C-20871"}, "link_id"),
+    ("link_disputes", {"reason": "no"}, "reason"),
+    ("link_disputes", {"author": "system"}, "author_person"),
+    ("evidence_additions", {"kind": "rumour"}, "kind"),
+    ("evidence_additions", {"note": "ok"}, "note"),
+    ("evidence_additions", {"author": "system"}, "author_person"),
+    ("evidence_additions", {"decision_after_id": "DEC-000102-1"}, "new_version"),
     # catalog_tasks: US-606
-    ("catalog_tasks", {"done_at": None}, ("done_at",)),
-    ("catalog_tasks", {"status": "open"}, ("done_at",)),
-    ("catalog_tasks", {"note": ""}, ("note",)),
-    ("catalog_tasks", {"created_by": "system"}, ("created_by_person",)),
-    ("catalog_tasks", {"updated_at": T0 - timedelta(days=1)}, ("updated_after_created",)),
-    ("catalog_tasks", {"kind": "rewrite"}, ("kind",)),
-    ("catalog_tasks", {"status": "paused", "done_at": None}, ("status",)),
-    ("catalog_tasks", {"reason": "bored"}, ("reason",)),
+    ("catalog_tasks", {"done_at": None}, "done_at"),
+    ("catalog_tasks", {"status": "open"}, "done_at"),
+    ("catalog_tasks", {"note": ""}, "note"),
+    ("catalog_tasks", {"created_by": "system"}, "created_by_person"),
+    ("catalog_tasks", {"updated_at": T0 - timedelta(days=1)}, "updated_after_created"),
+    ("catalog_tasks", {"kind": "rewrite"}, "kind"),
+    ("catalog_tasks", {"status": "paused", "done_at": None}, "status"),
+    ("catalog_tasks", {"reason": "bored"}, "reason"),
     # coupon rules and applications: US-402, LEG-09, US-607
-    ("coupon_rule_applications", {"confirmed_by": None}, ("confirmed_by_person",)),
-    ("coupon_rule_applications", {"confirmed_by": "system"}, ("confirmed_by_person",)),
-    ("coupon_rule_applications", {"state": "proposed"}, ("confirmed_by_person",)),
-    ("coupon_rule_applications", {"reversible": False}, ("always_reversible",)),
-    ("coupon_rule_applications", {"state": "expired"}, ("state", "confirmed_by_person")),
-    ("coupon_rule_applications", {"state": "reversed"}, ("reversal_fields",)),
+    ("coupon_rule_applications", {"confirmed_by": None}, "confirmed_by_person"),
+    ("coupon_rule_applications", {"confirmed_by": "system"}, "confirmed_by_person"),
+    ("coupon_rule_applications", {"state": "proposed"}, "confirmed_by_person"),
+    ("coupon_rule_applications", {"reversible": False}, "always_reversible"),
+    ("coupon_rule_applications", {"state": "expired"}, "state"),
+    ("coupon_rule_applications", {"state": "reversed"}, "reversal_fields"),
     (
         "coupon_rule_applications",
-        {
-            "state": "reversed",
-            "reversed_by": "luca",
-            "reversed_at": T0,
-            "reversal_reason": "ok",
-        },
-        ("reversal_fields",),
+        {"state": "reversed", "reversed_by": "luca", "reversed_at": T0, "reversal_reason": "ok"},
+        "reversal_fields",
     ),
-    ("coupon_rules", {"approved_by": "system"}, ("approved_by_person",)),
-    ("coupon_rules", {"supersedes_version": None}, ("version_chain",)),
-    ("coupon_rules", {"text": " "}, ("text",)),
+    ("coupon_rules", {"approved_by": "system"}, "approved_by_person"),
+    ("coupon_rules", {"supersedes_version": None}, "version_chain"),
+    ("coupon_rules", {"text": " "}, "text"),
     # simulator assumptions: rule 9 (no refund column, every input non-negative)
-    ("simulator_assumptions", {"incentives_eur": Decimal("-1")}, ("non_negative",)),
-    ("simulator_assumptions", {"logistics_returns_avoided": -3}, ("non_negative",)),
-    ("simulator_assumptions", {"basis": "guessed"}, ("basis",)),
-    ("simulator_assumptions", {"supersedes_version": None}, ("version_chain",)),
-    ("simulator_assumptions", {"created_by": ""}, ("created_by",)),
-    ("simulator_assumptions", {"note": "  "}, ("note",)),
+    ("simulator_assumptions", {"incentives_eur": Decimal("-1")}, "non_negative"),
+    ("simulator_assumptions", {"logistics_returns_avoided": -3}, "non_negative"),
+    ("simulator_assumptions", {"basis": "guessed"}, "basis"),
+    ("simulator_assumptions", {"supersedes_version": None}, "version_chain"),
+    ("simulator_assumptions", {"created_by": ""}, "created_by"),
+    ("simulator_assumptions", {"note": "  "}, "note"),
     # llm generations: spec 8.7
-    ("llm_generations", {"attempts": 2}, ("path_attempts",)),
-    ("llm_generations", {"attempts": 3}, ("attempts_range", "path_attempts")),
-    ("llm_generations", {"served_from": "cached"}, ("mock_is_live",)),
-    ("llm_generations", {"input_digest": "abc"}, ("input_digest",)),
-    ("llm_generations", {"latency_ms": -1}, ("non_negative",)),
-    ("llm_generations", {"generation_path": "guess"}, ("generation_path", "path_attempts")),
-    ("llm_generations", {"kind": "chat"}, ("kind",)),
-    ("llm_generations", {"llm_mode": "openai"}, ("llm_mode", "mock_is_live")),
-    ("llm_generations", {"served_from": "edge", "llm_mode": "vllm"}, ("served_from",)),
-    ("llm_generations", {"tone": "angry"}, ("tone",)),
+    ("llm_generations", {"attempts": 2}, "path_attempts"),
+    ("llm_generations", {"attempts": 3, "generation_path": "template"}, "attempts_range"),
+    ("llm_generations", {"served_from": "cached"}, "mock_is_live"),
+    ("llm_generations", {"input_digest": "abc"}, "input_digest"),
+    ("llm_generations", {"latency_ms": -1}, "non_negative"),
+    ("llm_generations", {"generation_path": "guess"}, "generation_path"),
+    ("llm_generations", {"kind": "chat"}, "kind"),
+    ("llm_generations", {"llm_mode": "openai"}, "llm_mode"),
+    ("llm_generations", {"served_from": "edge", "llm_mode": "vllm"}, "served_from"),
+    ("llm_generations", {"tone": "angry"}, "tone"),
     # return requests
-    ("return_requests", {"notice_on": DAY - timedelta(days=30)}, ("notice_after_delivery",)),
-    ("return_requests", {"reason": "bored"}, ("reason",)),
-    ("return_requests", {"source": "email"}, ("source",)),
+    ("return_requests", {"notice_on": DAY - timedelta(days=30)}, "notice_after_delivery"),
+    ("return_requests", {"reason": "bored"}, "reason"),
+    ("return_requests", {"source": "email"}, "source"),
 ]
 
 
 @pytest.mark.parametrize(
-    ("table", "changes", "names"),
+    ("table", "changes", "name"),
     VIOLATIONS,
-    ids=[f"{t}-{'-'.join(n)}-{i}" for i, (t, _, n) in enumerate(VIOLATIONS)],
+    ids=[f"{t}-{n}-{i}" for i, (t, _, n) in enumerate(VIOLATIONS)],
 )
 def test_check_constraint_rejects_an_invalid_row(
-    database_url: str, table: str, changes: dict[str, Any], names: tuple[str, ...]
+    database_url: str, table: str, changes: dict[str, Any], name: str
 ) -> None:
     row = {**fresh_rows()[table], **changes}
-    assert_rejected(database_url, table, row, names)
+    assert_rejected(database_url, table, row, name)
+    # exactly this CHECK: without it the row is valid, whatever order the database checks in
+    assert_accepted(database_url, table, row, without_check(table, name))
 
 
 def test_every_named_check_is_exercised() -> None:
-    exercised = {(t, n) for t, _, names in VIOLATIONS for n in names}
+    exercised = {(t, n) for t, _, n in VIOLATIONS}
     declared = {
         (table.name, c.name.removeprefix(f"ck_{table.name}_"))
         for table in sql.TABLES
@@ -595,6 +738,29 @@ def test_every_named_check_is_exercised() -> None:
         if isinstance(c, CheckConstraint) and isinstance(c.name, str)
     }
     assert declared - exercised == set()
+    assert exercised - declared == set()
+
+
+def test_terms_snapshot_restriction_check_mirrors_the_policy(database_url: str) -> None:
+    """ck_terms_snapshots_restriction_has_review fires exactly when policy.types says the terms
+    are less generous than the base terms stored with the snapshot."""
+    combos = [
+        ReturnTerms(window, *flags)
+        for window in (14, 30, 60)
+        for flags in product((True, False), repeat=4)
+    ]
+
+    async def action(engine: AsyncEngine) -> None:
+        for n, terms in enumerate(combos):
+            row = {**fresh_rows()["terms_snapshots"], **asdict(terms), "review_at": None}
+            row.update(terms_snapshot_id=f"TS-X-{n}", order_id=f"ORD-X-{n}")
+            if terms.is_less_generous_than(NAVIGLI_BASE_TERMS):
+                with pytest.raises(DBAPIError, match="restriction_has_review"):
+                    await insert(engine, "terms_snapshots", row)
+            else:
+                await insert(engine, "terms_snapshots", row)
+
+    run(database_url, action)
 
 
 @pytest.mark.parametrize("table", sql.APPEND_ONLY_TABLES)
@@ -638,18 +804,20 @@ def test_foreign_keys_and_unique_keys_are_enforced(database_url: str) -> None:
     run(database_url, action)
 
 
+# ---- Example documents as rows (the mapping phase 4 implements) ----------------------------------
+
+
 def decision_row(view: s.DecisionView) -> Row:
-    """The decisions row of an API DecisionView (the mapping phase 4 implements)."""
+    """The decisions row of an API DecisionView."""
     inputs = view.inputs
-    number = view.return_id.removeprefix("RET-")
     return {
         "decision_id": view.decision_id,
         "return_id": view.return_id,
         "version": view.version,
-        "supersedes_decision_id": None if view.version == 1 else f"DEC-{number}-{view.version - 1}",
-        "revision_trigger": "initial" if view.version == 1 else "evidence_added",
-        "customer_id": "C-ANY",
-        "order_id": "ORD-ANY",
+        "supersedes_decision_id": view.supersedes,
+        "revision_trigger": view.revision_trigger,
+        "customer_id": inputs.customer_id,
+        "order_id": inputs.order_id,
         "risk": inputs.risk,
         "value_eur": None if inputs.value_eur is None else Decimal(str(inputs.value_eur)),
         "cluster_id": inputs.cluster_id,
@@ -687,14 +855,38 @@ def decision_row(view: s.DecisionView) -> Row:
     }
 
 
+def snapshot_row(view: s.TermsSnapshotView) -> Row:
+    """The terms_snapshots row of an API TermsSnapshotView."""
+    return {
+        "terms_snapshot_id": view.terms_snapshot_id,
+        "customer_id": view.customer_id,
+        "order_id": view.order_id,
+        "source": view.source,
+        "source_decision_id": None if view.source == "base" else view.source,
+        "quadrant_at_purchase": view.quadrant_at_purchase,
+        **view.terms.model_dump(),
+        **{f"base_{k}": v for k, v in view.base_terms.model_dump().items()},
+        "review_at": view.review_at,
+        "coupon_application_id": None,
+        "cart": [],
+        "shown_at": view.shown_at,
+        "confirmed_at": view.confirmed_at,
+    }
+
+
+def example_models() -> list[Any]:
+    found = []
+    for path in sorted(EXAMPLES.glob("*.json")):
+        name = path.name.split(".")[0]
+        if name != "index":
+            found.append(s.API_MODELS[name].model_validate_json(path.read_text(encoding="utf-8")))
+    return found
+
+
 def example_decisions() -> list[s.DecisionView]:
     """Every decision of the examples, latest state per decision id, versions in order."""
     found: dict[str, s.DecisionView] = {}
-    for path in sorted(EXAMPLES.glob("*.json")):
-        name = path.name.split(".")[0]
-        if name == "index":
-            continue
-        model = s.API_MODELS[name].model_validate_json(path.read_text(encoding="utf-8"))
+    for model in example_models():
         views = [getattr(model, "decision", None)]
         recompute = getattr(model, "recompute", None)
         if recompute is not None:
@@ -707,21 +899,37 @@ def example_decisions() -> list[s.DecisionView]:
     return sorted(found.values(), key=lambda v: (v.version, v.decision_id))
 
 
-def test_every_example_decision_fits_the_decisions_table(database_url: str) -> None:
+def example_snapshots() -> list[s.TermsSnapshotView]:
+    found: dict[str, s.TermsSnapshotView] = {}
+    for model in example_models():
+        for field in ("order_terms", "terms_snapshot"):
+            view = getattr(model, field, None)
+            if isinstance(view, s.TermsSnapshotView):
+                found[view.terms_snapshot_id] = view
+    return list(found.values())
+
+
+def test_every_example_decision_and_snapshot_fits_its_table(database_url: str) -> None:
     views = example_decisions()
+    snapshots = example_snapshots()
     assert {v.state for v in views} == {"proposed", "approved", "overridden", "rejected"}
+    assert {v.revision_trigger for v in views} >= {"initial", "evidence_added", "review"}
+    assert {x.source == "base" for x in snapshots} == {True, False}
+    ids = {v.decision_id for v in views}
+    assert all(v.supersedes in ids for v in views if v.supersedes), "every version chain is whole"
 
     async def action(engine: AsyncEngine) -> None:
         async with engine.begin() as conn:
             await conn.execute(sql.decisions.delete())
+            known = {r["return_id"] for _, rows in SEEDS[:1] for r in rows}
+            missing = sorted({v.return_id for v in views} - known)
+            await conn.execute(
+                sql.return_requests.insert(), [return_request(rid) for rid in missing]
+            )
         for view in views:
-            row = decision_row(view)
-            supersedes = row["supersedes_decision_id"]
-            if supersedes and supersedes not in {v.decision_id for v in views}:
-                base = {**row, "decision_id": supersedes, "version": 1}
-                base.update(supersedes_decision_id=None, revision_trigger="initial")
-                await insert(engine, "decisions", base)
-            await insert(engine, "decisions", row)
+            await insert(engine, "decisions", decision_row(view))
+        for snapshot in snapshots:
+            await insert(engine, "terms_snapshots", snapshot_row(snapshot))
 
     run(database_url, action)
 
@@ -762,6 +970,7 @@ def test_postgresql_ddl_has_jsonb_checks_and_append_only_triggers() -> None:
         ("decisions", "state", DECISION_STATUSES),
         ("decisions", "override_category", OVERRIDE_CATEGORIES),
         ("decisions", "generation_path", GENERATION_PATHS),
+        ("decisions", "revision_trigger", REVISION_TRIGGERS),
         ("audit_log", "action", AUDIT_ACTIONS),
         ("audit_log", "entity_type", AUDIT_ENTITY_TYPES),
         ("outbox", "status", OUTBOX_STATUSES),

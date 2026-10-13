@@ -4,7 +4,7 @@
   "levers": [],
   "message": {
     "lang": "it",
-    "text": "Ciao, abbiamo registrato il reso e il rimborso arriverà entro il {deadline}."
+    "text": "Ciao, grazie per averci scritto. Abbiamo registrato il reso e il rimborso arriverà entro il {deadline}."
   },
   "override_reason": "The customer explained two wrong deliveries by phone; restriction not justified",
   "override_category": "customer_context",

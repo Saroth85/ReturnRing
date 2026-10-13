@@ -13,8 +13,11 @@ contracts/examples/api/. Rules that hold for every model:
 - Levers are the {id, value, scope} objects of contracts/levers.py, listed as differences from the
   standard levers on the merchant base terms, in catalogue order (ADR-13). Decision fields are
   exactly what policy.engine produces; the validators below check the engine's invariants again.
+- Every DecisionView passes policy.legal_guard under the mapping of to_policy_decision (ADR-15
+  section 8): an override is a person's approved decision on the operator's levers.
 - The LLM never decides: a draft must echo the decision shown; amounts, terms and deadlines are
-  template fields; the legal clause is the fixed text of llm/legal_clause.py (rules 1 and 10).
+  template fields rendered here from the decision (deadline_text, terms_text, amount_text); the
+  legal clause is the fixed text of llm/legal_clause.py (rules 1 and 10).
 - "Linked accounts", never "same person" (rule 11).
 
 The JSON Schemas are structural. The model validators add the semantic rules listed in ADR-15;
@@ -59,6 +62,8 @@ from contracts.parquet import is_forbidden_feature
 from contracts.vocab import (
     ACTOR_PATTERN,
     CHECKLIST_ITEMS,
+    DECISION_AUDIT_ACTIONS,
+    DEMO_ROLES,
     HUMAN_ONLY_ACTIONS,
     LANGS,
     LINK_EXPLAINING_EVIDENCE,
@@ -102,19 +107,25 @@ from policy.legal_guard import (
     MAX_REVIEW_DAYS,
     is_restrictive,
 )
+from policy.legal_guard import check as legal_guard_check
 from policy.simulator import Assumptions as SimAssumptions
 from policy.simulator import net_benefit, sensitivity
 from policy.types import (
     CaseScores,
+    Decision,
+    DecisionState,
+    DiminishedValueClaim,
     EvidenceQuality,
     Levers,
     Path,
     Quadrant,
     ReturnReason,
+    ReturnRequest,
     ReturnTerms,
 )
+from policy.types import CouponRuleApplication as PolicyCouponRule
 
-API_CONTRACT_VERSION = "1.0.0"
+API_CONTRACT_VERSION = "1.1.0"  # 1.1.0: review round of ADR-15 (lift, versions, history)
 MODE_HEADER = "X-ReturnRing-Mode"  # every response: "live" or "cached" (US-901)
 REQUEST_ID_HEADER = "X-Request-Id"  # every response; also in the audit log (NFR-12)
 CachedLabel = Literal["Precomputed on AMD MI300X"]
@@ -178,7 +189,11 @@ HumanActor = Annotated[
 ]
 ShortText = Annotated[str, StringConstraints(min_length=1, max_length=300)]
 LongText = Annotated[str, StringConstraints(min_length=1, max_length=2000)]
-Reason = Annotated[str, StringConstraints(min_length=MIN_REASON_CHARS, max_length=1000)]
+# At least MIN_REASON_CHARS characters once trimmed: the pattern says it to JSON Schema too.
+Reason = Annotated[
+    str,
+    StringConstraints(min_length=MIN_REASON_CHARS, max_length=1000, pattern=r"\S[\s\S]+\S"),
+]
 Version = Annotated[str, StringConstraints(min_length=1, max_length=64)]
 Eur = Annotated[float, AfterValidator(_eur)]
 NonNegativeEur = Annotated[float, Field(ge=0), AfterValidator(_eur)]
@@ -482,17 +497,51 @@ class AssumptionInputs(ApiModel):
         )
 
 
+# Prices of one unit: a derived assumption set takes them from the stored version it names.
+UNIT_COST_FIELDS: tuple[str, ...] = (
+    "logistics_cost_per_return_eur",
+    "avg_undue_discount_eur",
+    "hourly_cost_eur",
+)
+
+
 class Assumptions(AssumptionInputs):
-    """A versioned assumption set. basis is policy.simulator's nature: simulated or realized."""
+    """An assumption set; basis is policy.simulator's nature: simulated or realized.
+
+    One label, one set of values. A stored version (GET and PUT /api/simulator/assumptions) has
+    `based_on` null. Any other set (the alternatives of a case, a week of KPIs, a sensitivity
+    scenario) has its own label in `version` and names in `based_on` the stored version whose
+    unit costs it uses: the alternatives of a decision version are labelled
+    "<decision_id>/<alternative kind>", a sensitivity scenario "<version>/<scenario>"."""
 
     version: Version
     basis: AssumptionBasis
+    based_on: Version | None
 
     def as_policy(self) -> SimAssumptions:
         return self.to_policy(self.version, self.basis)
 
+    def derive(self, version: str, period: str, **quantities: int | float) -> Assumptions:
+        """A set with the unit costs of this stored version and its own quantities (the other
+        inputs default to 0), labelled `version` and based on this one."""
+        if self.based_on is not None:
+            raise ValueError("derive from a stored version, not from a derived set")
+        unknown = set(quantities) - set(AssumptionInputs.model_fields) | (
+            set(quantities) & set(UNIT_COST_FIELDS)
+        )
+        if unknown:
+            raise ValueError(f"not quantities of a derived set: {sorted(unknown)}")
+        values: dict[str, Any] = {
+            name: 0 for name in AssumptionInputs.model_fields if name != "period"
+        }
+        values.update({name: getattr(self, name) for name in UNIT_COST_FIELDS})
+        values.update(quantities)
+        return Assumptions(
+            period=period, version=version, basis=self.basis, based_on=self.version, **values
+        )
+
     @classmethod
-    def from_policy(cls, a: SimAssumptions) -> Assumptions:
+    def from_policy(cls, a: SimAssumptions, based_on: str | None = None) -> Assumptions:
         return cls(
             period=a.period,
             logistics_returns_avoided=a.logistics_returns_avoided,
@@ -508,7 +557,31 @@ class Assumptions(AssumptionInputs):
             incremental_margin_eur=float(a.incremental_margin_eur),
             version=a.version,
             basis=a.nature,
+            based_on=based_on,
         )
+
+
+def check_unit_costs(derived: Assumptions, stored: Assumptions) -> None:
+    """A derived set uses exactly the unit costs and the basis of the stored version it names
+    (the API calls it when it builds a net benefit; the tests run it on every example)."""
+    if stored.based_on is not None or derived.based_on != stored.version:
+        raise ValueError(f"{derived.version} is not based on the stored version {stored.version}")
+    for name in UNIT_COST_FIELDS:
+        if getattr(derived, name) != getattr(stored, name):
+            raise ValueError(f"{derived.version}: {name} differs from {stored.version}")
+    if derived.basis != stored.basis:
+        raise ValueError(f"{derived.version}: basis differs from {stored.version}")
+
+
+def _same_unit_costs(sets: Sequence[Assumptions], based_on: str, what: str) -> None:
+    labels = [a.version for a in sets]
+    if len(set(labels)) != len(labels):
+        raise ValueError(f"{what}: one label per assumption set")
+    for a in sets:
+        if a.based_on != based_on:
+            raise ValueError(f"{what}: every set is based on {based_on}")
+        if any(getattr(a, f) != getattr(sets[0], f) for f in UNIT_COST_FIELDS):
+            raise ValueError(f"{what}: the unit costs of {based_on} are the same for every set")
 
 
 class NetBenefitComponent(ApiModel):
@@ -544,14 +617,24 @@ class NetBenefitView(ApiModel):
             raise ValueError("a simulated net benefit has provenance nature simulated")
         if self.assumptions.basis == "realized" and nature == "simulated":
             raise ValueError("a realized net benefit is measured: nature real or synthetic")
+        if self.assumptions.based_on == self.assumptions.version:
+            raise ValueError("a derived assumption set has its own label")
         return self
 
     @classmethod
-    def build(cls, assumptions: SimAssumptions, provenance: Provenance) -> NetBenefitView:
-        nb = net_benefit(assumptions)
+    def build(
+        cls, assumptions: SimAssumptions | Assumptions, provenance: Provenance
+    ) -> NetBenefitView:
+        """The view of policy.simulator.net_benefit: from a stored version's policy set, or from
+        an Assumptions (for example one made with Assumptions.derive)."""
+        if isinstance(assumptions, Assumptions):
+            view, policy_set = assumptions, assumptions.as_policy()
+        else:
+            view, policy_set = Assumptions.from_policy(assumptions), assumptions
+        nb = net_benefit(policy_set)
         return cls.model_validate(
             {
-                "assumptions": Assumptions.from_policy(assumptions),
+                "assumptions": view,
                 "components": [
                     {
                         "id": key,
@@ -579,17 +662,38 @@ DraftStatus = Literal["ready", "pending"]
 
 
 class QueueQuery(ApiModel):
-    """Query string of GET /api/returns; list filters repeat the parameter (?quadrant=Q3&...)."""
+    """Query string of GET /api/returns; list filters repeat the parameter (?quadrant=Q3&...).
+
+    review_due=true keeps the cases whose latest decision is an approved or overridden
+    restriction at or past its review date (US-607): it no longer applies (in_force false) and
+    waits for a person to renew it with a new decision or to lift it. q matches a part of the
+    return, order or customer id or of the display name, ignoring case."""
 
     state: list[DecisionStatus] | None = None
     quadrant: list[QuadrantFilter] | None = None
     path: list[Path] | None = None
     evidence_quality: EvidenceQuality | None = None
     requires_approval: bool | None = None
+    review_due: bool | None = None
     q: Annotated[str, StringConstraints(min_length=1, max_length=64)] | None = None
     sort: QueueSort = "-expected_net_benefit"
     page: int = Field(default=1, ge=1)
     page_size: int = Field(default=25, ge=1, le=100)
+
+    def matches(self, item: QueueItem) -> bool:
+        """Whether a queue item passes the filters (the reference the API's query must equal)."""
+        quadrant: QuadrantFilter = item.quadrant.value if item.quadrant else "none"
+        text = self.q.lower() if self.q else None
+        fields = (item.return_id, item.order_id, item.customer_id, item.display_name or "")
+        return (
+            (self.state is None or item.state in self.state)
+            and (self.quadrant is None or quadrant in self.quadrant)
+            and (self.path is None or item.path in self.path)
+            and (self.evidence_quality is None or item.evidence_quality is self.evidence_quality)
+            and (self.requires_approval is None or item.requires_approval == self.requires_approval)
+            and (self.review_due is None or item.review_due == self.review_due)
+            and (text is None or any(text in x.lower() for x in fields))
+        )
 
 
 def _check_scoring(
@@ -623,6 +727,8 @@ class QueueItem(ApiModel):
     state: DecisionStatus
     requires_approval: bool
     lever_ids: list[LeverIdText]  # "id:value" of the decision's current levers
+    review_at: date | None  # review date of the decision's restriction (US-607)
+    review_due: bool  # an approved or overridden restriction at or past its review date
     risk: Metric | None  # probability; null on the guarantee path or with insufficient evidence
     value: Metric | None  # eur, 12-month net margin
     expected_net_benefit: Metric  # eur, simulated: the recommended alternative of the case card
@@ -643,6 +749,10 @@ class QueueItem(ApiModel):
             raise ValueError(_RISK_SHOWN)
         for text in self.lever_ids:
             parse_lever_id(text)
+        if (self.review_at is not None) != self.requires_approval:
+            raise ValueError("a restriction, and only a restriction, has a review date (US-607)")
+        if self.review_due and self.state not in ("approved", "overridden"):
+            raise ValueError("only an approved or overridden restriction comes up for review")
         return self
 
 
@@ -653,11 +763,21 @@ class QueueResponse(ApiModel):
     page_size: int = Field(ge=1, le=100)
     sort: QueueSort
     as_of: AwareDatetime
+    provenance: Provenance  # covers the plain numbers of the items (linked_account_count)
 
     @model_validator(mode="after")
     def _page(self) -> Self:
         if len(self.items) > self.page_size or len(self.items) > self.total:
             raise ValueError("more items than the page size or the total")
+        today = self.as_of.date()
+        for item in self.items:
+            due = (
+                item.state in ("approved", "overridden")
+                and item.review_at is not None
+                and item.review_at <= today
+            )
+            if item.review_due != due:
+                raise ValueError(f"{item.return_id}: review_due is a restriction past review_at")
         return self
 
 
@@ -796,6 +916,7 @@ class RiskView(ApiModel):
     favourable: list[EvidencePoint]
     unfavourable: list[EvidencePoint]
     model_version: Version
+    provenance: Provenance  # covers the plain numbers of top_factors (values and SHAP values)
 
     @model_validator(mode="after")
     def _band(self) -> Self:
@@ -1003,9 +1124,24 @@ class OrderHistory(ApiModel):
         return self
 
 
+def _check_terms_source(
+    terms: Terms, base_terms: Terms, source: str, review_at: date | None
+) -> None:
+    """Terms shown at checkout (US-403, US-607): base terms are exactly the merchant base with no
+    review date; terms less generous than the base come from a decision with a review date."""
+    if source == "base" and (terms != base_terms or review_at is not None):
+        raise ValueError("terms from base are the merchant base terms, with no review date")
+    if terms.to_policy().is_less_generous_than(base_terms.to_policy()) and (
+        source == "base" or review_at is None
+    ):
+        raise ValueError("terms less generous than the base come from a decision with a review")
+
+
 class TermsSnapshotView(ApiModel):
     """Terms shown at checkout and stored with the order (ADR-05). order_id is null while the
-    snapshot is shown and not confirmed (POST /api/checkout/evaluate)."""
+    snapshot is shown and not confirmed (POST /api/checkout/evaluate). base_terms are the
+    merchant base terms when the snapshot was shown; review_at is the review date of the
+    restriction in force that produced the terms, if any."""
 
     terms_snapshot_id: Id
     order_id: Id | None
@@ -1013,6 +1149,8 @@ class TermsSnapshotView(ApiModel):
     source: Id  # "base" or the id of the decision whose levers produced the terms
     quadrant_at_purchase: Quadrant | None
     terms: Terms
+    base_terms: Terms
+    review_at: date | None
     shown_at: AwareDatetime
     confirmed_at: AwareDatetime | None
 
@@ -1022,8 +1160,9 @@ class TermsSnapshotView(ApiModel):
             raise ValueError("a snapshot gets its order id when it is confirmed, not before")
         if self.confirmed_at is not None and self.confirmed_at < self.shown_at:
             raise ValueError("confirmed_at is before shown_at")
-        if self.source == "base" and self.quadrant_at_purchase is not None:
-            raise ValueError("base terms have no quadrant")
+        if (self.source == "base") != (self.quadrant_at_purchase is None):
+            raise ValueError("base terms have no quadrant; terms from a decision have one")
+        _check_terms_source(self.terms, self.base_terms, self.source, self.review_at)
         return self
 
 
@@ -1036,8 +1175,11 @@ class DecisionThresholds(ApiModel):
 
 
 class DecisionInputs(ApiModel):
-    """The inputs given to policy.engine.decide, kept for audit (US-604) and re-runnable."""
+    """The inputs given to policy.engine.decide, kept for audit (US-604) and re-runnable: the
+    return request (with order_id and customer_id), the scores, the terms and the thresholds."""
 
+    order_id: Id
+    customer_id: Id
     reason: ReturnReason
     delivered_on: date
     notice_on: date
@@ -1090,13 +1232,25 @@ class DecisionView(ApiModel):
     """A decision version: the engine's proposal and the human outcome (spec 8.6, US-303/306).
 
     levers are the levers of the current state: the proposal while proposed or approved, the
-    operator's levers when overridden, none when rejected. requires_approval refers to them.
-    in_force says whether they apply to future orders now."""
+    operator's levers when overridden, none when rejected. requires_approval and review_at refer
+    to them: a restriction needs a person and has a review date, and nothing else has one.
+
+    in_force says whether the levers apply to future orders at as_of (the time the view was
+    served): approved, overridden, or proposed without a need for approval; never once a later
+    version supersedes this one; never from the review date on (US-607: a restriction lapses
+    unless a person renews it with a new decision). A version created by a review (trigger
+    review, action lift) is overridden to the standard levers.
+
+    Every view passes policy.legal_guard under to_policy_decision (ADR-15 section 8)."""
 
     decision_id: Id
     return_id: Id
     version: int = Field(ge=1)
+    revision_trigger: RevisionTrigger
+    supersedes: Id | None  # the previous version (version - 1), null for version 1
+    superseded_by: Id | None  # the next version, once there is one: then this one is history
     created_at: AwareDatetime
+    as_of: AwareDatetime  # when the view was served: in_force refers to it
     decided_on: date
     state: DecisionStatus
     path: Path
@@ -1121,7 +1275,7 @@ class DecisionView(ApiModel):
     inputs: DecisionInputs
     rules_version: Version
     model_versions: dict[str, Version]
-    assumptions_version: Version
+    assumptions_version: Version  # the stored assumption version of the alternatives
     generation_id: Id | None
 
     @model_validator(mode="after")
@@ -1149,11 +1303,14 @@ class DecisionView(ApiModel):
             raise ValueError("insufficient evidence: standard terms (US-307)")
         if insufficient != bool(self.missing_evidence):
             raise ValueError("missing_evidence is non-empty exactly when evidence is insufficient")
-        restrictive = is_restrictive(policy_levers, base)
-        if restrictive and not self.requires_approval:
-            raise ValueError("restrictive levers require a human approval (rule 5)")
-        if self.requires_approval and self.review_at is None:
-            raise ValueError("a restriction has a review date (US-607)")
+        engine_levers = self.state in ("proposed", "approved")
+        needs_approval = is_restrictive(policy_levers, base) or (
+            engine_levers and self.quadrant in APPROVAL_QUADRANTS
+        )
+        if self.requires_approval != needs_approval:
+            raise ValueError("requires_approval: restrictive levers, or Q3 and Q4 (rule 5)")
+        if (self.review_at is not None) != self.requires_approval:
+            raise ValueError("a restriction has a review date (US-607), and nothing else has one")
         if self.review_at is not None and not (
             self.decided_on < self.review_at <= self.decided_on + timedelta(days=MAX_REVIEW_DAYS)
         ):
@@ -1167,22 +1324,24 @@ class DecisionView(ApiModel):
         if self.current_return_terms.to_policy() != expected_terms:
             raise ValueError("current terms: the order snapshot, or the guarantee terms (LEG-04)")
         self._check_state()
-        expected_in_force = self.state in ("approved", "overridden") or (
-            self.state == "proposed" and not self.requires_approval
-        )
-        if self.in_force != expected_in_force:
-            raise ValueError("in_force: approved, overridden, or proposed without approval")
+        self._check_versions()
         blocks = any(x.id == "cluster_coupons_disabled" and x.value for x in self.levers)
         if blocks != (self.coupon_rule is not None):
             raise ValueError("a cluster coupon block carries its coupon rule application")
         if self.diminished_value_claim is not None and self.path is Path.GUARANTEE:
             raise ValueError("no diminished-value claim on a defect")
+        violations = legal_guard_check(*to_policy_decision(self), base)
+        if violations:
+            found = "; ".join(f"{v.code}: {v.message}" for v in violations)
+            raise ValueError(f"policy.legal_guard refuses this decision: {found}")
         return self
 
     def _check_state(self) -> None:
         acted = self.state != "proposed"
         if acted != (self.approver is not None) or acted != (self.approved_at is not None):
             raise ValueError("approver and approved_at are set exactly when a person acted")
+        if self.approved_at is not None and not (self.created_at <= self.approved_at <= self.as_of):
+            raise ValueError("approved_at is between created_at and as_of")
         departs = self.state in ("overridden", "rejected")
         if departs != (self.override_reason is not None) or departs != (
             self.override_category is not None
@@ -1192,13 +1351,134 @@ class DecisionView(ApiModel):
             raise ValueError("the reason must not be blank")
         if self.state in ("proposed", "approved") and self.levers != self.proposed_levers:
             raise ValueError("a proposed or approved decision keeps the proposed levers")
-        if self.state == "rejected" and (self.levers or self.requires_approval):
+        if self.state == "rejected" and self.levers:
             raise ValueError("a rejected proposal leaves no lever in force")
         rule = self.coupon_rule
-        if self.state == "approved" and rule is not None and rule.confirmed_by != self.approver:
-            raise ValueError("the approver confirms the coupon rule application")
+        if acted and rule is not None and rule.confirmed_by != self.approver:
+            raise ValueError("the person who approves or overrides confirms the coupon rule")
         if self.state == "proposed" and rule is not None and rule.confirmed_by is not None:
             raise ValueError("a proposed coupon rule application is not confirmed yet")
+
+    def _check_versions(self) -> None:
+        first = self.version == 1
+        if first != (self.supersedes is None) or first != (self.revision_trigger == "initial"):
+            raise ValueError("version 1 is the initial version; later ones supersede another")
+        if self.decision_id in (self.supersedes, self.superseded_by):
+            raise ValueError("a version supersedes, and is superseded by, another version")
+        if self.revision_trigger == "review" and (self.state != "overridden" or self.levers):
+            raise ValueError(
+                "a version created by a review (trigger review) lifts the restriction: "
+                "overridden to the standard levers"
+            )
+        if self.as_of < self.created_at:
+            raise ValueError("as_of is not before created_at")
+        lapsed = self.review_at is not None and self.as_of.date() >= self.review_at
+        expected = (
+            (self.state in ("approved", "overridden"))
+            or (self.state == "proposed" and not self.requires_approval)
+        ) and not (lapsed or self.superseded_by is not None)
+        if self.in_force != expected:
+            raise ValueError(
+                "in_force: approved, overridden, or proposed without approval; not superseded; "
+                "before the review date"
+            )
+
+
+_POLICY_STATES: dict[DecisionStatus, DecisionState] = {
+    "proposed": DecisionState.PROPOSED,
+    "approved": DecisionState.APPROVED,
+    "overridden": DecisionState.APPROVED,  # a person took it, on the operator's levers
+    "rejected": DecisionState.REJECTED,
+}
+
+
+def to_policy_decision(view: DecisionView) -> tuple[Decision, ReturnRequest]:
+    """The policy Decision and ReturnRequest a DecisionView stands for, to run
+    policy.legal_guard.check on it (ADR-15 section 8). The exact mapping:
+
+    - state: proposed and approved stay; overridden becomes APPROVED (a person took it);
+      rejected stays REJECTED;
+    - quadrant: the engine's quadrant while its levers stand (proposed, approved); None once a
+      person replaced them (overridden, rejected), so the guard judges the levers chosen;
+    - levers, requires_approval, review_on, approver: those of the current state;
+    - coupon_rule: as shown; when approved or overridden the approver has confirmed it;
+    - the request: the engine inputs, with the order snapshot."""
+    inputs = view.inputs
+    claim = view.diminished_value_claim
+    rule = view.coupon_rule
+    decision = Decision(
+        return_id=view.return_id,
+        decided_on=view.decided_on,
+        path=view.path,
+        evidence_quality=view.evidence_quality,
+        quadrant=view.quadrant if view.state in ("proposed", "approved") else None,
+        levers=to_policy_levers(view.levers, inputs.base_terms.to_policy()),
+        current_return_terms=view.current_return_terms.to_policy(),
+        refund_due_by=view.refund_due_by,
+        requires_approval=view.requires_approval,
+        state=_POLICY_STATES[view.state],
+        approver=view.approver,
+        review_on=view.review_at,
+        diminished_value_claim=(
+            DiminishedValueClaim(
+                amount_eur=_dec(float(claim.amount.value)),
+                photo_evidence_ids=tuple(claim.photo_evidence_ids),
+                confirmed_by=claim.confirmed_by,
+                rule_id=claim.rule_id,
+            )
+            if claim is not None
+            else None
+        ),
+        coupon_rule=(
+            PolicyCouponRule(rule_version=rule.rule_version, confirmed_by=rule.confirmed_by)
+            if rule is not None
+            else None
+        ),
+        rules_version=view.rules_version,
+    )
+    request = ReturnRequest(
+        return_id=view.return_id,
+        order_id=inputs.order_id,
+        customer_id=inputs.customer_id,
+        reason=inputs.reason,
+        delivered_on=inputs.delivered_on,
+        notice_on=inputs.notice_on,
+        order_terms=inputs.order_terms.to_policy(),
+    )
+    return decision, request
+
+
+class DecisionAuditState(ApiModel):
+    """The before and after of an audit entry about a decision version (entity_type decision):
+    what changed, with the id that serves the whole version (GET /api/decisions/{decision_id})."""
+
+    decision_id: Id
+    version: int = Field(ge=1)
+    state: DecisionStatus
+    quadrant: Quadrant | None
+    risk: Probability | None  # the risk given to the engine
+    lever_ids: list[LeverIdText]
+    requires_approval: bool
+    review_at: date | None
+    approver: HumanActor | None
+    override_category: OverrideCategory | None
+    coupon_application_id: Id | None
+
+    @classmethod
+    def from_view(cls, view: DecisionView) -> DecisionAuditState:
+        return cls(
+            decision_id=view.decision_id,
+            version=view.version,
+            state=view.state,
+            quadrant=view.quadrant,
+            risk=view.inputs.risk,
+            lever_ids=view.lever_ids,
+            requires_approval=view.requires_approval,
+            review_at=view.review_at,
+            approver=view.approver,
+            override_category=view.override_category,
+            coupon_application_id=view.coupon_rule.application_id if view.coupon_rule else None,
+        )
 
 
 AlternativeKind = Literal[
@@ -1221,9 +1501,23 @@ class Alternative(ApiModel):
         return self
 
 
+def _check_alternatives(alternatives: Sequence[Alternative], decision: DecisionView) -> None:
+    """US-308: distinct kinds, exactly one recommended, carrying the engine's proposal; every
+    net benefit uses the unit costs of the decision's stored assumption version (US-602)."""
+    kinds = [a.kind for a in alternatives]
+    if len(set(kinds)) != len(kinds) or sum(a.recommended for a in alternatives) != 1:
+        raise ValueError("alternatives have distinct kinds and exactly one recommended")
+    recommended = next(a for a in alternatives if a.recommended)
+    if recommended.levers != decision.proposed_levers:
+        raise ValueError("the recommended alternative carries the engine's proposed levers")
+    sets = [a.net_benefit.assumptions for a in alternatives]
+    _same_unit_costs(sets, decision.assumptions_version, "alternatives")
+
+
 class ExplanationStatement(ApiModel):
     """A statement of the operator explanation: observed data, a score contribution or a
-    hypothesis to verify, with entity, metric, value and period when it cites a number (US-305)."""
+    hypothesis to verify (US-305). A statement whose text has a digit names the entity, the
+    metric, the value and the period it cites, and the value appears in the text."""
 
     label: StatementLabel
     text: Annotated[str, StringConstraints(min_length=1, max_length=400)]
@@ -1236,6 +1530,11 @@ class ExplanationStatement(ApiModel):
     def _words(self) -> Self:
         if any(term in self.text.lower() for term in BANNED_EVERYWHERE):
             raise ValueError('say "linked accounts", never "same person" (rule 11)')
+        cited = (self.entity, self.metric, self.value, self.period)
+        if any(ch.isdigit() for ch in self.text) and any(x is None for x in cited):
+            raise ValueError("a statement with a number names its entity, metric, value and period")
+        if self.value is not None and self.value not in self.text:
+            raise ValueError("the value cited appears in the statement text")
         return self
 
 
@@ -1253,6 +1552,86 @@ class TemplateFields(ApiModel):
         if self.deadline is not None:
             out["deadline"] = self.deadline
         return out
+
+
+# ---- Template renderers (ADR-08, rule 10): the only source of the template fields -------------
+
+_MONTHS: dict[Lang, tuple[str, ...]] = {
+    "it": (
+        "gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno",
+        "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre",
+    ),
+    "en": (
+        "January", "February", "March", "April", "May", "June",
+        "July", "August", "September", "October", "November", "December",
+    ),
+}  # fmt: skip
+
+
+def deadline_text(day: date, lang: Lang) -> str:
+    """A date in a customer message: "12 ottobre 2026", "12 October 2026" (no locale)."""
+    return f"{day.day} {_MONTHS[lang][day.month - 1]} {day.year}"
+
+
+def amount_text(amount: float, lang: Lang) -> str:
+    """A euro amount in a customer message: "1.234,56 €" in Italian, "€1,234.56" in English."""
+    grouped = f"{_dec(amount).quantize(Decimal('0.01')):,.2f}"
+    if lang == "it":
+        return grouped.replace(",", " ").replace(".", ",").replace(" ", ".") + " €"
+    return f"€{grouped}"
+
+
+def terms_text(terms: Terms, lang: Lang, priority_exchange: bool = False) -> str:
+    """The return terms of future orders, in words (the {terms} field)."""
+    if lang == "it":
+        parts = [
+            f"finestra di reso di {terms.return_window_days} giorni",
+            "reso gratuito" if terms.free_return_shipping else "spedizione del reso a tuo carico",
+            "rimborso immediato" if terms.instant_refund else "rimborso nei termini di legge",
+            (
+                "cambio taglia gratuito" + (" e prioritario" if priority_exchange else "")
+                if terms.free_size_exchange
+                else "cambio taglia a pagamento"
+            ),
+        ]
+        if not terms.coupons_enabled:
+            parts.append("coupon non disponibili")
+    else:
+        parts = [
+            f"{terms.return_window_days}-day return window",
+            "free return shipping"
+            if terms.free_return_shipping
+            else "return shipping at your cost",
+            "instant refund" if terms.instant_refund else "refund within the legal terms",
+            (
+                ("free priority size exchange" if priority_exchange else "free size exchange")
+                if terms.free_size_exchange
+                else "size exchange at your cost"
+            ),
+        ]
+        if not terms.coupons_enabled:
+            parts.append("coupons not available")
+    return ", ".join(parts)
+
+
+def template_fields(decision: DecisionView, lang: Lang) -> TemplateFields:
+    """The template fields of every message about a decision: the terms of future orders, the
+    refund deadline (notice + 14 days) and, with a diminished-value claim, its amount."""
+    priority = any(x.id == "priority_size_exchange" and x.value is True for x in decision.levers)
+    claim = decision.diminished_value_claim
+    return TemplateFields(
+        terms=terms_text(decision.future_terms, lang, priority),
+        amount=amount_text(float(claim.amount.value), lang) if claim is not None else None,
+        deadline=deadline_text(decision.refund_due_by, lang),
+    )
+
+
+def _check_fields(fields: TemplateFields, decision: DecisionView, lang: Lang) -> None:
+    if fields != template_fields(decision, lang):
+        raise ValueError(
+            "the template fields are the decision's terms, refund deadline and claim amount "
+            "(template_fields, rule 10)"
+        )
 
 
 def check_connective_text(text: str) -> None:
@@ -1398,16 +1777,22 @@ class ProductAnomaly(ApiModel):
 
 
 class RevisionSummary(ApiModel):
-    """A version of the case's decision (F7: the log keeps every version)."""
+    """A version of the case's decision (F7: the log keeps every version); GET
+    /api/decisions/{decision_id} serves the whole version (US-604)."""
 
     decision_id: Id
     version: int = Field(ge=1)
     trigger: RevisionTrigger
     created_at: AwareDatetime
     quadrant: Quadrant | None
-    risk: Probability | None
+    risk: Metric | None  # probability given to the engine; null when not scored
     lever_ids: list[LeverIdText]
     state: DecisionStatus
+
+    @model_validator(mode="after")
+    def _risk(self) -> Self:
+        _same_unit(self.risk, unit="probability")
+        return self
 
 
 def required_clause(decision: DecisionView) -> ClauseKind | None:
@@ -1432,12 +1817,18 @@ def _check_draft(draft: DraftView, decision: DecisionView) -> None:
     kind = required_clause(decision)
     if any(m.legal_clause_kind != kind for m in draft.messages):
         raise ValueError(f"every message must carry the {kind} legal clause")
+    for message in draft.messages:
+        _check_fields(message.fields, decision, message.lang)
     if decision.path is Path.GUARANTEE and any(s.label == "SCORE" for s in draft.explanation):
         raise ValueError("the guarantee path is not scored: no SCORE statement")
 
 
 class CaseCard(ApiModel):
-    """GET /api/returns/{return_id}: everything Sara needs to decide one return (US-302)."""
+    """GET /api/returns/{return_id}: everything Sara needs to decide one return (US-302).
+
+    The decision is the latest version of the case. provenance covers the plain numbers of item,
+    request and product_anomaly.trend (weekly sales and returns of the shop); every other section
+    carries its own provenance or Metrics."""
 
     return_id: Id
     order_id: Id
@@ -1466,6 +1857,10 @@ class CaseCard(ApiModel):
         d, inputs = self.decision, self.decision.inputs
         if d.return_id != self.return_id or d.path is not self.path:
             raise ValueError("the decision belongs to this return and has its path")
+        if (inputs.order_id, inputs.customer_id) != (self.order_id, self.customer_id):
+            raise ValueError("the decision inputs name the order and the customer of the return")
+        if d.superseded_by is not None or d.as_of != self.as_of:
+            raise ValueError("the card shows the latest version, as of the card")
         if (inputs.reason, inputs.delivered_on, inputs.notice_on) != (
             self.request.reason,
             self.request.delivered_on,
@@ -1499,12 +1894,7 @@ class CaseCard(ApiModel):
         cluster = self.linked_accounts.cluster_id if self.linked_accounts else None
         if cluster != inputs.cluster_id:
             raise ValueError("the cluster shown is the cluster given to the engine")
-        kinds = [a.kind for a in self.alternatives]
-        if len(set(kinds)) != len(kinds) or sum(a.recommended for a in self.alternatives) != 1:
-            raise ValueError("alternatives have distinct kinds and exactly one recommended")
-        recommended = next(a for a in self.alternatives if a.recommended)
-        if recommended.levers != d.proposed_levers:
-            raise ValueError("the recommended alternative carries the engine's proposed levers")
+        _check_alternatives(self.alternatives, d)
         if (self.draft_status == "ready") != (self.draft is not None):
             raise ValueError("a ready draft is present, a pending one is not")
         if self.draft is not None:
@@ -1514,10 +1904,31 @@ class CaseCard(ApiModel):
         ):
             raise ValueError("the anomaly shown is on the returned variant")
         last = self.revisions[-1]
-        if (last.decision_id, last.version) != (d.decision_id, d.version):
+        if (last.decision_id, last.version, last.trigger, last.state) != (
+            d.decision_id,
+            d.version,
+            d.revision_trigger,
+            d.state,
+        ):
             raise ValueError("the last revision is the decision shown")
         if [r.version for r in self.revisions] != list(range(1, d.version + 1)):
             raise ValueError("revisions list versions 1..n in order")
+        return self
+
+
+class DecisionRecord(ApiModel):
+    """GET /api/decisions/{decision_id}: one version of a case's decision as stored, the latest
+    or an earlier one (US-604): the engine inputs, the alternatives with their net benefits, the
+    human outcome, the versions of rules, models and assumptions, and the version that superseded
+    it. The audit log names these ids (DecisionAuditState)."""
+
+    decision: DecisionView
+    alternatives: list[Alternative] = Field(min_length=1, max_length=3)
+    provenance: Provenance  # covers the plain numbers of decision.inputs (scores, thresholds)
+
+    @model_validator(mode="after")
+    def _alternatives(self) -> Self:
+        _check_alternatives(self.alternatives, self.decision)
         return self
 
 
@@ -1538,13 +1949,62 @@ class MessageChoice(ApiModel):
         return self
 
 
+_REASON_ACTIONS: tuple[DecisionAction, ...] = ("override", "reject", "lift")
+_NO_LEVER_ACTIONS: tuple[DecisionAction, ...] = ("reject", "lift")
+
+
+def _has(field: str, schema: dict[str, Any]) -> dict[str, Any]:
+    """JSON Schema: the field is present and matches `schema` (for if/then/else rules)."""
+    return {"required": [field], "properties": {field: schema}}
+
+
+def _action_is(actions: Sequence[str]) -> dict[str, Any]:
+    return _has("action", {"enum": list(actions)})
+
+
 class DecisionRequest(ApiModel):
     """POST /api/returns/{return_id}/decision (spec 19.B, plus decision_id and the category).
 
     approve: confirm the proposal (levers, if sent, must equal it: 409 otherwise); override:
     replace the levers, with a reason and a category, checked by the legal guard (422); reject:
     discard the proposal (no lever applies, the order's terms stay; the return itself is never
-    refused), with a reason and a category. Every action sends one message to the outbox."""
+    refused), with a reason and a category. The three act on a proposed version.
+
+    lift (US-607): end an approved or overridden restriction, before or at its review date (a
+    review, or a rectification the customer asked for), with a reason and a category. It creates
+    the next version (trigger review), overridden to the standard levers; 409 if the version
+    named is not a restriction. Every action sends one message to the outbox."""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "allOf": [
+                {
+                    "if": _action_is(_REASON_ACTIONS),
+                    "then": {
+                        "required": ["override_reason", "override_category"],
+                        "properties": {
+                            "override_reason": {"type": "string"},
+                            "override_category": {"type": "string"},
+                        },
+                    },
+                    "else": {
+                        "properties": {
+                            "override_reason": {"type": "null"},
+                            "override_category": {"type": "null"},
+                        }
+                    },
+                },
+                {
+                    "if": _action_is(("override",)),
+                    "then": {"required": ["levers"], "properties": {"levers": {"type": "array"}}},
+                },
+                {
+                    "if": _action_is(_NO_LEVER_ACTIONS),
+                    "then": {"properties": {"levers": {"type": "null"}}},
+                },
+            ]
+        }
+    )
 
     decision_id: Id  # the version the operator saw: 409 stale_decision if a newer one exists
     action: DecisionAction
@@ -1556,22 +2016,36 @@ class DecisionRequest(ApiModel):
 
     @model_validator(mode="after")
     def _action(self) -> Self:
-        departs = self.action in ("override", "reject")
+        departs = self.action in _REASON_ACTIONS
         if departs and (_blank(self.override_reason) or self.override_category is None):
             raise ValueError(f"{self.action} needs override_reason and override_category")
         if not departs and (self.override_reason is not None or self.override_category):
             raise ValueError("approve takes no override_reason or override_category")
         if self.action == "override" and self.levers is None:
             raise ValueError("override needs the levers chosen (an empty list: standard terms)")
-        if self.action == "reject" and self.levers is not None:
-            raise ValueError("reject takes no levers")
+        if self.action in _NO_LEVER_ACTIONS and self.levers is not None:
+            raise ValueError(f"{self.action} takes no levers")
         if self.levers is not None and len({x.id for x in self.levers}) != len(self.levers):
             raise ValueError("a lever is given twice")
         return self
 
 
+# The state each decision action leaves its version in (restriction_lifted: the new version).
+_AUDIT_STATES: dict[str, DecisionStatus] = {
+    "decision_proposed": "proposed",
+    "decision_approved": "approved",
+    "decision_overridden": "overridden",
+    "decision_rejected": "rejected",
+    "restriction_lifted": "overridden",
+}
+
+
 class AuditEntry(ApiModel):
-    """One row of the append-only audit log (US-604)."""
+    """One row of the append-only audit log (US-604).
+
+    The entries about a decision version (entity_type decision, actions DECISION_AUDIT_ACTIONS)
+    carry a typed before and after (DecisionAuditState). approve, override and reject change a
+    proposed version; restriction_lifted and case_recomputed create the next version."""
 
     entry_id: int = Field(ge=1)
     at: AwareDatetime
@@ -1583,12 +2057,45 @@ class AuditEntry(ApiModel):
     return_id: Id | None
     decision_id: Id | None
     reason: Reason | None
-    before: dict[str, Any] | None
-    after: dict[str, Any] | None
+    before: DecisionAuditState | dict[str, Any] | None
+    after: DecisionAuditState | dict[str, Any] | None
     rules_version: Version | None
     model_versions: dict[str, Version] | None
     assumptions_version: Version | None
     request_id: Id | None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _typed_payloads(cls, data: Any) -> Any:
+        if isinstance(data, dict) and data.get("entity_type") == "decision":
+            data = dict(data)
+            for key in ("before", "after"):
+                if isinstance(data.get(key), dict):
+                    data[key] = DecisionAuditState.model_validate(data[key])
+        return data
+
+    @classmethod
+    def __get_pydantic_json_schema__(
+        cls, core_schema: CoreSchema, handler: GetJsonSchemaHandler
+    ) -> JsonSchemaValue:
+        schema = handler(core_schema)
+        target = handler.resolve_ref_schema(schema)
+        ref = next(x for x in target["properties"]["after"]["anyOf"] if "$ref" in x)
+        actions = {"enum": sorted(DECISION_AUDIT_ACTIONS)}
+        target["allOf"] = [
+            {
+                "if": _has("entity_type", {"const": "decision"}),
+                "then": {
+                    "properties": {
+                        "action": actions,
+                        "before": {"anyOf": [ref, {"type": "null"}]},
+                        "after": ref,
+                    }
+                },
+                "else": {"properties": {"action": {"not": actions}}},
+            }
+        ]
+        return schema
 
     @model_validator(mode="after")
     def _actor(self) -> Self:
@@ -1598,7 +2105,37 @@ class AuditEntry(ApiModel):
             raise ValueError(f"{self.action} is taken by a person (rule 5)")
         if self.action in REASON_REQUIRED_ACTIONS and _blank(self.reason):
             raise ValueError(f"{self.action} needs a reason")
+        if (self.entity_type == "decision") != (self.action in DECISION_AUDIT_ACTIONS):
+            raise ValueError("the entries about a decision version have entity_type decision")
+        if self.entity_type == "decision":
+            self._check_decision_payloads()
         return self
+
+    def _check_decision_payloads(self) -> None:
+        before, after = self.before, self.after
+        if not isinstance(after, DecisionAuditState) or isinstance(before, dict):
+            raise ValueError("a decision entry has a typed after, and a typed before or none")
+        if not (self.entity_id == self.decision_id == after.decision_id):
+            raise ValueError("a decision entry is about the version in its after")
+        expected = _AUDIT_STATES.get(self.action)
+        if expected is not None and after.state != expected:
+            raise ValueError(f"{self.action} leaves the version {expected}")
+        if self.action == "decision_proposed":
+            if before is not None or after.version != 1:
+                raise ValueError("decision_proposed records a new case: version 1, no before")
+        elif before is None:
+            raise ValueError(f"{self.action} records the state before it")
+        elif self.action in ("restriction_lifted", "case_recomputed"):
+            if after.version != before.version + 1:
+                raise ValueError(f"{self.action} creates the next version")
+            if self.action == "restriction_lifted" and (
+                before.state not in ("approved", "overridden")
+                or not before.requires_approval
+                or after.lever_ids
+            ):
+                raise ValueError("a lift ends a restriction in force with the standard levers")
+        elif before.decision_id != after.decision_id or before.state != "proposed":
+            raise ValueError(f"{self.action} acts on a proposed version")
 
 
 AUDIT_CSV_COLUMNS: tuple[str, ...] = (
@@ -1622,7 +2159,8 @@ AUDIT_CSV_COLUMNS: tuple[str, ...] = (
 
 
 class OutboxMessage(ApiModel):
-    """A message in the simulated outbox (spec 4: no real email)."""
+    """A message in the simulated outbox (spec 4: no real email): the connective text, the
+    template fields, and the body render_customer_message makes of them with the legal clause."""
 
     message_id: Id
     return_id: Id
@@ -1630,6 +2168,8 @@ class OutboxMessage(ApiModel):
     customer_id: Id
     lang: Lang
     subject: ShortText
+    connective_text: Annotated[str, StringConstraints(min_length=1, max_length=900)]
+    fields: TemplateFields
     body: Annotated[str, StringConstraints(min_length=1, max_length=4000)]
     legal_clause_kind: ClauseKind | None
     generation_id: Id | None
@@ -1638,7 +2178,13 @@ class OutboxMessage(ApiModel):
     created_at: AwareDatetime
 
     @model_validator(mode="after")
-    def _clause(self) -> Self:
+    def _render(self) -> Self:
+        check_connective_text(self.connective_text)
+        rendered = render_customer_message(
+            self.connective_text, self.fields.as_mapping(), self.lang, self.legal_clause_kind
+        )
+        if rendered != self.body:
+            raise ValueError("body is render_customer_message of the text and the fields")
         if self.legal_clause_kind is not None and not self.body.endswith(
             clause(self.legal_clause_kind, self.lang)
         ):
@@ -1646,21 +2192,42 @@ class OutboxMessage(ApiModel):
         return self
 
 
+_RESULT_ACTIONS: dict[DecisionStatus, AuditAction] = {
+    "approved": "decision_approved",
+    "overridden": "decision_overridden",
+    "rejected": "decision_rejected",
+}
+
+
 class DecisionResult(ApiModel):
+    """The outcome of POST .../decision: the version acted on (or, for a lift, the new version),
+    its audit entry and its outbox message."""
+
     decision: DecisionView
     audit_entry: AuditEntry
     outbox_message: OutboxMessage
 
     @model_validator(mode="after")
     def _linked(self) -> Self:
-        if self.decision.state == "proposed":
+        d, entry, message = self.decision, self.audit_entry, self.outbox_message
+        if d.state == "proposed":
             raise ValueError("a decision result is an approved, overridden or rejected decision")
-        if self.audit_entry.decision_id != self.decision.decision_id:
+        action = (
+            "restriction_lifted" if d.revision_trigger == "review" else _RESULT_ACTIONS[d.state]
+        )
+        if entry.action != action:
+            raise ValueError(f"the audit entry of this result is {action}")
+        if entry.decision_id != d.decision_id:
             raise ValueError("the audit entry is about this decision")
-        if self.outbox_message.decision_id != self.decision.decision_id:
+        if entry.after != DecisionAuditState.from_view(d):
+            raise ValueError("the audit entry records the decision as returned")
+        if entry.actor != d.approver or message.created_by != d.approver:
+            raise ValueError("the person who acted is the actor and the sender")
+        if message.decision_id != d.decision_id:
             raise ValueError("the message is about this decision")
-        if self.outbox_message.legal_clause_kind != required_clause(self.decision):
+        if message.legal_clause_kind != required_clause(d):
             raise ValueError("the message carries the legal clause the decision requires")
+        _check_fields(message.fields, d, message.lang)
         return self
 
 
@@ -1741,6 +2308,7 @@ class RecomputeResponse(ApiModel):
     decision: DecisionView  # the new version
     draft: DraftView  # regenerated for the new version
     audit_entry_ids: list[int] = Field(min_length=1)
+    provenance: Provenance  # covers the plain numbers of before and after
 
     @model_validator(mode="after")
     def _versions(self) -> Self:
@@ -1750,6 +2318,11 @@ class RecomputeResponse(ApiModel):
             raise ValueError("the trigger names its evidence or its dispute")
         if self.after.version != self.before.version + 1:
             raise ValueError("a recompute creates the next version")
+        if (self.decision.revision_trigger, self.decision.supersedes) != (
+            self.trigger,
+            self.before.decision_id,
+        ):
+            raise ValueError("the new version records its trigger and supersedes the one before")
         if (self.decision.decision_id, self.decision.version) != (
             self.after.decision_id,
             self.after.version,
@@ -1762,15 +2335,38 @@ class RecomputeResponse(ApiModel):
 
 
 class LinkDisputeRequest(ApiModel):
+    """A dispute of a link (US-310). From a case card it names the case and the decision version
+    shown (409 stale_decision if a newer one exists); its recompute is returned."""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "allOf": [
+                {
+                    "if": _has("return_id", {"type": "string"}),
+                    "then": _has("decision_id", {"type": "string"}),
+                    "else": {"properties": {"decision_id": {"type": "null"}}},
+                }
+            ]
+        }
+    )
+
     reason: Reason
     author: HumanActor
     return_id: Id | None = None  # the case being reviewed: its recompute is returned
+    decision_id: Id | None = None  # the version of that case shown: required with return_id
+
+    @model_validator(mode="after")
+    def _case(self) -> Self:
+        if (self.return_id is None) != (self.decision_id is None):
+            raise ValueError("return_id and decision_id go together: the case and its decision_id")
+        return self
 
 
 class LinkDisputeResponse(ApiModel):
     link: AccountLink  # now disputed
     affected_return_ids: list[Id]  # open cases of the cluster, all recomputed
     recompute: RecomputeResponse | None  # the case of return_id, when given
+    provenance: Provenance  # covers the plain numbers of link
 
     @model_validator(mode="after")
     def _disputed(self) -> Self:
@@ -1839,6 +2435,7 @@ class CheckoutEvaluateResponse(ApiModel):
     quadrant: Quadrant | None  # of the decision in force for the customer; null: base terms
     lines: list[CheckoutLine] = Field(min_length=1)
     terms: Terms
+    base_terms: Terms  # the merchant base terms: terms_source base shows exactly these
     coupon_eligible: bool  # coupons may be used by this customer on this order
     coupon_block: CouponBlock | None
     terms_snapshot_id: Id
@@ -1857,6 +2454,7 @@ class CheckoutEvaluateResponse(ApiModel):
             raise ValueError("coupons disabled by the terms make them ineligible")
         if (self.terms_source == "base") != (self.quadrant is None):
             raise ValueError("base terms have no quadrant; decision terms have one")
+        _check_terms_source(self.terms, self.base_terms, self.terms_source, self.review_at)
         for line in self.lines:
             if (line.size_advice is not None) != (line.p_return >= self.p_return_threshold):
                 raise ValueError("size advice is shown exactly above the threshold (F2)")
@@ -1951,6 +2549,7 @@ class InspectionView(ApiModel):
     confirmed_by: HumanActor | None
     confirmed_at: AwareDatetime | None
     generation: GenerationInfo
+    provenance: Provenance  # covers the plain numbers of checklist (model confidences)
 
     @model_validator(mode="after")
     def _state(self) -> Self:
@@ -2004,6 +2603,11 @@ class InspectionConfirmResponse(ApiModel):
                 raise ValueError("the inspector who confirmed signs the claim")
             if self.outbox_message is None:
                 raise ValueError("a claim is communicated with its motivation")
+        message = self.outbox_message
+        if message is not None:
+            if message.decision_id != self.decision.decision_id:
+                raise ValueError("the message is about this decision")
+            _check_fields(message.fields, self.decision, message.lang)
         return self
 
 
@@ -2031,17 +2635,28 @@ class QuadrantSummary(ApiModel):
 
 
 class MatrixPoint(ApiModel):
-    """One scored customer: what the browser simulator needs to move the thresholds (ADR-04)."""
+    """One scored customer: what the browser simulator needs to move the thresholds (ADR-04).
+    With insufficient evidence there is no risk and no quadrant: the point stays outside the
+    matrix (US-307)."""
 
     customer_id: Id
     display_name: ShortText | None
-    risk: Probability
+    risk: Probability | None  # null exactly when the evidence is insufficient
     value_eur: Eur
     evidence_quality: EvidenceQuality
     quadrant: Quadrant | None  # at the thresholds of the response; null if insufficient
     cluster_id: Id | None
     returns_12m: int = Field(ge=0)
     welcome_coupons: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def _scored(self) -> Self:
+        insufficient = self.evidence_quality is EvidenceQuality.INSUFFICIENT
+        if (self.risk is None) != insufficient:
+            raise ValueError("risk is null exactly when the evidence is insufficient (US-307)")
+        if insufficient and self.quadrant is not None:
+            raise ValueError("insufficient evidence has no quadrant (US-307)")
+        return self
 
 
 class PortfolioMatrix(ApiModel):
@@ -2067,10 +2682,8 @@ class PortfolioMatrix(ApiModel):
         by_quadrant: dict[Quadrant, list[MatrixPoint]] = {q: [] for q in Quadrant}
         insufficient = 0
         for p in self.points:
-            if p.evidence_quality is EvidenceQuality.INSUFFICIENT:
+            if p.risk is None:
                 insufficient += 1
-                if p.quadrant is not None:
-                    raise ValueError(f"{p.customer_id}: insufficient evidence has no quadrant")
                 continue
             scores = CaseScores(p.risk, _dec(p.value_eur), p.evidence_quality, p.cluster_id)
             if p.quadrant is not quadrant_for(scores, thresholds):
@@ -2107,14 +2720,20 @@ class AssumptionVersion(ApiModel):
 
     @model_validator(mode="after")
     def _scenarios(self) -> Self:
-        if self.net_benefit.assumptions.version != self.version:
-            raise ValueError("the net benefit is computed on this version")
-        expected = sensitivity(self.net_benefit.assumptions.as_policy())
+        stored = self.net_benefit.assumptions
+        if stored.version != self.version or stored.based_on is not None:
+            raise ValueError("the net benefit is computed on this stored version")
+        expected = sensitivity(stored.as_policy())
         if [s.id for s in self.sensitivity] != list(expected):
             raise ValueError(f"sensitivity scenarios are {list(expected)} in order")
         for scenario in self.sensitivity:
             if _dec(scenario.net_benefit.total.value) != expected[scenario.id].total:
                 raise ValueError(f"scenario {scenario.id} differs from policy.simulator")
+            a = scenario.net_benefit.assumptions
+            if scenario.id != "base" and (
+                a.version != f"{self.version}/{scenario.id}" or a.based_on != self.version
+            ):
+                raise ValueError(f"scenario {scenario.id} is labelled {self.version}/{scenario.id}")
         if self.sensitivity[0].net_benefit != self.net_benefit:
             raise ValueError("the base scenario is the net benefit of the version")
         return self
@@ -2208,6 +2827,8 @@ class KpiResponse(ApiModel):
             raise ValueError("p50 <= p95")
         if self.net_benefit_simulated.assumptions.basis != "simulated":
             raise ValueError("net_benefit_simulated has basis simulated")
+        if self.net_benefit_simulated.assumptions.based_on is None:
+            raise ValueError("the week's quantities name the stored version of their unit costs")
         if (
             self.net_benefit_realized is not None
             and self.net_benefit_realized.assumptions.basis != "realized"
@@ -2753,6 +3374,7 @@ API_MODELS: dict[str, type[BaseModel]] = {
     "queue_query": QueueQuery,
     "queue_response": QueueResponse,
     "case_card": CaseCard,
+    "decision_record": DecisionRecord,
     "decision_request": DecisionRequest,
     "decision_result": DecisionResult,
     "regenerate_request": RegenerateRequest,
@@ -2801,11 +3423,17 @@ SSE = "text/event-stream"
 CSV = "text/csv"
 
 
+CASE_ROLES: tuple[Role, ...] = ("operator", "manager")  # case actions (ADR-15 role table)
+WAREHOUSE: tuple[Role, ...] = ("warehouse",)
+MANAGER: tuple[Role, ...] = ("manager",)
+
+
 @dataclass(frozen=True)
 class Endpoint:
     """One endpoint of the contract. Model names are keys of API_MODELS. Every error response
     has the body `error` (ErrorResponse); 422 invalid_request applies to every endpoint with a
-    body, a path parameter or a query."""
+    body, a path parameter or a query. roles are the demo roles that may call it: the others get
+    403 forbidden_role (the checkout is called by the simulated shop, with no role check)."""
 
     method: HttpMethod
     path: str
@@ -2818,6 +3446,7 @@ class Endpoint:
     media_type: str = JSON
     alt_media_types: tuple[str, ...] = ()
     errors: tuple[int, ...] = ()
+    roles: tuple[Role, ...] = DEMO_ROLES
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -2832,6 +3461,7 @@ class Endpoint:
             "media_type": self.media_type,
             "alt_media_types": list(self.alt_media_types),
             "errors": list(self.errors),
+            "roles": list(self.roles),
         }
 
 
@@ -2857,11 +3487,20 @@ ENDPOINTS: tuple[Endpoint, ...] = (
     Endpoint(
         "POST",
         "/api/returns/{return_id}/decision",
-        "Approve, override with a reason, or reject the proposal",
+        "Approve, override or reject the proposal with a reason; lift a restriction",
         ("US-303", "US-306", "US-607"),
         "decision_result",
         request="decision_request",
         errors=(403, 404, 409, 422),
+        roles=CASE_ROLES,
+    ),
+    Endpoint(
+        "GET",
+        "/api/decisions/{decision_id}",
+        "One decision version, latest or earlier: inputs, alternatives, outcome, versions",
+        ("US-604",),
+        "decision_record",
+        errors=(404,),
     ),
     Endpoint(
         "POST",
@@ -2870,7 +3509,8 @@ ENDPOINTS: tuple[Endpoint, ...] = (
         ("US-304", "US-305"),
         "regenerate_response",
         request="regenerate_request",
-        errors=(404, 409),
+        errors=(403, 404, 409, 503),
+        roles=CASE_ROLES,
     ),
     Endpoint(
         "POST",
@@ -2879,7 +3519,8 @@ ENDPOINTS: tuple[Endpoint, ...] = (
         ("US-310",),
         "recompute_response",
         request="evidence_request",
-        errors=(404, 409),
+        errors=(403, 404, 409),
+        roles=CASE_ROLES,
     ),
     Endpoint(
         "POST",
@@ -2888,7 +3529,8 @@ ENDPOINTS: tuple[Endpoint, ...] = (
         ("US-310", "US-203"),
         "link_dispute_response",
         request="link_dispute_request",
-        errors=(404, 409),
+        errors=(403, 404, 409),
+        roles=CASE_ROLES,
     ),
     Endpoint(
         "POST",
@@ -2918,6 +3560,7 @@ ENDPOINTS: tuple[Endpoint, ...] = (
         request="inspection_create_request",
         status=201,
         errors=(403, 404),
+        roles=WAREHOUSE,
     ),
     Endpoint(
         "POST",
@@ -2927,6 +3570,7 @@ ENDPOINTS: tuple[Endpoint, ...] = (
         "inspection_confirm_response",
         request="inspection_confirm_request",
         errors=(403, 404, 409, 422),
+        roles=WAREHOUSE,
     ),
     Endpoint(
         "GET",
@@ -2950,6 +3594,7 @@ ENDPOINTS: tuple[Endpoint, ...] = (
         "simulator_assumptions",
         request="simulator_assumptions_update",
         errors=(403, 409),
+        roles=MANAGER,
     ),
     Endpoint("GET", "/api/kpi", "KPIs of a week", ("US-603",), "kpi", query="kpi_query"),
     Endpoint("GET", "/api/fairness", "Fairness report", ("US-605",), "fairness"),
@@ -2981,6 +3626,7 @@ ENDPOINTS: tuple[Endpoint, ...] = (
         request="catalog_task_create",
         status=201,
         errors=(403, 404, 409),
+        roles=CASE_ROLES,
     ),
     Endpoint(
         "PATCH",
@@ -2990,6 +3636,7 @@ ENDPOINTS: tuple[Endpoint, ...] = (
         "catalog_task",
         request="catalog_task_update",
         errors=(403, 404, 409),
+        roles=CASE_ROLES,
     ),
     Endpoint(
         "GET",
@@ -3007,6 +3654,7 @@ ENDPOINTS: tuple[Endpoint, ...] = (
         request="coupon_rule_create",
         status=201,
         errors=(403,),
+        roles=MANAGER,
     ),
     Endpoint(
         "POST",
@@ -3016,6 +3664,7 @@ ENDPOINTS: tuple[Endpoint, ...] = (
         "coupon_rule_application",
         request="coupon_application_reverse",
         errors=(403, 404, 409),
+        roles=CASE_ROLES,
     ),
     Endpoint(
         "POST",
@@ -3025,7 +3674,8 @@ ENDPOINTS: tuple[Endpoint, ...] = (
         "agent_stream",
         request="agent_ask_request",
         media_type=SSE,
-        errors=(404, 429),
+        errors=(403, 404, 429, 503),
+        roles=CASE_ROLES,
     ),
     Endpoint("GET", "/api/benchmarks", "Benchmarks B1-B4", ("US-902",), "benchmarks"),
     Endpoint("GET", "/api/telemetry", "GPU, LLM and API telemetry", ("US-905",), "telemetry"),

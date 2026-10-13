@@ -12,7 +12,7 @@
     },
     "MatrixPoint": {
       "additionalProperties": false,
-      "description": "One scored customer: what the browser simulator needs to move the thresholds (ADR-04).",
+      "description": "One scored customer: what the browser simulator needs to move the thresholds (ADR-04).\nWith insufficient evidence there is no risk and no quadrant: the point stays outside the\nmatrix (US-307).",
       "properties": {
         "customer_id": {
           "maxLength": 96,
@@ -35,10 +35,17 @@
           "title": "Display Name"
         },
         "risk": {
-          "maximum": 1,
-          "minimum": 0,
-          "title": "Risk",
-          "type": "number"
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Risk"
         },
         "value_eur": {
           "title": "Value Eur",

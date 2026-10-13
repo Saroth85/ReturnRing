@@ -21,6 +21,7 @@ from contracts.parquet import ANOMALY_STATUSES, COUPON_KINDS, IDENTIFIER_KINDS
 from contracts.vocab import ASSUMPTION_BASES, CLAUSE_KINDS, DECISION_STATUSES, LANGS
 from llm.legal_clause import CLAUSES
 from policy.engine import NAVIGLI_BASE_TERMS, levers_for
+from policy.legal_guard import check
 from policy.simulator import PROPOSAL_EXAMPLE, net_benefit, sensitivity
 from policy.types import DecisionState, Quadrant
 from scripts import build_api_examples, export_api_schemas
@@ -598,7 +599,55 @@ REJECTED: list[tuple[str, str, Path_, Any]] = [
     ("link_dispute_response.json", "link_dispute_response", ("link", "disputed"), False),
     ("evidence_request.rossi_card.json", "evidence_request", ("target_link_ids",), []),
     ("evidence_request.rossi_card.json", "evidence_request", ("target_link_ids", 0), "C-2~C-1"),
-]
+    # review and lift of restrictions (US-607)
+    ("decision_request.lift.json", "decision_request", ("override_reason",), None),
+    ("decision_request.lift.json", "decision_request", ("levers",), []),
+    ("decision_result.lift.json", "decision_result", ("decision", "revision_trigger"), "initial"),
+    ("decision_result.lift.json", "decision_result", ("decision", "supersedes"), None),
+    ("decision_result.lift.json", "decision_result", ("audit_entry", "action"),
+     "decision_overridden"),
+    ("case_card.lorenzo.json", "case_card", ("decision", "in_force"), True),
+    ("case_card.lorenzo.json", "case_card", ("decision", "superseded_by"), "DEC-000088-2"),
+    ("queue_response.review_due.json", "queue_response", ("items", 0, "review_due"), False),
+    ("queue_response.json", "queue_response", ("items", 0, "review_due"), True),
+    ("queue_response.json", "queue_response", ("items", 0, "review_at"), None),
+    # decision versions and history (US-604)
+    ("decision_record.chiara_v1.json", "decision_record", ("decision", "in_force"), True),
+    ("decision_record.chiara_v1.json", "decision_record", ("alternatives", 0, "recommended"),
+     False),
+    ("recompute_response.rossi_card.json", "recompute_response", ("decision", "supersedes"), None),
+    ("case_card.marco.json", "case_card", ("decision", "inputs", "order_id"), "ORD-000001"),
+    ("case_card.marco.json", "case_card", ("decision", "as_of"), "2026-09-30T19:00:00Z"),
+    ("decision_result.marco_approved.json", "decision_result", ("audit_entry", "after"),
+     {"state": "approved"}),
+    ("decision_result.marco_approved.json", "decision_result", ("audit_entry", "after", "state"),
+     "rejected"),
+    ("audit_page.json", "audit_page", ("items", 0, "entity_type"), "outbox_message"),
+    # template fields and outbox (rule 10)
+    ("decision_result.marco_approved.json", "decision_result", ("outbox_message", "body"),
+     "Ciao."),
+    ("decision_result.override.json", "decision_result", ("outbox_message", "connective_text"),
+     "Rimborso entro 14 giorni."),
+    # explanation statements (US-305)
+    ("case_card.marco.json", "case_card", ("draft", "explanation", 0, "metric"), None),
+    ("case_card.marco.json", "case_card", ("draft", "explanation", 0, "value"), "8"),
+    # assumption sets (US-602)
+    ("case_card.marco.json", "case_card",
+     ("alternatives", 0, "net_benefit", "assumptions", "based_on"), "assumptions-v9"),
+    ("case_card.marco.json", "case_card",
+     ("alternatives", 1, "net_benefit", "assumptions", "version"), "DEC-000102-1/proposal"),
+    ("simulator_assumptions.v1.json", "simulator_assumptions",
+     ("current", "sensitivity", 1, "net_benefit", "assumptions", "version"), "assumptions-v1"),
+    ("kpi.json", "kpi", ("net_benefit_simulated", "assumptions", "based_on"), None),
+    # provenance, terms source, disputes (rule 11, US-403, US-310)
+    ("inspection.awaiting.json", "inspection", ("provenance",), DELETE),
+    ("queue_response.json", "queue_response", ("provenance",), DELETE),
+    ("checkout_evaluate_response.marco.json", "checkout_evaluate_response", ("review_at",), None),
+    ("checkout_confirm_response.giulia.json", "checkout_confirm_response",
+     ("terms_snapshot", "source"), "base"),
+    ("link_dispute_request.json", "link_dispute_request", ("decision_id",), DELETE),
+    ("portfolio_matrix.json", "portfolio_matrix", ("points", 6, "risk"), 0.4),
+]  # fmt: skip
 
 
 @pytest.mark.parametrize(("file", "model", "path", "value"), REJECTED, ids=lambda x: str(x)[:40])
@@ -619,3 +668,240 @@ def test_every_api_model_forbids_unknown_fields() -> None:
         assert model.model_config.get("extra") == "forbid", model.__name__
     with pytest.raises(ValidationError):
         s.KpiResponse.model_validate({**load("kpi.json"), "same_person": True})
+
+
+# ---- Decisions and the legal guard (rules 3 to 5, US-306, US-607) ------------------------------
+
+
+def test_overridden_view_maps_to_an_approved_policy_decision_without_quadrant() -> None:
+    """ADR-15 section 8: the legal guard sees an override as a person's approved decision whose
+    levers are the operator's, judged without the engine's quadrant."""
+    view = s.DecisionResult.model_validate(load("decision_result.override.json")).decision
+    assert view.state == "overridden" and view.quadrant is Quadrant.Q3 and view.levers == []
+    decision, request = s.to_policy_decision(view)
+    assert decision.state is DecisionState.APPROVED and decision.quadrant is None
+    assert decision.approver == view.approver and request.return_id == view.return_id
+    assert check(decision, request, NAVIGLI_BASE_TERMS) == []
+
+
+def test_decision_view_runs_the_legal_guard() -> None:
+    """An override the field checks accept but policy.legal_guard refuses is not a valid view:
+    an upgrade on a case with insufficient evidence (US-307)."""
+    doc = load("case_card.insufficient.json")["decision"]
+    upgrade = [{"id": "return_window_days", "value": 60, "scope": "future_orders"}]
+    doc.update(
+        state="overridden",
+        levers=upgrade,
+        lever_ids=["return_window_days:60"],
+        future_terms={**doc["future_terms"], "return_window_days": 60},
+        approver="sara",
+        approved_at=doc["created_at"],
+        override_reason="Loyal customer known to the shop",
+        override_category="customer_context",
+    )
+    with pytest.raises(ValidationError, match="INSUFFICIENT_EVIDENCE_RESTRICTED"):
+        s.DecisionView.model_validate(doc)
+
+
+def test_a_restriction_lapses_at_its_review_date() -> None:
+    """US-607: no permanent label. On its review date an approved restriction stops applying."""
+    doc = load("decision_result.marco_approved.json")["decision"]
+    assert doc["in_force"] and doc["review_at"]
+    lapsed = {**doc, "as_of": f"{doc['review_at']}T08:00:00Z", "in_force": False}
+    s.DecisionView.model_validate(lapsed)
+    with pytest.raises(ValidationError, match="in_force"):
+        s.DecisionView.model_validate({**lapsed, "in_force": True})
+
+
+def test_lift_takes_a_reason_and_no_levers() -> None:
+    body = {
+        "decision_id": "DEC-000088-1",
+        "action": "lift",
+        "message": {"lang": "it"},
+        "override_reason": "Reviewed at the due date: returns back in line",
+        "override_category": "periodic_review",
+        "approver": "luca",
+    }
+    assert s.DecisionRequest.model_validate(body).action == "lift"
+    for key in ("override_reason", "override_category"):
+        with pytest.raises(ValidationError):
+            s.DecisionRequest.model_validate({**body, key: None})
+    with pytest.raises(ValidationError):
+        s.DecisionRequest.model_validate({**body, "levers": []})
+
+
+def test_review_versions_lift_to_the_standard_levers() -> None:
+    """A version created by a review (trigger review) is the operator's lift: standard levers."""
+    lift = s.DecisionResult.model_validate(load("decision_result.lift.json")).decision
+    assert (lift.revision_trigger, lift.state, lift.levers) == ("review", "overridden", [])
+    assert lift.supersedes is not None and lift.version == 2 and lift.in_force
+    doc = load("decision_result.marco_approved.json")["decision"]
+    doc.update(revision_trigger="review", version=2, supersedes="DEC-000102-0")
+    with pytest.raises(ValidationError, match="trigger review"):
+        s.DecisionView.model_validate(doc)
+
+
+def test_queue_filters_restrictions_due_for_review() -> None:
+    assert "review_due" in s.QueueQuery.model_fields
+    assert {"review_at", "review_due"} <= set(s.QueueItem.model_fields)
+    assert "review" in get_args(s.RevisionTrigger) and "lift" in get_args(s.DecisionAction)
+
+
+# ---- Template fields come from the decision (rule 10, ADR-08) -----------------------------------
+
+
+def _rerender(message: dict[str, Any], **fields: Any) -> dict[str, Any]:
+    from llm.messages import render_customer_message
+
+    out = {**message, "fields": {**message["fields"], **fields}}
+    mapping = {k: v for k, v in out["fields"].items() if v is not None}
+    out["rendered_text"] = render_customer_message(
+        out["connective_text"], mapping, out["lang"], out["legal_clause_kind"]
+    )
+    return out
+
+
+@pytest.mark.parametrize(
+    "fields", [{"deadline": "1 gennaio 2027"}, {"terms": "finestra di reso di 90 giorni"}]
+)
+def test_draft_fields_are_the_decision_deadline_and_terms(fields: dict[str, str]) -> None:
+    card = load("case_card.marco.json")
+    s.CaseCard.model_validate(card)
+    card["draft"]["messages"][0] = _rerender(card["draft"]["messages"][0], **fields)
+    with pytest.raises(ValidationError, match="template fields"):
+        s.CaseCard.model_validate(card)
+
+
+def test_renderers_live_in_the_api_contract() -> None:
+    assert s.deadline_text(date(2026, 10, 12), "it") == "12 ottobre 2026"
+    assert s.deadline_text(date(2026, 10, 12), "en") == "12 October 2026"
+    assert s.terms_text(s.Terms.from_policy(NAVIGLI_BASE_TERMS), "en").startswith("30-day")
+
+
+# ---- Explanation statements (US-305) ------------------------------------------------------------
+
+
+def test_a_statement_with_a_number_names_entity_metric_value_and_period() -> None:
+    bare = {"label": "OBSERVED", "text": "Kept 5 of 11 items in 12 months."}
+    with pytest.raises(ValidationError, match="entity, metric, value and period"):
+        s.ExplanationStatement.model_validate(
+            {**bare, "entity": None, "metric": None, "value": None, "period": None}
+        )
+    full = {**bare, "entity": "C-1", "metric": "kept_lines", "value": "5 of 11", "period": "12m"}
+    s.ExplanationStatement.model_validate(full)
+    with pytest.raises(ValidationError, match="value"):
+        s.ExplanationStatement.model_validate({**full, "value": "6 of 11"})
+    s.ExplanationStatement.model_validate(
+        {"label": "HYPOTHESIS", "text": "Verify the shared cards.", "entity": "CL-1",
+         "metric": None, "value": None, "period": None}
+    )  # fmt: skip
+
+
+# ---- Matrix, checkout terms and link disputes ---------------------------------------------------
+
+
+def _point(**changes: Any) -> dict[str, Any]:
+    point = {
+        "customer_id": "C-1",
+        "display_name": None,
+        "risk": 0.2,
+        "value_eur": 10.0,
+        "evidence_quality": "sufficient",
+        "quadrant": "Q2",
+        "cluster_id": None,
+        "returns_12m": 1,
+        "welcome_coupons": 0,
+    }
+    return {**point, **changes}
+
+
+def test_insufficient_matrix_points_carry_no_risk() -> None:
+    s.MatrixPoint.model_validate(_point(evidence_quality="insufficient", quadrant=None, risk=None))
+    with pytest.raises(ValidationError):
+        s.MatrixPoint.model_validate(_point(evidence_quality="insufficient", quadrant=None))
+    with pytest.raises(ValidationError):
+        s.MatrixPoint.model_validate(_point(risk=None))
+
+
+def test_checkout_terms_less_generous_than_base_come_from_a_decision_with_a_review() -> None:
+    doc = load("checkout_evaluate_response.marco.json")
+    doc["base_terms"] = s.Terms.from_policy(NAVIGLI_BASE_TERMS).model_dump()
+    s.CheckoutEvaluateResponse.model_validate(doc)
+    with pytest.raises(ValidationError, match="review"):
+        s.CheckoutEvaluateResponse.model_validate({**doc, "review_at": None})
+    as_base = {**doc, "terms_source": "base", "quadrant": None, "review_at": None}
+    with pytest.raises(ValidationError, match="base"):
+        s.CheckoutEvaluateResponse.model_validate({**as_base, "coupon_block": None})
+
+
+def test_terms_snapshot_from_base_has_the_base_terms() -> None:
+    snapshot = load("case_card.giulia.json")["order_terms"]
+    snapshot.update(base_terms=snapshot["terms"], review_at=None)
+    s.TermsSnapshotView.model_validate(snapshot)
+    upgraded = {**snapshot["terms"], "return_window_days": 60}
+    with pytest.raises(ValidationError, match="base"):
+        s.TermsSnapshotView.model_validate({**snapshot, "terms": upgraded})
+    restricted = {**snapshot["terms"], "instant_refund": False}
+    decision = {**snapshot, "source": "DEC-000102-1", "quadrant_at_purchase": "Q4"}
+    with pytest.raises(ValidationError, match="review"):
+        s.TermsSnapshotView.model_validate({**decision, "terms": restricted})
+    s.TermsSnapshotView.model_validate({**decision, "terms": restricted, "review_at": "2026-12-27"})
+
+
+def test_a_dispute_from_a_case_names_the_decision_shown() -> None:
+    body = {"reason": "Card used once for a gift", "author": "sara", "return_id": "RET-000106"}
+    with pytest.raises(ValidationError, match="decision_id"):
+        s.LinkDisputeRequest.model_validate(body)
+    s.LinkDisputeRequest.model_validate({**body, "decision_id": "DEC-000106-1"})
+    with pytest.raises(ValidationError, match="decision_id"):
+        s.LinkDisputeRequest.model_validate({**body, "return_id": None, "decision_id": "DEC-1"})
+
+
+# ---- Audit payloads, decision history and endpoint errors (US-604, ADR-15) ---------------------
+
+
+def test_decision_audit_entries_carry_a_typed_payload() -> None:
+    result = load("decision_result.marco_approved.json")
+    entry = result["audit_entry"]
+    with pytest.raises(ValidationError):
+        s.AuditEntry.model_validate({**entry, "after": {"state": "approved"}})
+    assert "DecisionAuditState" in schema("audit_page")["$defs"]
+
+
+def test_earlier_decision_versions_are_served() -> None:
+    endpoints = {(ep.method, ep.path): ep for ep in s.ENDPOINTS}
+    ep = endpoints[("GET", "/api/decisions/{decision_id}")]
+    assert ep.response == "decision_record" and "US-604" in ep.stories and 404 in ep.errors
+
+
+def test_role_and_llm_errors_are_declared() -> None:
+    """A warehouse user gets 403 on case actions; regeneration and the agent need the LLM."""
+    by_key = {(ep.method, ep.path): ep for ep in s.ENDPOINTS}
+    for path in (
+        "/api/returns/{return_id}/decision",
+        "/api/returns/{return_id}/regenerate",
+        "/api/returns/{return_id}/evidence",
+        "/api/links/{link_id}/dispute",
+        "/api/agent/ask",
+    ):
+        assert 403 in by_key[("POST", path)].errors, path
+        assert "warehouse" not in by_key[("POST", path)].roles, path
+    for ep in s.ENDPOINTS:
+        assert (403 in ep.errors) == (set(ep.roles) != set(s.DEMO_ROLES)), ep.path
+        llm = ep.path in ("/api/returns/{return_id}/regenerate", "/api/agent/ask")
+        assert (503 in ep.errors) == llm, ep.path
+    openapi = json.loads((SCHEMAS / "openapi.json").read_text())
+    for path, method in (
+        ("/api/agent/ask", "post"),
+        ("/api/returns/{return_id}/regenerate", "post"),
+    ):
+        assert {"403", "503"} <= set(openapi["paths"][path][method]["responses"]), path
+
+
+def test_responses_with_plain_numbers_carry_a_provenance() -> None:
+    """Rule 11: a plain number is covered by the provenance of its section."""
+    for name in ("queue_response", "recompute_response", "inspection", "link_dispute_response"):
+        assert "provenance" in schema(name)["required"], name
+    card = schema("case_card")["$defs"]
+    assert "provenance" in card["RiskView"]["required"]
+    assert card["RevisionSummary"]["properties"]["risk"]["anyOf"][0] == {"$ref": "#/$defs/Metric"}

@@ -50,7 +50,7 @@
     },
     "TermsSnapshotView": {
       "additionalProperties": false,
-      "description": "Terms shown at checkout and stored with the order (ADR-05). order_id is null while the\nsnapshot is shown and not confirmed (POST /api/checkout/evaluate).",
+      "description": "Terms shown at checkout and stored with the order (ADR-05). order_id is null while the\nsnapshot is shown and not confirmed (POST /api/checkout/evaluate). base_terms are the\nmerchant base terms when the snapshot was shown; review_at is the review date of the\nrestriction in force that produced the terms, if any.",
       "properties": {
         "terms_snapshot_id": {
           "maxLength": 96,
@@ -100,6 +100,21 @@
         "terms": {
           "$ref": "#/$defs/Terms"
         },
+        "base_terms": {
+          "$ref": "#/$defs/Terms"
+        },
+        "review_at": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Review At"
+        },
         "shown_at": {
           "format": "date-time",
           "title": "Shown At",
@@ -125,6 +140,8 @@
         "source",
         "quadrant_at_purchase",
         "terms",
+        "base_terms",
+        "review_at",
         "shown_at",
         "confirmed_at"
       ],

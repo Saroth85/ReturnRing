@@ -191,6 +191,7 @@
     "note": {
       "maxLength": 1000,
       "minLength": 3,
+      "pattern": "\\S[\\s\\S]+\\S",
       "title": "Note",
       "type": "string"
     },

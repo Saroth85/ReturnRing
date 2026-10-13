@@ -72,7 +72,7 @@
     },
     "Assumptions": {
       "additionalProperties": false,
-      "description": "A versioned assumption set. basis is policy.simulator's nature: simulated or realized.",
+      "description": "An assumption set; basis is policy.simulator's nature: simulated or realized.\n\nOne label, one set of values. A stored version (GET and PUT /api/simulator/assumptions) has\n`based_on` null. Any other set (the alternatives of a case, a week of KPIs, a sensitivity\nscenario) has its own label in `version` and names in `based_on` the stored version whose\nunit costs it uses: the alternatives of a decision version are labelled\n\"<decision_id>/<alternative kind>\", a sensitivity scenario \"<version>/<scenario>\".",
       "properties": {
         "period": {
           "maxLength": 300,
@@ -148,6 +148,19 @@
           ],
           "title": "Basis",
           "type": "string"
+        },
+        "based_on": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Based On"
         }
       },
       "required": [
@@ -164,7 +177,8 @@
         "abandonment_margin_lost_eur",
         "incremental_margin_eur",
         "version",
-        "basis"
+        "basis",
+        "based_on"
       ],
       "title": "Assumptions",
       "type": "object"

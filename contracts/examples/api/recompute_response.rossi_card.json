@@ -99,7 +99,11 @@
     "decision_id": "DEC-000104-2",
     "return_id": "RET-000104",
     "version": 2,
+    "revision_trigger": "evidence_added",
+    "supersedes": "DEC-000104-1",
+    "superseded_by": null,
     "created_at": "2026-09-30T18:30:00Z",
+    "as_of": "2026-09-30T18:30:00Z",
     "decided_on": "2026-09-26",
     "state": "proposed",
     "path": "withdrawal",
@@ -134,6 +138,8 @@
     "coupon_rule": null,
     "diminished_value_claim": null,
     "inputs": {
+      "order_id": "ORD-005344",
+      "customer_id": "C-ROSSI-CARD-2",
       "reason": "size",
       "delivered_on": "2026-09-20",
       "notice_on": "2026-09-26",
@@ -235,5 +241,11 @@
   "audit_entry_ids": [
     5,
     6
-  ]
+  ],
+  "provenance": {
+    "origin": "Contract example: risk model risk-xgb-0.1.0 on decision-time features of the synthetic shop",
+    "period_start": "2025-10-01",
+    "period_end": "2026-09-30",
+    "nature": "synthetic"
+  }
 }

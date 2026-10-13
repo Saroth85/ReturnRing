@@ -193,7 +193,13 @@
         ]
       }
     ],
-    "model_version": "risk-xgb-0.1.0"
+    "model_version": "risk-xgb-0.1.0",
+    "provenance": {
+      "origin": "Contract example: risk model risk-xgb-0.1.0 on decision-time features of the synthetic shop",
+      "period_start": "2025-10-01",
+      "period_end": "2026-09-30",
+      "nature": "synthetic"
+    }
   },
   "value": {
     "value_eur": {
@@ -479,6 +485,14 @@
       "free_size_exchange": true,
       "coupons_enabled": true
     },
+    "base_terms": {
+      "return_window_days": 30,
+      "free_return_shipping": true,
+      "instant_refund": true,
+      "free_size_exchange": true,
+      "coupons_enabled": true
+    },
+    "review_at": null,
     "shown_at": "2026-09-20T20:14:00Z",
     "confirmed_at": "2026-09-20T20:15:00Z"
   },
@@ -486,7 +500,11 @@
     "decision_id": "DEC-000101-1",
     "return_id": "RET-000101",
     "version": 1,
+    "revision_trigger": "initial",
+    "supersedes": null,
+    "superseded_by": null,
     "created_at": "2026-09-27T10:14:00Z",
+    "as_of": "2026-09-30T18:00:00Z",
     "decided_on": "2026-09-27",
     "state": "proposed",
     "path": "withdrawal",
@@ -546,6 +564,8 @@
     "coupon_rule": null,
     "diminished_value_claim": null,
     "inputs": {
+      "order_id": "ORD-004811",
+      "customer_id": "C-GIULIA",
       "reason": "size",
       "delivered_on": "2026-09-24",
       "notice_on": "2026-09-27",
@@ -614,8 +634,9 @@
           "error_cost_eur": 0.0,
           "abandonment_margin_lost_eur": 0.0,
           "incremental_margin_eur": 32.0,
-          "version": "assumptions-v1",
-          "basis": "simulated"
+          "version": "DEC-000101-1/proposal",
+          "basis": "simulated",
+          "based_on": "assumptions-v1"
         },
         "components": [
           {
@@ -754,8 +775,9 @@
           "error_cost_eur": 2.0,
           "abandonment_margin_lost_eur": 0.0,
           "incremental_margin_eur": 20.9,
-          "version": "assumptions-v1",
-          "basis": "simulated"
+          "version": "DEC-000101-1/size_exchange",
+          "basis": "simulated",
+          "based_on": "assumptions-v1"
         },
         "components": [
           {
@@ -894,8 +916,9 @@
           "error_cost_eur": 0.0,
           "abandonment_margin_lost_eur": 0.0,
           "incremental_margin_eur": 0.0,
-          "version": "assumptions-v1",
-          "basis": "simulated"
+          "version": "DEC-000101-1/current_terms",
+          "basis": "simulated",
+          "based_on": "assumptions-v1"
         },
         "components": [
           {
@@ -1043,8 +1066,8 @@
         "label": "OBSERVED",
         "text": "C-GIULIA kept 5 of 11 items in 12 months; 5 of her 6 returns were for size.",
         "entity": "C-GIULIA",
-        "metric": "returned_lines",
-        "value": "6 of 11",
+        "metric": "kept_lines",
+        "value": "5 of 11",
         "period": "2025-10-01 to 2026-09-30"
       },
       {
@@ -1097,7 +1120,16 @@
       "trigger": "initial",
       "created_at": "2026-09-27T10:14:00Z",
       "quadrant": "Q1",
-      "risk": 0.12,
+      "risk": {
+        "value": 0.12,
+        "unit": "probability",
+        "provenance": {
+          "origin": "Contract example: risk model risk-xgb-0.1.0 on decision-time features of the synthetic shop",
+          "period_start": "2025-10-01",
+          "period_end": "2026-09-30",
+          "nature": "synthetic"
+        }
+      },
       "lever_ids": [
         "return_window_days:60",
         "priority_size_exchange:true"

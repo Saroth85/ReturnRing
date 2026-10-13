@@ -3,7 +3,11 @@
     "decision_id": "DEC-000102-1",
     "return_id": "RET-000102",
     "version": 1,
+    "revision_trigger": "initial",
+    "supersedes": null,
+    "superseded_by": null,
     "created_at": "2026-09-28T09:16:00Z",
+    "as_of": "2026-09-30T18:20:00Z",
     "decided_on": "2026-09-28",
     "state": "approved",
     "path": "withdrawal",
@@ -121,6 +125,8 @@
     },
     "diminished_value_claim": null,
     "inputs": {
+      "order_id": "ORD-005230",
+      "customer_id": "C-MARCO-1",
       "reason": "changed_mind",
       "delivered_on": "2026-09-22",
       "notice_on": "2026-09-28",
@@ -170,11 +176,11 @@
     "decision_id": "DEC-000102-1",
     "reason": null,
     "before": {
-      "state": "proposed"
-    },
-    "after": {
-      "state": "approved",
-      "approver": "sara",
+      "decision_id": "DEC-000102-1",
+      "version": 1,
+      "state": "proposed",
+      "quadrant": "Q4",
+      "risk": 0.87,
       "lever_ids": [
         "return_window_days:14",
         "free_return_shipping:false",
@@ -183,8 +189,31 @@
         "cluster_coupons_disabled:true",
         "transparency_notice:true"
       ],
+      "requires_approval": true,
       "review_at": "2026-12-27",
-      "coupon_application": "CRA-000031"
+      "approver": null,
+      "override_category": null,
+      "coupon_application_id": "CRA-000031"
+    },
+    "after": {
+      "decision_id": "DEC-000102-1",
+      "version": 1,
+      "state": "approved",
+      "quadrant": "Q4",
+      "risk": 0.87,
+      "lever_ids": [
+        "return_window_days:14",
+        "free_return_shipping:false",
+        "instant_refund:false",
+        "coupons_enabled:false",
+        "cluster_coupons_disabled:true",
+        "transparency_notice:true"
+      ],
+      "requires_approval": true,
+      "review_at": "2026-12-27",
+      "approver": "sara",
+      "override_category": null,
+      "coupon_application_id": "CRA-000031"
     },
     "rules_version": "policy-2026-10-12",
     "model_versions": {
@@ -204,6 +233,12 @@
     "customer_id": "C-MARCO-1",
     "lang": "it",
     "subject": "Il tuo reso RET-000102",
+    "connective_text": "Ciao, abbiamo ricevuto la tua richiesta di reso e il rimborso arriverà entro il {deadline}. Dal prossimo ordine valgono queste condizioni: {terms}. Le condizioni dell'ordine attuale non cambiano.",
+    "fields": {
+      "terms": "finestra di reso di 14 giorni, spedizione del reso a tuo carico, rimborso nei termini di legge, cambio taglia gratuito, coupon non disponibili",
+      "amount": null,
+      "deadline": "12 ottobre 2026"
+    },
     "body": "Ciao, abbiamo ricevuto la tua richiesta di reso e il rimborso arriverà entro il 12 ottobre 2026. Dal prossimo ordine valgono queste condizioni: finestra di reso di 14 giorni, spedizione del reso a tuo carico, rimborso nei termini di legge, cambio taglia gratuito, coupon non disponibili. Le condizioni dell'ordine attuale non cambiano.\n\nTi ricordiamo che puoi sempre esercitare il diritto di recesso entro 14 giorni dalla consegna, senza indicarne il motivo. Ti rimborseremo entro 14 giorni dalla tua comunicazione, al ricevimento dei prodotti o della prova della loro spedizione.",
     "legal_clause_kind": "withdrawal",
     "generation_id": "GEN-000102-1",

@@ -29,10 +29,8 @@ from policy.engine import (
 from policy.legal_guard import LEGAL_REFUND_DAYS, check
 from policy.types import (
     CaseScores,
-    CouponRuleApplication,
     Decision,
     DecisionState,
-    DiminishedValueClaim,
     EvidenceQuality,
     Quadrant,
     ReturnRequest,
@@ -43,6 +41,9 @@ ROOT = Path(__file__).resolve().parents[1]
 EXAMPLES = ROOT / "contracts" / "examples" / "api"
 BASE = NAVIGLI_BASE_TERMS
 CASES = ("giulia", "marco", "rossi", "rossi_card", "elena", "insufficient")
+# Every other queued return has a card too (ADR-15 section 7): the mock queue opens every case.
+OTHER_CASES = ("chiara", "andrea", "martina", "valentina", "simone", "francesca", "lorenzo")
+ALL_CASES = CASES + OTHER_CASES
 
 
 def load(name: str) -> Any:
@@ -57,8 +58,8 @@ def engine_inputs(view: s.DecisionView) -> tuple[ReturnRequest, CaseScores]:
     inputs = view.inputs
     request = ReturnRequest(
         return_id=view.return_id,
-        order_id="ORD-ANY",
-        customer_id="C-ANY",
+        order_id=inputs.order_id,
+        customer_id=inputs.customer_id,
         reason=inputs.reason,
         delivered_on=inputs.delivered_on,
         notice_on=inputs.notice_on,
@@ -75,61 +76,19 @@ def rerun(view: s.DecisionView) -> Decision:
     return decide(request, scores, BASE, view.inputs.thresholds.to_policy(), view.decided_on, rule)
 
 
-def to_policy(view: s.DecisionView) -> tuple[Decision, ReturnRequest]:
-    """The policy Decision a view stands for, to run the legal guard on it."""
-    request, _ = engine_inputs(view)
-    claim = view.diminished_value_claim
-    states = {
-        "proposed": DecisionState.PROPOSED,
-        "approved": DecisionState.APPROVED,
-        "overridden": DecisionState.APPROVED,  # an override is a decision a person took
-        "rejected": DecisionState.REJECTED,
-    }
-    decision = Decision(
-        return_id=view.return_id,
-        decided_on=view.decided_on,
-        path=view.path,
-        evidence_quality=view.evidence_quality,
-        quadrant=view.quadrant if view.state != "overridden" else None,
-        levers=s.to_policy_levers(view.levers, BASE),
-        current_return_terms=view.current_return_terms.to_policy(),
-        refund_due_by=view.refund_due_by,
-        requires_approval=view.requires_approval,
-        state=states[view.state],
-        approver=view.approver,
-        review_on=view.review_at,
-        diminished_value_claim=(
-            DiminishedValueClaim(
-                amount_eur=Decimal(str(claim.amount.value)),
-                photo_evidence_ids=tuple(claim.photo_evidence_ids),
-                confirmed_by=claim.confirmed_by,
-                rule_id=claim.rule_id,
-            )
-            if claim
-            else None
-        ),
-        coupon_rule=(
-            CouponRuleApplication(view.coupon_rule.rule_version, view.coupon_rule.confirmed_by)
-            if view.coupon_rule
-            else None
-        ),
-        rules_version=view.rules_version,
-    )
-    return decision, request
-
-
 def assert_engine_output(view: s.DecisionView, decision: Decision) -> None:
     assert view.path is decision.path
     assert view.evidence_quality is decision.evidence_quality
     assert view.quadrant is decision.quadrant
     assert [x.model_dump() for x in view.proposed_levers] == decision.levers.to_contract(BASE)
-    assert view.review_at == decision.review_on
     assert view.refund_due_by == decision.refund_due_by
     assert view.current_return_terms.to_policy() == decision.current_return_terms
     assert view.rules_version == decision.rules_version
     if view.state in ("proposed", "approved"):
-        # an override replaces the levers: then levers, requires_approval and the coupon rule
-        # describe the operator's choice, and only proposed_levers is the engine's
+        # an override, a rejection and a lift replace the levers: then levers, requires_approval,
+        # the review date and the coupon rule describe that choice, and only proposed_levers is
+        # the engine's
+        assert view.review_at == decision.review_on
         assert view.requires_approval == decision.requires_approval
         assert (view.coupon_rule is None) == (decision.coupon_rule is None)
         assert view.lever_ids == decision.levers.lever_ids(BASE)
@@ -169,8 +128,15 @@ def test_every_example_decision_is_the_engine_output(name: str, view: s.Decision
 
 @pytest.mark.parametrize(("name", "view"), ALL_VIEWS, ids=[n for n, _ in ALL_VIEWS])
 def test_every_example_decision_passes_the_legal_guard(name: str, view: s.DecisionView) -> None:
-    decision, request = to_policy(view)
+    """The exact mapping of ADR-15 section 8 (apps.api.schemas.to_policy_decision)."""
+    decision, request = s.to_policy_decision(view)
     assert check(decision, request, BASE) == []
+    expected = {"proposed": "proposed", "approved": "approved", "overridden": "approved",
+                "rejected": "rejected"}[view.state]  # fmt: skip
+    assert decision.state.value == expected
+    assert decision.quadrant is (view.quadrant if view.state in ("proposed", "approved") else None)
+    if view.coupon_rule is not None and view.state in ("approved", "overridden"):
+        assert decision.coupon_rule and decision.coupon_rule.confirmed_by == view.approver
 
 
 # ---- The four demo cases (spec section 4, US-104) ------------------------------------------------
@@ -265,7 +231,7 @@ def test_override_and_legal_guard_error() -> None:
     error = s.ErrorResponse.model_validate(load("error.legal_guard.json"))
     request = s.DecisionRequest.model_validate(load("decision_request.elena_shipping.json"))
     elena = card("elena").decision
-    attempt, req = to_policy(elena)
+    attempt, req = s.to_policy_decision(elena)
     assert request.levers is not None
     from dataclasses import replace
 
@@ -290,18 +256,25 @@ def test_override_and_legal_guard_error() -> None:
 def test_queue_items_agree_with_the_case_cards_and_are_sorted() -> None:
     queue = s.QueueResponse.model_validate(load("queue_response.json"))
     by_id = {item.return_id: item for item in queue.items}
-    for key in CASES:
-        c = card(key)
-        item = by_id[c.return_id]
+    cards = {card(key).return_id: card(key) for key in ALL_CASES}
+    assert set(by_id) == set(cards), "every queued return has a case card, and only those"
+    for return_id, c in cards.items():
+        item = by_id[return_id]
         recommended = next(a for a in c.alternatives if a.recommended)
         assert item.decision_id == c.decision.decision_id
-        assert (item.quadrant, item.state, item.lever_ids) == (
+        assert (item.quadrant, item.state, item.lever_ids, item.review_at) == (
             c.decision.quadrant,
             c.decision.state,
             c.decision.lever_ids,
+            c.decision.review_at,
         )
+        assert (item.order_id, item.customer_id, item.path) == (c.order_id, c.customer_id, c.path)
         assert item.expected_net_benefit == recommended.net_benefit.total
         assert item.risk == (c.risk.score if c.risk else None)
+        assert item.value == (c.value.value_eur if c.value else None)
+        cluster = c.linked_accounts
+        assert item.linked_account_count == (cluster.cluster_size - 1 if cluster else 0)
+        assert item.variant_anomaly == (c.product_anomaly is not None)
     keys = [(-i.expected_net_benefit.value, i.return_id) for i in queue.items]
     assert keys == sorted(keys) and queue.sort == "-expected_net_benefit"
     thresholds = card("giulia").decision.inputs.thresholds.to_policy()
@@ -378,7 +351,7 @@ def test_simulator_example_reproduces_the_proposal_example() -> None:
 
 
 def drafts() -> Iterator[tuple[str, s.DraftView, s.DecisionView, Any]]:
-    for key in CASES:
+    for key in ALL_CASES:
         c = card(key)
         assert c.draft is not None
         yield key, c.draft, c.decision, load(f"case_card.{key}.json")
@@ -430,3 +403,152 @@ def test_evidence_quality_insufficient_case_is_outside_the_matrix() -> None:
     rossi = [p for cid, p in points.items() if cid.startswith("C-ROSSI")]
     assert len(rossi) == 6 and all(p.quadrant not in (Quadrant.Q3, Quadrant.Q4) for p in rossi)
     assert points["C-GIULIA"].quadrant is Quadrant.Q1
+
+
+# ---- Matrix points and case cards (A10), assumption versions (US-602) ---------------------------
+
+
+def test_every_matrix_point_of_a_carded_customer_is_its_card() -> None:
+    """The matrix and the case card show one risk and one value per customer (spec 8.5)."""
+    matrix = s.PortfolioMatrix.model_validate(load("portfolio_matrix.json"))
+    points = {p.customer_id: p for p in matrix.points}
+    for key in ALL_CASES:
+        c = card(key)
+        p = points[c.customer_id]
+        d = c.decision
+        if c.risk is not None:
+            assert p.risk == c.risk.score.value, key
+        elif d.path is ReturnPath.WITHDRAWAL:  # insufficient evidence: no score anywhere
+            assert p.risk is None and d.inputs.risk is not None, key
+        else:  # the customer has a score; the defect return is never scored (rule 4)
+            assert p.risk is not None and d.inputs.risk is None, key
+        assert c.value is not None and p.value_eur == c.value.value_eur.value, key
+        assert p.evidence_quality is d.evidence_quality, key
+        assert p.cluster_id == d.inputs.cluster_id, key
+        returned = sum(line.returned for o in c.orders.orders for line in o.lines)
+        welcome = sum(o.coupon_kind == "welcome" for o in c.orders.orders)
+        assert (p.returns_12m, p.welcome_coupons) == (returned, welcome), key
+        if d.path is ReturnPath.WITHDRAWAL:
+            assert p.quadrant is d.quadrant, key
+
+
+def _assumption_sets() -> Iterator[s.Assumptions]:
+    def walk(node: Any) -> Iterator[s.Assumptions]:
+        if isinstance(node, s.Assumptions):
+            yield node
+        elif isinstance(node, s.BaseModel):
+            for name in type(node).model_fields:
+                yield from walk(getattr(node, name))
+        elif isinstance(node, list | tuple):
+            for item in node:
+                yield from walk(item)
+
+    for path in sorted(EXAMPLES.glob("*.json")):
+        name = path.name.split(".")[0]
+        if name != "index":
+            model = s.API_MODELS[name].model_validate_json(path.read_text(encoding="utf-8"))
+            yield from walk(model.root if isinstance(model, s.AgentStream) else model)
+
+
+def test_an_assumption_version_label_identifies_its_values() -> None:
+    """US-602: one label, one set of values; derived sets name the stored version whose unit
+    costs they use, and use exactly those unit costs."""
+    by_label: dict[str, s.Assumptions] = {}
+    for a in _assumption_sets():
+        assert by_label.setdefault(a.version, a) == a, a.version
+    stored = {
+        v.version: v.net_benefit.assumptions
+        for name in ("simulator_assumptions.v1.json", "simulator_assumptions.v2.json")
+        for v in s.SimulatorAssumptionsResponse.model_validate(load(name)).history
+    }
+    derived = [a for a in by_label.values() if a.based_on is not None]
+    assert len(derived) > 10
+    for a in derived:
+        if a.version.startswith(f"{a.based_on}/"):
+            continue  # a sensitivity scenario: unit costs changed on purpose (spec 8.10)
+        s.check_unit_costs(a, stored[a.based_on])
+    for a in stored.values():
+        assert a.based_on is None
+
+
+# ---- Mock routes (A15) ---------------------------------------------------------------------------
+
+
+def test_mock_routes_are_unambiguous_and_open_every_queued_case() -> None:
+    routes = load("index.json")["routes"]
+    keys = [(r["method"], r["path"], r["query"], r["request"], r["scenario"]) for r in routes]
+    assert len(keys) == len(set(keys)), "a route is chosen by method, path, query, body, scenario"
+    defaults: dict[tuple[Any, ...], int] = {}
+    for r in routes:
+        if r["scenario"] == "default":
+            group = (r["method"], r["path"], r["query"], r["request"])
+            defaults[group] = defaults.get(group, 0) + 1
+    assert all(n == 1 for n in defaults.values())
+    stale = [r for r in routes if r["status"] == 409]
+    assert stale and all(r["scenario"] == "stale_decision" for r in stale)
+    queue = s.QueueResponse.model_validate(load("queue_response.json"))
+    cards = {
+        r["path"]: r["response"] for r in routes if r["endpoint"] == "/api/returns/{return_id}"
+    }
+    for item in queue.items:
+        response = cards[f"/api/returns/{item.return_id}"]
+        assert s.CaseCard.model_validate(load(response)).return_id == item.return_id
+    inspections = {r["response"] for r in routes if r["endpoint"] == "/api/inspections"}
+    assert inspections == {"inspection.awaiting.json", "inspection.manual_review.json"}
+
+
+def test_queue_query_routes_answer_the_filtered_queue() -> None:
+    full = s.QueueResponse.model_validate(load("queue_response.json"))
+    for route in load("index.json")["routes"]:
+        if route["endpoint"] != "/api/returns" or route["query"] is None:
+            continue
+        query = s.QueueQuery.model_validate(load(route["query"]))
+        response = s.QueueResponse.model_validate(load(route["response"]))
+        expected = [i for i in full.items if query.matches(i)]
+        assert response.items == expected and response.total == len(expected), route["query"]
+    due = s.QueueResponse.model_validate(load("queue_response.review_due.json"))
+    assert [i.return_id for i in due.items] == [card("lorenzo").return_id]
+
+
+# ---- Review of restrictions (US-607) and decision history (US-604) -------------------------------
+
+
+def test_a_lapsed_restriction_is_due_for_review_and_lifted_with_a_new_version() -> None:
+    lorenzo = card("lorenzo")
+    v1 = lorenzo.decision
+    assert v1.state == "approved" and v1.requires_approval and v1.review_at is not None
+    assert v1.review_at <= lorenzo.as_of.date() and not v1.in_force
+    request = s.DecisionRequest.model_validate(load("decision_request.lift.json"))
+    result = s.DecisionResult.model_validate(load("decision_result.lift.json"))
+    v2 = result.decision
+    assert request.action == "lift" and request.decision_id == v1.decision_id
+    assert (v2.version, v2.supersedes, v2.revision_trigger) == (2, v1.decision_id, "review")
+    assert v2.levers == [] and v2.future_terms.to_policy() == BASE and v2.review_at is None
+    assert v2.override_reason == request.override_reason and v2.approver == request.approver
+    assert result.audit_entry.action == "restriction_lifted"
+    before = result.audit_entry.before
+    assert isinstance(before, s.DecisionAuditState) and before == s.DecisionAuditState.from_view(v1)
+
+
+def test_earlier_decision_versions_keep_their_inputs_and_alternatives() -> None:
+    record = s.DecisionRecord.model_validate(load("decision_record.chiara_v1.json"))
+    chiara = card("chiara")
+    assert record.decision.decision_id == chiara.decision.decision_id
+    assert record.alternatives == chiara.alternatives
+    assert record.decision.inputs == chiara.decision.inputs
+    dispute = s.LinkDisputeResponse.model_validate(load("link_dispute_response.json"))
+    assert dispute.recompute is not None
+    assert record.decision.superseded_by == dispute.recompute.decision.decision_id
+    assert not record.decision.in_force
+    request = s.LinkDisputeRequest.model_validate(load("link_dispute_request.json"))
+    assert (
+        request.decision_id == dispute.recompute.before.decision_id == record.decision.decision_id
+    )
+
+
+def test_decision_audit_payloads_are_the_decision_states() -> None:
+    for name in ("decision_result.marco_approved.json", "decision_result.override.json",
+                 "decision_result.reject.json", "decision_result.lift.json"):  # fmt: skip
+        result = s.DecisionResult.model_validate(load(name))
+        after = result.audit_entry.after
+        assert after == s.DecisionAuditState.from_view(result.decision), name

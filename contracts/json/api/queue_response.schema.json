@@ -207,6 +207,22 @@
           "title": "Lever Ids",
           "type": "array"
         },
+        "review_at": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Review At"
+        },
+        "review_due": {
+          "title": "Review Due",
+          "type": "boolean"
+        },
         "risk": {
           "anyOf": [
             {
@@ -262,6 +278,8 @@
         "state",
         "requires_approval",
         "lever_ids",
+        "review_at",
+        "review_due",
         "risk",
         "value",
         "expected_net_benefit",
@@ -327,6 +345,9 @@
       "format": "date-time",
       "title": "As Of",
       "type": "string"
+    },
+    "provenance": {
+      "$ref": "#/$defs/Provenance"
     }
   },
   "required": [
@@ -335,7 +356,8 @@
     "page",
     "page_size",
     "sort",
-    "as_of"
+    "as_of",
+    "provenance"
   ],
   "title": "QueueResponse",
   "type": "object"

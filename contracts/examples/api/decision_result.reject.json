@@ -3,7 +3,11 @@
     "decision_id": "DEC-000107-1",
     "return_id": "RET-000107",
     "version": 1,
+    "revision_trigger": "initial",
+    "supersedes": null,
+    "superseded_by": null,
     "created_at": "2026-09-28T13:05:00Z",
+    "as_of": "2026-09-30T18:55:00Z",
     "decided_on": "2026-09-28",
     "state": "rejected",
     "path": "withdrawal",
@@ -49,6 +53,8 @@
     "coupon_rule": null,
     "diminished_value_claim": null,
     "inputs": {
+      "order_id": "ORD-005507",
+      "customer_id": "C-11872",
       "reason": "size",
       "delivered_on": "2026-09-23",
       "notice_on": "2026-09-28",
@@ -67,7 +73,7 @@
         "coupons_enabled": true
       },
       "risk": 0.22,
-      "value_eur": 264.1,
+      "value_eur": 276.05,
       "evidence_quality": "sufficient",
       "cluster_id": null,
       "thresholds": {
@@ -98,16 +104,33 @@
     "decision_id": "DEC-000107-1",
     "reason": "The customer asked to keep the standard terms",
     "before": {
+      "decision_id": "DEC-000107-1",
+      "version": 1,
       "state": "proposed",
+      "quadrant": "Q1",
+      "risk": 0.22,
       "lever_ids": [
         "return_window_days:60",
         "priority_size_exchange:true"
-      ]
+      ],
+      "requires_approval": false,
+      "review_at": null,
+      "approver": null,
+      "override_category": null,
+      "coupon_application_id": null
     },
     "after": {
+      "decision_id": "DEC-000107-1",
+      "version": 1,
       "state": "rejected",
+      "quadrant": "Q1",
+      "risk": 0.22,
       "lever_ids": [],
-      "override_category": "customer_context"
+      "requires_approval": false,
+      "review_at": null,
+      "approver": "sara",
+      "override_category": "customer_context",
+      "coupon_application_id": null
     },
     "rules_version": "policy-2026-10-12",
     "model_versions": {
@@ -127,7 +150,13 @@
     "customer_id": "C-11872",
     "lang": "en",
     "subject": "Your return RET-000107",
-    "body": "Hello, we have registered your return and your refund will arrive by 12 October 2026.",
+    "connective_text": "Hello, thank you for letting us know. We have registered your return and your refund will arrive by {deadline}.",
+    "fields": {
+      "terms": "30-day return window, free return shipping, instant refund, free size exchange",
+      "amount": null,
+      "deadline": "12 October 2026"
+    },
+    "body": "Hello, thank you for letting us know. We have registered your return and your refund will arrive by 12 October 2026.",
     "legal_clause_kind": null,
     "generation_id": null,
     "status": "sent_simulated",

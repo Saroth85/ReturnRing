@@ -239,8 +239,22 @@
     },
     "DecisionInputs": {
       "additionalProperties": false,
-      "description": "The inputs given to policy.engine.decide, kept for audit (US-604) and re-runnable.",
+      "description": "The inputs given to policy.engine.decide, kept for audit (US-604) and re-runnable: the\nreturn request (with order_id and customer_id), the scores, the terms and the thresholds.",
       "properties": {
+        "order_id": {
+          "maxLength": 96,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:~-]*$",
+          "title": "Order Id",
+          "type": "string"
+        },
+        "customer_id": {
+          "maxLength": 96,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:~-]*$",
+          "title": "Customer Id",
+          "type": "string"
+        },
         "reason": {
           "$ref": "#/$defs/ReturnReason"
         },
@@ -306,6 +320,8 @@
         }
       },
       "required": [
+        "order_id",
+        "customer_id",
         "reason",
         "delivered_on",
         "notice_on",
@@ -343,7 +359,7 @@
     },
     "DecisionView": {
       "additionalProperties": false,
-      "description": "A decision version: the engine's proposal and the human outcome (spec 8.6, US-303/306).\n\nlevers are the levers of the current state: the proposal while proposed or approved, the\noperator's levers when overridden, none when rejected. requires_approval refers to them.\nin_force says whether they apply to future orders now.",
+      "description": "A decision version: the engine's proposal and the human outcome (spec 8.6, US-303/306).\n\nlevers are the levers of the current state: the proposal while proposed or approved, the\noperator's levers when overridden, none when rejected. requires_approval and review_at refer\nto them: a restriction needs a person and has a review date, and nothing else has one.\n\nin_force says whether the levers apply to future orders at as_of (the time the view was\nserved): approved, overridden, or proposed without a need for approval; never once a later\nversion supersedes this one; never from the review date on (US-607: a restriction lapses\nunless a person renews it with a new decision). A version created by a review (trigger\nreview, action lift) is overridden to the standard levers.\n\nEvery view passes policy.legal_guard under to_policy_decision (ADR-15 section 8).",
       "properties": {
         "decision_id": {
           "maxLength": 96,
@@ -364,9 +380,53 @@
           "title": "Version",
           "type": "integer"
         },
+        "revision_trigger": {
+          "enum": [
+            "initial",
+            "evidence_added",
+            "link_disputed",
+            "scores_refreshed",
+            "review"
+          ],
+          "title": "Revision Trigger",
+          "type": "string"
+        },
+        "supersedes": {
+          "anyOf": [
+            {
+              "maxLength": 96,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:~-]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Supersedes"
+        },
+        "superseded_by": {
+          "anyOf": [
+            {
+              "maxLength": 96,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:~-]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Superseded By"
+        },
         "created_at": {
           "format": "date-time",
           "title": "Created At",
+          "type": "string"
+        },
+        "as_of": {
+          "format": "date-time",
+          "title": "As Of",
           "type": "string"
         },
         "decided_on": {
@@ -495,6 +555,7 @@
             {
               "maxLength": 1000,
               "minLength": 3,
+              "pattern": "\\S[\\s\\S]+\\S",
               "type": "string"
             },
             {
@@ -511,6 +572,7 @@
                 "customer_context",
                 "linked_accounts_explained",
                 "policy_exception",
+                "periodic_review",
                 "other"
               ],
               "type": "string"
@@ -584,7 +646,11 @@
         "decision_id",
         "return_id",
         "version",
+        "revision_trigger",
+        "supersedes",
+        "superseded_by",
         "created_at",
+        "as_of",
         "decided_on",
         "state",
         "path",
@@ -847,6 +913,9 @@
         },
         "generation": {
           "$ref": "#/$defs/GenerationInfo"
+        },
+        "provenance": {
+          "$ref": "#/$defs/Provenance"
         }
       },
       "required": [
@@ -865,7 +934,8 @@
         "confirmed_observations",
         "confirmed_by",
         "confirmed_at",
-        "generation"
+        "generation",
+        "provenance"
       ],
       "title": "InspectionView",
       "type": "object"
@@ -1161,7 +1231,7 @@
     },
     "OutboxMessage": {
       "additionalProperties": false,
-      "description": "A message in the simulated outbox (spec 4: no real email).",
+      "description": "A message in the simulated outbox (spec 4: no real email): the connective text, the\ntemplate fields, and the body render_customer_message makes of them with the legal clause.",
       "properties": {
         "message_id": {
           "maxLength": 96,
@@ -1204,6 +1274,15 @@
           "minLength": 1,
           "title": "Subject",
           "type": "string"
+        },
+        "connective_text": {
+          "maxLength": 900,
+          "minLength": 1,
+          "title": "Connective Text",
+          "type": "string"
+        },
+        "fields": {
+          "$ref": "#/$defs/TemplateFields"
         },
         "body": {
           "maxLength": 4000,
@@ -1269,6 +1348,8 @@
         "customer_id",
         "lang",
         "subject",
+        "connective_text",
+        "fields",
         "body",
         "legal_clause_kind",
         "generation_id",
@@ -1349,6 +1430,51 @@
       ],
       "title": "ReturnReason",
       "type": "string"
+    },
+    "TemplateFields": {
+      "additionalProperties": false,
+      "description": "Values the code fills into the message placeholders (ADR-08): never written by the LLM.",
+      "properties": {
+        "terms": {
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Terms",
+          "type": "string"
+        },
+        "amount": {
+          "anyOf": [
+            {
+              "maxLength": 300,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Amount"
+        },
+        "deadline": {
+          "anyOf": [
+            {
+              "maxLength": 300,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Deadline"
+        }
+      },
+      "required": [
+        "terms",
+        "amount",
+        "deadline"
+      ],
+      "title": "TemplateFields",
+      "type": "object"
     },
     "Terms": {
       "additionalProperties": false,

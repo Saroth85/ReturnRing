@@ -1,0 +1,135 @@
+# Profiles: dev (laptop, CPU + mock LLM), gpu (MI300X droplet), demo (public CPU server, cached results).
+# Images marked "pin" must be pinned by digest after the Monday spikes (docs/spike-results.md).
+name: returnring
+
+x-gpu: &gpu
+  devices:
+    - /dev/kfd
+    - /dev/dri
+  group_add:
+    - video
+  ipc: host
+  security_opt:
+    - seccomp=unconfined
+  shm_size: 16g
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    profiles: [dev, gpu, demo]
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ..
+      dockerfile: apps/api/Dockerfile
+    profiles: [dev, gpu, demo]
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      DEVICE: ${DEVICE:-cpu}
+      LLM_MODE: ${LLM_MODE:-mock}
+      DEMO_MODE: ${DEMO_MODE:-live}
+      SEED: ${SEED:-42}
+      VLLM_BASE_URL: ${VLLM_BASE_URL}
+      VLLM_API_KEY: ${VLLM_API_KEY}
+    volumes:
+      - ../artifacts:/app/artifacts:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+
+  ui:
+    build:
+      context: ../apps/ui
+    profiles: [dev, gpu, demo]
+    ports:
+      - "8080:80"
+
+  pipeline:
+    build:
+      context: ..
+      dockerfile: apps/api/Dockerfile
+    profiles: [dev, gpu]
+    command: ["python", "-c", "print('pipeline image ready: see docs/spec.md section 15')"]
+    volumes:
+      - ../data:/app/data
+      - ../artifacts:/app/artifacts
+
+  vllm:
+    <<: *gpu
+    image: ${VLLM_IMAGE}  # pin
+    profiles: [gpu]
+    environment:
+      HF_TOKEN: ${HF_TOKEN}
+    # Flags verified in spike SPK-G1; add tool calling flags after SPK-G6.
+    command:
+      - --model=${GEMMA_MODEL}
+      - --port=8001
+      - --gpu-memory-utilization=0.55
+      - --max-model-len=16384
+      - --api-key=${VLLM_API_KEY}
+    volumes:
+      - hf-cache:/root/.cache/huggingface
+    # No published port: reachable only by the api on the internal network (NFR-11).
+
+  trainer-gbm:
+    <<: *gpu
+    build:
+      context: ..
+      dockerfile: infra/docker/trainer-gbm.Dockerfile
+      args:
+        ROCM_BASE_IMAGE: ${ROCM_BASE_IMAGE}  # pin
+        AMD_PYPI_INDEX_URL: ${AMD_PYPI_INDEX_URL}
+    profiles: [gpu]
+    volumes:
+      - ../data:/app/data
+      - ../artifacts:/app/artifacts
+
+  trainer-gnn:
+    <<: *gpu
+    image: ${DGL_IMAGE}  # pin
+    profiles: [gpu]
+    working_dir: /app
+    command: ["python", "-c", "import dgl, torch; print('dgl', dgl.__version__, 'gpu', torch.cuda.is_available())"]
+    volumes:
+      - ..:/app
+
+  telemetry:
+    build:
+      context: ..
+      dockerfile: infra/docker/telemetry.Dockerfile
+      args:
+        ROCM_BASE_IMAGE: ${ROCM_BASE_IMAGE}  # pin
+    <<: *gpu
+    profiles: [gpu]
+    command: ["sh", "-c", "while true; do amd-smi metric --json > /app/artifacts/telemetry.json; sleep 5; done"]
+    volumes:
+      - ../artifacts:/app/artifacts
+
+  proxy:
+    image: caddy:2-alpine
+    profiles: [gpu, demo]
+    environment:
+      PUBLIC_HOST: ${PUBLIC_HOST}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+
+volumes:
+  pgdata:
+  hf-cache:
+  caddy-data:

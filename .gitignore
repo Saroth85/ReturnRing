@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.venv/
+.env
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.hypothesis/
+node_modules/
+dist/
+data/*
+!data/README.md
+artifacts/
+demo-cache/
+*.parquet

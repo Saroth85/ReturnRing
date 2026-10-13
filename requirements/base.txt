@@ -1,0 +1,5 @@
+# Runtime dependencies (pinned). Full transitive lock: pip-compile in CI later.
+fastapi==0.143.0
+uvicorn==0.54.0
+pydantic==2.14.1
+pyarrow==26.0.0

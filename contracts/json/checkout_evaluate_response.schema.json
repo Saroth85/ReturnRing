@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "POST /api/checkout/evaluate response",
+  "type": "object",
+  "required": [
+    "customer_id",
+    "quadrant",
+    "lines",
+    "terms",
+    "coupon_eligible",
+    "terms_snapshot_id"
+  ],
+  "properties": {
+    "customer_id": {
+      "type": "string"
+    },
+    "quadrant": {
+      "enum": [
+        "Q1",
+        "Q2",
+        "Q3",
+        "Q4",
+        null
+      ]
+    },
+    "lines": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "variant_id",
+          "size",
+          "p_return"
+        ],
+        "properties": {
+          "variant_id": {
+            "type": "string"
+          },
+          "size": {
+            "type": "string"
+          },
+          "p_return": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "size_advice": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    "terms": {
+      "type": "object",
+      "required": [
+        "return_window_days",
+        "free_return_shipping",
+        "instant_refund",
+        "free_size_exchange"
+      ],
+      "properties": {
+        "return_window_days": {
+          "type": "integer",
+          "minimum": 14
+        },
+        "free_return_shipping": {
+          "type": "boolean"
+        },
+        "instant_refund": {
+          "type": "boolean"
+        },
+        "free_size_exchange": {
+          "type": "boolean"
+        }
+      }
+    },
+    "coupon_eligible": {
+      "type": "boolean"
+    },
+    "terms_snapshot_id": {
+      "type": "string"
+    }
+  }
+}

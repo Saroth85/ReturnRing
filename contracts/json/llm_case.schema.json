@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Case sent to Gemma (already decided)",
+  "type": "object",
+  "required": [
+    "case_id",
+    "languages",
+    "path",
+    "evidence_quality",
+    "quadrant",
+    "levers",
+    "risk",
+    "value_eur",
+    "policy_text"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "case_id": {
+      "type": "string"
+    },
+    "languages": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "it",
+          "en"
+        ]
+      },
+      "minItems": 1
+    },
+    "path": {
+      "enum": [
+        "withdrawal",
+        "guarantee"
+      ]
+    },
+    "evidence_quality": {
+      "enum": [
+        "sufficient",
+        "insufficient"
+      ]
+    },
+    "quadrant": {
+      "enum": [
+        "Q1",
+        "Q2",
+        "Q3",
+        "Q4",
+        null
+      ]
+    },
+    "levers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "value",
+          "scope"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "value": {},
+          "scope": {
+            "enum": [
+              "future_orders",
+              "future_orders_cluster",
+              "current_order",
+              "communication"
+            ]
+          }
+        }
+      }
+    },
+    "risk": {
+      "type": "object",
+      "required": [
+        "score",
+        "top_factors"
+      ],
+      "properties": {
+        "score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "top_factors": {
+          "type": "array",
+          "maxItems": 3,
+          "items": {
+            "type": "object",
+            "required": [
+              "feature",
+              "value",
+              "phrase"
+            ]
+          }
+        }
+      }
+    },
+    "value_eur": {
+      "type": "number"
+    },
+    "cluster": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "policy_text": {
+      "type": "string"
+    },
+    "customer_text": {
+      "type": "string"
+    }
+  }
+}

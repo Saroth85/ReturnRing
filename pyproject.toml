@@ -1,0 +1,27 @@
+[project]
+name = "returnring"
+version = "0.1.0"
+description = "Return decision assistant for EU fashion e-commerce, running on AMD Instinct MI300X"
+requires-python = ">=3.12"
+license = "MIT"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["policy", "llm", "apps", "pipeline", "contracts", "scripts"]
+
+[[tool.mypy.overrides]]
+module = ["pyarrow.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+markers = ["gpu: needs the AMD MI300X droplet"]

@@ -6,6 +6,7 @@ COPY policy policy
 COPY llm llm
 COPY contracts contracts
 COPY pipeline pipeline
+COPY ml ml
 COPY apps apps
 USER app
 EXPOSE 8000

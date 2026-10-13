@@ -389,6 +389,10 @@ decisions = Table(
     # {origin, period_start, period_end, nature} of the scores and thresholds above (rule 11):
     # an earlier version is served with the provenance it had (US-604)
     Column("inputs_provenance", JSONDoc, nullable=False),
+    # the top 3 contributions to the risk above (ADR-16): [{feature, value, contribution,
+    # direction, phrase_en, phrase_it}] as ml.risk.explain writes shap_top3; the case card shows
+    # them and the draft's facts cite them. Null when the return is not scored (rule 4, US-307)
+    Column("score_factors", JSONDoc),
     Column("base_terms", JSONDoc, nullable=False),
     Column("order_terms", JSONDoc, nullable=False),
     # engine outputs

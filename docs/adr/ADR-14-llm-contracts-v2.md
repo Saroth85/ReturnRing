@@ -3,11 +3,13 @@
 Status: accepted, 13 Oct 2026; amended the same day after the second round of the adversarial
 review (decision 8, the customer phrasebook) and after the third (decision 9, operator statements
 without levers), and on 13 Oct after the fourth (decision 10, the last hardening round before the
-demo) and after the fifth (decision 11, precision over recall, the closing round). Changes `contracts/json/llm_case.schema.json`, `contracts/json/llm_output.schema.json`,
-their examples, `llm/` and spec sections 8.7, 8.8, 19.B, 19.C and 19.D. Resolves review findings
-LLM-1 to LLM-14 of 12 Oct (US-304, US-305), findings R1 to R8 of the second adversarial review of
-13 Oct, findings T1 to T16 of the third, findings U1 to U19 of the fourth and findings V1 to V18
-of the fifth.
+demo) and after the fifth (decision 11, precision over recall, the closing round; amended after
+the closing verification, round 6). Changes `contracts/json/llm_case.schema.json`,
+`contracts/json/llm_output.schema.json`, their examples, `llm/` and spec sections 8.7, 8.8, 19.B,
+19.C and 19.D. Resolves review findings LLM-1 to LLM-14 of 12 Oct (US-304, US-305), findings R1
+to R8 of the second adversarial review of 13 Oct, findings T1 to T16 of the third, findings U1 to
+U19 of the fourth, findings V1 to V18 of the fifth and findings W1 to W7 of the closing
+verification.
 
 ## Context
 
@@ -211,9 +213,9 @@ return window is reduced to 14 days") and sent them to the template. The maintai
   quick/rapid succession". A hit is the new code TERMS_TOPIC: regenerate, then template.
   `validator.lever_claims` is gone. DECISION_ECHO stays for a quadrant label other than the
   engine's (also "Q-one") and for a level of the risk score other than the engine's ("the risk
-  score is low" in Q4); the level of the risk score, of an order or of an item is not a
-  quadrant level ("The risk score is high (0.87)", "This is a high-value order" pass). The
-  templates no longer name levers or terms.
+  score is low" in Q4; TERMS_TOPIC since decision 11, round 6); the level of the risk score, of
+  an order or of an item is not a quadrant level ("The risk score is high (0.87)", "This is a
+  high-value order" pass). The templates no longer name levers or terms.
 - **Contract change.** The `return_window_days` fact (entity `policy`) could only be used to talk
   about a lever, so `llm/case.py` no longer builds it and the `policy` entity left the facts of
   `llm_case.schema.json`; the example, spec 19.B and the tests follow.
@@ -315,10 +317,10 @@ and each over-blocked example is a must-accept test there.
   engine's level and never the template. An axis without a level carries over "and" ("the risk
   score and the margin are both low"). The customer value in other words is a measured level like
   the risk score: margin, profit, spend and "valuable", "profitable" must match the engine's value
-  level (DECISION_ECHO otherwise; "Customer net margin — 42.1 EUR — is low" passes in Q4). "Safe",
-  "trustworthy", "reliable" and "dangerous" are levels of the risk axis (topics), and "quadrant"
-  without a label next to it is a topic ("the generous quadrant"); "no quadrant" is an
-  observation only when the engine assigned none.
+  level (DECISION_ECHO otherwise, TERMS_TOPIC since decision 11, round 6; "Customer net margin —
+  42.1 EUR — is low" passes in Q4). "Safe", "trustworthy", "reliable" and "dangerous" are levels
+  of the risk axis (topics), and "quadrant" without a label next to it is a topic ("the generous
+  quadrant"); "no quadrant" is an observation only when the engine assigned none.
 - **Lever paraphrases (U6).** Every lever is about future orders and every fact about the past,
   so the scope words (future, next or upcoming orders, from now on, going forward, no longer,
   prossimi ordini, non più) and the state words of a lever (enabled, disabled, available,
@@ -486,11 +488,11 @@ defect than a contrived paraphrase that slips through.
     withdrawal path, the right of withdrawal, "later orders", "size guide", "shipped to", coupon
     use, codes used, an order with a coupon, "expensive" and a closed return window are
     observations; "crook" is a whole word ("a crooked seam" passes).
-  - Levels (V5, V11): a negation counts only within the two words before the level word ("not
-    high", "isn't high"; not "high (0.87): an estimate, not a cause"); margin, profit and spend
-    are whole words ("marginally" is not a margin); "over the period" is not "above"; a level word
-    that sizes a contribution ("a significant contributor", "a small effect", "contributes
-    little") is not a level of the score.
+  - Levels (V5, V11): a negation counts only before the level word ("not high", "isn't high";
+    not "high (0.87): an estimate, not a cause"; in its stretch of the clause since round 6);
+    margin, profit and spend are whole words ("marginally" is not a margin); "over the period" is
+    not "above"; a level word that sizes a contribution ("a significant contributor", "a small
+    effect", "contributes little") is not a level of the score.
   - Grounding (V16, V17): after the ")" that closes a "(" opened right before the number, and
     right after a number that follows a metric name, a contribution verb from a short list is
     allowed ("returns_90d (4) contributes", "returns_90d = 4 raises the score"); "by" before a
@@ -530,6 +532,51 @@ defect than a contrived paraphrase that slips through.
   former Q1 snapshot).
 - **Profile guard (V6).** The guard test reads `settings.get_profile("ci")`, so the whole suite
   also runs under `HYPOTHESIS_PROFILE=explore`.
+
+- **Round 6, the closing verification (W1 to W7).** The verifier found demo-path over-blocks
+  on b4ee1e4. Every correct statement and answer it quoted is in the corpus first, with variants
+  written apart; the correct statements that break a prompt rule (a negated level, a number in
+  words) are a corpus list of their own that must regenerate, with the words in the feedback,
+  and never go to the template.
+  - Safety net (W2, W3): a risk or value level read from a statement's words is a heuristic, so
+    a level that is not the engine's is TERMS_TOPIC (regenerate, with the words that name it:
+    "risk score: not high"), never DECISION_ECHO. DECISION_ECHO stays for the `decision_echo`
+    object and for an explicit quadrant label or Roman numeral other than the engine's ("Q4",
+    "QIV", "quadrant 2", "the fourth quadrant"). The earlier probes that expected DECISION_ECHO
+    for a level ("The risk score is low." in Q4, "Customer margin is substantial.") now expect
+    TERMS_TOPIC.
+  - Narrower levels (W2, W3): a comparative is not a level ("pushes the risk score higher", "a
+    higher risk score"), unless it compares with a threshold ("higher than the threshold") or
+    qualifies an axis ("a higher-risk customer"); after a verb that moves the score, a word that
+    sizes the move is not a level ("lowers the risk score a little"), and neither are "a little"
+    and "by a small margin". A negation counts before the level word in its comma-free stretch
+    ("not in the high range", "does not push the risk score into the high range"), and "far
+    from" and "nowhere near" anywhere before it.
+  - Flag and caution (W5) are topics only about a person or the case ("flag this customer", "the
+    case was flagged", "treat the linked accounts with caution", "proceed with caution"), never
+    with the model as subject ("the model flags cluster_welcome_coupons (7)") or about reading
+    the score ("read the risk score with caution"); "a red flag" is a topic.
+  - Grounding words (W5, W6): more contribution verbs after "(N)" or a metric name (plays,
+    outweighs, makes, pulls, moves...); conjunctions and modals after a number (despite,
+    although, should, may...; "even" before though, if or when); "short" is a sign only next to
+    a number ("42.1 EUR short", "short by 42.1"). With a welcome-coupon fact cited, "7 coupons" is
+    that fact; "withdrawal period" is an observation; "belongs to" a cluster named in up to three
+    words ("the Rossi family cluster") is not ownership.
+  - Agent (W1, W4): in a clause, each "a vs b" pair (also "instead of", "rather than", "invece
+    di", "anziché", with up to three field words between: "7 linked accounts vs 3") binds a to
+    the first record of the comparison and b to the second: the two records of one kind the
+    clause names, in order, the reference of the comparison ("compared with", "than", "rispetto
+    a") last, or the one record named and the other record of its kind; such a clause is not
+    split at "vs". A parenthesis that names a record ("(F-ROSSI: 3)") binds its numbers to it and
+    leaves the scope of the sentence as it was. Ordinals second to fifth rank the factors or
+    links named after them in their sentence, in tool order ("the second days_since_delivery =
+    6"); any other ordinal is a number in words, so the answer falls back. The integer of an
+    "id:value" lever string of get_case is a field of the case record ("a 60 day return window
+    lever"), and the field "_days" matches a field with the word days (a factor's own feature).
+  - Customer wording (W7): "these changes to the return terms" ("queste modifiche alle condizioni
+    di reso") would make the longest Italian message 121 words before the clause (English 119),
+    over the 120 of spec 8.7, so the restrictive sentence keeps "these return terms"; a test
+    measures both.
 
 The residual risk is accepted, and why. Precision first means some paraphrases pass: a proper
 name or pronoun with a verb of use rather than control ("Marco uses the linked accounts"), a verb
@@ -621,12 +668,14 @@ the explanation the operator needs, on exactly the cases shown in the demo.
     later in a first-person sentence, "to be" with a participle, "done", a clause that opens with
     a write -ing form ("Disabling coupons is a lever of Q4"). Idioms with no write word ("Coupons
     are now history for R-MARCO") pass;
-  - the field binding of the agent knows six fields; another field written next to a number
-    ("1.0 coupons per account") is grounded on any number of the records in scope, and so is a
-    field word when no record read has that field ("7 linked accounts" copied from a score factor
-    phrase). A clause that names one record and compares it with another ("2900 days against 9
-    days in R-MARCO") is scoped to the record it names, so the answer falls back, and so does an
-    answer that says "the cluster" after both clusters were read, without naming one;
+  - the field binding of the agent knows seven fields (the return window since round 6); another
+    field written next to a number ("1.0 coupons per account") is grounded on any number of the
+    records in scope, and so is a field word when no record read has that field ("7 linked
+    accounts" copied from a score factor phrase). A clause that names one record and puts its
+    value second ("2900 days against 9 days in R-MARCO") binds the first number to the record it
+    names, so the answer falls back, and so does an answer that says "the cluster" after both
+    clusters were read, without naming one, or an ordinal after the factor it ranks
+    ("days_since_delivery (6), the second factor");
   - Roman numerals are detected only in upper case and with two or more letters; "XL" is left
     out as a size;
   - "sei" and "may" are left out on purpose (a verb and a modal). "day", "giornata" and

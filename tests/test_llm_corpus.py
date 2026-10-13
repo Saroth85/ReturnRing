@@ -9,9 +9,11 @@ accounts, the Rossi family with and without a shared card, Elena on the guarante
 with insufficient evidence), written the way an instruction-following model writes them, and
 correct agent answers to the three US-702 questions and to "what is this case about", in English
 and Italian, plain and bulleted. Every over-blocked example of the review (V3, V4, V5, V11, V12,
-V13, V14, V16, V17, V18) is here. Every statement must validate, every answer must keep the
-model path, and so must the mock agent's own answers and every template. A new check is added
-only if this whole corpus still passes.
+V13, V14, V16, V17, V18) and of the closing verification (W1, W2, W4, W5, W6) is here. Every
+statement must validate, every answer must keep the model path, and so must the mock agent's own
+answers and every template. Correct statements that break a rule of the prompt (W3: a negated
+level; a number in words) regenerate with the words in the feedback, never the template. A new
+check is added only if this whole corpus still passes.
 """
 
 from __future__ import annotations
@@ -36,7 +38,7 @@ from llm.agent import (
 from llm.case import ScoreFactor, missing_evidence_problems
 from llm.templates import template_output
 from llm.text import banned_terms, grounding_problems, operator_topics
-from llm.validator import ValidationResult, validate
+from llm.validator import Action, ValidationResult, retry_feedback, validate
 from policy.engine import NAVIGLI_BASE_TERMS
 from tests.llm_factories import GOLDEN_SCENARIOS, SCENARIOS, Built, make
 from tests.test_llm_agent import ScriptedChat, answer, calls, tool_call
@@ -419,6 +421,58 @@ STATEMENTS: list[Statement] = [
     ("Q4_negative_margin", "OBSERVED", MARGIN, "Customer net margin: Q4 – 42.1 EUR."),
     ("Q4_cluster", "OBSERVED", SIZE, "The 7 linked accounts each used the welcome offer."),
     ("guarantee", "OBSERVED", (), "The customer reports a crooked seam."),
+    # ---- Round 6 (W2): the direction of a factor is the job of a SCORE statement
+    ("rossi_card", "SCORE", CARDS, "The shared card pushes the risk score higher."),
+    ("rossi_card", "SCORE", CARDS, "The risk score is higher because of the shared card."),
+    ("giulia", "SCORE", RETURNS, "The 4 recent returns push the risk score higher."),
+    ("marco", "SCORE", DAYS, "The return timing (6 days) lowers the risk score a little."),
+    ("marco", "SCORE", DAYS, "days_since_delivery (6) makes the risk score slightly lower."),
+    ("rossi", "SCORE", RETURNS, "returns_90d (2) pushes the risk score higher."),
+    ("rossi_card", "SCORE", CARDS, "n_distinct_cards (2) makes the risk score higher."),
+    ("marco", "SCORE", DAYS, "days_since_delivery (6) pulls the risk score lower."),
+    # ---- Round 6 (W5): the model flags a factor, the score is read with caution
+    (
+        "marco",
+        "SCORE",
+        COUPONS,
+        "The model flags cluster_welcome_coupons (7) as the main contribution to the score.",
+    ),
+    (
+        "marco",
+        "SCORE",
+        RISK,
+        "Read the risk score (0.87) with caution: it is an estimate, not a cause.",
+    ),
+    ("giulia", "SCORE", RISK, "The risk score of 0.18 should be interpreted with caution."),
+    # ---- Round 6 (W6): contribution verbs, conjunctions, coupon counts, the withdrawal period
+    ("marco", "SCORE", DAYS, "days_since_delivery (6) plays a minor role in the score."),
+    (
+        "marco",
+        "SCORE",
+        COUPONS + DAYS,
+        "cluster_welcome_coupons (7) outweighs days_since_delivery (6) in the score.",
+    ),
+    (
+        "marco",
+        "HYPOTHESIS",
+        COUPONS,
+        "The 7 welcome coupons may have been redeemed within a short time; the order log should "
+        "confirm it.",
+    ),
+    (
+        "marco",
+        "OBSERVED",
+        COUPONS + SIZE,
+        "The welcome coupon use stands out: 7 coupons across 7 linked accounts.",
+    ),
+    ("giulia", "OBSERVED", (), "The return request falls within the withdrawal period."),
+    (
+        "rossi",
+        "SCORE",
+        RISK,
+        "The risk score is low (0.22) even though the linked accounts share an address.",
+    ),
+    ("rossi", "OBSERVED", (), "The case belongs to the Rossi family cluster."),
 ]
 STATEMENT_IDS = [f"{name}: {text}" for name, _, _, text in STATEMENTS]
 
@@ -455,6 +509,48 @@ def test_the_corpus_is_large_enough_and_covers_every_golden_case_and_label() -> 
     assert {s[0] for s in golden_statements} == set(GOLDEN_SCENARIOS)
     assert {s[1] for s in golden_statements} == {"OBSERVED", "SCORE", "HYPOTHESIS"}
     assert len(set(STATEMENT_IDS)) == len(STATEMENT_IDS)
+
+
+# Correct statements that break a rule of the prompt (round 6, finding W3, and the number words
+# of W6): a level of the score in words, negated ("not in the high range", "far from a high
+# value", "nowhere near high"), or a number in words. They agree with the engine, so they never
+# go to the template at once: they are regenerated, and the retry feedback names the words.
+# (case, label, metrics of the cited facts, text, a word the feedback names)
+REGENERATED: list[tuple[str, str, tuple[str, ...], str, str]] = [
+    ("giulia", "SCORE", RISK, "The risk score of 0.18 is not in the high range.", "high"),
+    ("giulia", "SCORE", RISK, "The risk score is 0.18, far from the high-risk range.", "high"),
+    (
+        "rossi",
+        "SCORE",
+        CARDS,
+        "The shared address does not push the risk score into the high range.",
+        "high",
+    ),
+    ("marco", "OBSERVED", MARGIN, "Customer net margin: 42.1 EUR, far from a high value.", "high"),
+    ("giulia", "SCORE", RISK, "The risk score (0.18) is nowhere near high.", "high"),
+    ("giulia", "SCORE", RISK, "At 0.18, the risk score is far below high.", "high"),
+    (
+        "elena",
+        "OBSERVED",
+        (),
+        "The customer describes two problems: a crooked seam and short sleeves.",
+        "two",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("name", "label", "metrics", "text", "word"),
+    REGENERATED,
+    ids=[f"{name}: {text}" for name, _, _, text, _ in REGENERATED],
+)
+def test_correct_statements_that_break_a_prompt_rule_regenerate_never_the_template(
+    name: str, label: str, metrics: tuple[str, ...], text: str, word: str
+) -> None:
+    result = check(golden(name), text, metrics, label)
+    assert result.action is Action.REGENERATE, result.errors
+    assert "DECISION_ECHO" not in result.codes
+    assert any(word in item for item in retry_feedback(result.errors)), result.errors
 
 
 @pytest.mark.parametrize("name", sorted(GOLDEN_SCENARIOS) + sorted(SCENARIOS))
@@ -1027,6 +1123,144 @@ ANSWERS: list[Answer] = [
         "This case has no linked accounts, so it cannot be compared with the Rossi family cluster.",
     ),
     ("RET-ELENA", "link", "No linked accounts are on file for this case."),
+    # ---- Round 6 (W1): "a vs b" with the records of the clause, in English and Italian
+    ("RET-MARCO", "rossi", "R-MARCO has 7 vs 3 linked accounts."),
+    ("RET-MARCO", "rossi", "R-MARCO has a cluster return rate of 0.92 vs 0.18."),
+    (
+        "RET-MARCO",
+        "rossi",
+        "Compared with F-ROSSI, R-MARCO has a cluster return rate of 0.92 vs 0.18.",
+    ),
+    ("RET-MARCO", "rossi", "R-MARCO ha 2 carte distinte contro 3."),
+    (
+        "RET-MARCO",
+        "rossi",
+        "Il cluster R-MARCO ha 7 account collegati contro 3, 2 carte distinte contro 3 e un tasso "
+        "di reso di 0.92 contro 0.18.",
+    ),
+    (
+        "RET-MARCO",
+        "rossi",
+        "Rispetto a F-ROSSI, R-MARCO ha un tasso di reso del cluster di 0.92 contro 0.18 e una "
+        "quota di identificativi forti di 0.8 contro 0.3.",
+    ),
+    (
+        "RET-MARCO",
+        "rossi",
+        "R-MARCO has 7 linked accounts (F-ROSSI: 3) and 2 distinct cards (F-ROSSI: 3).",
+    ),
+    (
+        "RET-MARCO",
+        "rossi",
+        "Key differences: R-MARCO's accounts were created within 9 days (F-ROSSI: 2900 days), and "
+        "its return rate is 0.92 (F-ROSSI: 0.18).",
+    ),
+    ("RET-MARCO", "rossi", "R-MARCO has 7 linked accounts instead of 3."),
+    (
+        "RET-MARCO",
+        "rossi",
+        "This case's cluster has 7 vs 3 linked accounts compared with the Rossi family.",
+    ),
+    (
+        "RET-MARCO",
+        "rossi",
+        "Compared with the Rossi family, this case's cluster has 7 vs 3 linked accounts and 2 vs "
+        "3 distinct cards.",
+    ),
+    (
+        "RET-MARCO",
+        "rossi",
+        "R-MARCO has 7 vs 3 linked accounts and 2 vs 3 distinct cards compared with F-ROSSI.",
+    ),
+    (
+        "RET-MARCO",
+        "rossi",
+        "The case cluster R-MARCO differs from the Rossi family (F-ROSSI) in size (7 vs 3 linked "
+        "accounts), cards (2 vs 3) and return rate (0.92 vs 0.18).",
+    ),
+    (
+        "RET-MARCO",
+        "rossi",
+        "R-MARCO vs F-ROSSI: 7 vs 3 linked accounts, 2 vs 3 distinct cards, return rate 0.92 vs "
+        "0.18.",
+    ),
+    ("RET-MARCO", "rossi", "R-MARCO: 7 linked accounts vs 3; 2 distinct cards vs 3."),
+    (
+        "RET-RCARD",
+        "rossi",
+        "Compared with F-ROSSI, F-ROSSI-CARD also shares a card (L-301), and its strong "
+        "identifier share is 0.5 against 0.3.",
+    ),
+    # ---- Round 6 (W4): ordinals that rank the factors, a lever value from get_case
+    (
+        "RET-MARCO",
+        "summary",
+        "RET-MARCO is a Q4 return on the withdrawal path. The first factor is "
+        "cluster_welcome_coupons = 7, the second days_since_delivery = 6.",
+    ),
+    (
+        "RET-MARCO",
+        "summary",
+        "Case RET-MARCO (Q4, withdrawal path). The top score factor is cluster_welcome_coupons, "
+        "value 7: 7 linked accounts each used the welcome coupon. The second is "
+        "days_since_delivery, value 6.",
+    ),
+    (
+        "RET-MARCO",
+        "summary",
+        "RET-MARCO: Q4, levers return_window_days:14, instant_refund:false, coupons_enabled:false,"
+        " transparency_notice:true.",
+    ),
+    ("RET-GIULIA", "summary", "RET-GIULIA is in Q1, with a 60 day return window lever."),
+    # ---- Round 6 (W6): a case belongs to a cluster
+    (
+        "RET-ROSSI",
+        "summary",
+        "RET-ROSSI belongs to the Rossi family cluster F-ROSSI and is in Q1; the top score factor "
+        "is returns_90d = 2.",
+    ),
+    # ---- Round 6: variants written apart from the verifier's probes
+    ("RET-MARCO", "rossi", "R-MARCO has 7 linked accounts rather than 3."),
+    ("RET-MARCO", "rossi", "R-MARCO ha 7 account collegati invece di 3."),
+    ("RET-MARCO", "rossi", "R-MARCO ha 7 account collegati anziché 3."),
+    (
+        "RET-MARCO",
+        "rossi",
+        "Il cluster del caso ha 7 account collegati contro 3 della famiglia Rossi.",
+    ),
+    (
+        "RET-MARCO",
+        "rossi",
+        "Compared with the Rossi family this case's cluster has 7 vs 3 linked accounts.",
+    ),
+    (
+        "RET-MARCO",
+        "rossi",
+        "Rispetto alla famiglia Rossi, R-MARCO ha 7 account collegati contro 3 e 2 carte distinte "
+        "contro 3.",
+    ),
+    (
+        "RET-MARCO",
+        "rossi",
+        "R-MARCO and F-ROSSI: 7 vs 3 linked accounts, 0.92 vs 0.18 return rate.",
+    ),
+    ("RET-MARCO", "rossi", "R-MARCO has 7 linked accounts compared with 3 in F-ROSSI."),
+    (
+        "RET-MARCO",
+        "rossi",
+        "R-MARCO has 2 distinct cards (F-ROSSI: 3) and a return rate of 0.92 (F-ROSSI: 0.18).",
+    ),
+    ("RET-MARCO", "rossi", "Linked accounts: 7 vs 3. Distinct cards: 2 vs 3."),
+    (
+        "RET-MARCO",
+        "rossi",
+        "R-MARCO's accounts were created within 9 days versus 2900 days for F-ROSSI.",
+    ),
+    ("RET-MARCO", "rossi", "The Rossi family has 3 linked accounts against 7 in R-MARCO."),
+    ("RET-MARCO", "rossi", "The cluster (R-MARCO) has 7 linked accounts, the Rossi family 3."),
+    ("RET-MARCO", "summary", "Il secondo fattore è days_since_delivery = 6."),
+    ("RET-MARCO", "summary", "The case has the lever return_window_days:14: a 14 day window."),
+    ("RET-MARCO", "link", "The second link, L-102, has weight 0.6 and is disputed."),
 ]
 ANSWER_CASES = [
     (case_id, kind, question, final)

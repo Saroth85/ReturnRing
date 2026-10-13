@@ -7,12 +7,14 @@ Every error carries a code and the action of the 8.7 table:
 The model never changes the decision (CLAUDE.md rule 1). Numbers in the operator explanation are
 grounded only on code-built facts the statement cites, with the unit of the fact or none
 around them; customer text, policy text and identifiers never feed grounding. A statement that
-names a quadrant other than the engine's, or a level of the risk score or of the customer value
-(net margin, "profitable") that is not the engine's, is a decision echo mismatch. A statement
-that talks about levers, their state or scope (enabled, available, future orders), terms,
-refunds, restrictions, decisions or the risk and value levels of the quadrant at all, also
-negated or as a middle level, is regenerated (TERMS_TOPIC): the interface shows the engine
-decision and its levers from code, so no lever value is read from words. A character outside the
+names a quadrant label other than the engine's ("Q4", "QIV", "quadrant 2") is a decision echo
+mismatch. A statement that talks about levers, their state or scope (enabled, available, future
+orders), terms, refunds, restrictions, decisions or the risk and value levels of the quadrant at
+all, also negated or as a middle level, is regenerated (TERMS_TOPIC): the interface shows the
+engine decision and its levers from code, so no lever value is read from words. So is a level of
+the risk score or of the customer value (net margin, "profitable") that is not the engine's: read
+from the words, it is a heuristic, so it never sends the output to the template at once (round 6,
+findings W2 and W3). A character outside the
 allowlist is regenerated too (adversarial review of 13 Oct, rounds 1 to 4). The model writes no
 customer prose: it picks phrasebook sentence ids, which must be known, unique, in their slot,
 allowed for the decision, coherent and not too many (two extras in Q3 and Q4): llm/phrasebook.py,
@@ -47,11 +49,11 @@ from llm.text import (
     foreign_characters,
     grounding_problems,
     language_of,
+    level_mentions,
     number_words,
     operator_topics,
     other_numeric_characters,
     quadrant_labels,
-    quadrant_levels,
     roman_numerals,
     strip_tokens,
 )
@@ -62,6 +64,9 @@ MAX_STATEMENT_CHARS = 300
 MAX_LEVER_IDS = 9
 # Facts that are model outputs: an OBSERVED statement may not cite them.
 SCORE_METRICS = frozenset({"risk_score"})
+# A fact whose metric has both words counts welcome coupons ("cluster_welcome_coupons"): with it
+# cited, "7 coupons" is that fact, not the coupons lever (round 6, finding W6).
+WELCOME_COUPON_WORDS = frozenset({"welcome", "coupons"})
 
 
 class Action(StrEnum):
@@ -88,8 +93,8 @@ class Code(StrEnum):
     WRONG_LANGUAGE = "WRONG_LANGUAGE"
 
 
-# The 8.7 table: echo (also another quadrant or risk score level named in the explanation) ->
-# template; levers, terms and levels named in the explanation, numbers, banned terms, characters
+# The 8.7 table: echo (also another quadrant label named in the explanation) -> template;
+# levers, terms and levels named in the explanation, numbers, banned terms, characters
 # outside the allowlist, phrasebook ids and language -> regenerate, then template; the legal
 # clause and any mismatch between case and decision -> blocking error.
 ACTIONS: dict[Code, Action] = {
@@ -262,36 +267,40 @@ _MEASURES = {"risk": "risk score", "value": "customer value"}
 def _check_decision(
     where: str, text: str, entity_ids: Sequence[str], expected: ExpectedDecision
 ) -> list[ValidationIssue]:
-    """A quadrant named by its label, and a level of the risk score or of the customer value
-    in other words (net margin, profitable), must be the engine's (adversarial review of 13 Oct,
-    finding 3; round 3, finding T7; round 4, finding U5)."""
+    """A quadrant named by its label ("Q1", "QIV", "quadrant 2", "the fourth quadrant") must be
+    the engine's (adversarial review of 13 Oct, finding 3). Only an explicit label is a decision
+    echo mismatch: a level read from the words is a heuristic, so it is never sent to the
+    template at once (round 6, findings W2 and W3; `_check_topics`)."""
     named = strip_tokens(text, entity_ids)
     other = [label for label in quadrant_labels(named) if label != expected.quadrant]
-    axes = QUADRANT_AXES.get(expected.quadrant or "", frozenset())
-    other += [
-        f"{_MEASURES[axis]} {level}"
-        for kind, axis, level in quadrant_levels(named)
-        if kind == "score" and level != "?" and f"{axis}:{level}" not in axes
-    ]
     if other:
         return [_issue(Code.DECISION_ECHO, where, f"not the engine decision: {', '.join(other)}")]
     return []
 
 
 def _check_topics(
-    where: str, text: str, identifiers: Sequence[str], expected: ExpectedDecision
+    where: str,
+    text: str,
+    identifiers: Sequence[str],
+    expected: ExpectedDecision,
+    coupon_fact: bool = False,
 ) -> list[ValidationIssue]:
     """Levers, terms, refunds, restrictions, decisions and the risk and value levels of the
     quadrant are not topics of an operator statement, whatever their value (round 3, findings
     T7 and T8; round 4, findings U5 and U6): metric names are removed first, a level of unknown
     side (negated, middle) counts, and "no quadrant" is an observation only when the engine
-    assigned none."""
+    assigned none. A level of the risk score or of the customer value in other words (net
+    margin, profitable) that is not the engine's is a topic too, with the words that name it
+    ("risk score: high", "risk score: not high"): read from the words, it is regenerated with
+    them in the feedback, never sent to the template at once (round 6, findings W2 and W3). With
+    a welcome-coupon fact cited, "7 coupons" is that fact (round 6, finding W6)."""
     plain = strip_tokens(text, identifiers)
-    found = operator_topics(plain, no_quadrant=expected.quadrant is None)
+    found = operator_topics(plain, no_quadrant=expected.quadrant is None, coupon_count=coupon_fact)
+    axes = QUADRANT_AXES.get(expected.quadrant or "", frozenset())
     found += [
-        f"{_MEASURES[axis]} {lv}"
-        for kind, axis, lv in quadrant_levels(plain)
-        if (kind, lv) == ("score", "?")
+        f"{_MEASURES[axis]}: {words}"
+        for kind, axis, level, words in level_mentions(plain)
+        if kind == "score" and f"{axis}:{level}" not in axes
     ]
     if found:
         return [_issue(Code.TERMS_TOPIC, where, ", ".join(found))]
@@ -308,12 +317,13 @@ def _check_statement(
     expected: ExpectedDecision,
 ) -> list[ValidationIssue]:
     where = f"operator_explanation[{index}]"
+    cited = [facts[fid] for fid in statement.fact_ids if fid in facts]
+    coupons = any(set(f.metric.split("_")) >= WELCOME_COUPON_WORDS for f in cited)
     errors = _check_decision(where, statement.text, entity_ids, expected)
-    errors += _check_topics(where, statement.text, [*entity_ids, *metrics], expected)
+    errors += _check_topics(where, statement.text, [*entity_ids, *metrics], expected, coupons)
     unknown = [fid for fid in statement.fact_ids if fid not in facts]
     if unknown:
         errors.append(_issue(Code.UNKNOWN_FACT, where, ", ".join(unknown)))
-    cited = [facts[fid] for fid in statement.fact_ids if fid in facts]
     if statement.label == "SCORE" and not cited:
         errors.append(_issue(Code.MISSING_FACT, where, "a SCORE statement cites a fact"))
     if statement.label == "OBSERVED" and any(f.metric in SCORE_METRICS for f in cited):

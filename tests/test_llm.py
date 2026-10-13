@@ -177,11 +177,8 @@ def with_extra_statement(built: Built, text: str) -> dict[str, Any]:
         ("insufficient", "The rules engine placed the case in Q4 with instant_refund:false."),
         ("insufficient", "Placed in Q3 for now."),
         ("guarantee", "The rules engine placed the case in Q4 with instant_refund:false."),
-        # Round 3, finding T7: a quadrant written with a number word, a risk score level
+        # Round 3, finding T7: a quadrant written with a number word
         ("Q4_cluster", "The case sits in Q-one."),
-        ("Q4_cluster", "The risk score is low."),
-        ("Q1", "A high risk score drives the case."),
-        ("guarantee", "The risk score is high."),
     ],
 )
 def test_finding3_explanation_naming_another_quadrant_uses_the_template(
@@ -227,6 +224,12 @@ def test_finding3_explanation_naming_another_quadrant_uses_the_template(
         ("Q4_cluster", "Size advice is shown at checkout."),
         ("Q4_cluster", "Il rischio del cliente è alto."),
         ("Q4_cluster", "The customer is risky."),
+        # Round 3, finding T7, a risk score level that is not the engine's: read from the words,
+        # it is regenerated with them in the feedback, never sent to the template at once (round
+        # 6, findings W2 and W3; until round 6 these were DECISION_ECHO)
+        ("Q4_cluster", "The risk score is low."),
+        ("Q1", "A high risk score drives the case."),
+        ("guarantee", "The risk score is high."),
     ],
 )
 def test_round3_levers_terms_and_levels_are_not_topics(name: str, text: str) -> None:

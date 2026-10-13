@@ -58,7 +58,8 @@ def test_report_covers_every_story_with_provenance_and_no_wall_clock(
 
 def test_running_services_code_never_reads_the_ground_truth() -> None:
     """Rule 12: pipeline.features is used by services and jobs alike; it never names truth/.
-    Only the offline evaluation (ml.reference.report) reads truth labels."""
+    Only the offline evaluation (ml.reference.report) and the risk labels of the offline risk
+    job (ml.risk.labels, US-204) read truth labels."""
     literal = re.compile(r"[\"']truth")  # a string literal naming truth/ or a truth table
     for path in (ROOT / "pipeline" / "features").glob("*.py"):
         assert not literal.search(path.read_text(encoding="utf-8")), path
@@ -67,4 +68,4 @@ def test_running_services_code_never_reads_the_ground_truth() -> None:
         for p in (ROOT / "ml").rglob("*.py")
         if literal.search(p.read_text(encoding="utf-8"))
     ]
-    assert readers == ["ml/reference/report.py"]
+    assert sorted(readers) == ["ml/reference/report.py", "ml/risk/labels.py"]

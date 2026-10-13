@@ -96,6 +96,7 @@ def test_same_person_banned_in_explanation() -> None:
 def test_numbers_in_walks_nested_structures() -> None:
     assert {"0.87", "7", "42.1"} <= numbers_in(CASE)
     assert numbers_in(True) == set()
+    assert numbers_in(None) == set()
 
 
 def test_render_fills_placeholders_and_appends_clause() -> None:

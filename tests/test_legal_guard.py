@@ -64,8 +64,9 @@ def test_leg01_engine_never_produces_violations(
     assert check(d, req, base) == []
     assert d.levers.future_terms.return_window_days >= 14
     assert d.refund_due_by <= req.notice_on + timedelta(days=14)
-    if d.path is Path.GUARANTEE:  # LEG-07: return shipping is free on a defect (US-309)
-        assert d.current_return_terms == replace(snapshot, free_return_shipping=True)
+    if d.path is Path.GUARANTEE:  # LEG-07: no restrictive lever, shipping free (US-309)
+        expected = replace(snapshot.most_generous(base), free_return_shipping=True)
+        assert d.current_return_terms == expected
     else:  # LEG-04: the snapshot shown at purchase, never restricted retroactively
         assert d.current_return_terms == snapshot
     if d.quadrant in (Quadrant.Q3, Quadrant.Q4):  # LEG-03 and LEG-08, spec 8.6
@@ -130,12 +131,19 @@ def test_leg07_non_conformity_must_use_guarantee() -> None:
 Q4_SNAPSHOT = ReturnTerms(14, False, False, True, False)
 
 
-def test_leg07_defect_return_shipping_is_free_even_on_q4_terms() -> None:
+def test_leg07_defect_on_q4_terms_gets_no_restrictive_lever() -> None:
     req = request(ReturnReason.DEFECTIVE, terms=Q4_SNAPSHOT)
     d = decide(req, scores(0.99, "5", cluster="R-X"), BASE, THRESHOLDS, TODAY)
     assert d.path is Path.GUARANTEE
-    assert d.current_return_terms == replace(Q4_SNAPSHOT, free_return_shipping=True)
+    assert d.current_return_terms == BASE  # Navigli: 30 days, free shipping, instant refund
     assert codes(d, req) == set()
+
+
+def test_leg07_guard_refuses_q4_terms_on_guarantee() -> None:
+    req = request(ReturnReason.DEFECTIVE, terms=Q4_SNAPSHOT)
+    d = decide(req, scores(), BASE, THRESHOLDS, TODAY)
+    kept = replace(d, current_return_terms=replace(Q4_SNAPSHOT, free_return_shipping=True))
+    assert "GUARANTEE_RESTRICTED" in codes(kept, req)
 
 
 def test_leg07_guard_refuses_charged_shipping_on_guarantee() -> None:
@@ -156,6 +164,18 @@ def test_insufficient_evidence_cannot_restrict() -> None:
     d, req = _q4()
     bad = replace(d, evidence_quality=EvidenceQuality.INSUFFICIENT)
     assert "INSUFFICIENT_EVIDENCE_RESTRICTED" in codes(bad, req)
+
+
+def test_insufficient_evidence_is_never_safe_or_suspicious() -> None:
+    # US-307: standard terms, no quadrant, no upgrade.
+    req = request()
+    d = decide(req, scores(evidence=EvidenceQuality.INSUFFICIENT), BASE, THRESHOLDS, TODAY)
+    labelled = replace(
+        d, quadrant=Quadrant.Q3, requires_approval=True, review_on=TODAY + timedelta(days=90)
+    )
+    assert "INSUFFICIENT_EVIDENCE_RESTRICTED" in codes(labelled, req)
+    upgrade = replace(d.levers, future_terms=replace(BASE, return_window_days=60))
+    assert "INSUFFICIENT_EVIDENCE_RESTRICTED" in codes(replace(d, levers=upgrade), req)
 
 
 def test_leg03_approval_required() -> None:

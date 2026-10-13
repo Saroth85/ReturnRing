@@ -45,14 +45,20 @@ NAVIGLI_BASE_TERMS = ReturnTerms(
 )
 
 
+class PolicyError(ValueError):
+    """Raised when an operation would produce an inadmissible decision."""
+
+
 @dataclass(frozen=True)
 class Thresholds:
     risk: float  # chosen on validation so that precision >= 0.8 in the high-risk band
     value_eur: Decimal  # 70th percentile of customer value
 
-
-class PolicyError(ValueError):
-    """Raised when an operation would produce an inadmissible decision."""
+    def __post_init__(self) -> None:
+        if not (math.isfinite(self.risk) and 0.0 < self.risk <= 1.0):
+            raise PolicyError(f"risk threshold must be in (0, 1], got {self.risk!r}")
+        if not self.value_eur.is_finite():
+            raise PolicyError(f"value threshold must be finite, got {self.value_eur!r}")
 
 
 def choose_path(reason: ReturnReason) -> Path:
@@ -68,6 +74,7 @@ def check_scores(scores: CaseScores) -> None:
 
 
 def quadrant_for(scores: CaseScores, thresholds: Thresholds) -> Quadrant:
+    check_scores(scores)
     high_risk = scores.risk >= thresholds.risk
     high_value = scores.value_eur >= thresholds.value_eur
     if high_value:
@@ -75,10 +82,11 @@ def quadrant_for(scores: CaseScores, thresholds: Thresholds) -> Quadrant:
     return Quadrant.Q4 if high_risk else Quadrant.Q2
 
 
-def guarantee_terms(order_terms: ReturnTerms) -> ReturnTerms:
-    """Terms of a defect return: the order snapshot, with return shipping always at the seller's
-    cost (Directive (EU) 2019/771, art. 14), whatever the withdrawal terms said."""
-    return replace(order_terms, free_return_shipping=True)
+def guarantee_terms(order_terms: ReturnTerms, base: ReturnTerms) -> ReturnTerms:
+    """Terms of a defect return. No restrictive lever applies (rule 4): term by term the better
+    of the order snapshot and the merchant base, and return shipping always at the seller's cost
+    (Directive (EU) 2019/771, art. 14)."""
+    return replace(order_terms.most_generous(base), free_return_shipping=True)
 
 
 def standard_levers(base: ReturnTerms) -> Levers:
@@ -148,7 +156,7 @@ def decide(
             quadrant=None,
             levers=standard_levers(base),
             current_return_terms=(
-                guarantee_terms(request.order_terms)
+                guarantee_terms(request.order_terms, base)
                 if path is Path.GUARANTEE
                 else request.order_terms
             ),
@@ -156,7 +164,6 @@ def decide(
             requires_approval=False,
         )
     else:
-        check_scores(scores)
         quadrant = quadrant_for(scores, thresholds)
         levers = levers_for(quadrant, base, has_cluster=scores.cluster_id is not None)
         needs_approval = quadrant in APPROVAL_QUADRANTS or is_restrictive(levers, base)
@@ -188,7 +195,7 @@ def approve(
     decision: Decision, request: ReturnRequest, base: ReturnTerms, approver: str
 ) -> Decision:
     """Record a human approval. The approver also confirms any cluster coupon application."""
-    approver = approver.strip()
+    approver = (approver or "").strip()
     if not approver:
         raise PolicyError("An approver is required")
     if decision.state is not DecisionState.PROPOSED:

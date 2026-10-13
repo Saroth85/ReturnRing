@@ -71,7 +71,11 @@ def check(decision: Decision, request: ReturnRequest, base: ReturnTerms) -> list
 
     if request.reason in NON_CONFORMITY_REASONS and decision.path is not Path.GUARANTEE:
         v.append(Violation("NON_CONFORMITY_ON_WITHDRAWAL_PATH", "Defects must follow guarantee"))
-    if decision.path is Path.GUARANTEE and (restrictive or decision.quadrant is not None):
+    if decision.path is Path.GUARANTEE and (
+        restrictive
+        or decision.quadrant is not None
+        or decision.current_return_terms.is_less_generous_than(base)
+    ):
         v.append(Violation("GUARANTEE_RESTRICTED", "Guarantee path is never scored or restricted"))
     if decision.path is Path.GUARANTEE and not decision.current_return_terms.free_return_shipping:
         v.append(
@@ -81,8 +85,13 @@ def check(decision: Decision, request: ReturnRequest, base: ReturnTerms) -> list
             )
         )
 
-    if decision.evidence_quality is EvidenceQuality.INSUFFICIENT and restrictive:
-        v.append(Violation("INSUFFICIENT_EVIDENCE_RESTRICTED", "No restriction without evidence"))
+    # US-307: insufficient evidence means standard terms, never a quadrant or an upgrade.
+    if decision.evidence_quality is EvidenceQuality.INSUFFICIENT and (
+        restrictive or decision.quadrant is not None or decision.levers.future_terms != base
+    ):
+        v.append(
+            Violation("INSUFFICIENT_EVIDENCE_RESTRICTED", "Insufficient evidence: standard terms")
+        )
 
     needs_approval = restrictive or decision.quadrant in APPROVAL_QUADRANTS
     if needs_approval and not decision.requires_approval:

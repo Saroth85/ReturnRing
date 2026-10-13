@@ -1,5 +1,5 @@
 .PHONY: dev-up dev-down gpu-up gpu-down demo-up test test-gpu test-asos lint licenses asos asos-verify \
-	generate generate-ood pipeline bench demo-export \
+	generate generate-ood graph features anomalies risk score results propensity pipeline bench demo-export \
 	spike-preflight spike-prep spike-weights spike-weights-wait spike-vllm spike-wait spike-g1 \
 	spike-g1-bench spike-g2 spike-g2-cpu spike-g2-load spike-g3 spike-g3-cpu spike-g4 spike-g5 \
 	spike-g6 spike-g7 spike-down \
@@ -75,8 +75,51 @@ generate:
 generate-ood:
 	python -m pipeline.generator --calibration $(CALIBRATION) --out data --seed $(SEED) --scale $(SCALE) --scenario ood
 
-# Phase 1: the synthetic store. Features and models join in phase 2 (docs/spec.md, section 15).
-pipeline: generate generate-ood
+# Phase 2 (docs/spec.md, sections 8.1 to 8.9). Each step needs the ones before it; graph and
+# anomalies do not need features. Running jobs never read data/truth: only `risk` and `results`
+# (offline evaluation) do, rule 12.
+# US-203: features/links and features/clusters at the extraction instant (no --clusters for the
+# features: the evidence counts each account's own lines, review F14).
+graph:
+	python -m pipeline.graph --store data
+	python -m pipeline.graph --store data/ood
+
+# US-205, US-206, US-209: monthly snapshots of customer features, value and evidence. The OOD
+# reference model is trained on the main store (US-105: the OOD store is never trained on).
+features:
+	python -m pipeline.features --store data --out data
+	python -m pipeline.features --store data/ood --out data/ood --source data
+
+# US-208: product anomalies per variant, reason and sales week (weekly decision times).
+anomalies:
+	python -m pipeline.anomalies --store data --out data
+	python -m pipeline.anomalies --store data/ood --out data/ood
+
+# US-204: offline training and evaluation (reads data/truth). Models in artifacts/risk/models,
+# metrics in artifacts/eval/risk/metrics.json (never mounted by a service), batch scores at the
+# evaluation time in data/scores. Exits 1 when a golden check fails, so the pipeline stops.
+risk:
+	python -m ml.risk --data data --out artifacts --scores data --results docs/results/us-204-risk.md
+
+# Batch scoring with the saved models at another decision time (never reads data/truth). A time
+# before the models' training end is refused (rule 7); AS_OF is ISO 8601 with a time zone.
+AS_OF ?=
+score:
+	python -m ml.scoring --data data --models artifacts/risk/models --out data $(if $(AS_OF),--as-of $(AS_OF))
+
+# Offline evaluation reports of US-203, US-205/206/209 and US-208 (read data/truth). US-201 runs
+# on the real ASOS tables of `make asos`: `make propensity`.
+results:
+	python -m pipeline.graph.evaluate --data data --report docs/results/account-graph.md --json artifacts/eval/graph/evaluation.json
+	python -m ml.reference.report --data data --results docs/results/customer-quantities.md
+	python -m pipeline.anomalies.evaluate --data data --results docs/results/us-208-product-anomalies.md
+
+propensity:
+	python -m ml.propensity --raw data/raw --out artifacts --doc docs/results/us-201-propensity.md
+
+# Phase 1 and 2: the synthetic store, the account graph, the features, the product anomalies and
+# the risk models with their batch scores (docs/spec.md, section 15).
+pipeline: generate generate-ood graph features anomalies risk
 
 bench:
 	@echo "bench: implemented in session wt-ml (benchmarks B1-B4)"

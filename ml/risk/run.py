@@ -16,8 +16,18 @@ FAIR-01 to FAIR-03). An offline job: it reads the ground truth (rule 12 as amend
    is fitted or chosen on it.
 5. The product models (customer = A3, request) are saved, the batch scoring (ml.scoring) runs at
    the evaluation time, and FAIR-02/FAIR-03 are measured on its output for the held-out customers.
+6. Every month-end snapshot (review F21): the customers are scored with the product model, and
+   the golden F-ROSSI check and FAIR-03 are measured per instant. Instants before the train end
+   are in-sample backtests (the models saw those labels), marked as such.
 
-Every number is synthetic: measured on the generated Navigli Fashion store (rule 11).
+Every number is synthetic: measured on the generated Navigli Fashion store (rule 11). The OOD
+rows are also split by abusive behaviour (review F4): the wardrober rules of the generator are
+the same in both stores, only the rings change, so the pooled OOD row mixes in-distribution
+wardrobers with shifted rings.
+
+The metrics document goes to <out>/eval/risk/metrics.json: offline evaluation outputs live under
+artifacts/eval/, apart from the models a service may load (rule 12, review F2). It holds counts
+and metrics, never a customer listed with its ground truth.
 """
 
 from __future__ import annotations
@@ -37,14 +47,14 @@ from contracts.files import atomic_write
 from contracts.io import Provenance
 from ml.risk.data import instants, read_features, request_design, utc
 from ml.risk.explain import FactorCheck, check_factors, top_factors
-from ml.risk.fairness import evaluate_scores
+from ml.risk.fairness import RESTRICTIVE, counterfactual_quadrants, evaluate_scores, fair03
 from ml.risk.features import (
     ABLATION,
     REQUEST_MODEL_FEATURES,
     customer_frame,
     matrix,
 )
-from ml.risk.labels import has_labels, ood_truth_root, read_labels
+from ml.risk.labels import ABUSIVE, has_labels, ood_truth_root, read_labels
 from ml.risk.metrics import RiskMetrics, evaluate
 from ml.risk.model import RiskModel, RuleModel, TrainConfig, fit_rules, fit_xgboost
 from ml.risk.split import SplitConfig, shared_keys, split_customers, split_keys
@@ -55,6 +65,7 @@ from ml.scoring.batch import (
     Models,
     ScoringResult,
     read_inputs,
+    score_customers,
     score_loaded,
     write,
 )
@@ -64,8 +75,14 @@ from pipeline.features.snapshot import StoreSnapshot, load_snapshot
 EVAL_MONTHS: Final = 3
 MANIFEST: Final = "manifest.json"
 FORMAT: Final = "returnring.risk.manifest.v1"
+EVAL_DIR: Final = "eval"  # <out>/eval: offline evaluation outputs, never mounted by a service
 Log = Callable[[str], None]
 Model = RiskModel | RuleModel
+
+
+def metrics_path(out: Path) -> Path:
+    """Where the metrics document of a run under the artifacts root `out` is written."""
+    return out / EVAL_DIR / "risk" / "metrics.json"
 
 
 @dataclass(frozen=True)
@@ -131,6 +148,27 @@ def _labels_of(store: Store, frame: pd.DataFrame) -> npt.NDArray[np.int8]:
     return np.asarray(store.labels["abusive"].reindex(frame["customer_id"]).to_numpy(), np.int8)
 
 
+def by_behaviour(model: Model, frame: pd.DataFrame, store: Store, cut: float) -> dict[str, Any]:
+    """The metrics of each abusive behaviour against every non-abusive row of `frame` (review
+    F4): one row per behaviour, so a pooled number cannot hide that one behaviour carries it."""
+    behaviour = store.labels["behaviour"].reindex(frame["customer_id"]).to_numpy()
+    abusive = store.labels["abusive"].reindex(frame["customer_id"]).to_numpy() == 1
+    out: dict[str, Any] = {}
+    for name in ABUSIVE:
+        keep = (behaviour == name) | ~abusive
+        part = frame.loc[keep].reset_index(drop=True)
+        if (behaviour[keep] == name).any():
+            out[name] = _evaluate(model, part, store, cut).as_dict()
+    return out
+
+
+def _with_behaviours(
+    entry: dict[str, Any], key: str, model: Model, frame: pd.DataFrame, store: Store, cut: float
+) -> None:
+    entry[key] = _evaluate(model, frame, store, cut).as_dict()
+    entry[f"{key}_by_behaviour"] = by_behaviour(model, frame, store, cut)
+
+
 def _factor_check(model: RiskModel, frame: pd.DataFrame) -> FactorCheck:
     rows = top_factors(model.features, matrix(frame, model.features), model.contributions(frame))
     return check_factors(rows)
@@ -153,6 +191,7 @@ def _write_json(path: Path, data: dict[str, Any]) -> None:
 def _provenance(p: Provenance) -> dict[str, str]:
     return {
         "origin": p.origin,
+        "lineage": p.chain,  # the full chain of origins (ADR-13 amendment 5)
         "period": f"{p.period_start.isoformat()}..{p.period_end.isoformat()}",
         "nature": p.nature,
     }
@@ -255,9 +294,9 @@ def run(
         row["status"] = "run"
         row["version"] = model.version
         row["threshold"] = model.threshold
-        row["test"] = _evaluate(model, test, main, cut_main).as_dict()
+        _with_behaviours(row, "test", model, test, main, cut_main)
         if ood is not None and ood_frame is not None:
-            row["ood"] = _evaluate(model, ood_frame, ood, cut_ood).as_dict()
+            _with_behaviours(row, "ood", model, ood_frame, ood, cut_ood)
         ablation.append(row)
 
     a3 = models["A3"]
@@ -304,10 +343,10 @@ def run(
             "model": label,
             "version": model.version,
             "threshold": model.threshold,
-            "test": _evaluate(model, r_test, main, cut_main).as_dict(),
         }
+        _with_behaviours(entry, "test", model, r_test, main, cut_main)
         if ood is not None and r_ood is not None:
-            entry["ood"] = _evaluate(model, r_ood, ood, cut_ood).as_dict()
+            _with_behaviours(entry, "ood", model, r_ood, ood, cut_ood)
         request_rows.append(entry)
 
     # ---- MOD-05 ----
@@ -342,6 +381,8 @@ def run(
     written = [str(p) for p in write(result, scores_out)] if scores_out is not None else []
     held = side == "test"
     f02, f03 = evaluate_scores(result, main.inputs, main.snap, customer, main.labels, held)
+    log("golden cases and FAIR-03 at every month end")
+    history = over_time(customer, main, [t for t in times if t <= eval_end], held, train_end)
 
     doc: dict[str, Any] = {
         "story": "US-204",
@@ -359,7 +400,8 @@ def run(
                 f"{s}/{t}": int(n)
                 for (s, t), n in split.groupby(["side", "stratum"]).size().items()
             },
-            "mod07_shared_keys": mod07,
+            # Counts of keys on two sides: the keys of rings and families are ground truth.
+            "mod07_shared_keys": {kind: len(values) for kind, values in mod07.items()},
         },
         "customer_rows": {
             "train": {"rows": len(train), "positives": int(y_train.sum())},
@@ -388,10 +430,11 @@ def run(
         "fair02": f02.as_dict(),
         "fair03": [f.as_dict() for f in f03],
         "scoring": result.summary,
-        "golden": golden(result, customer, request, side),
+        "over_time": history,
+        "golden": golden(result, customer, request, side, history),
         "artifacts": {"models": saved, "scores": written},
     }
-    _write_json(out / "risk" / "metrics.json", doc)
+    _write_json(metrics_path(out), doc)
     return doc
 
 
@@ -413,10 +456,66 @@ def _text(value: object) -> str | None:
     return None if value is None or pd.isna(value) else str(value)
 
 
+def over_time(
+    customer: RiskModel,
+    store: Store,
+    times: Sequence[datetime],
+    held: pd.Series,
+    trained_at: datetime,
+) -> list[dict[str, Any]]:
+    """Per month-end snapshot (review F21): the quadrants the product's customer model gives
+    then, the golden accounts' quadrants and FAIR-03 on all and on the held-out customers. An
+    instant before the train end is an in-sample backtest: the model was fitted on labels of the
+    train groups known later, so it is marked, never read as a held-out result."""
+    inputs = store.inputs
+    behaviour = store.labels["behaviour"]
+    models = Models(customer, customer)  # score_customers reads the customer model only
+    out: list[dict[str, Any]] = []
+    for t in times:
+        scores = score_customers(models, inputs, t)
+        alone = counterfactual_quadrants(customer, inputs, scores, t)
+        everyone = pd.Series(True, index=scores["customer_id"])
+        checks = [
+            fair03(scores, alone, behaviour, everyone, "all customers"),
+            fair03(scores, alone, behaviour, held, "held-out test customers"),
+        ]
+        by_id = scores.set_index("customer_id")
+        present = [c for c in GOLDEN_IDS if c in by_id.index]
+        quadrants = {c: _text(by_id.at[c, "quadrant"]) for c in present}
+        threshold = customer.threshold
+        marco = [c for c in present if c.startswith("C-MARCO")]
+        out.append(
+            {
+                "as_of": t.isoformat(),
+                "in_sample": t < utc(trained_at),
+                "customers": len(scores),
+                "quadrants": {
+                    str(k): int(v)
+                    for k, v in scores["quadrant"].fillna("none").value_counts().items()
+                },
+                "golden_quadrants": quadrants,
+                "rossi_restrictive": sorted(
+                    c for c in present if c.startswith("C-ROSSI") and quadrants[c] in RESTRICTIVE
+                ),
+                "marco_accounts": len(marco),
+                "marco_high_risk": sum(
+                    threshold is not None and float(by_id.at[c, "risk"]) >= threshold for c in marco
+                ),
+                "fair03": [f.as_dict() for f in checks],
+            }
+        )
+    return out
+
+
 def golden(
-    result: ScoringResult, customer: RiskModel, request: RiskModel, side: pd.Series
+    result: ScoringResult,
+    customer: RiskModel,
+    request: RiskModel,
+    side: pd.Series,
+    history: Sequence[dict[str, Any]] = (),
 ) -> dict[str, Any]:
-    """The golden cases in the batch scores (demo cases, never a measure of accuracy, US-906)."""
+    """The golden cases in the batch scores (demo cases, never a measure of accuracy, US-906);
+    the F-ROSSI check holds at every month end of `history` (over_time) as well."""
     scores = result.scores.set_index("customer_id")
     requests = result.requests
     rows: list[dict[str, Any]] = []
@@ -456,8 +555,9 @@ def golden(
     checks = {
         "C-GIULIA in Q1": by.get("C-GIULIA", {}).get("quadrant") == "Q1",
         "R-MARCO accounts high risk": bool(marco) and all(r["high_risk"] for r in marco),
-        "F-ROSSI and F-ROSSI-CARD never in Q3 or Q4": bool(rossi)
-        and all(r["quadrant"] not in ("Q3", "Q4") for r in rossi),
+        "F-ROSSI and F-ROSSI-CARD never in Q3 or Q4, at every month end": bool(rossi)
+        and all(r["quadrant"] not in RESTRICTIVE for r in rossi)
+        and all(not h["rossi_restrictive"] for h in history),
         "C-ELENA's open return on the guarantee path, not scored": elena is not None
         and bool(elena["open_returns"])
         and all(o["path"] == "guarantee" and o["risk"] is None for o in elena["open_returns"]),

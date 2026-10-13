@@ -112,9 +112,26 @@ def test_only_the_proxy_publishes_on_all_interfaces() -> None:
                     assert str(port).startswith("127.0.0.1:"), (name, service_name, port)
 
 
+def mount_parts(source: Path, root: Path = ROOT) -> tuple[str, ...]:
+    """The parts of a mount source inside the repository, or all its parts outside it: the
+    rule 12 check must not depend on where the repository is cloned (review F7)."""
+    try:
+        return source.relative_to(root).parts
+    except ValueError:
+        return source.parts
+
+
+def test_f7_the_truth_check_reads_the_path_inside_the_repository() -> None:
+    clone = Path("/srv/review/truth/ReturnRing")  # a clone under a folder named truth
+    assert "truth" not in mount_parts(clone / "artifacts", clone)
+    assert "truth" in mount_parts(clone / "data" / "truth", clone)
+    assert "truth" in mount_parts(Path("/mnt/truth/x"), clone)
+
+
 def test_no_service_mounts_truth_or_the_whole_repo() -> None:
     """Rule 12: data/truth (main and OOD truth, docs/synthetic-store.md) reaches offline jobs
-    only. A non-job service mounts no ancestor of data/truth and no path with a 'truth' part."""
+    only. A non-job service mounts no ancestor of data/truth and no path with a 'truth' part
+    inside the repository."""
     truth = ROOT / "data" / "truth"
     for name in COMPOSE_FILES:
         for service_name, service in services(name).items():
@@ -123,10 +140,27 @@ def test_no_service_mounts_truth_or_the_whole_repo() -> None:
                 sees_truth = source == truth or truth in source.parents or source in truth.parents
                 if service_name not in JOB_SERVICES:
                     assert not sees_truth, (name, service_name, source)
-                    assert "truth" not in source.parts, (name, service_name, source)
+                    assert "truth" not in mount_parts(source), (name, service_name, source)
                     assert "truth" not in Path(target).parts, (name, service_name, target)
                 elif sees_truth and service_name not in DATA_WRITERS:
                     assert read_only, (name, service_name, "training jobs read data/ only")
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="infra follow-up of review F2: the api and telemetry mount the whole artifacts/ "
+    "folder; narrow them (api: artifacts/risk/models read-only) so no running service sees "
+    "artifacts/eval, the offline evaluation outputs. infra/ is changed in its own session.",
+)
+def test_f2_no_running_service_mounts_the_offline_evaluation_outputs() -> None:
+    evaluation = ROOT / "artifacts" / "eval"
+    for name in COMPOSE_FILES:
+        for service_name, service in services(name).items():
+            if service_name in JOB_SERVICES:
+                continue
+            for source, _, _ in bind_mounts(service):
+                sees = source == evaluation or source in evaluation.parents
+                assert not sees, (name, service_name, source)
 
 
 def test_running_services_never_see_data() -> None:
@@ -208,10 +242,55 @@ def test_makefile_data_targets() -> None:
         assert "python -m pipeline.generator --calibration $(CALIBRATION)" in recipe, target
         assert f"--scenario {scenario}" in recipe, target
         assert "--seed $(SEED)" in recipe and "--out data" in recipe, target
-    assert targets["pipeline"][0].split() == ["generate", "generate-ood"]
     phony = re.search(r"^\.PHONY:(.*)$", makefile.replace("\\\n", " "), re.M)
     assert phony is not None
     for target in ("asos", "asos-verify", "test-asos", "generate", "generate-ood", "pipeline"):
+        assert re.search(rf"(^|\s){re.escape(target)}(\s|$)", phony.group(1)), target
+
+
+def test_f16_make_pipeline_runs_phase_2_in_order() -> None:
+    """Review F16: `make pipeline` builds the store, the graph, the features, the anomalies and
+    the risk models with their scores, in that order; graph and anomalies need no features; the
+    features never pass --clusters (review F14); the offline reports have targets of their own."""
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    targets = makefile_targets()
+    assert targets["pipeline"][0].split() == [
+        "generate",
+        "generate-ood",
+        "graph",
+        "features",
+        "anomalies",
+        "risk",
+    ]
+    expected = {
+        "graph": [
+            "python -m pipeline.graph --store data",
+            "python -m pipeline.graph --store data/ood",
+        ],
+        "features": [
+            "python -m pipeline.features --store data --out data",
+            "python -m pipeline.features --store data/ood --out data/ood --source data",
+        ],
+        "anomalies": [
+            "python -m pipeline.anomalies --store data --out data",
+            "python -m pipeline.anomalies --store data/ood --out data/ood",
+        ],
+        "risk": [
+            "python -m ml.risk --data data --out artifacts --scores data "
+            "--results docs/results/us-204-risk.md"
+        ],
+    }
+    for target, recipe in expected.items():
+        assert targets[target][1] == recipe, target
+    assert "--clusters" not in " ".join(targets["features"][1])
+    results = " ".join(targets["results"][1])
+    for job in ("pipeline.graph.evaluate", "ml.reference.report", "pipeline.anomalies.evaluate"):
+        assert f"python -m {job} --data data" in results, job
+    assert "artifacts/eval/graph/evaluation.json" in results
+    assert "python -m ml.scoring --data data" in " ".join(targets["score"][1])
+    phony = re.search(r"^\.PHONY:(.*)$", makefile.replace("\\\n", " "), re.M)
+    assert phony is not None
+    for target in ("graph", "features", "anomalies", "risk", "score", "results", "propensity"):
         assert re.search(rf"(^|\s){re.escape(target)}(\s|$)", phony.group(1)), target
 
 

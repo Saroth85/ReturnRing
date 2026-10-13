@@ -4,11 +4,15 @@
 Offline training and evaluation job (reads data/truth, rule 12 as amended by ADR-13): trains the
 ablation A0..A3 and the request model on the grouped, time-ordered split, evaluates them on the
 held-out groups and on the out-of-distribution store (data/ood, data/truth/ood) when present,
-saves the models under <out>/risk/models, writes every number to <out>/risk/metrics.json, runs the
-batch scoring at the evaluation time into <scores>/scores/, measures FAIR-02 and FAIR-03 on it,
-and rewrites the results file. SEED sets the default seed.
+saves the models under <out>/risk/models, writes every number to <out>/eval/risk/metrics.json
+(offline outputs, never mounted by a service: rule 12), runs the batch scoring at the evaluation
+time into <scores>/scores/, measures FAIR-02 and FAIR-03 on it and at every month end, and
+rewrites the results file. SEED sets the default seed. In a container that mounts data/
+read-only, pass --scores artifacts or --no-scores, and --no-results unless docs/results is
+mounted.
 
-Exit codes: 0 done, 2 usage.
+Exit codes: 0 done and every golden check as expected, 1 a golden check failed (the outputs are
+written for the diagnosis), 2 usage.
 """
 
 from __future__ import annotations
@@ -21,11 +25,12 @@ import time
 from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from ml.risk.data import utc
 from ml.risk.model import TrainConfig
 from ml.risk.report import render
-from ml.risk.run import RunConfig, run
+from ml.risk.run import RunConfig, metrics_path, run
 from ml.risk.split import SplitConfig
 
 DEFAULT_RESULTS = Path("docs/results/us-204-risk.md")
@@ -70,17 +75,25 @@ def main(argv: Sequence[str] | None = None) -> int:
     scores = None if args.no_scores else (args.scores or args.data)
     run(args.data, args.out, scores, config, log)
     # Rendered from the file on disk, so the results file is a function of metrics.json alone.
-    doc = json.loads((args.out / "risk" / "metrics.json").read_text(encoding="utf-8"))
+    metrics = metrics_path(args.out)
+    doc = json.loads(metrics.read_text(encoding="utf-8"))
     if not args.no_results:
         args.results.parent.mkdir(parents=True, exist_ok=True)
         args.results.write_text(render(doc), encoding="utf-8")
         log(f"wrote {args.results}")
+    return exit_code(doc, args.out / "risk" / "models", metrics)
+
+
+def exit_code(doc: dict[str, Any], models: Path, metrics: Path) -> int:
+    """0 when every golden check holds, else 1 (review F21): `make pipeline` stops on a golden
+    failure. The models and the metrics stay on disk for the diagnosis."""
     checks = doc["golden"]["checks"]
+    failed = [name for name, ok in checks.items() if not ok]
     print(
-        f"US-204: models in {args.out}/risk/models, metrics in {args.out}/risk/metrics.json; "
-        f"golden cases as expected: {all(checks.values())}"
+        f"US-204: models in {models}, metrics in {metrics}; golden cases as expected: "
+        f"{not failed}" + (f" (failed: {'; '.join(failed)})" if failed else "")
     )
-    return 0
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

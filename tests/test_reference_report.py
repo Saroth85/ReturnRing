@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 from ml.reference import report
@@ -17,6 +18,18 @@ from pipeline.generator.core import generate
 
 ROOT = Path(__file__).resolve().parents[1]
 EXAMPLE = ROOT / "contracts" / "examples" / "calibration.json"
+
+
+def test_f13_the_evidence_sentence_is_read_from_the_data() -> None:
+    """F13: whether the evidence was built with the account graph is read from
+    n_observations_linked, never written as fixed text."""
+    without = pd.DataFrame({"n_observations_linked": pd.array([None, None], dtype="Int64")})
+    with_graph = pd.DataFrame({"n_observations_linked": pd.array([3, None], dtype="Int64")})
+    text = report.linked_evidence_sentence([without])
+    assert "null in every row" in text and "own settled lines" in text
+    text = report.linked_evidence_sentence([without, with_graph])
+    assert "1 of 4 rows" in text and "never counted" in text
+    assert "was not available" not in text
 
 
 @pytest.fixture(scope="module")

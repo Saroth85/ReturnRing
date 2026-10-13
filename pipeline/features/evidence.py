@@ -2,9 +2,12 @@
 
 Three components, each computed from what is known at the decision time T:
 
-- observations: order lines with a settled withdrawal outcome (pipeline.features.lines), the
-  sample behind the return rate and the residual. With the account graph (features/clusters at the
-  same as_of), n_observations_linked adds the observations of the linked accounts;
+- observations: the account's own order lines with a settled withdrawal outcome
+  (pipeline.features.lines), the sample behind the return rate and the residual. With the account
+  graph (features/clusters at the same as_of), n_observations_linked reports the observations of
+  the linked accounts too; it is never counted towards the threshold (review F14: counted, it let
+  an account with no settled line of its own into Q4, and the FAIR-03 counterfactual, which keeps
+  the evidence fixed, could not see it);
 - identifier completeness: the share of the identifier weight of spec 8.3 (card 1.0, e-mail 0.9,
   device 0.8, address 0.6, phone 0.6, IP prefix 0.2) recorded for the customer. Without
   identifiers the graph cannot see links, so the absence of a link is not evidence;
@@ -128,7 +131,9 @@ def evidence_quality(
         n_linked = None if with_links is None else with_links[cid]
 
         missing: list[str] = []
-        if n < th.min_observations and (n_linked is None or n_linked < th.min_observations):
+        # The account's own settled lines only (review F14): the lines of linked accounts are
+        # reported, never counted, so a new account in a cluster is never judged on others.
+        if n < th.min_observations:
             linked_text = "" if n_linked is None else f" ({n_linked} with linked accounts)"
             missing.append(
                 f"observations: {n} order lines with a settled outcome up to {when}"

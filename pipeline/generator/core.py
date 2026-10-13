@@ -219,19 +219,38 @@ def to_tables(store: Store, seed: int) -> dict[str, pa.Table]:
     }
 
 
+CALIBRATION_LABEL_CHARS = 110  # the calibration's first clause in the short origin (F17)
+
+
+def first_clause(text: str, limit: int) -> str:
+    """The first clause of `text` (up to "; "), cut at a word under `limit` characters."""
+    first = text.split("; ", 1)[0].strip()
+    if len(first) <= limit:
+        return first
+    cut = first[: limit - 3].rsplit(" ", 1)[0]
+    return cut.rstrip(" ,.;:") + "..."
+
+
 def provenance(cal: Calibration, seed: int, scale: float, cfg: ScenarioConfig) -> Provenance:
     """Origin names the calibration it was built from, so an illustrative calibration is never
-    mistaken for ASOS measurements (rule 11). The period is the store period."""
+    mistaken for ASOS measurements (rule 11): its nature, hash and first clause in the short
+    origin (at most 300 characters, ADR-13 amendment 5), its whole origin in the lineage. The
+    period is the store period."""
     origin = (
-        f"{BASE_ORIGIN} (calibration: {cal.origin}; calibration nature {cal.nature}; "
-        f"sha256 {cal.sha256[:12] or 'n/a'}; seed {seed}, scale {scale:g}, scenario {cfg.name}; "
-        f"store period {PERIOD_FIRST_DAY.isoformat()}..{PERIOD_LAST_DAY.isoformat()})"
+        f"{BASE_ORIGIN} (seed {seed}, scale {scale:g}, scenario {cfg.name}; calibration "
+        f"{cal.nature}, sha256 {cal.sha256[:12] or 'n/a'}: "
+        f"{first_clause(cal.origin, CALIBRATION_LABEL_CHARS)})"
+    )
+    lineage = (
+        f"{origin}; store period {PERIOD_FIRST_DAY.isoformat()}..{PERIOD_LAST_DAY.isoformat()}; "
+        f"calibration: {cal.origin}; calibration nature {cal.nature}; sha256 {cal.sha256 or 'n/a'}"
     )
     return Provenance(
         origin=origin,
         period_start=PERIOD_FIRST_DAY,
         period_end=PERIOD_LAST_DAY,
         nature="synthetic",
+        lineage=lineage,
     )
 
 

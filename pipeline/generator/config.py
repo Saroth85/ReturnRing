@@ -154,6 +154,12 @@ class ScenarioConfig:
     family_card_share: float  # share of generic families where two accounts share a card
     hard_family: bool  # OOD: a family that looks like a ring (new accounts, coupons, one card)
     hard_family_share: float  # generic families created together, each with a welcome coupon
+    # OOD hard situation (review F3): strong identifiers shared by unrelated accounts, so the
+    # graph's precision at the 0.8 threshold can fail. Pairs of unrelated accounts that come to
+    # use one device (a second-hand phone, a shared laptop), at scale 1.0; and the share of
+    # collective addresses where two unrelated flatmates pay with one card.
+    unrelated_device_pairs_at_scale_1: int = 0
+    flatmate_card_share: float = 0.0
 
 
 MAIN = ScenarioConfig(
@@ -202,6 +208,8 @@ OOD = ScenarioConfig(
     family_card_share=0.6,
     hard_family=True,
     hard_family_share=0.15,
+    unrelated_device_pairs_at_scale_1=100,
+    flatmate_card_share=0.5,
 )
 
 SCENARIOS: Final = MappingProxyType({"main": MAIN, "ood": OOD})

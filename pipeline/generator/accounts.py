@@ -29,7 +29,13 @@ from typing import Literal
 import numpy as np
 import numpy.typing as npt
 
-from pipeline.generator.config import START_US, US_PER_DAY, US_PER_SECOND, ScenarioConfig
+from pipeline.generator.config import (
+    CUSTOMERS_AT_SCALE_1,
+    START_US,
+    US_PER_DAY,
+    US_PER_SECOND,
+    ScenarioConfig,
+)
 from pipeline.generator.identity import (
     Hasher,
     ip_prefix24,
@@ -44,11 +50,12 @@ I64 = npt.NDArray[np.int64]
 When = int | Literal["created", "first_order", "later_order"]
 
 STRONG_KINDS = ("card", "email", "device")
+# Every account, ring and family members included (review F5), draws a second device, a second
+# card and a mobile IP prefix with these probabilities, so how many values of a kind an account
+# has never tells its behaviour.
 SECOND_DEVICE_SHARE = 0.35
 SECOND_CARD_SHARE = 0.25
 MOBILE_IP_SHARE = 0.4
-RING_EXTRA_DEVICE = 0.3
-RING_EXTRA_CARD = 0.2
 
 EMAIL_DOMAINS = (
     ("gmail.com", 0.42),
@@ -344,6 +351,43 @@ def plan_generic_identifiers(
     for member in np.flatnonzero(grouped & ~pop.scripted & (pop.pickup_of >= 0)):
         place = pickups[pop.pickup_of[member]]
         plan.add(int(member), "address", place.render(rng), "later_order")
+    plan_unrelated_sharing(pop, cfg, factory, plan)
+
+
+def _same_group(pop: Population, a: int, b: int) -> bool:
+    ring = pop.ring_of[a] >= 0 and pop.ring_of[a] == pop.ring_of[b]
+    family = pop.family_of[a] >= 0 and pop.family_of[a] == pop.family_of[b]
+    return bool(ring or family)
+
+
+def plan_unrelated_sharing(
+    pop: Population, cfg: ScenarioConfig, factory: IdentityFactory, plan: Plan
+) -> None:
+    """OOD hard situation (review F3): strong identifiers shared by unrelated accounts. Pairs of
+    accounts of any behaviour (rings and families included, never two of the same group) come to
+    use one device, a second-hand phone or a shared laptop; at a share of the collective
+    addresses two flatmates pay with one card. Without it, no unrelated pair shares a card,
+    e-mail or device, and the graph's precision at the 0.8 threshold holds by construction. Draws
+    nothing when the scenario has neither (the main store)."""
+    if cfg.unrelated_device_pairs_at_scale_1 <= 0 and cfg.flatmate_card_share <= 0:
+        return
+    rng = factory.rng
+    free = np.flatnonzero(~pop.scripted)
+    n_pairs = round(cfg.unrelated_device_pairs_at_scale_1 * pop.n / CUSTOMERS_AT_SCALE_1)
+    chosen = rng.permutation(free)[: 2 * n_pairs]
+    for a, b in zip(chosen[0::2], chosen[1::2], strict=True):
+        if _same_group(pop, int(a), int(b)):
+            continue
+        device = factory.token("dev")
+        plan.add(int(a), "device", device, "later_order")
+        plan.add(int(b), "device", device, "later_order")
+    for c in range(pop.n_collective):
+        residents = np.flatnonzero((pop.collective_of == c) & ~pop.scripted)
+        if len(residents) >= 2 and rng.random() < cfg.flatmate_card_share:
+            a, b = (int(x) for x in rng.choice(residents, size=2, replace=False))
+            card = factory.token("card_fp")
+            plan.add(a, "card", card, "later_order")
+            plan.add(b, "card", card, "later_order")
 
 
 def _own(
@@ -418,11 +462,11 @@ def _ring(
             plan.add(m, "phone", mine.get("phone") or factory.phone(), "created")
         if not missing["device"][m]:
             plan.add(m, "device", mine.get("device") or factory.token("dev"), "created")
-            if "device" in mine and rng.random() < RING_EXTRA_DEVICE:
+            if rng.random() < SECOND_DEVICE_SHARE:
                 plan.add(m, "device", factory.token("dev"), "later_order")
         if not missing["card"][m]:
             plan.add(m, "card", mine.get("card") or factory.token("card_fp"), "first_order")
-            if "card" in mine and rng.random() < RING_EXTRA_CARD:
+            if rng.random() < SECOND_CARD_SHARE:
                 plan.add(m, "card", factory.token("card_fp"), "later_order")
         if "address" in mine:
             plan.add(m, "address", addresses[int(mine["address"])].render(rng), "first_order")
@@ -431,6 +475,8 @@ def _ring(
         if not missing["ip_prefix"][m]:
             ip = mine.get("ip_prefix") or factory.home_ip()
             plan.add(m, "ip_prefix", factory.ip(ip.rsplit(".", 1)[0]), "first_order")
+            if rng.random() < MOBILE_IP_SHARE:
+                plan.add(m, "ip_prefix", factory.mobile_ip(), "later_order")
 
 
 def _link_everyone(
@@ -475,21 +521,30 @@ def _family(
         plan.add(m, "email", factory.email(pop.first_name[m], pop.last_name[m]), "created")
         if hard or not missing["phone"][m]:
             plan.add(m, "phone", factory.phone(), "created")
+        # The household values are shared; a second device, a second card and a mobile IP
+        # prefix are drawn as for every other account (review F5).
         plan.add(m, "device", household_device, "created" if hard else "first_order")
-        if not hard and not missing["device"][m]:
-            plan.add(m, "device", factory.token("dev"), "created")
+        if rng.random() < SECOND_DEVICE_SHARE:
+            plan.add(m, "device", factory.token("dev"), "later_order")
         plan.add(m, "address", home.render(rng), "first_order")
         plan.add(m, "ip_prefix", factory.ip(household_ip), "first_order")
+        if rng.random() < MOBILE_IP_SHARE:
+            plan.add(m, "ip_prefix", factory.mobile_ip(), "later_order")
         if hard:
             plan.add(m, "card", shared_card, "first_order")
         elif card_pair is not None and m == card_pair[1]:
-            plan.add(m, "card", shared_card, "later_order")
-            if rng.random() < 0.5:
+            plan.add(m, "card", shared_card, "later_order")  # their own card came first
+            if rng.random() < SECOND_CARD_SHARE:
                 plan.add(m, "card", factory.token("card_fp"), "first_order")
+            continue
         elif card_pair is not None and m == card_pair[0]:
             plan.add(m, "card", shared_card, "first_order")
         elif not missing["card"][m]:
             plan.add(m, "card", factory.token("card_fp"), "first_order")
+        else:
+            continue
+        if rng.random() < SECOND_CARD_SHARE:
+            plan.add(m, "card", factory.token("card_fp"), "later_order")
 
 
 def resolve(

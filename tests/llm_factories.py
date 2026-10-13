@@ -44,6 +44,7 @@ SCENARIOS: dict[str, Scenario] = {
     ),
     "Q4": Scenario(request(), scores(0.87, "42.10"), (RETURNS_90D, DAYS)),
     "Q4_cluster": Scenario(request(), scores(0.87, "42.10", cluster="R-MARCO"), (COUPONS,), MARCO),
+    "Q4_negative_margin": Scenario(request(), scores(0.87, "-42.10"), (RETURNS_90D,)),
     "insufficient": Scenario(request(), scores(0.6, "50", INSUFFICIENT), missing=MISSING),
     "guarantee": Scenario(
         request(ReturnReason.DEFECTIVE), scores(0.9, "50", cluster="R-MARCO"), (COUPONS,), MARCO

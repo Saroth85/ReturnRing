@@ -1,9 +1,10 @@
 """Clients for Gemma: a deterministic mock (LLM_MODE=mock) and the local vLLM (LLM_MODE=vllm).
 
 Rule 2: the only model endpoint is the local vLLM. VllmClient accepts only the compose service
-name "vllm", "localhost" or a loopback or private IP address; it never uses proxies and never
-follows redirects. Standard library only (urllib): no new runtime dependency. No retries inside
-the client: llm/generate.py decides what happens after a failure.
+name "vllm", "localhost" or an IP address in a loopback or private network (an allow-list, with
+IPv4-mapped IPv6 addresses unwrapped first); it never uses proxies and never follows redirects.
+Standard library only (urllib): no new runtime dependency. No retries inside the client:
+llm/generate.py decides what happens after a failure.
 """
 
 from __future__ import annotations
@@ -26,6 +27,19 @@ from llm.templates import output_from_case
 
 OUTPUT_SCHEMA_PATH = Path(__file__).resolve().parents[1] / "contracts/json/llm_output.schema.json"
 LOCAL_HOSTNAMES = frozenset({"vllm", "localhost"})
+# Loopback and private networks only (adversarial review of 13 Oct, finding 6): link-local,
+# reserved, documentation, benchmark, broadcast, 6to4 and NAT64 addresses are all refused.
+LOCAL_NETWORKS: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...] = tuple(
+    ipaddress.ip_network(network)
+    for network in (
+        "127.0.0.0/8",
+        "::1/128",
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+        "fc00::/7",
+    )
+)
 DEFAULT_MODEL = "google/gemma-4-31B-it"
 TEMPERATURE = 0.2
 MAX_RESPONSE_BYTES = 1_000_000
@@ -96,7 +110,9 @@ def check_local_url(base_url: str) -> str:
             address = ipaddress.ip_address(host)
         except ValueError:
             raise ValueError(f"Rule 2: {host!r} is not the local vLLM") from None
-        if address.is_link_local or not (address.is_loopback or address.is_private):
+        if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
+            address = address.ipv4_mapped
+        if not any(address in network for network in LOCAL_NETWORKS):
             raise ValueError(f"Rule 2: {host!r} is not a local address")
     path = parts.path.rstrip("/")
     if not path.endswith("/v1"):

@@ -14,10 +14,12 @@ import pytest
 import llm.generate as generate_module
 from llm.client import Completion, LlmUnavailable, MockClient
 from llm.generate import GenerationBlocked, GenerationPath, generate
+from llm.messages import render, template_fields
 from llm.prompts import user_message
 from llm.templates import template_output
 from llm.text import numbers_in_text, strip_tokens
 from llm.validator import Code, ValidationIssue, ValidationResult
+from tests.factories import BASE
 from tests.llm_factories import SCENARIOS, Built, good_output, make
 
 GOLDEN = make("Q4_cluster")
@@ -190,6 +192,28 @@ def test_llm05_customer_numbers_never_reach_grounding(text: str) -> None:
     assert any(i.code is Code.UNGROUNDED_NUMBER for i in result.issues)
     facts = {Decimal(str(f["value"])) for f in built.case["facts"]}
     assert set(_all_numbers(result.output, built.case)) <= facts
+
+
+# Adversarial review of 13 Oct, finding 1: a model that obeys LLM-05 #1 in words only.
+OBEYED_IN_WORDS = (
+    "Abbiamo approvato il tuo rimborso immediato e la spedizione del reso resta gratuita, come "
+    "sempre. Per i prossimi ordini: {terms}."
+)
+
+
+def test_finding1_a_message_that_states_the_decision_never_takes_the_model_path() -> None:
+    built = make("Q4_cluster", customer_text=ADVERSARIAL[0])
+    out = good_output()
+    out["customer_message"]["it"] = OBEYED_IN_WORDS
+    result = generate(built.case, built.expected, MockClient([out, out]))
+    assert result.path is GenerationPath.TEMPLATE
+    assert result.fallback_reason == "invalid_twice"
+    assert {i.code for i in result.issues} == {Code.TERMS_WORDING}
+    assert "approvato" not in result.output.customer_message.it
+    rendered = render(result.output.customer_message.it, built.decision, BASE, "it")
+    terms = template_fields(built.decision, BASE, "it")["terms"]
+    assert terms in rendered and "a tuo carico" in terms  # the Q4 terms, written by code
+    assert "gratuita" not in rendered and "immediato" not in rendered
 
 
 @pytest.mark.parametrize("text", ADVERSARIAL)

@@ -6,12 +6,15 @@ Every error carries a code and the action of the 8.7 table:
 - BLOCK: a bug in the code (the case does not match the engine decision); nothing is shown.
 The model never changes the decision (CLAUDE.md rule 1). Numbers in the operator explanation are
 grounded only on code-built facts the statement cites; customer text, policy text and identifiers
-never feed grounding.
+never feed grounding. A statement that names a quadrant or a lever value other than the engine's
+is a decision echo mismatch. The customer message is connective text only: terms and decisions
+written in words are rejected (adversarial review of 13 Oct).
 """
 
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
@@ -20,7 +23,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
-from contracts.levers import LeverError, format_lever_id
+from contracts.levers import LEVERS, LeverError, format_lever_id
 from llm.decision import ExpectedDecision
 from llm.messages import placeholder_problems, strip_placeholders
 from llm.text import (
@@ -28,15 +31,21 @@ from llm.text import (
     PRONOUN_NUMBERS,
     Lang,
     banned_terms,
+    fold,
+    is_dash,
     language_of,
     legal_wording,
     literal_numbers,
     literal_units,
+    number_modifiers,
     number_words,
     numbers_in_text,
     other_numeric_characters,
+    quadrant_labels,
     strip_tokens,
+    terms_wording,
     word_count,
+    word_set,
 )
 
 MAX_CUSTOMER_WORDS = 120
@@ -47,7 +56,6 @@ MAX_MESSAGE_CHARS = 900
 MAX_LEVER_IDS = 9
 # Facts that are model outputs: an OBSERVED statement may not cite them.
 SCORE_METRICS = frozenset({"risk_score"})
-_QUADRANT_LABELS = ("Q1", "Q2", "Q3", "Q4")
 
 
 class Action(StrEnum):
@@ -71,6 +79,7 @@ class Code(StrEnum):
     LITERAL_NUMBER = "LITERAL_NUMBER"
     LITERAL_UNIT = "LITERAL_UNIT"
     LEGAL_WORDING = "LEGAL_WORDING"
+    TERMS_WORDING = "TERMS_WORDING"
     PLACEHOLDER_SYNTAX = "PLACEHOLDER_SYNTAX"
     PLACEHOLDER_UNAVAILABLE = "PLACEHOLDER_UNAVAILABLE"
     TERMS_MISSING = "TERMS_MISSING"
@@ -78,8 +87,9 @@ class Code(StrEnum):
     TOO_LONG = "TOO_LONG"
 
 
-# The 8.7 table: echo -> template; numbers, banned terms, language and length -> regenerate, then
-# template; the legal clause and any mismatch between case and decision -> blocking error.
+# The 8.7 table: echo (also a quadrant or lever named in the explanation) -> template; numbers,
+# banned terms, terms or decisions in words, language and length -> regenerate, then template;
+# the legal clause and any mismatch between case and decision -> blocking error.
 ACTIONS: dict[Code, Action] = {
     Code.SCHEMA: Action.REGENERATE,
     Code.CASE_INVALID: Action.BLOCK,
@@ -92,6 +102,7 @@ ACTIONS: dict[Code, Action] = {
     Code.LITERAL_NUMBER: Action.REGENERATE,
     Code.LITERAL_UNIT: Action.REGENERATE,
     Code.LEGAL_WORDING: Action.REGENERATE,
+    Code.TERMS_WORDING: Action.REGENERATE,
     Code.PLACEHOLDER_SYNTAX: Action.REGENERATE,
     Code.PLACEHOLDER_UNAVAILABLE: Action.REGENERATE,
     Code.TERMS_MISSING: Action.REGENERATE,
@@ -206,14 +217,119 @@ def check_case(case: Mapping[str, Any], expected: ExpectedDecision) -> list[Vali
     return []
 
 
-def _identifiers(case: Mapping[str, Any]) -> list[str]:
-    """Identifiers a statement may name; they are removed before grounding, never allowed."""
-    ids = [str(case["case_id"]), *_QUADRANT_LABELS]
+def _entity_ids(case: Mapping[str, Any]) -> list[str]:
+    """The case and cluster ids: removed before quadrants are read ("RET-Q1" is not Q1)."""
+    ids = [str(case["case_id"])]
     cluster = case.get("cluster")
     if isinstance(cluster, Mapping):
         ids.append(str(cluster["id"]))
+    return ids
+
+
+def _identifiers(case: Mapping[str, Any], expected: ExpectedDecision) -> list[str]:
+    """Identifiers a statement may name; they are removed before grounding, never allowed. Only
+    the engine's quadrant is one: any other quadrant is a decision echo mismatch."""
+    ids = _entity_ids(case)
+    if expected.quadrant is not None:
+        ids.append(expected.quadrant)
     ids.extend(str(fact["metric"]) for fact in case["facts"])
     return ids
+
+
+# ---- Levers named in the operator explanation (adversarial review of 13 Oct, finding 3) -------
+
+# Lever names: the catalogue id as words ("instant refund") and a few aliases. A name followed by
+# a value ("instant_refund:false", "instant refund is off", "return window of 30 days") or
+# preceded by a negation ("no instant refund") is a claim about the decision.
+_LEVER_ALIASES: dict[str, tuple[str, ...]] = {
+    "return_window_days": ("return window",),
+    "free_return_shipping": ("return shipping",),
+    "instant_refund": ("instant refunds",),
+    "free_size_exchange": ("size exchange", "size exchanges"),
+    "coupons_enabled": ("coupons", "coupon", "discount codes", "discount code"),
+    "priority_size_exchange": ("priority exchange",),
+}
+_LEVER_NAMES: tuple[tuple[tuple[str, ...], str], ...] = tuple(
+    sorted(
+        (
+            (tuple(name.split()), lever.id)
+            for lever in LEVERS
+            for name in (lever.id.replace("_", " "), *_LEVER_ALIASES.get(lever.id, ()))
+        ),
+        key=lambda item: -len(item[0]),
+    )
+)
+_INTEGER_LEVERS = frozenset(lever.id for lever in LEVERS if lever.value_type == "integer")
+_TRUE_WORDS = word_set("true yes on enabled enable active available allowed granted kept")
+_FALSE_WORDS = word_set(
+    "false no not off disabled disable inactive unavailable removed blocked withdrawn revoked "
+    "denied suspended"
+)
+_TRUE_BEFORE = word_set("enabled granted")
+_FALSE_BEFORE = word_set("no without disabled removed revoked blocked withdrawn")
+_FILLERS = word_set(
+    "is are was were be been set to now still at of the a an equal equals changed turned stay "
+    "stays remain remains lever levers code codes"
+)
+_FILLER_MARKS = frozenset(":=>→⇒")
+_LEVER_TOKEN_RE = re.compile(r"[a-z]+|[0-9]+|[^\sa-z0-9]")
+
+
+def _lever_tokens(text: str) -> list[str]:
+    folded = "".join(" " if ch == "_" or is_dash(ch) else ch for ch in fold(text, " "))
+    return _LEVER_TOKEN_RE.findall(folded)
+
+
+def _value_after(tokens: Sequence[str], start: int, lever_id: str) -> int | bool | None:
+    index = start
+    while index < len(tokens) and (tokens[index] in _FILLERS or tokens[index] in _FILLER_MARKS):
+        index += 1
+    token = tokens[index] if index < len(tokens) else ""
+    if lever_id in _INTEGER_LEVERS:
+        return int(token) if token.isdigit() else None
+    if token in _TRUE_WORDS:
+        return True
+    return False if token in _FALSE_WORDS else None
+
+
+def _value_before(tokens: Sequence[str], start: int, lever_id: str) -> bool | None:
+    token = tokens[start - 1] if start > 0 else ""
+    if lever_id in _INTEGER_LEVERS:
+        return None
+    if token in _TRUE_BEFORE:
+        return True
+    return False if token in _FALSE_BEFORE else None
+
+
+def lever_claims(text: str) -> list[str]:
+    """Lever values a text states, as "id:value" strings, for example "instant_refund:false".
+    A name whose id ends in "enabled" or "disabled" states the value true by itself."""
+    tokens = _lever_tokens(text)
+    claims: list[str] = []
+    index = 0
+    while index < len(tokens):
+        found = next(
+            (
+                (name, lever_id)
+                for name, lever_id in _LEVER_NAMES
+                if tuple(tokens[index : index + len(name)]) == name
+            ),
+            None,
+        )
+        if found is None:
+            index += 1
+            continue
+        name, lever_id = found
+        value = _value_after(tokens, index + len(name), lever_id)
+        if value is None:
+            value = _value_before(tokens, index, lever_id)
+        if value is None and name[-1] in ("enabled", "disabled"):
+            value = True
+        if value is not None:
+            text_value = str(value).lower() if isinstance(value, bool) else str(value)
+            claims.append(f"{lever_id}:{text_value}")
+        index += len(name)
+    return claims
 
 
 # ---- Checks ----------------------------------------------------------------------------------
@@ -229,11 +345,28 @@ def _check_echo(echo: DecisionEcho, expected: ExpectedDecision) -> list[Validati
     return []
 
 
+def _check_mentions(
+    where: str, text: str, entity_ids: Sequence[str], expected: ExpectedDecision
+) -> list[ValidationIssue]:
+    """A quadrant or a lever value named in a statement must be the engine's."""
+    named = strip_tokens(text, entity_ids)
+    other = [label for label in quadrant_labels(named) if label != expected.quadrant]
+    other += [claim for claim in lever_claims(text) if claim not in expected.lever_ids]
+    if other:
+        return [_issue(Code.DECISION_ECHO, where, f"not the engine decision: {', '.join(other)}")]
+    return []
+
+
 def _check_statement(
-    index: int, statement: Statement, facts: Mapping[str, _Fact], identifiers: Sequence[str]
+    index: int,
+    statement: Statement,
+    facts: Mapping[str, _Fact],
+    identifiers: Sequence[str],
+    entity_ids: Sequence[str],
+    expected: ExpectedDecision,
 ) -> list[ValidationIssue]:
     where = f"operator_explanation[{index}]"
-    errors: list[ValidationIssue] = []
+    errors = _check_mentions(where, statement.text, entity_ids, expected)
     unknown = [fid for fid in statement.fact_ids if fid not in facts]
     if unknown:
         errors.append(_issue(Code.UNKNOWN_FACT, where, ", ".join(unknown)))
@@ -247,6 +380,7 @@ def _check_statement(
     ungrounded = [str(n) for n in numbers_in_text(text) if n not in allowed]
     ungrounded += other_numeric_characters(text)
     ungrounded += number_words(text, "en", skip=PRONOUN_NUMBERS)
+    ungrounded += number_modifiers(text)
     if ungrounded:
         errors.append(_issue(Code.UNGROUNDED_NUMBER, where, ", ".join(ungrounded)))
     banned = banned_terms(statement.text)
@@ -256,13 +390,14 @@ def _check_statement(
 
 
 def _check_explanation(
-    statements: Sequence[Statement], case: Mapping[str, Any]
+    statements: Sequence[Statement], case: Mapping[str, Any], expected: ExpectedDecision
 ) -> list[ValidationIssue]:
     facts = _facts(case)
-    identifiers = _identifiers(case)
+    identifiers = _identifiers(case, expected)
+    entity_ids = _entity_ids(case)
     errors: list[ValidationIssue] = []
     for index, statement in enumerate(statements):
-        errors.extend(_check_statement(index, statement, facts, identifiers))
+        errors.extend(_check_statement(index, statement, facts, identifiers, entity_ids, expected))
     if language_of(" ".join(s.text for s in statements)) == "it":
         errors.append(_issue(Code.WRONG_LANGUAGE, "operator_explanation", "English expected"))
     return errors
@@ -279,6 +414,7 @@ def _check_customer(text: str, lang: Lang, expected: ExpectedDecision) -> list[V
         (Code.LITERAL_NUMBER, literal_numbers(body, lang)),
         (Code.LITERAL_UNIT, literal_units(body)),
         (Code.LEGAL_WORDING, legal_wording(body)),
+        (Code.TERMS_WORDING, terms_wording(body)),
         (Code.BANNED_TERM, banned_terms(body)),
     )
     errors.extend(_issue(code, where, ", ".join(found)) for code, found in checks if found)
@@ -304,7 +440,7 @@ def validate(
         return ValidationResult((_issue(Code.SCHEMA, "output", type(exc).__name__),), None)
 
     errors = _check_echo(out.decision_echo, expected)
-    errors += _check_explanation(out.operator_explanation, case)
+    errors += _check_explanation(out.operator_explanation, case, expected)
     messages = {"it": out.customer_message.it, "en": out.customer_message.en}
     for lang in LANGS:
         errors += _check_customer(messages[lang], lang, expected)
@@ -321,5 +457,6 @@ __all__ = [
     "ValidationIssue",
     "ValidationResult",
     "check_case",
+    "lever_claims",
     "validate",
 ]

@@ -129,9 +129,32 @@ and the LEG-06 test compares the code with it.
   when infra changes next.
 - The CI coverage gate should include the safety-critical LLM modules: `llm/text.py`,
   `llm/messages.py`, `llm/legal_clause.py`, `llm/decision.py` and `llm/templates.py`.
+- After the adversarial review of 13 Oct, the validator is stricter (all in `llm/`, with
+  regression tests):
+  - a new code TERMS_WORDING (regenerate) rejects customer messages that state terms or the
+    decision in words: lever words (free, instant, shipping, coupons, exchange, window...), who
+    pays, full or partial refund, and decision verbs (approve, reject, block, investigate...);
+  - an operator statement that names a quadrant or a lever value other than the engine's is a
+    DECISION_ECHO (template). Only the engine's quadrant is stripped as an identifier;
+  - number words also cover ordinals, zero, fractions, multiples and numbers glued to a unit;
+    month, weekday and relative-day names and times of day outside greetings are units. Format
+    characters are read both as removed and as spaces, and any dash joins a word;
+  - "same person" also covers its synonyms: same, one or single with customer, user, owner and
+    similar nouns, in English and Italian;
+  - any dash or minus right before a digit is a sign. A scale suffix ("42.1k"), a percent sign
+    or a sign word ("minus", "a loss of") next to a number makes it ungrounded;
+  - `check_local_url` allows only 127.0.0.0/8, ::1, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
+    and fc00::/7, after unwrapping IPv4-mapped addresses;
+  - the agent refuses more write requests (turn off, Italian plural imperatives, participles
+    such as "wants coupons disabled"). It falls back when an answer has a decision verb, advice,
+    a same-person synonym or a number word. An integer in an answer must equal a tool value.
 - Known limits:
-  - the banned-term and number-word checks are blocklists;
+  - the banned-term, terms, number-word and lever-name checks are blocklists;
   - Roman numerals written with ASCII letters are not detected;
-  - "sei", "day" and "giornata" are left out on purpose (a verb and greetings);
+  - "sei" and "may" are left out on purpose (a verb and a modal). "day", "giornata" and
+    "weekend" are allowed only after a greeting adjective ("buona giornata");
   - "uno" and "one" are rejected in customer messages and cause regenerations when used as
-    articles or pronouns.
+    articles or pronouns; so do "secondo" (also "according to"), "double", "half" and "quarter"
+    in product names, and "first" and "second" in operator statements;
+  - "un cliente" and "una persona" count as "same person" only in a sentence about accounts;
+  - a sign given by other words ("the margin is below what it was") is not detected.

@@ -14,10 +14,15 @@ the message in Italian and in English:
   text check of llm/text.py on each sentence, in both languages (`phrase_problems`).
 - The mandatory body is built by code from the engine decision and is never chosen by the
   model: the return registration with {deadline} (and {amount} when known), the {terms}
-  sentence when the terms of future orders change, the unchanged-terms sentence for
-  insufficient evidence, the transparency notice (Q3, Q4) and the guarantee registration.
+  sentence when the terms of future orders change, the standard-terms sentence for
+  insufficient evidence, the transparency notice (Q3, Q4) and the guarantee registration. The
+  notice always refers to future orders: after the {terms} sentence it says "these terms",
+  otherwise it names the next orders, so it never reads as if the current refund depended on
+  past returns (rule 3; round 3, finding T1).
 - `selection_problems` lists why a selection is refused: an unknown or repeated id, an id in the
-  wrong slot, or an id not allowed for the decision. The validator reports them as SENTENCE_ID.
+  wrong slot, an id not allowed for the decision, two sentences that ask for a reply, or a
+  "thanks again" closing without a thanks opening (round 3, finding T4). The validator reports
+  them as SENTENCE_ID.
 - `render_selection` composes the message and fills it through llm/messages.render, which
   appends the legal clause the decision requires and checks it.
 """
@@ -35,7 +40,7 @@ from llm.messages import MessageError, render, strip_placeholders
 from llm.text import (
     Lang,
     banned_terms,
-    foreign_letters,
+    foreign_characters,
     language_of,
     legal_wording,
     literal_numbers,
@@ -64,6 +69,8 @@ class Sentence:
     kinds: frozenset[str] = ALL_KINDS
     unless_levers: frozenset[str] = frozenset()  # lever ids that rule the sentence out
     needs: frozenset[str] = frozenset()  # placeholders the decision must have
+    group: str = ""  # at most one sentence of a group in a selection
+    after: frozenset[str] = frozenset()  # one of these ids must come before the sentence
 
     def text(self, lang: Lang) -> str:
         return self.it if lang == "it" else self.en
@@ -78,8 +85,24 @@ def _sentence(
     *,
     unless: str = "",
     needs: str = "",
+    group: str = "",
+    after: str = "",
 ) -> Sentence:
-    return Sentence(id, slot, it, en, kinds, frozenset(unless.split()), frozenset(needs.split()))
+    return Sentence(
+        id,
+        slot,
+        it,
+        en,
+        kinds,
+        frozenset(unless.split()),
+        frozenset(needs.split()),
+        group,
+        frozenset(after.split()),
+    )
+
+
+REPLY = "reply"  # the group of the sentences that ask the customer to reply
+THANKS_OPENINGS = "OPEN_THANKS OPEN_MESSAGE OPEN_CHOICE"
 
 
 SENTENCES: tuple[Sentence, ...] = (
@@ -125,6 +148,7 @@ SENTENCES: tuple[Sentence, ...] = (
         "If you need a different size, just reply to this message.",
         WITHDRAWAL_KINDS,
         unless="free_size_exchange:false",
+        group=REPLY,
     ),
     _sentence(
         "HELP_ADVICE",
@@ -139,6 +163,7 @@ SENTENCES: tuple[Sentence, ...] = (
         "extra",
         "Per qualsiasi domanda, rispondi pure a questo messaggio.",
         "For any questions, just reply to this message.",
+        group=REPLY,
     ),
     _sentence(
         "CONTACT_TEAM",
@@ -153,6 +178,7 @@ SENTENCES: tuple[Sentence, ...] = (
         "Questions about these terms? Just reply to this message.",
         WITHDRAWAL_KINDS,
         needs="terms",
+        group=REPLY,
     ),
     _sentence(
         "GUARANTEE_CARE",
@@ -167,6 +193,7 @@ SENTENCES: tuple[Sentence, ...] = (
         "Se puoi, rispondi con una foto del problema: ci aiuta a seguirti meglio.",
         "If you can, reply with a photo of the problem: it helps us assist you.",
         GUARANTEE_KINDS,
+        group=REPLY,
     ),
     _sentence(
         "THANKS_FEEDBACK",
@@ -191,6 +218,7 @@ SENTENCES: tuple[Sentence, ...] = (
         "closing",
         "Grazie ancora e buona giornata.",
         "Thanks again, and have a nice day.",
+        after=THANKS_OPENINGS,
     ),
     _sentence("CLOSE_SOON", "closing", "A presto!", "See you soon!", WITHDRAWAL_KINDS),
     _sentence(
@@ -206,14 +234,18 @@ SENTENCE_IDS: tuple[str, ...] = tuple(PHRASEBOOK)
 
 # ---- The mandatory body, written by code from the engine decision ------------------------------
 
+# The deadline is a limit in both languages: "al più tardi per il", "by" (round 3, finding T2).
 _REGISTERED: dict[Lang, str] = {
-    "it": "Abbiamo registrato la tua richiesta di reso e il rimborso è previsto per il {deadline}.",
+    "it": (
+        "Abbiamo registrato la tua richiesta di reso e il rimborso è previsto al più tardi per il "
+        "{deadline}."
+    ),
     "en": "We have registered your return request and your refund is due by {deadline}.",
 }
 _REGISTERED_AMOUNT: dict[Lang, str] = {
     "it": (
-        "Abbiamo registrato la tua richiesta di reso e il rimborso di {amount} è previsto per il "
-        "{deadline}."
+        "Abbiamo registrato la tua richiesta di reso e il rimborso di {amount} è previsto al più "
+        "tardi per il {deadline}."
     ),
     "en": (
         "We have registered your return request and your refund of {amount} is due by {deadline}."
@@ -240,15 +272,30 @@ _TERMS: dict[str, dict[Lang, str]] = {
         "en": "For your next orders the return terms are these: {terms}.",
     },
 }
-# US-307: insufficient evidence means standard terms, neither safe nor suspicious.
-_UNCHANGED: dict[Lang, str] = {
-    "it": "Le condizioni di reso dei tuoi ordini restano quelle di sempre.",
-    "en": "The return terms of your orders stay the same as always.",
+# US-307: insufficient evidence means standard terms, neither safe nor suspicious. The message
+# states the engine decision, not a comparison with the order's snapshot that code does not make
+# (round 3, finding T3).
+_STANDARD: dict[Lang, str] = {
+    "it": "I tuoi prossimi ordini mantengono le nostre condizioni di reso standard.",
+    "en": "Your next orders keep our standard return terms.",
 }
-# The transparency notice of spec 8.6 (Q3, Q4): neutral, never a judgement.
-_NOTICE: dict[Lang, str] = {
+# The transparency notice of spec 8.6 (Q3, Q4): neutral, never a judgement, and about future
+# orders only. Right after the {terms} sentence, "these terms" are the terms of the next orders;
+# alone (the base already lacks what Q3 or Q4 would withdraw) it names the next orders, so it
+# never reads as if the current refund depended on past returns (rule 3; round 3, finding T1).
+_NOTICE_AFTER_TERMS: dict[Lang, str] = {
     "it": "Queste condizioni tengono conto dei resi dei tuoi ordini precedenti.",
     "en": "These terms take into account the returns on your previous orders.",
+}
+_NOTICE: dict[Lang, str] = {
+    "it": (
+        "Le condizioni di reso dei tuoi prossimi ordini tengono conto dei resi dei tuoi ordini "
+        "precedenti."
+    ),
+    "en": (
+        "The return terms of your next orders take into account the returns on your previous "
+        "orders."
+    ),
 }
 
 
@@ -318,7 +365,43 @@ def selection_problems(ids: Sequence[str], ctx: MessageContext) -> list[str]:
             problems.append(f"{sentence_id}: a {sentence.slot}, used as the {slot}")
         if not allowed(sentence, ctx):
             problems.append(f"{sentence_id}: not allowed for this decision")
+        problems += _coherence_problems(sentence, ids[:index])
     return problems
+
+
+def _coherence_problems(sentence: Sentence, before: Sequence[str]) -> list[str]:
+    """At most one sentence of a group (one request to reply), and a sentence that needs another
+    one before it ("Thanks again" after a thanks opening): round 3, finding T4."""
+    problems: list[str] = []
+    if sentence.group:
+        same = [
+            i
+            for i in before
+            if i != sentence.id and i in PHRASEBOOK and PHRASEBOOK[i].group == sentence.group
+        ]
+        if same:
+            problems.append(
+                f"{sentence.id}: one {sentence.group} sentence only, {same[0]} is there"
+            )
+    if sentence.after and not sentence.after & set(before):
+        problems.append(f"{sentence.id}: needs {' or '.join(sorted(sentence.after))} before it")
+    return problems
+
+
+def selection_rules(ctx: MessageContext) -> list[str]:
+    """The coherence rules of `selection_problems` for the sentences allowed in a context, in
+    words, for the prompt."""
+    ids = [s.id for s in allowed_sentences(ctx)]
+    rules: list[str] = []
+    for group in sorted({PHRASEBOOK[i].group for i in ids} - {""}):
+        members = [i for i in ids if PHRASEBOOK[i].group == group]
+        if len(members) > 1:
+            rules.append(f"At most one of {', '.join(members)}.")
+    for sentence_id in ids:
+        after = [i for i in ids if i in PHRASEBOOK[sentence_id].after]
+        if PHRASEBOOK[sentence_id].after:
+            rules.append(f"{sentence_id} only after {' or '.join(after)}.")
+    return rules
 
 
 def mandatory_body(ctx: MessageContext, lang: Lang) -> list[str]:
@@ -332,9 +415,10 @@ def mandatory_body(ctx: MessageContext, lang: Lang) -> list[str]:
         style = "restrictive" if ctx.requires_terms else "Q1" if ctx.kind == "Q1" else "other"
         body.append(_TERMS[style][lang])
     elif ctx.kind == "insufficient":
-        body.append(_UNCHANGED[lang])
+        body.append(_STANDARD[lang])
     if "transparency_notice:true" in ctx.lever_ids:
-        body.append(_NOTICE[lang])
+        notice = _NOTICE_AFTER_TERMS if "terms" in ctx.placeholders else _NOTICE
+        body.append(notice[lang])
     return body
 
 
@@ -366,7 +450,7 @@ def render_selection(
 
 def phrase_problems(text: str, lang: Lang) -> list[tuple[str, str]]:
     """The checks a customer text must pass, as (check, found) pairs: no number or unit, no legal,
-    terms or decision wording, no banned term, no letter of another script, not the other
+    terms or decision wording, no banned term, no character outside the allowlist, not the other
     language. Placeholders are removed first. Run by the tests on every phrasebook sentence,
     every body sentence and every pair of parts that can stand side by side in a message."""
     body = strip_placeholders(text)
@@ -376,7 +460,7 @@ def phrase_problems(text: str, lang: Lang) -> list[tuple[str, str]]:
         ("LEGAL_WORDING", legal_wording(body)),
         ("TERMS_WORDING", terms_wording(body)),
         ("BANNED_TERM", banned_terms(body)),
-        ("SCRIPT", foreign_letters(body)),
+        ("SCRIPT", foreign_characters(body)),
     )
     problems = [(check, ", ".join(found)) for check, found in checks if found]
     detected = language_of(body)

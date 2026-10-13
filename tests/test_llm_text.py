@@ -1,7 +1,9 @@
 """Lexical checks of llm/text.py: parametrized probes for review findings LLM-1, LLM-5, LLM-6, the
 language check of LLM-10 (docs/spec.md 8.7 and 16) and the adversarial review of 13 Oct (findings
 1, 2, 4 and 5: terms and decisions in words, numbers in letters, same-person synonyms, signs; round
-2, findings R2 to R7: quadrant descriptions, ownership, the script allowlist, glued numbers)."""
+2, findings R2 to R7: quadrant descriptions, ownership, the script allowlist, glued numbers; round
+3, findings T6, T7 and T9 to T11: ownership and agency, operator topics, the character allowlist,
+numbers in other forms, the context of a grounded number)."""
 
 from __future__ import annotations
 
@@ -17,7 +19,8 @@ from llm.text import (
     banned_terms,
     decision_wording,
     fold,
-    foreign_letters,
+    foreign_characters,
+    grounding_problems,
     language_of,
     legal_wording,
     literal_numbers,
@@ -26,14 +29,17 @@ from llm.text import (
     number_word,
     number_words,
     numbers_in_text,
+    operator_topics,
     other_numeric_characters,
     parse_number,
-    quadrant_axes,
     quadrant_labels,
+    quadrant_levels,
     quadrant_positions,
-    restriction_words,
+    roman_numerals,
+    sign_words,
     strip_tokens,
     terms_wording,
+    unit_kind,
     word_count,
     word_set,
     words,
@@ -138,6 +144,20 @@ def test_same_person_phrases_are_found(text: str) -> None:
         "Una persona gestisce questi profili.",
         "One entity controls these accounts.",
         "It is the same guy behind every account.",
+        # Round 3, finding T6: ownership and agency, without "all"
+        "The customer runs the linked accounts.",
+        "The linked accounts are run by the customer.",
+        "The linked accounts trace back to the customer.",
+        "The customer's linked accounts share a device.",
+        "The linked accounts of the customer share a device.",
+        "The linked accounts belong to them.",
+        "The customer opened the linked accounts.",
+        "Someone is behind the linked accounts.",
+        "The linked accounts share a customer.",
+        "Gli account collegati condividono un titolare.",
+        "Gli account collegati appartengono al cliente.",
+        "Gli account collegati sono intestati al cliente.",
+        "Gli account collegati sono stati creati da una persona.",
     ],
 )
 def test_same_person_synonyms_are_found(text: str) -> None:
@@ -180,6 +200,14 @@ def test_same_person_synonyms_are_found(text: str) -> None:
         "Gli account collegati sono tutti nel cluster R-MARCO.",
         "Unlike the Rossi family, the linked accounts share a card.",
         "A common card is shared by the linked accounts.",
+        # Round 3, finding T6: plain statements about the linked accounts
+        "The linked accounts were created within 9 days.",
+        "Seven linked accounts created in a short span share a card.",
+        "The linked accounts belong to the same cluster.",
+        "The linked accounts belong to different clusters.",
+        "The customer's account is linked to six other accounts.",
+        "An operator disputed one of the links between the linked accounts.",
+        "The linked accounts are open.",
     ],
 )
 def test_innocent_words_are_not_banned(text: str) -> None:
@@ -254,6 +282,31 @@ def test_innocent_words_are_not_banned(text: str) -> None:
         ("seigiorni", "it"),
         ("twentyish", "en"),
         ("quindicinale", "it"),
+        # Round 3, finding T10: -fold, -ish, -s, multiplicatives, quantity words, other languages
+        ("sevenfold", "en"),
+        ("tenfold", "en"),
+        ("twelvish", "en"),
+        ("fiveish", "en"),
+        ("sevens", "en"),
+        ("quadrupled", "en"),
+        ("halved", "en"),
+        ("septuple", "en"),
+        ("doubled", "en"),
+        ("couple", "en"),
+        ("pair", "en"),
+        ("handful", "en"),
+        ("trio", "en"),
+        ("grand", "en"),
+        ("quid", "en"),
+        ("bucks", "en"),
+        ("tres", "en"),
+        ("drei", "en"),
+        ("cinq", "en"),
+        ("sieben", "en"),
+        ("sept", "en"),
+        ("siete", "en"),
+        ("douze", "it"),
+        ("zwölf", "en"),
     ],
 )
 def test_number_words_are_literal_numbers(word: str, lang: str) -> None:
@@ -314,6 +367,9 @@ def test_finding2_numbers_dates_and_units_in_letters_are_found(text: str, lang: 
         # round 2, finding R6: words that start with a short cardinal
         ("customers tend to reply, trench coat, treccia", "en"),
         ("ti tremo, ottone, tenda", "it"),
+        # round 3, finding T10: pronouns and words that end like a glued number
+        ("the ones that share a card, membership dues, tennis, manifold", "en"),
+        ("voi siete i benvenuti, once a week", "it"),
     ],
 )
 def test_words_that_are_not_numbers(text: str, lang: str) -> None:
@@ -323,6 +379,22 @@ def test_words_that_are_not_numbers(text: str, lang: str) -> None:
 def test_due_is_a_number_in_italian_only() -> None:
     assert number_word("due", "it")
     assert not number_word("due", "en")
+    assert number_word("siete", "en") and not number_word("siete", "it")  # "you are"
+
+
+@pytest.mark.parametrize(
+    "text, found",
+    [
+        ("Returns: VII.", ["VII"]),
+        ("Margin: XLII EUR, XIV days, II and MMXXVI", ["XLII", "XIV", "II", "MMXXVI"]),
+        ("Size XL was returned; I think so; V and X alone", []),  # a size, a pronoun, one letter
+        ("The case is in QIV, Q-IV or Q IV.", []),  # quadrant labels
+        ("IIII, VX, IIV, XM, vii", []),  # not canonical, or lower case
+        ("Ⅻ is not ASCII", ["XII"]),  # NFKC: also a numeric character
+    ],
+)
+def test_roman_numerals(text: str, found: list[str]) -> None:
+    assert roman_numerals(text) == found
 
 
 @pytest.mark.parametrize("text", ["14", "١٤", "½", "Ⅻ", "²", "①", "四", "۳"])
@@ -701,6 +773,11 @@ def test_decision_wording(text: str, found: bool) -> None:
         ("The case is in QIV.", ["Q4"]),
         ("q-iii and Q II", ["Q3", "Q2"]),
         ("FAQ I, qiv8 and quinto", []),
+        # round 3, finding T7: a number word after Q
+        ("The case sits in Q-one.", ["Q1"]),
+        ("q quattro, Q_two", ["Q4", "Q2"]),
+        ("FAQ one, a quadrant", []),
+        ("qone", ["Q1"]),
     ],
 )
 def test_quadrant_labels(text: str, labels: list[str]) -> None:
@@ -712,22 +789,40 @@ def test_number_words_skip_and_forms() -> None:
     assert number_words("quattor-dici e quattor‑dici", "it") == ["quattordici"]
 
 
-# ---- Quadrant descriptions and restrictions (round 2, finding R2) ------------------------------
+# ---- Quadrant levels and operator topics (round 2, finding R2; round 3, T7 and T8) ----------
 
 
 @pytest.mark.parametrize(
-    "text, axes",
+    "text, levels",
     [
-        ("the high-risk, low-value quadrant", ["risk:high", "value:low"]),
-        ("Value is high and risk is low.", ["value:high", "risk:low"]),
-        ("rischio alto, valore basso", ["risk:high", "value:low"]),
-        ("un cliente di alto valore e basso rischio", ["value:high", "risk:low"]),
+        ("the high-risk, low-value quadrant", [("axis", "risk", "?"), ("axis", "value", "?")]),
+        ("Value is high and risk is low.", [("axis", "value", "high"), ("axis", "risk", "low")]),
+        ("rischio alto, valore basso", [("axis", "risk", "?"), ("axis", "value", "?")]),
+        ("Risk level is low.", [("axis", "risk", "low")]),
+        ("Il rischio è molto basso.", [("axis", "risk", "low")]),
+        ("Risk is below the threshold.", [("axis", "risk", "low")]),
+        ("Value sopra la soglia.", [("axis", "value", "high")]),
+        ("The risk is near the threshold.", [("axis", "risk", "?")]),
+        ("The customer is risky.", [("axis", "risk", "high")]),
+        ("Risk is above average.", [("axis", "risk", "high")]),
+        (
+            "The risk is significant; the value is negligible.",
+            [("axis", "risk", "high"), ("axis", "value", "low")],
+        ),
+        ("The value is negligible.", [("axis", "value", "low")]),
+        ("The risk score is high (0.87).", [("score", "risk", "high")]),
+        ("Il punteggio di rischio è basso.", [("score", "risk", "low")]),
+        ("This is a high-value order.", []),
+        ("The risk score value is high.", [("score", "risk", "high")]),
+        ("The returned order has a low value.", []),
+        ("The risk of damage is low.", []),
         ("Risk score 0.87 from the model.", []),
         ("the highest contribution to the score", []),
+        ("Customer net margin is low.", []),
     ],
 )
-def test_quadrant_axes(text: str, axes: list[str]) -> None:
-    assert quadrant_axes(text) == axes
+def test_quadrant_levels(text: str, levels: list[tuple[str, str, str]]) -> None:
+    assert quadrant_levels(text) == levels
 
 
 def test_quadrant_positions() -> None:
@@ -741,31 +836,56 @@ def test_quadrant_positions() -> None:
 @pytest.mark.parametrize(
     "text, found",
     [
-        ("Restrictive levers apply.", ["restrictive"]),
-        ("The account is restricted; restrizioni attive.", ["restricted", "restrizioni"]),
-        ("No restrictive levers.", []),
-        ("Without a risk score or restrictive levers.", []),
-        ("Restrictions do not apply.", []),
-        ("The terms are standard, restrictive levers apply.", ["restrictive"]),
+        ("Restrictive levers apply.", ["restrict", "lever"]),
+        ("No restrictive levers.", ["restrict", "lever"]),
+        ("There is no restriction on instant refund.", ["restrict", "instant", "refund"]),
+        ("Promo codes are enabled.", ["promo"]),
+        ("Stricter return terms apply.", ["strict", "terms"]),
+        ("Si applicano limitazioni ai prossimi ordini.", ["limitazion"]),
+        ("The customer loses instant refund.", ["loses", "instant", "refund"]),
+        ("Instant refund is withheld.", ["instant", "refund", "withh"]),
+        ("Return shipping is charged.", ["ship", "charged"]),
+        ("The merchant policy applies.", ["policy"]),
+        ("Size advice is on.", ["size advice"]),
+        ("Customers get their money back at once.", ["money back"]),
+        (
+            "Postage is prepaid; perks and privileges stay.",
+            ["postage", "prepaid", "perk", "privileg"],
+        ),
+        ("The customer is repaid with store credit.", ["repaid", "store credit"]),
+        ("The return is approved.", ["approv"]),
+        ("Risk level: high.", ["risk high"]),
+        ("The top left quadrant.", ["top left"]),
+        # observed data and plain words
+        ("7 linked accounts each used the welcome coupon.", []),
+        ("Welcome coupons per account: 1.", []),
+        ("The customer's free text mentions the fit, in terms of size.", []),
+        ("Accounts were created in rapid succession.", []),
+        ("Evidence is limited: fewer orders than needed.", []),
+        ("Customer net margin is negative.", []),
+        ("The risk score is high.", []),  # a level of the score: checked against the engine
     ],
 )
-def test_restriction_words(text: str, found: list[str]) -> None:
-    assert restriction_words(text) == found
+def test_operator_topics(text: str, found: list[str]) -> None:
+    assert operator_topics(text) == found
 
 
-# ---- Script allowlist (round 2, finding R5) ----------------------------------------------------
+# ---- Character allowlist (round 2, finding R5; round 3, finding T9) ---------------------------
 
-_ALLOWED_NAME = re.compile(r"LATIN (?:SMALL|CAPITAL) LETTER (?:[A-Z]|[AEIOU] WITH (?:GRAVE|ACUTE))")
+_ALLOWED_NAME = re.compile(
+    r"LATIN (?:SMALL|CAPITAL) LETTER [AEIOU] WITH (?:GRAVE|ACUTE)|(?:LEFT|RIGHT) (?:SINGLE|DOUBLE) "
+    r"QUOTATION MARK|EN DASH|EM DASH|HORIZONTAL ELLIPSIS|EURO SIGN|NO-BREAK SPACE"
+)
 
 
 def _oracle(text: str) -> set[str]:
-    """Independent reading by Unicode name: after NFKC, a letter is allowed only if it is a Latin
-    letter A to Z or a vowel with a grave or acute accent; a combining mark is never allowed."""
+    """Independent reading by code point and Unicode name, on the raw text: printable ASCII, tab
+    and line breaks, the Italian accented vowels and the typographic characters are allowed."""
     return {
         ch
-        for ch in unicodedata.normalize("NFKC", text)
-        if (ch.isalpha() and not _ALLOWED_NAME.fullmatch(unicodedata.name(ch, "")))
-        or unicodedata.category(ch).startswith("M")
+        for ch in text
+        if not (0x20 <= ord(ch) <= 0x7E or ch in "\t\n\r")
+        and not _ALLOWED_NAME.fullmatch(unicodedata.name(ch, ""))
     }
 
 
@@ -775,6 +895,7 @@ def _block(first: int, last: int) -> list[str]:
 
 MIXED_SCRIPTS = (
     list("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ àèéìíòóùúÀÈÉÌÒÙ .,;:-'")
+    + list("’‘“”–—…€\u00a0°∀∧○●◯⊙⒡⒜🅵🅕🇫🇷×±−➖")
     + _block(0x0100, 0x024F)  # Latin Extended-A and B
     + _block(0x0250, 0x02FF)  # IPA, modifier letters
     + _block(0x0300, 0x036F)  # combining marks
@@ -784,31 +905,35 @@ MIXED_SCRIPTS = (
     + _block(0x13A0, 0x13F4)  # Cherokee
     + _block(0x1D00, 0x1D7F)  # phonetic extensions, small capitals
     + _block(0x2100, 0x214F)  # letterlike symbols
+    + _block(0x2460, 0x24FF)  # enclosed alphanumerics
+    + _block(0x25A0, 0x25FF)  # geometric shapes
     + _block(0xFF21, 0xFF5A)  # full width
     + _block(0x1D400, 0x1D4FF)  # mathematical alphanumerics
+    + _block(0x1F130, 0x1F189)  # enclosed and squared Latin letters
+    + _block(0x1F1E6, 0x1F1FF)  # regional indicators
 )
 FOREIGN_LETTERS = [ch for ch in MIXED_SCRIPTS if ch.isalpha() and _oracle(ch)]
+FOREIGN_CHARACTERS = [ch for ch in MIXED_SCRIPTS if _oracle(ch)]
 
 
 @settings(max_examples=500, deadline=None)
 @given(st.text(alphabet=st.sampled_from(MIXED_SCRIPTS), max_size=40))
-def test_r5_foreign_letters_agree_with_the_unicode_names(text: str) -> None:
-    assert set(foreign_letters(text)) == _oracle(text)
+def test_foreign_characters_agree_with_the_unicode_names(text: str) -> None:
+    assert set(foreign_characters(text)) == _oracle(text)
 
 
 @settings(max_examples=500, deadline=None)
 @given(
     word=st.sampled_from(["fraud", "frode", "scam", "truffa", "abuse", "suspicious", "approved"]),
     index=st.integers(min_value=0, max_value=9),
-    letter=st.sampled_from(FOREIGN_LETTERS),
+    letter=st.sampled_from(FOREIGN_CHARACTERS),
 )
 def test_r5_a_disguised_word_never_passes_both_checks(word: str, index: int, letter: str) -> None:
-    """Any letter of another script swapped into a banned or decision word is caught: by the
-    script allowlist, or by the blocklists once folded."""
+    """Any character outside the allowlist swapped into a banned or decision word is caught: by
+    the allowlist, before any folding."""
     position = index % len(word)
     disguised = word[:position] + letter + word[position + 1 :]
-    text = f"This is {disguised}."
-    assert foreign_letters(text) or banned_terms(text) or decision_wording(text)
+    assert foreign_characters(f"This is {disguised}.") == [letter]
 
 
 @pytest.mark.parametrize(
@@ -819,13 +944,99 @@ def test_r5_a_disguised_word_never_passes_both_checks(word: str, index: int, let
         ("This is ғraud.", ["ғ"]),
         ("a scɑm, a fraʋd", ["ɑ", "ʋ"]),
         ("perché è così, città", []),
-        ("Ｆｕｌｌ ｗｉｄｔｈ and 𝐛𝐨𝐥𝐝 and ﬁne", []),  # NFKC folds them to a-z
-        ("frau\u0301d", []),  # composes to ú
-        ("x\u0301", ["\u0301"]),  # a mark that composes to nothing allowed
+        ("Ｆｕｌｌ and 𝐛𝐨𝐥𝐝 and ﬁne", ["Ｆ", "ｕ", "ｌ", "𝐛", "𝐨", "𝐥", "𝐝", "ﬁ"]),  # raw
+        ("frau\u0301d", ["\u0301"]),  # a combining mark is never allowed
         ("naïve", ["ï"]),
         ("İstanbul", ["İ"]),
-        ("€ 42.1, 7%", []),
+        ("€ 42.1, 7%, “quoted” – ‘single’ — … \u00a0", []),
+        # Round 3, finding T9: symbols that look like letters
+        ("This is 🅵🆁🅰🆄🅳.", ["🅵", "🆁", "🅰", "🆄", "🅳"]),
+        ("This is ⒡raud.", ["⒡"]),
+        ("They are the same pers°n, pers○n, sc∀m.", ["°", "○", "∀"]),
+        ("Margin: −42.1 or ±42.1", ["−", "±"]),
     ],
 )
-def test_r5_foreign_letters(text: str, found: list[str]) -> None:
-    assert foreign_letters(text) == found
+def test_foreign_characters(text: str, found: list[str]) -> None:
+    assert foreign_characters(text) == found
+
+
+# ---- The context of a grounded number (round 3, finding T11) ----------------------------------
+
+MARGIN = [("value_eur_12m", Decimal("42.1"))]
+
+
+def test_unit_kinds() -> None:
+    assert unit_kind("value_eur_12m") == "money"
+    assert unit_kind("days_since_delivery") == "days"
+    assert unit_kind("creation_spread_days") == "days"
+    assert unit_kind("cluster_size") == unit_kind("risk_score") == "count"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Customer net margin: 42.1 EUR.",
+        "Customer net margin: 42.1 euro over the period.",
+        "Customer net margin: 42.1.",
+        "Customer net margin 42.1 EUR, the lowest of the cluster.",
+        "Customer net margin — 42.1 EUR — is low.",
+        "Customer net margin - 42.1 EUR.",
+        "Customer net margin = 42.1 EUR",
+        "Customer net margin (42.1 EUR) is low.",
+        "Customer net margin: €42.1 and 42.1 €.",
+        "EUR 42.1 is the customer net margin.",
+        "42.1 EUR is the customer net margin.",
+    ],
+)
+def test_a_grounded_number_in_an_allowed_context(text: str) -> None:
+    assert grounding_problems(text, MARGIN) == []
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Customer net margin: 42.1 USD.",
+        "Customer net margin: 42.1 days.",
+        "Customer net margin: 42.1 linked accounts.",
+        "Customer net margin: 42.1k.",
+        "Customer net margin: 42.1%.",
+        "Customer net margin: 42.1 per cent.",
+        "Customer net margin: 42.1 EUR a month.",
+        "Customer net margin: 42.1 EUR monthly.",
+        "Customer net margin: about 42.1 EUR.",
+        "Customer net margin: over 42.1 EUR.",
+        "Customer net margin: ~42.1 EUR.",
+        "Customer net margin: (42.1).",
+        "Customer net margin: 42.1-.",
+        "Customer net margin: - 42.1 EUR.",
+        "Customer net margin: 42.1 EUR, a loss.",
+        "Customer net margin: 42.10 USD.",
+        "Customer net margin: 41.2 EUR.",
+    ],
+)
+def test_a_grounded_value_in_another_context_is_not_grounded(text: str) -> None:
+    assert grounding_problems(text, MARGIN)
+
+
+def test_counts_take_a_count_noun_and_no_rate() -> None:
+    size = [("cluster_size", Decimal(7))]
+    assert grounding_problems("7 linked accounts each used the welcome coupon.", size) == []
+    assert grounding_problems("Cluster of 7 linked accounts sharing a card.", size) == []
+    assert grounding_problems("7 linked accounts per day.", size)
+    assert grounding_problems("7 EUR.", size)
+    days = [("days_since_delivery", Decimal(6))]
+    assert grounding_problems("Returned 6 days after delivery.", days) == []
+    assert grounding_problems("Returned 6 weeks after delivery.", days)
+    assert grounding_problems("Returned 6 returns ago.", days)
+
+
+def test_a_sign_word_is_allowed_only_with_the_sign_of_a_negative_fact() -> None:
+    negative = [("value_eur_12m", Decimal("-42.1"))]
+    assert grounding_problems("Margin is negative: -42.1 EUR.", negative) == []
+    assert grounding_problems("Margin is negative: 42.1 EUR.", negative)
+    assert grounding_problems("Margin is negative: 42.1 EUR.", MARGIN) == ["negative"]
+    assert sign_words("losing money, written off, in passivo") == [
+        "losing",
+        "written off",
+        "passivo",
+    ]

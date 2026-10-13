@@ -1,6 +1,10 @@
 """The output validator (docs/spec.md 8.7, ADR-14): LLM-02 decision echo, LLM-03 number grounding,
 LLM-04 banned terms, LLM-06 language, and the customer-message rules of LLM-10 (review findings
-LLM-1, LLM-3 to LLM-6, LLM-9 and LLM-13, and the adversarial review of 13 Oct, rounds 1 and 2).
+LLM-1, LLM-3 to LLM-6, LLM-9 and LLM-13, and the adversarial review of 13 Oct, rounds 1 to 3).
+
+Since round 3 an operator statement does not talk about levers, terms or restrictions at all
+(TERMS_TOPIC, regenerate): only another quadrant, or another risk score level, is a decision echo
+mismatch (template).
 
 Since round 2 the model writes no customer prose: it picks phrasebook ids (llm/phrasebook.py). The
 customer-text probes below therefore check two things: the phrasebook gate (`phrase_problems`,
@@ -29,7 +33,6 @@ from llm.validator import (
     Code,
     ValidationResult,
     check_case,
-    lever_claims,
     validate,
 )
 from tests.llm_factories import SCENARIOS, Built, good_output, make
@@ -105,6 +108,7 @@ def test_every_code_has_the_action_of_the_8_7_table() -> None:
         Code.WRONG_LANGUAGE,
         Code.SCRIPT,
         Code.SENTENCE_ID,
+        Code.TERMS_TOPIC,
     }
     assert all(ACTIONS[c] is Action.REGENERATE for c in regenerate)
 
@@ -153,12 +157,11 @@ def test_echo_lever_order_does_not_matter() -> None:
     assert run(out).ok
 
 
-# Adversarial review of 13 Oct, finding 3: the explanation names another quadrant or lever.
+# Adversarial review of 13 Oct, finding 3: the explanation names another quadrant.
 def with_extra_statement(built: Built, text: str) -> dict[str, Any]:
-    """The template output plus one statement that cites the window fact when there is one."""
+    """The template output plus one statement."""
     out = template_output(built.case, built.expected)
-    window = [f["id"] for f in built.case["facts"] if f["metric"] == "return_window_days"]
-    out["operator_explanation"].append({"label": "OBSERVED", "fact_ids": window, "text": text})
+    out["operator_explanation"].append({"label": "OBSERVED", "fact_ids": [], "text": text})
     return out
 
 
@@ -169,32 +172,19 @@ def with_extra_statement(built: Built, text: str) -> dict[str, Any]:
         ("Q4_cluster", "The case sits in quadrant 2."),
         ("Q4_cluster", "In quadrant three the instant refund is not available."),
         ("Q1", "The case sits in the fourth quadrant."),
-        ("Q4_cluster", "The levers are instant_refund:true and coupons_enabled:true."),
-        ("Q4_cluster", "instant_refund is true for future orders."),
-        ("Q4_cluster", "The return window is 30 days."),
-        ("Q4_cluster", "return_window_days:30 applies to future orders."),
-        ("Q4_cluster", "Coupons stay enabled."),
-        ("Q4_cluster", "Instant refund remains available."),
-        ("Q4_cluster", "The return window of 7 days applies."),
-        ("Q4", "Cluster coupons disabled for the future orders."),
-        ("Q3", "No free return shipping for future orders."),
-        ("Q3", "free_return_shipping = false"),
         ("Q1", "The rules engine placed the case in Q4 with instant_refund:false."),
-        ("Q1", "Coupons disabled for this customer."),
-        ("Q2", "Q2 with transparency_notice: true."),
+        ("Q2", "Q1 with transparency_notice: true."),
         ("insufficient", "The rules engine placed the case in Q4 with instant_refund:false."),
         ("insufficient", "Placed in Q3 for now."),
         ("guarantee", "The rules engine placed the case in Q4 with instant_refund:false."),
-        (
-            "guarantee",
-            "The rules engine placed the case in Q4 with instant_refund:false and coupons "
-            "disabled.",
-        ),
-        ("guarantee", "No instant refund on future orders."),
-        ("guarantee_insufficient", "Without free size exchange."),
+        # Round 3, finding T7: a quadrant written with a number word, a risk score level
+        ("Q4_cluster", "The case sits in Q-one."),
+        ("Q4_cluster", "The risk score is low."),
+        ("Q1", "A high risk score drives the case."),
+        ("guarantee", "The risk score is high."),
     ],
 )
-def test_finding3_explanation_naming_another_decision_uses_the_template(
+def test_finding3_explanation_naming_another_quadrant_uses_the_template(
     name: str, text: str
 ) -> None:
     built = make(name)
@@ -203,65 +193,66 @@ def test_finding3_explanation_naming_another_decision_uses_the_template(
     assert result.action is Action.TEMPLATE
 
 
+# Round 3, findings T7 and T8: levers, terms, restrictions and quadrant levels are not topics of a
+# statement at all, whether they match the engine or not; the statement is regenerated.
 @pytest.mark.parametrize(
-    "text, claims",
+    "name, text",
     [
-        ("instant_refund:false", ["instant_refund:false"]),
-        ("Enabled coupons for the cluster.", ["coupons_enabled:true"]),
-        ("coupons_enabled", ["coupons_enabled:true"]),
-        ("cluster_coupons_disabled: false", ["cluster_coupons_disabled:false"]),
-        ("The return window of 30 days.", ["return_window_days:30"]),
-        ("No return window change.", []),  # an integer lever needs a number
-        ("The welcome coupon was used by 7 linked accounts.", []),
-        (
-            "Free size exchange granted, priority size exchange on.",
-            ["free_size_exchange:true", "priority_size_exchange:true"],
-        ),
-        ("instant-refund OFF", ["instant_refund:false"]),
-        ("instant_refund -> false", ["instant_refund:false"]),
-        ("The instant refund lever is off.", ["instant_refund:false"]),
-        ("Coupon codes disabled.", ["coupons_enabled:false"]),
-        # Round 2, finding R2: negations, "kept", contradictions and unreadable values
-        ("The return window is not 30 days.", ["return_window_days:?"]),
-        ("The return window was extended.", ["return_window_days:?"]),
-        ("Instant refund is kept.", ["instant_refund:true"]),
-        ("Instant refund was kept off.", ["instant_refund:false"]),
-        ("Instant refund: no.", ["instant_refund:false"]),
-        ("Instant refund: no. True.", ["instant_refund:?"]),
-        ("Instant refund is not for this order.", ["instant_refund:?"]),
-        ("Coupons disabled, no instant refund.", ["coupons_enabled:false", "instant_refund:false"]),
-        ("The customer pays for the return shipping.", ["free_return_shipping:false"]),
-        ("Codici sconto: disattivati.", ["coupons_enabled:false"]),
-        ("InstantRefund (false)", ["instant_refund:false"]),
+        ("Q4_cluster", "The levers are instant_refund:true and coupons_enabled:true."),
+        ("Q4_cluster", "instant_refund is true for future orders."),
+        ("Q4_cluster", "The return window is 30 days."),
+        ("Q4_cluster", "return_window_days:30 applies to future orders."),
+        ("Q4_cluster", "Coupons stay enabled."),
+        ("Q4_cluster", "Instant refund remains available."),
+        ("Q4", "Cluster coupons disabled for the future orders."),
+        ("Q3", "No free return shipping for future orders."),
+        ("Q3", "free_return_shipping = false"),
+        ("Q1", "Coupons disabled for this customer."),
+        ("guarantee", "No instant refund on future orders."),
+        ("guarantee_insufficient", "Without free size exchange."),
+        # what the engine decided is not said either
+        ("Q4_cluster", "Coupons disabled and no instant refund for future orders."),
+        ("Q4_cluster", "Cluster coupons disabled for every linked account."),
+        ("Q4_cluster", "The customer pays return shipping; restrictive levers apply."),
+        ("Q4_cluster", "The rules engine placed the case in the high-risk, low-value quadrant."),
+        ("Q3", "Q3, instant refund off and transparency notice on."),
+        ("Q1", "Q1: priority_size_exchange is true."),
+        ("Q1", "The case is in QI, the high-value, low-risk quadrant."),
+        ("Q2", "Standard terms: no lever changes."),
+        ("guarantee", "The guarantee path has no quadrant and no restrictive levers."),
+        ("Q1", "Restrictions do not apply: no restrictive levers."),
+        ("insufficient", "No quadrant is assigned and nothing is restricted."),
+        ("Q4_cluster", "The case sits in the top left of the matrix."),
+        ("Q4_cluster", "The refund is approved."),
+        ("Q4_cluster", "Size advice is shown at checkout."),
+        ("Q4_cluster", "Il rischio del cliente è alto."),
+        ("Q4_cluster", "The customer is risky."),
     ],
 )
-def test_lever_claims(text: str, claims: list[str]) -> None:
-    assert lever_claims(text) == claims
+def test_round3_levers_terms_and_levels_are_not_topics(name: str, text: str) -> None:
+    built = make(name)
+    result = validate(with_extra_statement(built, text), built.expected, built.case)
+    assert Code.TERMS_TOPIC in codes(result), result.errors
+    assert Code.DECISION_ECHO not in codes(result)
+    assert result.action is Action.REGENERATE
 
 
 @pytest.mark.parametrize(
     "name, text",
     [
-        ("Q4_cluster", "The rules engine placed the case in Q4 with instant_refund:false."),
-        ("Q4_cluster", "Coupons disabled and no instant refund for future orders."),
-        ("Q4_cluster", "return_window_days: 14 and free return shipping removed."),
-        ("Q4_cluster", "Cluster coupons disabled for every linked account."),
-        ("Q1", "Q1: priority_size_exchange is true."),
-        ("Q3", "Q3, instant refund off and transparency notice on."),
-        ("Q2", "Standard terms: no lever changes."),
-        ("guarantee", "The guarantee path has no quadrant and no restrictive levers."),
-        # Round 2, finding R2: what the engine decided may still be said
-        ("Q4_cluster", "The rules engine placed the case in the high-risk, low-value quadrant."),
-        ("Q4_cluster", "Instant refund: no. Coupons are not available."),
-        ("Q4_cluster", "Instant refund is not enabled for future orders."),
-        ("Q4_cluster", "The customer pays return shipping; restrictive levers apply."),
-        ("Q4_cluster", "Cluster coupons are not enabled."),
-        ("Q1", "The case is in QI, the high-value, low-risk quadrant."),
-        ("Q1", "Restrictions do not apply: no restrictive levers."),
-        ("insufficient", "No quadrant is assigned and nothing is restricted."),
+        ("Q4_cluster", "The rules engine placed the case in Q4."),
+        ("Q4_cluster", "The risk score is high."),
+        ("Q1", "The case is in QI."),
+        ("Q3", "Placed in Q3 for now."),
+        ("Q4_cluster", "The linked accounts each used the welcome coupon."),
+        ("Q4_cluster", "The welcome coupons of the cluster are a score factor."),
+        ("Q4_cluster", "The customer text mentions the fit, in terms of size."),
+        ("insufficient", "Evidence is limited: the missing evidence is listed with the case."),
+        ("Q4_cluster", "The value of the returned item is not in the case."),
+        ("Q4_cluster", "The risk of a damage in transit is not part of the case."),
     ],
 )
-def test_explanation_naming_the_engine_decision_passes(name: str, text: str) -> None:
+def test_explanation_naming_the_engine_quadrant_or_plain_data_passes(name: str, text: str) -> None:
     built = make(name)
     result = validate(with_extra_statement(built, text), built.expected, built.case)
     assert result.ok, result.errors
@@ -318,7 +309,7 @@ def test_unparseable_outputs_are_schema_errors(raw: str) -> None:
 
 # ---- LLM-03: number grounding on cited facts ----------------------------------------------------
 # GOLDEN facts: F1 risk_score 0.87, F2 value_eur_12m 42.1, F3 cluster_welcome_coupons 7,
-# F4 cluster_size 7, F5 days_since_delivery 6, F6 return_window_days 14.
+# F4 cluster_size 7, F5 days_since_delivery 6 (no lever is a fact since round 3).
 
 
 @pytest.mark.parametrize(
@@ -331,8 +322,15 @@ def test_unparseable_outputs_are_schema_errors(raw: str) -> None:
         ("Cluster R-MARCO of case RET-1 has 7 linked accounts.", ["F4"], "OBSERVED"),
         ("The rules engine placed the case in Q4.", [], "OBSERVED"),
         ("cluster_welcome_coupons is 7 for this cluster.", ["F3"], "SCORE"),
-        ("The window for future orders is 14 days.", ["F6"], "OBSERVED"),
-        ("The strongest one is the coupon factor, 7.", ["F3"], "SCORE"),  # "one" as a pronoun
+        ("Returned 6 days after delivery.", ["F5"], "OBSERVED"),
+        ("The strongest one is the welcome coupon factor, 7.", ["F3"], "SCORE"),  # a pronoun
+        # Round 3, finding T11: the unit of the fact, separators and function words around it
+        ("Customer net margin 42.1 EUR over the period.", ["F2"], "OBSERVED"),
+        ("Customer net margin: €42.1.", ["F2"], "OBSERVED"),
+        ("Customer net margin = 42,1 euro.", ["F2"], "OBSERVED"),
+        ("Risk score 0.87 (from the model) and 7 linked accounts.", ["F1", "F4"], "SCORE"),
+        ("7 linked accounts share a device.", ["F4"], "OBSERVED"),
+        ("Days since delivery: 6 days, before the notice.", ["F5"], "OBSERVED"),
         ("The links may come from a household; verify them.", [], "HYPOTHESIS"),
     ],
 )
@@ -381,10 +379,14 @@ def test_llm03_ungrounded_numbers_are_rejected(text: str, fact_ids: list[str]) -
     "text, ok",
     [
         ("Customer net margin over the period: -42.1 EUR.", True),
-        ("Customer net margin over the period: −42.1 EUR.", True),  # minus sign
         ("Customer net margin over the period: –42.1 EUR.", True),  # en dash read as a sign
+        ("Customer net margin over the period: – 42.1 EUR.", True),  # after ":" it is a sign
+        ("Customer net margin is negative: -42.1 EUR.", True),  # the sign word matches (T8)
         ("Customer net margin over the period: 42.1 EUR.", False),  # the sign dropped
         ("Customer net margin over the period: minus 42.1 EUR.", False),  # words never ground
+        ("Customer net margin — 42.1 EUR.", False),  # a spaced dash after a word is punctuation
+        # The minus sign U+2212 is outside the character allowlist (round 3, finding T9).
+        ("Customer net margin over the period: −42.1 EUR.", False),
     ],
 )
 def test_finding5_a_negative_fact_keeps_its_sign(text: str, ok: bool) -> None:
@@ -446,7 +448,9 @@ def test_llm03_every_number_after_the_validator_is_a_cited_fact(
 ) -> None:
     """LLM-03, 100% after the validator: checked with an independent number pattern, signs,
     sign words, parentheses, scale and unit words included (adversarial review of 13 Oct,
-    finding 5; round 2, finding R7)."""
+    finding 5; round 2, finding R7). Since round 3 (finding T8) a dash with spaces around it
+    right after a word is punctuation ("accounts - 7"), and so are parentheses right after a
+    word ("high (0.87)")."""
     text = " ".join(tokens) + "."
     result = run(with_statement(text, fact_ids, label))
     if not result.ok:
@@ -455,11 +459,16 @@ def test_llm03_every_number_after_the_validator_is_a_cited_fact(
     plain = _IDENTIFIERS.sub(" ", text)
     for match in _WRITTEN_NUMBER.finditer(plain):
         after = match["after"] or ""
+        before = plain[: match.start()]
+        after_word = before.rstrip()[-1:].isalpha() and before[-1:].isspace()
+        sign = match["sign"] or ""
+        separator = sign[:1] in ("-", "–", "—") and sign[1:2].isspace() and after_word
         assert not _SIGN_WORDS & set(re.findall(r"[a-z]+", plain.lower())), (text, fact_ids)
-        assert not (match["open"] and match["close"]) and not match["pm"] and not match["trail"]
+        assert not (match["open"] and match["close"] and not after_word), (text, fact_ids)
+        assert not match["pm"] and not match["trail"]
         assert after == "" or (after[0].isspace() and after.strip().lower() not in _SCALE_WORDS)
         value = Decimal(match["num"].replace(",", "."))
-        assert (-value if match["sign"] else value) in cited, (text, fact_ids)
+        assert (-value if sign and not separator else value) in cited, (text, fact_ids)
 
 
 @settings(max_examples=200, deadline=None)
@@ -480,7 +489,7 @@ def test_unknown_fact_ids_are_rejected() -> None:
 
 
 def test_score_statements_cite_a_fact() -> None:
-    result = run(with_statement("The coupon factor contributes most.", [], "SCORE"))
+    result = run(with_statement("The welcome coupon factor contributes most.", [], "SCORE"))
     assert codes(result) == {Code.MISSING_FACT}
 
 

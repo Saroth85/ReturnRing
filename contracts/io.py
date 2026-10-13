@@ -4,7 +4,8 @@ write_table validates a table against SCHEMAS[name] and contracts/checks.py, che
 provenance fits the table family (nature, and for event tables the period of every event_at),
 embeds the contract name, the contract version and the provenance (origin, period, nature: rule
 11, NFR-16) in the Parquet metadata, and writes it deterministically: the same rows give a
-byte-identical file whatever their chunking (DATA-04). read_table checks the contract of the file;
+byte-identical file whatever their chunking (DATA-04), atomically (contracts.files). read_table
+checks the contract of the file;
 with as_of it keeps the rows of an event table available at that instant, and refuses an as-of
 table computed after it (rule 7).
 
@@ -14,7 +15,6 @@ Paths are <root>/<name>.parquet, for example data/store/orders.parquet.
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -25,6 +25,7 @@ import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 from contracts.checks import checks_for, finite_floats
+from contracts.files import atomic_write
 from contracts.parquet import AS_OF_TABLES, CONTRACT_VERSION, EVENT_TABLES, SCHEMAS, TS
 
 Nature = Literal["real", "synthetic", "simulated"]
@@ -237,10 +238,8 @@ def write_table(
     conformed = conformed.replace_schema_metadata(metadata)
     path = path_for(name, root)
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    pq.write_table(conformed, tmp, **_WRITE_OPTIONS)
-    os.replace(tmp, path)
-    return path
+    # Through a new temporary file, never a planted symlink; nothing left on failure (P3).
+    return atomic_write(path, lambda out: pq.write_table(conformed, out, **_WRITE_OPTIONS))
 
 
 def read_table(

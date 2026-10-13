@@ -132,7 +132,8 @@ its numbers must never be shown as ASOS results.
   variants, hash.
 - **Forbidden fragments inside a word**: gender, country, ismale, yearofbirth, birth, hash.
 - **Raw identifiers by whole name**: email, phone, ip, ip_prefix, address, device_id, card_number
-  and similar; since amendment 1 also any name with an identifier stem that is not an aggregate.
+  and similar; since amendment 1 also any name with an identifier stem that is not an aggregate
+  (more stems and spellings in amendment 2).
 
 Keys such as `customer_id` and counts such as `n_distinct_cards` stay allowed.
 `forbidden_features(names)` is the call for every model's feature list (FAIR-01). The tests run it
@@ -291,3 +292,51 @@ exchange to the current order. Lever arrays have one object per lever id. Spec 1
 - In `infra/docker-compose.yml`, the offline jobs `trainer-gbm` and `trainer-gnn` mount `data/`
   read-only, the generator job `pipeline` writes it, and no other service mounts `data/` or any path
   with a `truth` part. `tests/test_infra.py` checks this for every compose file.
+
+## Amendment 2 (13 Oct 2026): review findings P3 and P4
+
+The contract version stays `2.0.0`. No schema changes. One write path changes, and one check is
+tightened.
+
+**Atomic writes (P3, `contracts/files.py`)**
+
+`write_table`, the ASOS calibration and profile report (`pipeline/ingest/asos_profile.py`) and the
+ASOS downloader now use one helper. It writes to a temporary file, `.<name>.part`, in the target's
+folder, then renames that file over the target. The temporary file is always created anew: the
+helper first removes whatever is at that name, then opens it with
+`O_CREAT | O_EXCL | O_NOFOLLOW`. A symlink planted at that name is therefore never followed, and a
+symlink at the target is replaced, not written through. If anything fails, for example a directory
+in the way of the target, nothing is left at the temporary name. Before, `write_table` and
+`write_calibration` wrote `<name>.tmp` through a planted symlink, and `write_table` left the
+`.tmp` file behind on failure. Writing through the file descriptor gives the same Parquet bytes
+as writing to a path (checked on the 205,462 order lines of the scale 1.0 store).
+
+**Forbidden features (P4)**
+
+Identifier names written without separators or abbreviated are forbidden too, unless they are
+aggregates:
+
+- **More stems**: `addr`, `mobile`, `msisdn`, `imei`, `mac`, `card`, `cards` and `pan` (a card
+  number).
+- **Fragments inside a word**: `ipprefix`, `ipaddr`, `ipv4`, `ipv6`, `msisdn`, `imei`, `cardlast`,
+  `cardbin`, `cardnumber`, `creditcard`, `debitcard` and `paymentcard`.
+- **Word forms**: `ip24`, `customerip`, `remoteip`, `shippingaddr`, `shippingzip`, `zip5` and
+  similar.
+
+`ipprefix24`, `remote_addr`, `card_last4`, `msisdn` and `mobile_number` are therefore forbidden.
+`n_distinct_cards`, `card_count`, `free_return_shipping`, `zipper_defect_rate` and `discard_rate`
+stay allowed. The verdict changes for no column of any contract schema and for no name in the
+spec.
+
+Round 3 of the same review made the verdict independent of separators and removed two false
+positives:
+
+- A fragment counts inside one word, or across words only where a word starts, so
+  `time_in_transit` ("timein") no longer reads as `imei`.
+- `mobile`, `card` and `cards` name an identifier only as the head noun (`customer_mobile`,
+  `credit_card`, `card`), not as a modifier or after a preposition (`is_mobile`,
+  `mobile_checkout`, `paid_by_card`, `gift_card_used`).
+- More fragments and word forms: `mobilenumber`, `postalcode`, `cardnum`, `cardno`, `cardid`,
+  `cardtoken`, `cclast`, `ccnum`, `ipblock`, `iprange`, `ipsubnet`, `useragent`, `advertisingid`,
+  `androidid`, `idfa`, `addr1`, `ip24prefix`, and IP names after signup, lastlogin, visitor, buyer,
+  registration, account and request.

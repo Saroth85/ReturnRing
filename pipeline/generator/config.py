@@ -87,10 +87,15 @@ DEFECTIVE_VARIANT_SHARE: Final = 0.02
 # it. Lines of the same product type switch to the variant, so type sales shares do not move.
 DEFECT_WEEKLY_SALES: Final = 28
 DEFECT_BOOST_WEEKS: Final = 4
-# At most this share of a type's lines in a week switch to one defective variant; so a variant is
+# At most this share of a type's lines in a week switch to one surging variant; so a variant is
 # eligible for a defect only if its type sells DEFECT_WEEKLY_SALES / DEFECT_MAX_TYPE_SHARE lines a
 # week on average (all types at scale 1.0 with the real calibration; fewer at small scales).
 DEFECT_MAX_TYPE_SHARE: Final = 0.5
+# Matched controls (review P1): for each defective variant, this many non-defective best sellers
+# of the same pool get the same DEFECT_BOOST_WEEKS-week surge at a random Monday. Without them a
+# sales surge, or reaching the spec 8.9 minimum at all, would identify a defect (94% of the
+# variants that ever sold 20 in a week were defective at commit 472d798).
+SURGE_CONTROLS_PER_DEFECT: Final = 4
 
 # Return probability of a line for a non-abusive customer: k_type x base_return_rate x propensity,
 # with the propensity drawn from Gamma(shape, 1/shape) (mean 1) and k fitted per product type so

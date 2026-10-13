@@ -171,7 +171,7 @@ def test_same_input_gives_byte_identical_files(tmp_path: Path) -> None:
     assert digest[0] == digest[1]
     again = write_table("store/returns", table("store/returns", rows), tmp_path / "a", SYNTH)
     assert hashlib.sha256(again.read_bytes()).hexdigest() == digest[0]
-    assert not list((tmp_path / "a" / "store").glob("*.tmp"))
+    assert [p.name for p in (tmp_path / "a" / "store").iterdir()] == ["returns.parquet"]
 
 
 def test_columns_in_any_order_are_written_in_contract_order(tmp_path: Path) -> None:
@@ -780,3 +780,47 @@ def test_c12_missing_provenance_is_a_contract_error(tmp_path: Path) -> None:
     pq.write_table(pf.replace_schema_metadata(meta), src)
     with pytest.raises(ContractError, match="provenance"):
         read_table("store/returns", tmp_path)
+
+
+# ---- P3: one atomic write, never through a planted symlink -------------------------------------
+
+# Temporary names a writer could use next to its target: the shared helper's (contracts.files)
+# and the one write_table used before review P3. A symlink is planted at each.
+TEMP_NAMES = ("{}.tmp", ".{}.part")
+
+
+def plant_symlinks(target: Path, victims: Path) -> dict[str, Path]:
+    """A symlink at every temporary name of `target`, each to its own victim file."""
+    target.parent.mkdir(parents=True, exist_ok=True)
+    victims.mkdir(exist_ok=True)
+    planted = {}
+    for i, pattern in enumerate(TEMP_NAMES):
+        victim = victims / f"victim-{i}.txt"
+        victim.write_text("keep me")
+        name = pattern.format(target.name)
+        (target.parent / name).symlink_to(victim)
+        planted[name] = victim
+    return planted
+
+
+def test_p3_write_table_never_writes_through_a_planted_symlink(tmp_path: Path) -> None:
+    """Review P3: a symlink planted at the temporary name must not redirect the Parquet bytes to
+    another file, and the target must end up a regular file, not a link to the victim."""
+    target = path_for("store/returns", tmp_path / "out")
+    planted = plant_symlinks(target, tmp_path / "victims")
+    write_table("store/returns", table("store/returns", returns_rows()), tmp_path / "out", SYNTH)
+    assert all(victim.read_text() == "keep me" for victim in planted.values())
+    assert target.is_file() and not target.is_symlink()
+    assert read_table("store/returns", tmp_path / "out")[0].num_rows == len(returns_rows())
+    left = {p.name for p in target.parent.iterdir()} - set(planted)
+    assert left == {target.name}
+
+
+def test_p3_write_table_leaves_nothing_when_a_directory_is_in_the_way(tmp_path: Path) -> None:
+    """Review P3: the rename onto a directory fails; no temporary file is left behind."""
+    target = path_for("store/returns", tmp_path)
+    target.mkdir(parents=True)
+    with pytest.raises(OSError):
+        write_table("store/returns", table("store/returns", returns_rows()), tmp_path, SYNTH)
+    assert target.is_dir()
+    assert [p.name for p in target.parent.iterdir()] == [target.name]

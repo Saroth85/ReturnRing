@@ -14,10 +14,14 @@ make pipeline        # both (phase 1; features join in phase 2)
 ```
 
 The command prints a JSON summary on stdout, with counts, measured return rates against the
-calibration, the fitted factors, the weekly sales of the defective variants against the spec 8.9
-minimum, and provenance. Exit code 1 means the calibration is invalid, or valid but unusable (every
-product type one-size, see below); exit code 2 means a usage error. The `pipeline` compose service
-runs the same two commands on the committed real calibration.
+calibration, the fitted factors, the weekly sales of the defective variants and of their matched
+controls against the spec 8.9 minimum (`defect_detectability`), whether sales alone point to a
+defect (`sales_gate`), and provenance. Exit code 1 means the calibration is invalid, valid but
+unusable (every product type one-size, or no sized variant listed before the period, see below), or
+the output folder cannot be written; exit code 2 means a usage error. The `pipeline` compose service
+runs the same two commands on the committed real calibration, as the owner of the checkout
+(`HOST_UID` and `HOST_GID`, which the Makefile sets from `id -u` and `id -g`), so it can write
+`data/` in a clone made as root, as on the droplet (review P5).
 
 ## Output and rules
 
@@ -112,17 +116,34 @@ a real deployment needs a secret salt.
 | wardrober | 3% | Buys dear items (popularity x price^2). Leans to Tuesday-Thursday orders, so the items are in hand for the weekend: 55% of the orders move to the Tuesday, Wednesday or Thursday of their week, the others keep their calendar day, and every delivery has the shop's lag. A tendency, not a rule (review G2). Returns 80% of the lines priced at or above the catalogue median, 3 to 6 days after delivery, 78% "changed mind" |
 | promo_ring | about 1.5%: 40 rings of 5 to 9 accounts (sizes adjusted to 1.5%) | New accounts opened within 4 to 14 days, one welcome coupon each, redeemed on a first order within 2 days. 2 or 3 orders in 60 days, 95% of lines returned. A pool of shared values per ring, used by each account with a probability: device 0.8, address 0.7, card 0.65, e-mail alias 0.45, phone 0.3, IP prefix 0.8. Every account shares a card, e-mail or device with another one |
 | shared_benign | 3.5%: families of 2 to 4 accounts | Same address, household device and home IP prefix; own e-mail, phone and card; mostly old accounts; normal return probability. In 15% of the families two accounts share a card (Rossi-like) |
-| defective variant | about 2% of the variants | Drawn among the best sellers (about the top 6%) of the types that sell at least 56 lines a week on average (every type of the real calibration at scale 1.0). Window of 4 to 12 weeks starting on a Monday, not fixed in 20% of the cases. A defective batch sells strongly at first: in each of the first 4 weeks of the window, plain lines of the same product type switch to the variant until it sells about 28 that week, at most half of the type's lines (review G6), so type sales shares do not move and the spec 8.9 detector (20 sales a week) can see it. In the window, 35% to 65% of the buyers return the line for one reason (`defective` or `not_as_described`), whoever they are |
+| defective variant | about 2% of the variants | Window of 4 to 12 weeks starting on a Monday, not fixed in 20% of the cases. In the window, 35% to 65% of the buyers return the line for one reason (`defective` or `not_as_described`), whoever they are. A defective batch sells strongly at first, so the spec 8.9 detector (20 sales a week) can see it: the first 4 weeks of the window are a **sales surge** (below, reviews G6 and P1) |
 
 `k_type` is fitted per product type by bisection, so that the expected return rate of the mature
 lines equals the type target once wardrobers, rings, bracketing and defects are included. With the
-real calibration at scale 1.0 it is 0.67 to 0.98 (main scenario).
+real calibration at scale 1.0 it is 0.65 to 0.99 (main scenario).
+
+**Sales surges and matched controls** (reviews G6 and P1). The surging variants are drawn at random
+from one pool: the best sellers (twice as many as the surges, at least the top 5%) of the types that
+sell at least 56 lines a week on average (every type of the real calibration at scale 1.0). There
+are 5 surges per generic defect. Each surge starts on a random Monday, and the starts are spread so
+that the surges of a type rarely overlap more than the type can carry. Only then is one surge in five
+drawn to be a defect, whose window starts with its surge. The other four are **matched controls**:
+non-defective best sellers with the same types, popularity and dates. In each of the 4 weeks of a
+surge, plain lines of the same product type switch to the variant until it sells about 28 that week.
+At most half of the type's free lines switch to one variant, and the variants are taken in random
+order. Type sales shares do not move. The lift does not look at the defect, so a defect and its
+controls surge alike, and neither a surge nor reaching 20 sales a week identifies a defect: only the
+returns do. Without the controls, 94% of the variants that ever sold 20 in a week were defective
+(see the round 2 table below).
 
 **Sizes are required.** Size customers bracket two sizes, and the golden cases buy sized items, so a
 calibration whose product types are all one-size (bags, accessories, jewellery) is refused with a
-`CalibrationError` that says so (exit code 1), never an `IndexError` (review G3). The golden jacket
-takes its sizes from its category: it is an apparel type (XS-XL), named like outerwear if there is
-one, else the dearest apparel type (review G4).
+`CalibrationError` that says so (exit code 1), never an `IndexError` (review G3). So is a catalogue
+with no sized variant that sells and is listed before the period: an order placed before an item
+is listed falls back to those variants. A sized type with a tiny share gives such a catalogue at
+small scales, in either scenario. Before review P2, the OOD scenario then crashed with a
+`ValueError`. The golden jacket takes its sizes from its category: it is an apparel type (XS-XL),
+named like outerwear if there is one, else the dearest apparel type (review G4).
 
 Hard situations (spec section 7):
 
@@ -184,37 +205,41 @@ of the store October 2025 to September 2026. Measured on 13 Oct 2026 on the deve
 | Customers / variants | 20,000 / 5,000 | 20,000 / 5,000 |
 | Orders / lines | 80,356 / 205,462 | 80,103 / 204,081 |
 | Lines per order / orders per customer | 2.56 / 4.02 | 2.55 / 4.01 |
-| Deliveries / returns / return states | 79,636 / 60,986 / 241,673 | 79,346 / 60,803 / 240,967 |
+| Deliveries / returns / return states | 79,636 / 60,916 / 241,399 | 79,346 / 60,678 / 240,523 |
 | Identifier rows / coupon rows | 138,932 / 12,429 | 113,863 / 12,785 |
 | Behaviour shares: normal, size, benign, wardrober, ring | 80.0%, 12.0%, 3.5%, 3.0%, 1.5% | same |
 | Rings / families / card-sharing families | 40 / 261 / 40 | 75 / 252 / 177 |
-| Return rate of mature lines vs calibration 0.3096 (real, sales-weighted) | 0.3069 (-0.9%) | 0.3081 (-0.5%) |
-| Return rate by behaviour (delivered lines): normal, benign, size, wardrober, ring | 0.275, 0.278, 0.328, 0.741, 0.948 | 0.276, 0.267, 0.335, 0.739, 0.730 |
-| Abusive share of returned value (wardrobers and rings; spec target about 12%) | 13.1% | 13.5% |
+| Return rate of mature lines vs calibration 0.3096 (real, sales-weighted) | 0.3063 (-1.1%) | 0.3077 (-0.6%) |
+| Return rate by behaviour (delivered lines): normal, benign, size, wardrober, ring | 0.275, 0.278, 0.326, 0.741, 0.947 | 0.276, 0.264, 0.333, 0.738, 0.728 |
+| Abusive share of returned value (wardrobers and rings; spec target about 12%) | 13.2% | 13.4% |
 | Accounts with a device / card / phone / IP prefix | 100% / 100% / 88.1% / 100% | 70.9% / 75.7% / 60.1% / 81.0% |
-| Run time (CPU) | 8.4 s | 8.4 s |
+| Surging variants: defects + matched controls; lines switched to them | 100 + 396; 48,572 (23.6% of lines) | 100 + 400; 49,646 (24.3%) |
+| Variants that ever sell 20 in a week (spec 8.9 minimum): all, defective share | 495, 0.202 | 502, 0.199 |
+| Run time (CPU; the code at commit 472d798 took 16.8 s on the same container that day) | 16.4 s | 16.5 s |
 
 Return rate of mature lines per product type against its target (main; target = mean of the real
 type distribution, rescaled to the real overall rate; every type within the DATA-02 band of 10%):
 
 | Type | Mature lines | Rate | Target | Relative error | k |
 | --- | --- | --- | --- | --- | --- |
-| Jeans | 12,793 | 0.4473 | 0.4519 | -1.0% | 0.96 |
-| productType_A | 3,446 | 0.3546 | 0.3459 | +2.5% | 0.91 |
-| productType_B | 20,485 | 0.5079 | 0.5148 | -1.3% | 0.98 |
-| productType_C | 6,396 | 0.3573 | 0.3656 | -2.3% | 0.81 |
-| productType_D | 7,374 | 0.3036 | 0.3057 | -0.7% | 0.83 |
-| productType_E | 4,959 | 0.3378 | 0.3411 | -1.0% | 0.92 |
-| productType_F | 3,216 | 0.2248 | 0.2366 | -5.0% | 0.85 |
-| productType_G | 5,533 | 0.2507 | 0.2489 | +0.7% | 0.68 |
-| productType_H | 15,504 | 0.1990 | 0.2027 | -1.8% | 0.67 |
-| productType_I | 6,603 | 0.4334 | 0.4378 | -1.0% | 0.96 |
-| productType_J | 88,832 | 0.2493 | 0.2492 | +0.0% | 0.69 |
+| Jeans | 12,795 | 0.4462 | 0.4519 | -1.3% | 0.99 |
+| productType_A | 3,451 | 0.3512 | 0.3459 | +1.5% | 0.95 |
+| productType_B | 20,481 | 0.5089 | 0.5148 | -1.1% | 0.98 |
+| productType_C | 6,396 | 0.3563 | 0.3656 | -2.5% | 0.83 |
+| productType_D | 7,375 | 0.3056 | 0.3057 | -0.0% | 0.82 |
+| productType_E | 4,960 | 0.3387 | 0.3411 | -0.7% | 0.83 |
+| productType_F | 3,212 | 0.2235 | 0.2366 | -5.5% | 0.74 |
+| productType_G | 5,531 | 0.2450 | 0.2489 | -1.6% | 0.65 |
+| productType_H | 15,504 | 0.2007 | 0.2027 | -1.0% | 0.75 |
+| productType_I | 6,604 | 0.4370 | 0.4378 | -0.2% | 0.92 |
+| productType_J | 88,832 | 0.2478 | 0.2492 | -0.6% | 0.73 |
 
 ### Review findings of 13 Oct 2026: before and after
 
 Same origin and nature as above (synthetic, seed 42, scale 1.0, real calibration, main scenario).
-"Before" is the code at commit aab4d61, measured on the same day with the same seed and calibration.
+"Before" is the code at commit aab4d61, "after" the code at commit 472d798, measured on the same day
+with the same seed and calibration. The defect rows changed again with the matched controls of
+round 2 (next table).
 
 | Check | Before | After |
 | --- | --- | --- |
@@ -238,13 +263,71 @@ The lift is a trade-off, reported as it is (rule 13): defects now make 12.1% of 
 of 4.8%, and the guarantee path 17.8% instead of 11.2%. The overall and per-type return rates still
 match the calibration, because `k_type` is fitted with the defect probabilities included.
 
+### Review findings of 13 Oct 2026, round 2: before and after
+
+Same origin and nature as above (synthetic, seed 42, scale 1.0, real calibration). "Before" is the
+code at commit 472d798, "after" this change (matched controls, review P1), both measured on 13 Oct
+2026 with the same seed and calibration. Weekly sales are counted from `store/order_lines` in
+Monday-to-Sunday weeks, from the week a variant is listed; no return and no label is read, except
+the ground truth to score the result. Three runs of the new code (two string-hash seeds) gave
+byte-identical files for both scenarios (24 files). For reference, the code at commit aab4d61 (no lift at all)
+gives 14 variants that ever sell 20 in a week (7 defective) and 3 flagged by the surge rule (1
+defective).
+
+| Check | Before (main) | After (main) | Before (ood) | After (ood) |
+| --- | --- | --- | --- | --- |
+| Variants that ever sell at least 20 in a week (spec 8.9 minimum); defective among them | 106; 100 (0.943) | 495; 100 (0.202) | 106; 100 (0.943) | 502; 100 (0.199) |
+| Variant-weeks with at least 20 sales (assessable by the detector); defective share | 469; 0.951 | 1,948; 0.215 | 484; 0.783 | 1,931; 0.193 |
+| Label-free surge rule "best week >= 15 sales and >= 4 times the median week": flagged, precision, recall | 92, 0.989, 0.910 | 484, 0.200, 0.970 | 96, 1.000, 0.960 | 496, 0.202, 1.000 |
+| Weekly sales of non-defective variants, best week: p99, p99.9 | 12, 20 | 36, 41 | 12, 20 | 37, 43 |
+| Defective variants with at least 20 sales in a full week of their window | 100 of 100 | 100 of 100 | 100 of 100 | 100 of 100 |
+| Lifted weeks of the defects with at least 20 sales | 378 of 400 | 376 of 400 | 377 of 400 | 370 of 400 |
+| Matched controls with at least 20 sales in a surge week; surge weeks with at least 20 sales | none | 395 of 396; 1,480 of 1,584 | none | 398 of 400; 1,492 of 1,600 |
+| Generic lines switched to a surging variant | 9,322 (4.5%) | 48,572 (23.6%) | 9,766 (4.8%) | 49,646 (24.3%) |
+| Lines of defective variants inside their window, share of all lines | 7.5% | 6.4% | 6.9% | 6.3% |
+| Returns for the variant's defect reason inside its window, share of all returns | 12.1% | 10.6% | 11.0% | 10.3% |
+| Non-conformity reasons, share of all returns (guarantee path) | 17.8% | 16.4% | 16.9% | 16.3% |
+| V-JKT-DEF weekly sales in the 8 full weeks of its window | 30, 32, 27, 34, 24, 33, 18, 19 | 31, 37, 33, 34, 24, 33, 18, 19 | no golden case | no golden case |
+
+Before, the lift went to defective variants only: sales volume alone, or a surge, was a defect
+label, and the detector could be evaluated almost only on defects (23 non-defective variant-weeks
+in a year at 20 sales or more). After, the defects and their controls surge alike (94.0% and 93.4%
+of their surge weeks reach the minimum in main; 92.5% and 93.3% in OOD). Reaching the minimum or
+surging now points to a defect with a precision of about 0.2, the share of defects among the
+surging variants (1 in 5). The surge rule's recall stays high, because every defect still surges:
+it is the returns, not the sales, that must tell a defect from its controls.
+
+The trade-off, reported as it is (rule 13): about 10% of the variants now surge, and 23.6% of the
+order lines move to a surging variant of the same type (4.5% before). Type sales shares and return
+rates still match the calibration (tables above), but the weekly sales of the best sellers are much
+peakier than before (best week p99 36 instead of 12). The defects are now drawn from about the top
+20% of sellers instead of the top 6%, so they sell a little less outside their surge: defect returns
+are 10.6% of the returns instead of 12.1%.
+
+The golden cases keep their orders, dates, returns and signatures, and V-JKT-DEF keeps its defect,
+its window and Elena's return. Only the other items they buy change (84 of their 87 lines): those
+items are drawn among the variants that are not defective, and the defective variants are new.
+
+The tests check the same two numbers on smaller stores: the example calibration at scale 0.1 (main
+and OOD) and the real one at scale 0.25 (main) and 0.1 (OOD). The defective share among the
+variants that reach the minimum, and the precision of the surge rule, are both at most 0.3. With
+the example calibration at scale 1.0 (same seed, numbers not measured on ASOS), 501 variants
+reach the minimum, the defective share is 0.200, and the surge rule flags 493 variants with
+precision 0.201.
+
 ## Known limits and open points
 
 - **Anomaly volume** (US-208): every defective variant reaches the spec 8.9 minimum of 20 sales in
   the first weeks of its window at scale 1.0 (see above); after those 4 weeks a variant sells at its
-  usual level, so 840 of the 1,238 window weeks stay under the minimum. At small scales (0.1 and
+  usual level, so 1,014 of the 1,392 window weeks stay under the minimum. At small scales (0.1 and
   below) small types cannot lift a variant to 20 sales a week: defects are then drawn only from types
   that can, and none can below about scale 0.03 (the largest type then sells under 56 lines a week).
+  Where few types can carry the surges, they overlap and fewer weeks reach the minimum, for the
+  defects and their controls alike: at scale 0.1 OOD with the real calibration (one type), about
+  60% of the surge weeks reach it.
+- **Surges are a design artifact** (review P1): matched controls keep the sales from labelling the
+  defects, but every defect surges, and the surges are 4 weeks long and start on a Monday. A model
+  that sees sales volume learns that surges exist, not which surges are defects.
 - **Graph volume** (US-203): with the real calibration, addresses shared at pickup points and
   collective addresses link 115,258 account pairs, and shared IP prefixes 92,805 pairs (main). This
   is intended, so that the d_k decay of 8.3 is exercised; the graph should prune by d_k before

@@ -3,7 +3,8 @@
 
 Writes the Navigli Fashion store (synthetic, calibrated on ASOS aggregates) and prints a JSON
 summary on stdout; the elapsed time goes to stderr. Exit codes: 0 done, 1 invalid calibration (or a
-valid one no store can be built from, such as one-size types only), 2 usage.
+valid one no store can be built from, such as one-size types only) or an output folder that cannot
+be written, 2 usage.
 """
 
 from __future__ import annotations
@@ -66,6 +67,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         summary = generate(cal, args.out, args.seed, args.scale, args.scenario)
     except CalibrationError as exc:  # valid file, but no store can be built from it (G3)
         print(f"error: {exc}", file=sys.stderr)
+        return 1
+    except OSError as exc:  # a folder in the way, no permission on data/ (review P5), full disk
+        print(f"error: cannot write the store under {args.out}: {exc}", file=sys.stderr)
         return 1
     print(json.dumps(summary, indent=2, sort_keys=True))
     print(f"generated in {time.perf_counter() - started:.1f} s", file=sys.stderr)

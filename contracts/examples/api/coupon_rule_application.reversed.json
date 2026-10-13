@@ -16,5 +16,7 @@
   "reversible": true,
   "reversed_by": "luca",
   "reversed_at": "2026-09-30T17:00:00Z",
-  "reversal_reason": "The linked accounts share a pickup point only: application reversed"
+  "reversal_reason": "The linked accounts share a pickup point only: application reversed",
+  "as_of": "2026-09-30T17:00:00Z",
+  "in_force": false
 }

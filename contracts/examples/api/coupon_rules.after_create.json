@@ -48,7 +48,9 @@
       "reversible": true,
       "reversed_by": null,
       "reversed_at": null,
-      "reversal_reason": null
+      "reversal_reason": null,
+      "as_of": "2026-09-30T20:00:00Z",
+      "in_force": true
     },
     {
       "application_id": "CRA-000027",
@@ -68,7 +70,10 @@
       "reversible": true,
       "reversed_by": "luca",
       "reversed_at": "2026-09-30T17:00:00Z",
-      "reversal_reason": "The linked accounts share a pickup point only: application reversed"
+      "reversal_reason": "The linked accounts share a pickup point only: application reversed",
+      "as_of": "2026-09-30T20:00:00Z",
+      "in_force": false
     }
-  ]
+  ],
+  "as_of": "2026-09-30T20:00:00Z"
 }

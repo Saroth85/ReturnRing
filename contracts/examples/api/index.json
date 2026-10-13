@@ -291,6 +291,50 @@
     {
       "method": "GET",
       "endpoint": "/api/decisions/{decision_id}",
+      "path": "/api/decisions/DEC-000088-1",
+      "query": null,
+      "request": null,
+      "scenario": "default",
+      "status": 200,
+      "media_type": "application/json",
+      "response": "decision_record.lorenzo_v1.json"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/decisions/{decision_id}",
+      "path": "/api/decisions/DEC-000088-2",
+      "query": null,
+      "request": null,
+      "scenario": "default",
+      "status": 200,
+      "media_type": "application/json",
+      "response": "decision_record.lorenzo_v2.json"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/decisions/{decision_id}",
+      "path": "/api/decisions/DEC-000104-1",
+      "query": null,
+      "request": null,
+      "scenario": "default",
+      "status": 200,
+      "media_type": "application/json",
+      "response": "decision_record.rossi_card_v1.json"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/decisions/{decision_id}",
+      "path": "/api/decisions/DEC-000104-2",
+      "query": null,
+      "request": null,
+      "scenario": "default",
+      "status": 200,
+      "media_type": "application/json",
+      "response": "decision_record.rossi_card_v2.json"
+    },
+    {
+      "method": "GET",
+      "endpoint": "/api/decisions/{decision_id}",
       "path": "/api/decisions/DEC-000106-1",
       "query": null,
       "request": null,
@@ -302,13 +346,13 @@
     {
       "method": "GET",
       "endpoint": "/api/decisions/{decision_id}",
-      "path": "/api/decisions/DEC-000088-1",
+      "path": "/api/decisions/DEC-000106-2",
       "query": null,
       "request": null,
       "scenario": "default",
       "status": 200,
       "media_type": "application/json",
-      "response": "decision_record.lorenzo_v1.json"
+      "response": "decision_record.chiara_v2.json"
     },
     {
       "method": "POST",

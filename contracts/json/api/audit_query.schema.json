@@ -57,6 +57,7 @@
               "decision_overridden",
               "decision_rejected",
               "restriction_lifted",
+              "restriction_renewed",
               "case_recomputed",
               "draft_generated",
               "draft_regenerated",

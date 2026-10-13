@@ -275,7 +275,7 @@
     },
     "DecisionInputs": {
       "additionalProperties": false,
-      "description": "The inputs given to policy.engine.decide, kept for audit (US-604) and re-runnable: the\nreturn request (with order_id and customer_id), the scores, the terms and the thresholds.",
+      "description": "The inputs given to policy.engine.decide, kept for audit (US-604) and re-runnable: the\nreturn request (with order_id and customer_id), the scores, the terms and the thresholds.\nprovenance covers the plain numbers of the inputs (risk, value_eur, thresholds): the scores\nat decision time, stored with the version so an earlier one is served as it was (rule 11).",
       "properties": {
         "order_id": {
           "maxLength": 96,
@@ -353,6 +353,9 @@
         },
         "thresholds": {
           "$ref": "#/$defs/DecisionThresholds"
+        },
+        "provenance": {
+          "$ref": "#/$defs/Provenance"
         }
       },
       "required": [
@@ -367,7 +370,8 @@
         "value_eur",
         "evidence_quality",
         "cluster_id",
-        "thresholds"
+        "thresholds",
+        "provenance"
       ],
       "title": "DecisionInputs",
       "type": "object"
@@ -395,7 +399,7 @@
     },
     "DecisionView": {
       "additionalProperties": false,
-      "description": "A decision version: the engine's proposal and the human outcome (spec 8.6, US-303/306).\n\nlevers are the levers of the current state: the proposal while proposed or approved, the\noperator's levers when overridden, none when rejected. requires_approval and review_at refer\nto them: a restriction needs a person and has a review date, and nothing else has one.\n\nin_force says whether the levers apply to future orders at as_of (the time the view was\nserved): approved, overridden, or proposed without a need for approval; never once a later\nversion supersedes this one; never from the review date on (US-607: a restriction lapses\nunless a person renews it with a new decision). A version created by a review (trigger\nreview, action lift) is overridden to the standard levers.\n\nEvery view passes policy.legal_guard under to_policy_decision (ADR-15 section 8).",
+      "description": "A decision version: the engine's proposal and the human outcome (spec 8.6, US-303/306).\n\nlevers are the levers of the current state: the proposal while proposed or approved, the\noperator's levers when overridden, none when rejected. requires_approval and review_at refer\nto them: a restriction needs a person and has a review date, and nothing else has one.\n\nin_force says whether the levers apply to future orders at as_of (the time the view was\nserved): approved, overridden, or proposed without a need for approval; never once a later\nversion supersedes this one; never from the review date on, counted in UTC days (US-607: a\nrestriction lapses unless a person renews it).\n\nA version created by a review (trigger review) is policy.engine.decide() on the latest\nscores at the day of the review (inputs, decided_on, quadrant, proposed_levers), with the\nperson's outcome: action lift overrides it to the standard levers; action renew approves the\nfresh restriction, with a new review date.\n\nEvery view passes policy.legal_guard under to_policy_decision (ADR-15 section 8).",
       "properties": {
         "decision_id": {
           "maxLength": 96,
@@ -421,7 +425,6 @@
             "initial",
             "evidence_added",
             "link_disputed",
-            "scores_refreshed",
             "review"
           ],
           "title": "Revision Trigger",
@@ -1177,7 +1180,7 @@
     }
   },
   "additionalProperties": false,
-  "description": "GET /api/decisions/{decision_id}: one version of a case's decision as stored, the latest\nor an earlier one (US-604): the engine inputs, the alternatives with their net benefits, the\nhuman outcome, the versions of rules, models and assumptions, and the version that superseded\nit. The audit log names these ids (DecisionAuditState).",
+  "description": "GET /api/decisions/{decision_id}: one version of a case's decision as stored, the latest\nor an earlier one (US-604): the engine inputs (with their provenance), the alternatives with\ntheir net benefits, the human outcome, the versions of rules, models and assumptions, and the\nversion that superseded it. The audit log names these ids (DecisionAuditState).",
   "properties": {
     "decision": {
       "$ref": "#/$defs/DecisionView"
@@ -1190,15 +1193,11 @@
       "minItems": 1,
       "title": "Alternatives",
       "type": "array"
-    },
-    "provenance": {
-      "$ref": "#/$defs/Provenance"
     }
   },
   "required": [
     "decision",
-    "alternatives",
-    "provenance"
+    "alternatives"
   ],
   "title": "DecisionRecord",
   "type": "object"

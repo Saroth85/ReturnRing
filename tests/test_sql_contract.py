@@ -56,6 +56,12 @@ Q4_LEVERS = [
     {"id": "return_window_days", "value": 14, "scope": "future_orders"},
     {"id": "transparency_notice", "value": True, "scope": "communication"},
 ]
+SCORES_PROVENANCE = {
+    "origin": "risk-xgb-0.1.0 and value-0.1.0 on decision-time features, matrix thresholds",
+    "period_start": "2025-10-01",
+    "period_end": "2026-09-28",
+    "nature": "synthetic",
+}
 Row = dict[str, Any]
 
 
@@ -159,6 +165,7 @@ def decision(decision_id: str, return_id: str, **changes: Any) -> Row:
         "cluster_id": "CL-000417",
         "risk_threshold": 0.6,
         "value_threshold_eur": Decimal("185.00"),
+        "inputs_provenance": SCORES_PROVENANCE,
         "base_terms": BASE_TERMS,
         "order_terms": BASE_TERMS,
         "path": "withdrawal",
@@ -199,7 +206,7 @@ def audit_state(state: str, approver: str | None) -> Row:
         "version": 1,
         "state": state,
         "quadrant": "Q4",
-        "risk": 0.87,
+        "risk": {"value": 0.87, "unit": "probability", "provenance": SCORES_PROVENANCE},
         "lever_ids": ["return_window_days:14", "transparency_notice:true"],
         "requires_approval": True,
         "review_at": (DAY + timedelta(days=90)).isoformat(),
@@ -224,6 +231,14 @@ NO_COMPENSATION: Row = {
     "compensation_rule_id": None,
 }
 SECOND_VERSION: Row = {"version": 2, "supersedes_decision_id": "DEC-000102-1"}
+STANDARD_Q2: Row = {
+    "quadrant": "Q2",
+    "proposed_levers": [],
+    "levers": [],
+    "requires_approval": False,
+    "review_at": None,
+    "future_terms": BASE_TERMS,
+}
 BASE_SNAPSHOT: Row = {
     "source": "base",
     "source_decision_id": None,
@@ -533,7 +548,9 @@ def test_timestamps_round_trip_as_aware_utc(database_url: str) -> None:
         assert entry["at"] == T0 and entry["at"].utcoffset() == timedelta(0)
         assert app["confirmed_at"].tzinfo is not None
         assert s.AuditEntry.model_validate(dict(entry)).at == T0
-        assert s.CouponRuleApplication.model_validate(dict(app)).confirmed_at == T0
+        # as_of and in_force are computed when the application is served, not stored
+        served = {**dict(app), "as_of": T0 + timedelta(hours=1), "in_force": True}
+        assert s.CouponRuleApplication.model_validate(served).confirmed_at == T0
 
     run(database_url, action)
 
@@ -600,7 +617,23 @@ VIOLATIONS: list[tuple[str, dict[str, Any], str]] = [
     ("decisions", {"version": 0}, "version_positive"),
     ("decisions", {"version": 2}, "version_chain"),
     ("decisions", {**SECOND_VERSION, "revision_trigger": "manual"}, "revision_trigger"),
-    ("decisions", {**SECOND_VERSION, "revision_trigger": "review"}, "review_lifts"),
+    (
+        "decisions",
+        {**SECOND_VERSION, "revision_trigger": "review", **STANDARD_Q2},
+        "review_outcome",
+    ),  # a review version that neither lifts nor renews: approved without a restriction
+    (
+        "decisions",
+        {
+            **SECOND_VERSION,
+            "revision_trigger": "review",
+            **STANDARD_Q2,
+            "state": "rejected",
+            "override_reason": "not justified",
+            "override_category": "other",
+        },
+        "review_outcome",
+    ),
     ("decisions", {"coupon_application_id": "CRA-X"}, "coupon_application_has_rule"),
     ("decisions", {"generation_id": None}, "generation_pair"),
     ("decisions", {"generation_path": "free_text"}, "generation_path"),
@@ -635,8 +668,15 @@ VIOLATIONS: list[tuple[str, dict[str, Any], str]] = [
     ("terms_snapshots", {"quadrant_at_purchase": None}, "source"),
     ("terms_snapshots", {"quadrant_at_purchase": "Q9"}, "quadrant"),
     ("terms_snapshots", {**BASE_SNAPSHOT, "return_window_days": 60}, "base_terms"),
-    ("terms_snapshots", {**BASE_SNAPSHOT, "review_at": DAY}, "base_no_review"),
+    (
+        "terms_snapshots",
+        {**BASE_SNAPSHOT, "review_at": DAY + timedelta(days=90)},
+        "base_no_review",
+    ),
     ("terms_snapshots", {"review_at": None}, "restriction_has_review"),
+    # US-607: a restriction is shown at checkout only before its review date (UTC day)
+    ("terms_snapshots", {"review_at": date(2026, 9, 1)}, "review_after_shown"),
+    ("terms_snapshots", {"review_at": T0.date()}, "review_after_shown"),
     # inspections: US-501..503, LEG-05
     ("inspections", {"compensation_rule_id": None}, "compensation_evidence"),
     ("inspections", {"compensation_eur": Decimal("0")}, "compensation_evidence"),
@@ -763,6 +803,72 @@ def test_terms_snapshot_restriction_check_mirrors_the_policy(database_url: str) 
     run(database_url, action)
 
 
+def test_terms_snapshot_review_is_compared_on_the_utc_day(database_url: str) -> None:
+    """ck_terms_snapshots_review_after_shown compares the UTC day of shown_at with review_at, as
+    the API models do, whatever the offset of the timestamp or the session time zone."""
+    review = date(2026, 12, 27)
+    cest = timezone(timedelta(hours=2))
+    accepted = (
+        datetime(2026, 12, 26, 23, 59, tzinfo=UTC),
+        datetime(2026, 12, 27, 1, 30, tzinfo=cest),  # 26 December, 23:30 UTC
+    )
+    refused = (
+        datetime(2026, 12, 27, 0, 0, tzinfo=UTC),
+        datetime(2026, 12, 26, 21, 0, tzinfo=timezone(timedelta(hours=-5))),  # 27 Dec, 02:00 UTC
+    )
+
+    async def insert_in_new_york(engine: AsyncEngine, row: Row) -> None:
+        async with engine.connect() as conn:  # a session time zone other than UTC
+            if engine.dialect.name == "postgresql":
+                await conn.exec_driver_sql("SET TIME ZONE 'America/New_York'")
+            await conn.execute(sql.terms_snapshots.insert(), [row])
+            await conn.commit()
+
+    async def action(engine: AsyncEngine) -> None:
+        for n, shown in enumerate(accepted + refused):
+            row = {**fresh_rows()["terms_snapshots"], "review_at": review, "shown_at": shown}
+            row.update(terms_snapshot_id=f"TS-U-{n}", order_id=None, confirmed_at=None)
+            if shown in accepted:
+                await insert_in_new_york(engine, row)
+            else:
+                with pytest.raises(DBAPIError, match="review_after_shown"):
+                    await insert_in_new_york(engine, row)
+
+    run(database_url, action)
+    for shown in accepted:
+        assert shown.astimezone(UTC).date() < review
+    for shown in refused:
+        assert shown.astimezone(UTC).date() >= review
+
+
+@pytest.mark.parametrize("outcome", ["lift", "renew"])
+def test_review_versions_fit_the_table(database_url: str, outcome: str) -> None:
+    """A lift (overridden to the standard levers) and a renewal (approved restriction) of a
+    restriction due for review are both stored as version 2, with their audit entry."""
+    from scripts import build_api_examples as bae
+
+    lorenzo = bae.simple_case(bae.SIMPLE_BY_KEY["lorenzo"])
+    v1 = lorenzo.card.decision
+    _, result = bae.review_result(
+        lorenzo.engine, v1, outcome, "luca", T0 + timedelta(minutes=70),
+        entry_id=14, message_id="MSG-000088-2",
+        reason="Reviewed at the due date" if outcome == "lift" else None,
+        category="periodic_review" if outcome == "lift" else None,
+    )  # fmt: skip
+    entry = result.audit_entry
+
+    async def action(engine: AsyncEngine) -> None:
+        await insert(engine, "return_requests", return_request(v1.return_id))
+        for view in (v1, result.decision):
+            await insert(engine, "decisions", decision_row(view))
+        row = entry.model_dump(exclude={"entry_id"})
+        for key in ("before", "after"):
+            row[key] = getattr(entry, key).model_dump(mode="json")
+        await insert(engine, "audit_log", row)
+
+    run(database_url, action)
+
+
 @pytest.mark.parametrize("table", sql.APPEND_ONLY_TABLES)
 def test_append_only_tables_refuse_update_and_delete(database_url: str, table: str) -> None:
     async def action(engine: AsyncEngine) -> None:
@@ -823,6 +929,7 @@ def decision_row(view: s.DecisionView) -> Row:
         "cluster_id": inputs.cluster_id,
         "risk_threshold": inputs.thresholds.risk,
         "value_threshold_eur": Decimal(str(inputs.thresholds.value_eur)),
+        "inputs_provenance": inputs.provenance.model_dump(mode="json"),
         "base_terms": inputs.base_terms.model_dump(),
         "order_terms": inputs.order_terms.model_dump(),
         "path": view.path.value,

@@ -34,10 +34,12 @@ CLAUSE_KINDS: tuple[ClauseKind, ...] = get_args(ClauseKind)
 # operator replaced the proposed levers with others, with a reason (US-306).
 DecisionStatus = Literal["proposed", "approved", "overridden", "rejected"]
 DECISION_STATUSES: tuple[DecisionStatus, ...] = get_args(DecisionStatus)
-# approve, override and reject act on a proposed version; lift ends a restriction that was
-# approved or overridden, before or at its review date: a new version with the standard levers
-# (US-607: review and rectification on request).
-DecisionAction = Literal["approve", "override", "reject", "lift"]
+# approve, override and reject act on a proposed version. lift and renew are the two outcomes of
+# the review of a restriction that was approved or overridden (US-607): each creates the next
+# version from policy.engine.decide() on the latest scores. lift (before or after the review
+# date: a review, or a rectification on request) overrides it to the standard levers; renew (at
+# or after the review date) approves the fresh restriction, with a new review date.
+DecisionAction = Literal["approve", "override", "reject", "lift", "renew"]
 DECISION_ACTIONS: tuple[DecisionAction, ...] = get_args(DecisionAction)
 OverrideCategory = Literal[
     "evidence_disagreement",
@@ -48,12 +50,10 @@ OverrideCategory = Literal[
     "other",
 ]
 OVERRIDE_CATEGORIES: tuple[OverrideCategory, ...] = get_args(OverrideCategory)
-# Why a new version of a decision exists (F7: every version stays in the log). review: a person
-# reviewed a restriction and lifted it (action lift); scores_refreshed: the engine ran again on
-# new scores, for example at a review date.
-RevisionTrigger = Literal[
-    "initial", "evidence_added", "link_disputed", "scores_refreshed", "review"
-]
+# Why a new version of a decision exists (F7: every version stays in the log), and what makes it:
+# initial, the intake function; evidence_added and link_disputed, the recompute of a case;
+# review, a person's review of a restriction (action lift or renew).
+RevisionTrigger = Literal["initial", "evidence_added", "link_disputed", "review"]
 REVISION_TRIGGERS: tuple[RevisionTrigger, ...] = get_args(RevisionTrigger)
 MIN_REASON_CHARS = 3  # an override, a rejection, a dispute or a reversal needs a real reason
 
@@ -130,6 +130,7 @@ AuditAction = Literal[
     "decision_overridden",
     "decision_rejected",
     "restriction_lifted",
+    "restriction_renewed",
     "case_recomputed",
     "draft_generated",
     "draft_regenerated",
@@ -170,6 +171,7 @@ DECISION_AUDIT_ACTIONS: frozenset[AuditAction] = frozenset(
         "decision_overridden",
         "decision_rejected",
         "restriction_lifted",
+        "restriction_renewed",
         "case_recomputed",
     }
 )
@@ -180,6 +182,7 @@ HUMAN_ONLY_ACTIONS: frozenset[AuditAction] = frozenset(
         "decision_overridden",
         "decision_rejected",
         "restriction_lifted",
+        "restriction_renewed",
         "evidence_added",
         "link_disputed",
         "inspection_confirmed",

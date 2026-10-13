@@ -16,7 +16,16 @@
         "version": 1,
         "state": "approved",
         "quadrant": "Q3",
-        "risk": 0.68,
+        "risk": {
+          "value": 0.68,
+          "unit": "probability",
+          "provenance": {
+            "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+            "period_start": "2025-10-01",
+            "period_end": "2026-06-29",
+            "nature": "synthetic"
+          }
+        },
         "lever_ids": [
           "instant_refund:false",
           "transparency_notice:true"
@@ -32,7 +41,16 @@
         "version": 2,
         "state": "overridden",
         "quadrant": "Q3",
-        "risk": 0.68,
+        "risk": {
+          "value": 0.68,
+          "unit": "probability",
+          "provenance": {
+            "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+            "period_start": "2025-10-01",
+            "period_end": "2026-09-30",
+            "nature": "synthetic"
+          }
+        },
         "lever_ids": [],
         "requires_approval": false,
         "review_at": null,
@@ -89,7 +107,16 @@
         "version": 1,
         "state": "proposed",
         "quadrant": "Q1",
-        "risk": 0.22,
+        "risk": {
+          "value": 0.22,
+          "unit": "probability",
+          "provenance": {
+            "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+            "period_start": "2025-10-01",
+            "period_end": "2026-09-28",
+            "nature": "synthetic"
+          }
+        },
         "lever_ids": [
           "return_window_days:60",
           "priority_size_exchange:true"
@@ -105,7 +132,16 @@
         "version": 1,
         "state": "rejected",
         "quadrant": "Q1",
-        "risk": 0.22,
+        "risk": {
+          "value": 0.22,
+          "unit": "probability",
+          "provenance": {
+            "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+            "period_start": "2025-10-01",
+            "period_end": "2026-09-28",
+            "nature": "synthetic"
+          }
+        },
         "lever_ids": [],
         "requires_approval": false,
         "review_at": null,
@@ -140,7 +176,16 @@
         "version": 1,
         "state": "proposed",
         "quadrant": "Q3",
-        "risk": 0.71,
+        "risk": {
+          "value": 0.71,
+          "unit": "probability",
+          "provenance": {
+            "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+            "period_start": "2025-10-01",
+            "period_end": "2026-09-29",
+            "nature": "synthetic"
+          }
+        },
         "lever_ids": [
           "instant_refund:false",
           "transparency_notice:true"
@@ -156,7 +201,16 @@
         "version": 1,
         "state": "overridden",
         "quadrant": "Q3",
-        "risk": 0.71,
+        "risk": {
+          "value": 0.71,
+          "unit": "probability",
+          "provenance": {
+            "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+            "period_start": "2025-10-01",
+            "period_end": "2026-09-29",
+            "nature": "synthetic"
+          }
+        },
         "lever_ids": [],
         "requires_approval": false,
         "review_at": null,
@@ -242,7 +296,16 @@
         "version": 1,
         "state": "proposed",
         "quadrant": "Q3",
-        "risk": 0.66,
+        "risk": {
+          "value": 0.66,
+          "unit": "probability",
+          "provenance": {
+            "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+            "period_start": "2025-10-01",
+            "period_end": "2026-09-29",
+            "nature": "synthetic"
+          }
+        },
         "lever_ids": [
           "instant_refund:false",
           "transparency_notice:true"
@@ -258,7 +321,16 @@
         "version": 2,
         "state": "proposed",
         "quadrant": "Q1",
-        "risk": 0.41,
+        "risk": {
+          "value": 0.41,
+          "unit": "probability",
+          "provenance": {
+            "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+            "period_start": "2025-10-01",
+            "period_end": "2026-09-29",
+            "nature": "synthetic"
+          }
+        },
         "lever_ids": [
           "return_window_days:60",
           "priority_size_exchange:true"
@@ -325,7 +397,16 @@
         "version": 1,
         "state": "proposed",
         "quadrant": "Q2",
-        "risk": 0.34,
+        "risk": {
+          "value": 0.34,
+          "unit": "probability",
+          "provenance": {
+            "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+            "period_start": "2025-10-01",
+            "period_end": "2026-09-26",
+            "nature": "synthetic"
+          }
+        },
         "lever_ids": [],
         "requires_approval": false,
         "review_at": null,
@@ -338,7 +419,16 @@
         "version": 2,
         "state": "proposed",
         "quadrant": "Q2",
-        "risk": 0.21,
+        "risk": {
+          "value": 0.21,
+          "unit": "probability",
+          "provenance": {
+            "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+            "period_start": "2025-10-01",
+            "period_end": "2026-09-26",
+            "nature": "synthetic"
+          }
+        },
         "lever_ids": [],
         "requires_approval": false,
         "review_at": null,
@@ -428,7 +518,16 @@
         "version": 1,
         "state": "proposed",
         "quadrant": "Q4",
-        "risk": 0.87,
+        "risk": {
+          "value": 0.87,
+          "unit": "probability",
+          "provenance": {
+            "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+            "period_start": "2025-10-01",
+            "period_end": "2026-09-28",
+            "nature": "synthetic"
+          }
+        },
         "lever_ids": [
           "return_window_days:14",
           "free_return_shipping:false",
@@ -448,7 +547,16 @@
         "version": 1,
         "state": "approved",
         "quadrant": "Q4",
-        "risk": 0.87,
+        "risk": {
+          "value": 0.87,
+          "unit": "probability",
+          "provenance": {
+            "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+            "period_start": "2025-10-01",
+            "period_end": "2026-09-28",
+            "nature": "synthetic"
+          }
+        },
         "lever_ids": [
           "return_window_days:14",
           "free_return_shipping:false",
@@ -518,7 +626,16 @@
         "version": 1,
         "state": "proposed",
         "quadrant": "Q4",
-        "risk": 0.87,
+        "risk": {
+          "value": 0.87,
+          "unit": "probability",
+          "provenance": {
+            "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+            "period_start": "2025-10-01",
+            "period_end": "2026-09-28",
+            "nature": "synthetic"
+          }
+        },
         "lever_ids": [
           "return_window_days:14",
           "free_return_shipping:false",

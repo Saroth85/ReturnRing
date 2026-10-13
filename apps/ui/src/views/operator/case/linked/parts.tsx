@@ -133,7 +133,7 @@ export function LinkTable({ links, selectedLinkId, onSelect }: LinkTableProps) {
                   selected && 'bg-accent-bg outline outline-2 -outline-offset-2 outline-accent',
                 )}
               >
-                <th scope="row" className="px-2 py-1 text-left font-normal">
+                <th scope="row" className="min-w-[10rem] px-2 py-1 text-left font-normal">
                   <button
                     type="button"
                     onClick={() => onSelect(link.link_id)}

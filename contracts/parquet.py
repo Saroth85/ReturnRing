@@ -293,6 +293,21 @@ SCHEMAS: dict[str, pa.Schema] = {
         pa.field("shap_top3", pa.string()),  # JSON: contributions to the score, not causes
         pa.field("model_version", pa.string(), nullable=False),
     ),
+    # Per return request, scored as known when the request arrived (US-204, spec 8.4; ADR-13
+    # amendment 4). A guarantee-path request is listed with its path and no score (rule 4).
+    "scores/request_scores": _as_of_table(
+        pa.field("return_id", pa.string(), nullable=False),
+        pa.field("customer_id", pa.string(), nullable=False),
+        pa.field("decided_at", TS, nullable=False),  # the request's decision time
+        pa.field("path", pa.string(), nullable=False),  # policy.types.Path
+        pa.field("context_as_of", TS),  # the customer snapshot used: the last before decided_at
+        pa.field("risk", pa.float64()),  # null on the guarantee path: not scored
+        pa.field("evidence_quality", pa.string()),  # at context_as_of; null without one
+        pa.field("value_eur", EUR),  # at context_as_of; null without one
+        pa.field("quadrant", pa.string()),  # null: guarantee path or insufficient evidence
+        pa.field("shap_top3", pa.string()),  # JSON: contributions to the score, not causes
+        pa.field("model_version", pa.string(), nullable=False),
+    ),
 }
 
 EVENT_TABLES = frozenset(name for name in SCHEMAS if name.startswith("store/"))

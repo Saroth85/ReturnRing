@@ -1,0 +1,17 @@
+{
+  "state": [
+    "proposed"
+  ],
+  "quadrant": [
+    "Q3",
+    "Q4"
+  ],
+  "path": null,
+  "evidence_quality": null,
+  "requires_approval": true,
+  "review_due": null,
+  "q": null,
+  "sort": "-expected_net_benefit",
+  "page": 1,
+  "page_size": 25
+}

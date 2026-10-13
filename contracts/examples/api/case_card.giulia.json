@@ -1,0 +1,1199 @@
+{
+  "return_id": "RET-000101",
+  "order_id": "ORD-004811",
+  "customer_id": "C-GIULIA",
+  "display_name": "Giulia Conti",
+  "as_of": "2026-09-30T18:00:00Z",
+  "item": {
+    "line_id": "L-004811-2",
+    "variant_id": "V-DRS-2210",
+    "product_id": "P-DRS-2210",
+    "category": "Dresses",
+    "brand": "Navigli Studio",
+    "size": "L",
+    "price_eur": 119.0
+  },
+  "request": {
+    "reason": "size",
+    "customer_text": "La L mi sta larga, tengo la M.",
+    "requested_at": "2026-09-27T10:12:00Z",
+    "delivered_on": "2026-09-24",
+    "notice_on": "2026-09-27",
+    "days_since_delivery": 3
+  },
+  "path": "withdrawal",
+  "evidence": {
+    "quality": "sufficient",
+    "components": [
+      {
+        "id": "observations",
+        "value": {
+          "value": 11,
+          "unit": "count",
+          "provenance": {
+            "origin": "Contract example: evidence quality evidence-0.1.0 (US-209) on the synthetic shop",
+            "period_start": "2025-10-01",
+            "period_end": "2026-09-30",
+            "nature": "synthetic"
+          }
+        },
+        "threshold": {
+          "value": 4,
+          "unit": "count",
+          "provenance": {
+            "origin": "Contract example: evidence quality evidence-0.1.0 (US-209) on the synthetic shop",
+            "period_start": "2025-10-01",
+            "period_end": "2026-09-30",
+            "nature": "synthetic"
+          }
+        },
+        "passed": true
+      },
+      {
+        "id": "identifier_completeness",
+        "value": {
+          "value": 0.83,
+          "unit": "ratio",
+          "provenance": {
+            "origin": "Contract example: evidence quality evidence-0.1.0 (US-209) on the synthetic shop",
+            "period_start": "2025-10-01",
+            "period_end": "2026-09-30",
+            "nature": "synthetic"
+          }
+        },
+        "threshold": {
+          "value": 0.5,
+          "unit": "ratio",
+          "provenance": {
+            "origin": "Contract example: evidence quality evidence-0.1.0 (US-209) on the synthetic shop",
+            "period_start": "2025-10-01",
+            "period_end": "2026-09-30",
+            "nature": "synthetic"
+          }
+        },
+        "passed": true
+      },
+      {
+        "id": "reason_consistency",
+        "value": {
+          "value": 0.86,
+          "unit": "ratio",
+          "provenance": {
+            "origin": "Contract example: evidence quality evidence-0.1.0 (US-209) on the synthetic shop",
+            "period_start": "2025-10-01",
+            "period_end": "2026-09-30",
+            "nature": "synthetic"
+          }
+        },
+        "threshold": {
+          "value": 0.6,
+          "unit": "ratio",
+          "provenance": {
+            "origin": "Contract example: evidence quality evidence-0.1.0 (US-209) on the synthetic shop",
+            "period_start": "2025-10-01",
+            "period_end": "2026-09-30",
+            "nature": "synthetic"
+          }
+        },
+        "passed": true
+      }
+    ],
+    "missing_evidence": []
+  },
+  "risk": {
+    "score": {
+      "value": 0.12,
+      "unit": "probability",
+      "provenance": {
+        "origin": "Contract example: risk model risk-xgb-0.1.0 on decision-time features of the synthetic shop",
+        "period_start": "2025-10-01",
+        "period_end": "2026-09-30",
+        "nature": "synthetic"
+      }
+    },
+    "threshold": {
+      "value": 0.6,
+      "unit": "probability",
+      "provenance": {
+        "origin": "Contract example: matrix thresholds chosen on the validation months of the synthetic shop",
+        "period_start": "2025-10-01",
+        "period_end": "2026-09-30",
+        "nature": "synthetic"
+      }
+    },
+    "band": "low",
+    "top_factors": [
+      {
+        "label": "SCORE",
+        "feature": "size_share",
+        "feature_value": 0.8333,
+        "contribution": -0.48,
+        "direction": "lowers",
+        "phrase": "5 of 6 returns were for size"
+      },
+      {
+        "label": "SCORE",
+        "feature": "residual_z",
+        "feature_value": 0.4,
+        "contribution": -0.21,
+        "direction": "lowers",
+        "phrase": "Returns close to what the products predict"
+      },
+      {
+        "label": "SCORE",
+        "feature": "cluster_size",
+        "feature_value": 1,
+        "contribution": -0.12,
+        "direction": "lowers",
+        "phrase": "No linked accounts"
+      }
+    ],
+    "residual_z": {
+      "value": 0.4,
+      "unit": "z_score",
+      "provenance": {
+        "origin": "Contract example: risk model risk-xgb-0.1.0 on decision-time features of the synthetic shop",
+        "period_start": "2025-10-01",
+        "period_end": "2026-09-30",
+        "nature": "synthetic"
+      }
+    },
+    "residual_note": "An indicator of returns beyond what the products predict, not a probability",
+    "favourable": [
+      {
+        "label": "OBSERVED",
+        "statement": "Kept 5 of 11 items in 12 months",
+        "refs": [
+          {
+            "kind": "customer",
+            "id": "C-GIULIA"
+          }
+        ]
+      },
+      {
+        "label": "OBSERVED",
+        "statement": "Returns are for size, with the other size kept",
+        "refs": [
+          {
+            "kind": "order",
+            "id": "ORD-004811"
+          }
+        ]
+      }
+    ],
+    "unfavourable": [
+      {
+        "label": "OBSERVED",
+        "statement": "Return rate 55% of lines in 12 months",
+        "refs": [
+          {
+            "kind": "customer",
+            "id": "C-GIULIA"
+          }
+        ]
+      }
+    ],
+    "model_version": "risk-xgb-0.1.0",
+    "provenance": {
+      "origin": "Contract example: risk model risk-xgb-0.1.0 on decision-time features of the synthetic shop",
+      "period_start": "2025-10-01",
+      "period_end": "2026-09-30",
+      "nature": "synthetic"
+    }
+  },
+  "value": {
+    "value_eur": {
+      "value": 211.85,
+      "unit": "eur",
+      "provenance": {
+        "origin": "Contract example: customer value, 12-month net margin (spec 8.5) of the synthetic shop",
+        "period_start": "2025-10-01",
+        "period_end": "2026-09-30",
+        "nature": "synthetic"
+      }
+    },
+    "threshold": {
+      "value": 185.0,
+      "unit": "eur",
+      "provenance": {
+        "origin": "Contract example: matrix thresholds chosen on the validation months of the synthetic shop",
+        "period_start": "2025-10-01",
+        "period_end": "2026-09-30",
+        "nature": "synthetic"
+      }
+    },
+    "band": "high",
+    "kept_margin_eur": {
+      "value": 286.55,
+      "unit": "eur",
+      "provenance": {
+        "origin": "Contract example: customer value, 12-month net margin (spec 8.5) of the synthetic shop",
+        "period_start": "2025-10-01",
+        "period_end": "2026-09-30",
+        "nature": "synthetic"
+      }
+    },
+    "return_logistics_eur": {
+      "value": 48.0,
+      "unit": "eur",
+      "provenance": {
+        "origin": "Contract example: customer value, 12-month net margin (spec 8.5) of the synthetic shop",
+        "period_start": "2025-10-01",
+        "period_end": "2026-09-30",
+        "nature": "synthetic"
+      }
+    },
+    "coupon_discounts_eur": {
+      "value": 26.7,
+      "unit": "eur",
+      "provenance": {
+        "origin": "Contract example: customer value, 12-month net margin (spec 8.5) of the synthetic shop",
+        "period_start": "2025-10-01",
+        "period_end": "2026-09-30",
+        "nature": "synthetic"
+      }
+    },
+    "legend": "Customer value orients benefits and service. It is never a signal of abuse and never feeds the risk score."
+  },
+  "linked_accounts": null,
+  "orders": {
+    "orders": [
+      {
+        "order_id": "ORD-001204",
+        "placed_at": "2025-10-12T20:15:00Z",
+        "delivered_on": "2025-10-16",
+        "total_eur": 151.3,
+        "coupon_code": "WELCOME-G7Q2",
+        "coupon_kind": "welcome",
+        "terms_snapshot_id": "TS-001204",
+        "lines": [
+          {
+            "line_id": "L-001204-1",
+            "variant_id": "V-DRS-1042",
+            "category": "Dresses",
+            "size": "40",
+            "price_eur": 89.0,
+            "returned": false,
+            "return_id": null,
+            "return_reason": null
+          },
+          {
+            "line_id": "L-001204-2",
+            "variant_id": "V-DRS-1042",
+            "category": "Dresses",
+            "size": "42",
+            "price_eur": 89.0,
+            "returned": true,
+            "return_id": "RET-000031",
+            "return_reason": "size"
+          }
+        ]
+      },
+      {
+        "order_id": "ORD-001877",
+        "placed_at": "2025-12-03T20:15:00Z",
+        "delivered_on": "2025-12-07",
+        "total_eur": 158.0,
+        "coupon_code": null,
+        "coupon_kind": null,
+        "terms_snapshot_id": "TS-001877",
+        "lines": [
+          {
+            "line_id": "L-001877-1",
+            "variant_id": "V-JNS-0311",
+            "category": "Jeans",
+            "size": "W27",
+            "price_eur": 79.0,
+            "returned": false,
+            "return_id": null,
+            "return_reason": null
+          },
+          {
+            "line_id": "L-001877-2",
+            "variant_id": "V-JNS-0311",
+            "category": "Jeans",
+            "size": "W28",
+            "price_eur": 79.0,
+            "returned": true,
+            "return_id": "RET-000038",
+            "return_reason": "size"
+          }
+        ]
+      },
+      {
+        "order_id": "ORD-002650",
+        "placed_at": "2026-02-20T20:15:00Z",
+        "delivered_on": "2026-02-24",
+        "total_eur": 378.0,
+        "coupon_code": null,
+        "coupon_kind": null,
+        "terms_snapshot_id": "TS-002650",
+        "lines": [
+          {
+            "line_id": "L-002650-1",
+            "variant_id": "V-COA-0907",
+            "category": "Coats",
+            "size": "M",
+            "price_eur": 189.0,
+            "returned": false,
+            "return_id": null,
+            "return_reason": null
+          },
+          {
+            "line_id": "L-002650-2",
+            "variant_id": "V-COA-0907",
+            "category": "Coats",
+            "size": "L",
+            "price_eur": 189.0,
+            "returned": true,
+            "return_id": "RET-000047",
+            "return_reason": "size"
+          }
+        ]
+      },
+      {
+        "order_id": "ORD-003412",
+        "placed_at": "2026-05-08T20:15:00Z",
+        "delivered_on": "2026-05-12",
+        "total_eur": 90.0,
+        "coupon_code": null,
+        "coupon_kind": null,
+        "terms_snapshot_id": "TS-003412",
+        "lines": [
+          {
+            "line_id": "L-003412-1",
+            "variant_id": "V-SHI-0520",
+            "category": "Shirts",
+            "size": "S",
+            "price_eur": 45.0,
+            "returned": true,
+            "return_id": "RET-000063",
+            "return_reason": "size"
+          },
+          {
+            "line_id": "L-003412-2",
+            "variant_id": "V-SHI-0520",
+            "category": "Shirts",
+            "size": "XS",
+            "price_eur": 45.0,
+            "returned": false,
+            "return_id": null,
+            "return_reason": null
+          }
+        ]
+      },
+      {
+        "order_id": "ORD-004120",
+        "placed_at": "2026-07-15T20:15:00Z",
+        "delivered_on": "2026-07-19",
+        "total_eur": 65.0,
+        "coupon_code": null,
+        "coupon_kind": null,
+        "terms_snapshot_id": "TS-004120",
+        "lines": [
+          {
+            "line_id": "L-004120-1",
+            "variant_id": "V-SAN-0118",
+            "category": "Shoes",
+            "size": "38",
+            "price_eur": 65.0,
+            "returned": true,
+            "return_id": "RET-000072",
+            "return_reason": "not_as_expected"
+          }
+        ]
+      },
+      {
+        "order_id": "ORD-004811",
+        "placed_at": "2026-09-20T20:15:00Z",
+        "delivered_on": "2026-09-24",
+        "total_eur": 238.0,
+        "coupon_code": null,
+        "coupon_kind": null,
+        "terms_snapshot_id": "TS-004811",
+        "lines": [
+          {
+            "line_id": "L-004811-1",
+            "variant_id": "V-DRS-2210",
+            "category": "Dresses",
+            "size": "M",
+            "price_eur": 119.0,
+            "returned": false,
+            "return_id": null,
+            "return_reason": null
+          },
+          {
+            "line_id": "L-004811-2",
+            "variant_id": "V-DRS-2210",
+            "category": "Dresses",
+            "size": "L",
+            "price_eur": 119.0,
+            "returned": true,
+            "return_id": "RET-000101",
+            "return_reason": "size"
+          }
+        ]
+      }
+    ],
+    "lines": {
+      "value": 11,
+      "unit": "count",
+      "provenance": {
+        "origin": "Contract example: Navigli Fashion synthetic shop, generator seed 42",
+        "period_start": "2025-10-01",
+        "period_end": "2026-09-30",
+        "nature": "synthetic"
+      }
+    },
+    "returned_lines": {
+      "value": 6,
+      "unit": "count",
+      "provenance": {
+        "origin": "Contract example: Navigli Fashion synthetic shop, generator seed 42",
+        "period_start": "2025-10-01",
+        "period_end": "2026-09-30",
+        "nature": "synthetic"
+      }
+    },
+    "return_rate": {
+      "value": 0.5455,
+      "unit": "ratio",
+      "provenance": {
+        "origin": "Contract example: Navigli Fashion synthetic shop, generator seed 42",
+        "period_start": "2025-10-01",
+        "period_end": "2026-09-30",
+        "nature": "synthetic"
+      }
+    },
+    "provenance": {
+      "origin": "Contract example: Navigli Fashion synthetic shop, generator seed 42",
+      "period_start": "2025-10-01",
+      "period_end": "2026-09-30",
+      "nature": "synthetic"
+    }
+  },
+  "order_terms": {
+    "terms_snapshot_id": "TS-004811",
+    "order_id": "ORD-004811",
+    "customer_id": "C-GIULIA",
+    "source": "base",
+    "quadrant_at_purchase": null,
+    "terms": {
+      "return_window_days": 30,
+      "free_return_shipping": true,
+      "instant_refund": true,
+      "free_size_exchange": true,
+      "coupons_enabled": true
+    },
+    "base_terms": {
+      "return_window_days": 30,
+      "free_return_shipping": true,
+      "instant_refund": true,
+      "free_size_exchange": true,
+      "coupons_enabled": true
+    },
+    "review_at": null,
+    "shown_at": "2026-09-20T20:14:00Z",
+    "confirmed_at": "2026-09-20T20:15:00Z"
+  },
+  "decision": {
+    "decision_id": "DEC-000101-1",
+    "return_id": "RET-000101",
+    "version": 1,
+    "revision_trigger": "initial",
+    "supersedes": null,
+    "superseded_by": null,
+    "created_at": "2026-09-27T10:14:00Z",
+    "as_of": "2026-09-30T18:00:00Z",
+    "decided_on": "2026-09-27",
+    "state": "proposed",
+    "path": "withdrawal",
+    "evidence_quality": "sufficient",
+    "quadrant": "Q1",
+    "missing_evidence": [],
+    "proposed_levers": [
+      {
+        "id": "return_window_days",
+        "value": 60,
+        "scope": "future_orders"
+      },
+      {
+        "id": "priority_size_exchange",
+        "value": true,
+        "scope": "all_orders"
+      }
+    ],
+    "levers": [
+      {
+        "id": "return_window_days",
+        "value": 60,
+        "scope": "future_orders"
+      },
+      {
+        "id": "priority_size_exchange",
+        "value": true,
+        "scope": "all_orders"
+      }
+    ],
+    "lever_ids": [
+      "return_window_days:60",
+      "priority_size_exchange:true"
+    ],
+    "requires_approval": false,
+    "in_force": true,
+    "current_return_terms": {
+      "return_window_days": 30,
+      "free_return_shipping": true,
+      "instant_refund": true,
+      "free_size_exchange": true,
+      "coupons_enabled": true
+    },
+    "future_terms": {
+      "return_window_days": 60,
+      "free_return_shipping": true,
+      "instant_refund": true,
+      "free_size_exchange": true,
+      "coupons_enabled": true
+    },
+    "refund_due_by": "2026-10-11",
+    "review_at": null,
+    "approver": null,
+    "approved_at": null,
+    "override_reason": null,
+    "override_category": null,
+    "coupon_rule": null,
+    "diminished_value_claim": null,
+    "inputs": {
+      "order_id": "ORD-004811",
+      "customer_id": "C-GIULIA",
+      "reason": "size",
+      "delivered_on": "2026-09-24",
+      "notice_on": "2026-09-27",
+      "order_terms": {
+        "return_window_days": 30,
+        "free_return_shipping": true,
+        "instant_refund": true,
+        "free_size_exchange": true,
+        "coupons_enabled": true
+      },
+      "base_terms": {
+        "return_window_days": 30,
+        "free_return_shipping": true,
+        "instant_refund": true,
+        "free_size_exchange": true,
+        "coupons_enabled": true
+      },
+      "risk": 0.12,
+      "value_eur": 211.85,
+      "evidence_quality": "sufficient",
+      "cluster_id": null,
+      "thresholds": {
+        "risk": 0.6,
+        "value_eur": 185.0
+      },
+      "provenance": {
+        "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+        "period_start": "2025-10-01",
+        "period_end": "2026-09-27",
+        "nature": "synthetic"
+      }
+    },
+    "rules_version": "policy-2026-10-12",
+    "model_versions": {
+      "risk": "risk-xgb-0.1.0",
+      "propensity": "propensity-xgb-0.1.0",
+      "graph": "graph-0.1.0",
+      "evidence": "evidence-0.1.0",
+      "value": "value-0.1.0"
+    },
+    "assumptions_version": "assumptions-v1",
+    "generation_id": "GEN-000101-1"
+  },
+  "alternatives": [
+    {
+      "kind": "proposal",
+      "summary": "Q1 upgrade for future orders: 60-day window and priority size exchange",
+      "recommended": true,
+      "levers": [
+        {
+          "id": "return_window_days",
+          "value": 60,
+          "scope": "future_orders"
+        },
+        {
+          "id": "priority_size_exchange",
+          "value": true,
+          "scope": "all_orders"
+        }
+      ],
+      "net_benefit": {
+        "assumptions": {
+          "period": "12 months after the decision, customer C-GIULIA",
+          "logistics_returns_avoided": 0,
+          "logistics_cost_per_return_eur": 8.0,
+          "undue_discounts_avoided": 0,
+          "avg_undue_discount_eur": 12.0,
+          "minutes_saved": 0.0,
+          "hourly_cost_eur": 22.0,
+          "incentives_eur": 6.0,
+          "system_cost_eur": 0.5,
+          "error_cost_eur": 0.0,
+          "abandonment_margin_lost_eur": 0.0,
+          "incremental_margin_eur": 32.0,
+          "version": "DEC-000101-1/proposal",
+          "basis": "simulated",
+          "based_on": "assumptions-v1"
+        },
+        "components": [
+          {
+            "id": "logistics_costs_avoided",
+            "amount": {
+              "value": 0.0,
+              "unit": "eur",
+              "provenance": {
+                "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+                "period_start": "2026-10-01",
+                "period_end": "2027-09-30",
+                "nature": "simulated"
+              }
+            }
+          },
+          {
+            "id": "undue_discounts_avoided",
+            "amount": {
+              "value": 0.0,
+              "unit": "eur",
+              "provenance": {
+                "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+                "period_start": "2026-10-01",
+                "period_end": "2027-09-30",
+                "nature": "simulated"
+              }
+            }
+          },
+          {
+            "id": "time_saved_value",
+            "amount": {
+              "value": 0.0,
+              "unit": "eur",
+              "provenance": {
+                "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+                "period_start": "2026-10-01",
+                "period_end": "2027-09-30",
+                "nature": "simulated"
+              }
+            }
+          },
+          {
+            "id": "incremental_margin",
+            "amount": {
+              "value": 32.0,
+              "unit": "eur",
+              "provenance": {
+                "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+                "period_start": "2026-10-01",
+                "period_end": "2027-09-30",
+                "nature": "simulated"
+              }
+            }
+          },
+          {
+            "id": "incentives",
+            "amount": {
+              "value": -6.0,
+              "unit": "eur",
+              "provenance": {
+                "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+                "period_start": "2026-10-01",
+                "period_end": "2027-09-30",
+                "nature": "simulated"
+              }
+            }
+          },
+          {
+            "id": "system_cost",
+            "amount": {
+              "value": -0.5,
+              "unit": "eur",
+              "provenance": {
+                "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+                "period_start": "2026-10-01",
+                "period_end": "2027-09-30",
+                "nature": "simulated"
+              }
+            }
+          },
+          {
+            "id": "error_cost",
+            "amount": {
+              "value": 0.0,
+              "unit": "eur",
+              "provenance": {
+                "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+                "period_start": "2026-10-01",
+                "period_end": "2027-09-30",
+                "nature": "simulated"
+              }
+            }
+          },
+          {
+            "id": "abandonment_margin_lost",
+            "amount": {
+              "value": 0.0,
+              "unit": "eur",
+              "provenance": {
+                "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+                "period_start": "2026-10-01",
+                "period_end": "2027-09-30",
+                "nature": "simulated"
+              }
+            }
+          }
+        ],
+        "total": {
+          "value": 25.5,
+          "unit": "eur",
+          "provenance": {
+            "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+            "period_start": "2026-10-01",
+            "period_end": "2027-09-30",
+            "nature": "simulated"
+          }
+        }
+      }
+    },
+    {
+      "kind": "size_exchange",
+      "summary": "Offer size M of the same dress instead of a refund",
+      "recommended": false,
+      "levers": [],
+      "net_benefit": {
+        "assumptions": {
+          "period": "12 months after the decision, customer C-GIULIA",
+          "logistics_returns_avoided": 0,
+          "logistics_cost_per_return_eur": 8.0,
+          "undue_discounts_avoided": 0,
+          "avg_undue_discount_eur": 12.0,
+          "minutes_saved": 0.0,
+          "hourly_cost_eur": 22.0,
+          "incentives_eur": 0.0,
+          "system_cost_eur": 0.5,
+          "error_cost_eur": 2.0,
+          "abandonment_margin_lost_eur": 0.0,
+          "incremental_margin_eur": 20.9,
+          "version": "DEC-000101-1/size_exchange",
+          "basis": "simulated",
+          "based_on": "assumptions-v1"
+        },
+        "components": [
+          {
+            "id": "logistics_costs_avoided",
+            "amount": {
+              "value": 0.0,
+              "unit": "eur",
+              "provenance": {
+                "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+                "period_start": "2026-10-01",
+                "period_end": "2027-09-30",
+                "nature": "simulated"
+              }
+            }
+          },
+          {
+            "id": "undue_discounts_avoided",
+            "amount": {
+              "value": 0.0,
+              "unit": "eur",
+              "provenance": {
+                "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+                "period_start": "2026-10-01",
+                "period_end": "2027-09-30",
+                "nature": "simulated"
+              }
+            }
+          },
+          {
+            "id": "time_saved_value",
+            "amount": {
+              "value": 0.0,
+              "unit": "eur",
+              "provenance": {
+                "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+                "period_start": "2026-10-01",
+                "period_end": "2027-09-30",
+                "nature": "simulated"
+              }
+            }
+          },
+          {
+            "id": "incremental_margin",
+            "amount": {
+              "value": 20.9,
+              "unit": "eur",
+              "provenance": {
+                "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+                "period_start": "2026-10-01",
+                "period_end": "2027-09-30",
+                "nature": "simulated"
+              }
+            }
+          },
+          {
+            "id": "incentives",
+            "amount": {
+              "value": 0.0,
+              "unit": "eur",
+              "provenance": {
+                "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+                "period_start": "2026-10-01",
+                "period_end": "2027-09-30",
+                "nature": "simulated"
+              }
+            }
+          },
+          {
+            "id": "system_cost",
+            "amount": {
+              "value": -0.5,
+              "unit": "eur",
+              "provenance": {
+                "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+                "period_start": "2026-10-01",
+                "period_end": "2027-09-30",
+                "nature": "simulated"
+              }
+            }
+          },
+          {
+            "id": "error_cost",
+            "amount": {
+              "value": -2.0,
+              "unit": "eur",
+              "provenance": {
+                "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+                "period_start": "2026-10-01",
+                "period_end": "2027-09-30",
+                "nature": "simulated"
+              }
+            }
+          },
+          {
+            "id": "abandonment_margin_lost",
+            "amount": {
+              "value": 0.0,
+              "unit": "eur",
+              "provenance": {
+                "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+                "period_start": "2026-10-01",
+                "period_end": "2027-09-30",
+                "nature": "simulated"
+              }
+            }
+          }
+        ],
+        "total": {
+          "value": 18.4,
+          "unit": "eur",
+          "provenance": {
+            "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+            "period_start": "2026-10-01",
+            "period_end": "2027-09-30",
+            "nature": "simulated"
+          }
+        }
+      }
+    },
+    {
+      "kind": "current_terms",
+      "summary": "Keep the current terms",
+      "recommended": false,
+      "levers": [],
+      "net_benefit": {
+        "assumptions": {
+          "period": "12 months after the decision, customer C-GIULIA",
+          "logistics_returns_avoided": 0,
+          "logistics_cost_per_return_eur": 8.0,
+          "undue_discounts_avoided": 0,
+          "avg_undue_discount_eur": 12.0,
+          "minutes_saved": 0.0,
+          "hourly_cost_eur": 22.0,
+          "incentives_eur": 0.0,
+          "system_cost_eur": 0.0,
+          "error_cost_eur": 0.0,
+          "abandonment_margin_lost_eur": 0.0,
+          "incremental_margin_eur": 0.0,
+          "version": "DEC-000101-1/current_terms",
+          "basis": "simulated",
+          "based_on": "assumptions-v1"
+        },
+        "components": [
+          {
+            "id": "logistics_costs_avoided",
+            "amount": {
+              "value": 0.0,
+              "unit": "eur",
+              "provenance": {
+                "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+                "period_start": "2026-10-01",
+                "period_end": "2027-09-30",
+                "nature": "simulated"
+              }
+            }
+          },
+          {
+            "id": "undue_discounts_avoided",
+            "amount": {
+              "value": 0.0,
+              "unit": "eur",
+              "provenance": {
+                "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+                "period_start": "2026-10-01",
+                "period_end": "2027-09-30",
+                "nature": "simulated"
+              }
+            }
+          },
+          {
+            "id": "time_saved_value",
+            "amount": {
+              "value": 0.0,
+              "unit": "eur",
+              "provenance": {
+                "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+                "period_start": "2026-10-01",
+                "period_end": "2027-09-30",
+                "nature": "simulated"
+              }
+            }
+          },
+          {
+            "id": "incremental_margin",
+            "amount": {
+              "value": 0.0,
+              "unit": "eur",
+              "provenance": {
+                "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+                "period_start": "2026-10-01",
+                "period_end": "2027-09-30",
+                "nature": "simulated"
+              }
+            }
+          },
+          {
+            "id": "incentives",
+            "amount": {
+              "value": 0.0,
+              "unit": "eur",
+              "provenance": {
+                "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+                "period_start": "2026-10-01",
+                "period_end": "2027-09-30",
+                "nature": "simulated"
+              }
+            }
+          },
+          {
+            "id": "system_cost",
+            "amount": {
+              "value": 0.0,
+              "unit": "eur",
+              "provenance": {
+                "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+                "period_start": "2026-10-01",
+                "period_end": "2027-09-30",
+                "nature": "simulated"
+              }
+            }
+          },
+          {
+            "id": "error_cost",
+            "amount": {
+              "value": 0.0,
+              "unit": "eur",
+              "provenance": {
+                "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+                "period_start": "2026-10-01",
+                "period_end": "2027-09-30",
+                "nature": "simulated"
+              }
+            }
+          },
+          {
+            "id": "abandonment_margin_lost",
+            "amount": {
+              "value": 0.0,
+              "unit": "eur",
+              "provenance": {
+                "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+                "period_start": "2026-10-01",
+                "period_end": "2027-09-30",
+                "nature": "simulated"
+              }
+            }
+          }
+        ],
+        "total": {
+          "value": 0.0,
+          "unit": "eur",
+          "provenance": {
+            "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+            "period_start": "2026-10-01",
+            "period_end": "2027-09-30",
+            "nature": "simulated"
+          }
+        }
+      }
+    }
+  ],
+  "draft_status": "ready",
+  "draft": {
+    "generation": {
+      "generation_id": "GEN-000101-1",
+      "generation_path": "model",
+      "fallback_reason": null,
+      "llm_mode": "mock",
+      "served_from": "live",
+      "model": "mock",
+      "model_calls": 1,
+      "validator_codes": [],
+      "created_at": "2026-09-27T10:15:00Z",
+      "latency_ms": 14
+    },
+    "tone": "warm",
+    "decision_echo": {
+      "path": "withdrawal",
+      "quadrant": "Q1",
+      "lever_ids": [
+        "return_window_days:60",
+        "priority_size_exchange:true"
+      ]
+    },
+    "explanation": [
+      {
+        "label": "SCORE",
+        "fact_ids": [
+          "F1",
+          "F3"
+        ],
+        "text": "Risk score 0.12; size_share at 0.83 lowers it: a contribution to the score, not a cause.",
+        "facts": [
+          {
+            "id": "F1",
+            "entity": "customer",
+            "metric": "risk_score",
+            "value": 0.12,
+            "period": "as of 2026-09-27",
+            "nature": "synthetic"
+          },
+          {
+            "id": "F3",
+            "entity": "customer",
+            "metric": "size_share",
+            "value": 0.83,
+            "period": "as of 2026-09-27",
+            "nature": "synthetic"
+          }
+        ]
+      },
+      {
+        "label": "OBSERVED",
+        "fact_ids": [
+          "F2"
+        ],
+        "text": "Customer net margin over the period: 211.85 EUR, above the value threshold.",
+        "facts": [
+          {
+            "id": "F2",
+            "entity": "customer",
+            "metric": "value_eur_12m",
+            "value": 211.85,
+            "period": "12 months to 2026-09-27",
+            "nature": "synthetic"
+          }
+        ]
+      },
+      {
+        "label": "OBSERVED",
+        "fact_ids": [
+          "F6"
+        ],
+        "text": "The size return came 3 days after delivery.",
+        "facts": [
+          {
+            "id": "F6",
+            "entity": "return",
+            "metric": "days_since_delivery",
+            "value": 3,
+            "period": "2026-09-24/2026-09-27",
+            "nature": "synthetic"
+          }
+        ]
+      }
+    ],
+    "message": {
+      "sentence_ids": [
+        "OPEN_CHOICE",
+        "HELP_SIZE",
+        "CLOSE_HAPPY"
+      ],
+      "legal_clause_kind": null,
+      "texts": [
+        {
+          "lang": "it",
+          "fields": {
+            "terms": "reso entro 60 giorni dalla consegna; cambio taglia con priorità",
+            "amount": null,
+            "deadline": "11 ottobre 2026"
+          },
+          "text": "Ciao, grazie per aver scelto i nostri capi. Abbiamo registrato la tua richiesta di reso e il rimborso è previsto per il 11 ottobre 2026. Per i tuoi prossimi ordini ti offriamo condizioni di reso migliori: reso entro 60 giorni dalla consegna; cambio taglia con priorità. Se ti serve un'altra taglia, rispondi pure a questo messaggio. Siamo felici di averti tra i nostri clienti."
+        },
+        {
+          "lang": "en",
+          "fields": {
+            "terms": "returns within 60 days of delivery; priority size exchange",
+            "amount": null,
+            "deadline": "11 October 2026"
+          },
+          "text": "Hello, thank you for choosing our clothes. We have registered your return request and your refund is due by 11 October 2026. For your next orders we are glad to offer you better return terms: returns within 60 days of delivery; priority size exchange. If you need a different size, just reply to this message. We are happy to have you with us."
+        }
+      ]
+    },
+    "provenance": {
+      "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+      "period_start": "2025-10-01",
+      "period_end": "2026-09-27",
+      "nature": "synthetic"
+    }
+  },
+  "product_anomaly": null,
+  "revisions": [
+    {
+      "decision_id": "DEC-000101-1",
+      "version": 1,
+      "trigger": "initial",
+      "created_at": "2026-09-27T10:14:00Z",
+      "quadrant": "Q1",
+      "risk": {
+        "value": 0.12,
+        "unit": "probability",
+        "provenance": {
+          "origin": "Contract example: risk model risk-xgb-0.1.0 on decision-time features of the synthetic shop",
+          "period_start": "2025-10-01",
+          "period_end": "2026-09-30",
+          "nature": "synthetic"
+        }
+      },
+      "lever_ids": [
+        "return_window_days:60",
+        "priority_size_exchange:true"
+      ],
+      "state": "proposed"
+    }
+  ],
+  "provenance": {
+    "origin": "Contract example: Navigli Fashion synthetic shop, generator seed 42",
+    "period_start": "2025-10-01",
+    "period_end": "2026-09-30",
+    "nature": "synthetic"
+  }
+}

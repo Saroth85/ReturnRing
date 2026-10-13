@@ -1,0 +1,18 @@
+{
+  "decision_id": "DEC-000105-1",
+  "action": "override",
+  "levers": [
+    {
+      "id": "free_return_shipping",
+      "value": false,
+      "scope": "future_orders"
+    }
+  ],
+  "message": {
+    "lang": "it",
+    "sentence_ids": null
+  },
+  "override_reason": "Try charging the return shipping",
+  "override_category": "other",
+  "approver": "sara"
+}

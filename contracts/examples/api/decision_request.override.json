@@ -1,0 +1,16 @@
+{
+  "decision_id": "DEC-000108-1",
+  "action": "override",
+  "levers": [],
+  "message": {
+    "lang": "it",
+    "sentence_ids": [
+      "OPEN_MESSAGE",
+      "CONTACT_TEAM",
+      "CLOSE_DAY"
+    ]
+  },
+  "override_reason": "The customer explained two wrong deliveries by phone; restriction not justified",
+  "override_category": "customer_context",
+  "approver": "sara"
+}

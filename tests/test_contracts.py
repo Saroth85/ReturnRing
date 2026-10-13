@@ -6,6 +6,7 @@ ADR-13 records the data contracts v2 tested here.
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
@@ -39,7 +40,12 @@ from policy.types import Quadrant, ReturnReason
 from tests.factories import THRESHOLDS, TODAY, request, scores
 
 ROOT = Path(__file__).resolve().parents[1]
-NAMES = ["llm_case", "llm_output", "checkout_evaluate_response", "decision_request", "calibration"]
+NAMES = ["llm_case", "llm_output", "calibration"]
+# The HTTP API contract (decision body, checkout response...) is generated from apps/api/schemas.py
+# into contracts/json/api/ and tested in tests/test_api_schemas.py (ADR-15).
+API_DECISION = "api/decision_request"
+API_DECISION_EXAMPLE = "api/decision_request.marco_approve"
+API_CHECKOUT = "api/checkout_evaluate_response"
 
 
 def schema_of(name: str) -> dict[str, Any]:
@@ -66,14 +72,40 @@ def test_json_schema_is_valid_and_example_conforms(name: str) -> None:
     Draft202012Validator(schema).validate(example_of(name))
 
 
-def test_override_requires_a_reason() -> None:
-    assert errors("decision_request", {"action": "override", "approver": "sara"})
+@pytest.mark.parametrize("action", ["override", "reject", "lift"])
+def test_override_requires_a_reason(action: str) -> None:
+    """US-306: the JSON Schema of the decision body itself refuses an override, a rejection or a
+    lift without a reason and a category, and an override without levers."""
+    body = example_of("api/decision_request.override")
+    body.update(action=action, levers=[] if action == "override" else None)
+    if action == "lift":
+        body["message"] = None  # a review sends no message (ADR-15 section 11)
+    assert not errors(API_DECISION, body)
+    for key in ("override_reason", "override_category"):
+        assert errors(API_DECISION, {**body, key: None}), key
+        assert errors(API_DECISION, {k: v for k, v in body.items() if k != key}), key
+    assert errors(API_DECISION, {**body, "override_reason": "   "})
+    assert errors(API_DECISION, {"action": action, "approver": "sara"})
+    if action == "override":
+        assert errors(API_DECISION, {**body, "levers": None})
+        assert errors(API_DECISION, {k: v for k, v in body.items() if k != "levers"})
+    else:
+        lever = {"id": "instant_refund", "value": False, "scope": "future_orders"}
+        assert errors(API_DECISION, {**body, "levers": [lever]})
+
+
+def test_approve_takes_no_reason_in_the_decision_schema() -> None:
+    body = example_of(API_DECISION_EXAMPLE)
+    assert not errors(API_DECISION, body)
+    assert errors(API_DECISION, {**body, "override_reason": "why not"})
+    assert errors(API_DECISION, {**body, "override_category": "other"})
 
 
 def test_future_window_never_below_14_in_checkout_contract() -> None:
-    example = example_of("checkout_evaluate_response")
+    example = example_of("api/checkout_evaluate_response.marco")
+    assert not errors(API_CHECKOUT, example)
     example["terms"]["return_window_days"] = 7
-    assert errors("checkout_evaluate_response", example)
+    assert errors(API_CHECKOUT, example)
 
 
 # ---- Lever catalogue (POL-7, CON-05) -----------------------------------------------------------
@@ -82,14 +114,44 @@ def test_future_window_never_below_14_in_checkout_contract() -> None:
 def test_lever_schema_in_json_contracts_is_generated_from_the_catalogue() -> None:
     expected = lever_json_schema()
     assert schema_of("llm_case")["properties"]["levers"]["items"] == expected
-    assert schema_of("decision_request")["properties"]["levers"]["items"] == expected
+    levers = schema_of(API_DECISION)["properties"]["levers"]["anyOf"][0]
+    assert levers["items"] == expected
+
+
+def untitled(schema: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in schema.items() if k != "title"}
+
+
+def _lever_arrays(node: Any) -> Iterator[Any]:
+    """Every array of lever objects in a JSON Schema."""
+    if isinstance(node, dict):
+        if node.get("type") == "array" and node.get("items") == lever_json_schema():
+            yield node
+        for child in node.values():
+            yield from _lever_arrays(child)
+    elif isinstance(node, list):
+        for child in node:
+            yield from _lever_arrays(child)
 
 
 def test_lever_arrays_in_json_contracts_are_generated_from_the_catalogue() -> None:
+    """Every lever array of llm_case and of the API schemas (ADR-15) is lever_list_json_schema:
+    each lever at most once, bounded for guided decoding."""
     expected = lever_list_json_schema()
-    assert expected["uniqueItems"] is True
+    assert expected["uniqueItems"] is True and expected["maxItems"] == len(LEVERS)
     assert schema_of("llm_case")["properties"]["levers"] == expected
-    assert schema_of("decision_request")["properties"]["levers"] == expected
+    levers, null = schema_of(API_DECISION)["properties"]["levers"]["anyOf"]
+    assert untitled(levers) == expected and null == {"type": "null"}
+    found = 0
+    for path in sorted((ROOT / "contracts" / "json").rglob("*.json")):
+        for array in _lever_arrays(json.loads(path.read_text(encoding="utf-8"))):
+            assert untitled(array) == expected, path.name  # pydantic adds the field title
+            found += 1
+    assert found >= 10
+
+
+# The JSON documents with a lever array: llm_case and the API decision body (ADR-15).
+LEVER_DOCS = {"llm_case": "llm_case", API_DECISION: API_DECISION_EXAMPLE}
 
 
 ALL_ORDERS = [lever.id for lever in LEVERS if lever.scope == "all_orders"]
@@ -101,8 +163,8 @@ def test_all_orders_levers_only_carry_true(lever_id: str) -> None:
     assert ALL_ORDERS == ["free_size_exchange", "priority_size_exchange"]
     upgrade = {"id": lever_id, "value": True, "scope": "all_orders"}
     restriction = {"id": lever_id, "value": False, "scope": "all_orders"}
-    for name in ("llm_case", "decision_request"):
-        doc = example_of(name)
+    for name, example in LEVER_DOCS.items():
+        doc = example_of(example)
         doc["levers"] = [upgrade]
         assert errors(name, doc) == []
         doc["levers"] = [restriction]
@@ -128,8 +190,8 @@ def test_all_orders_levers_only_carry_true(lever_id: str) -> None:
 )
 def test_lever_arrays_reject_duplicate_ids(levers: list[dict[str, Any]]) -> None:
     """C6: one value per lever in a decision."""
-    for name in ("llm_case", "decision_request"):
-        doc = example_of(name)
+    for name, example in LEVER_DOCS.items():
+        doc = example_of(example)
         doc["levers"] = levers
         assert errors(name, doc), name
         doc["levers"] = levers[:1]
@@ -164,9 +226,9 @@ def test_lever_contract_rejects_unknown_ids_wrong_scopes_and_values(lever: dict[
     case = example_of("llm_case")
     case["levers"] = [lever]
     assert errors("llm_case", case)
-    body = example_of("decision_request")
+    body = example_of(API_DECISION_EXAMPLE)
     body["levers"] = [lever]
-    assert errors("decision_request", body)
+    assert errors(API_DECISION, body)
 
 
 def golden_q4_decision() -> Any:
@@ -441,6 +503,37 @@ def test_llm_output_schema_and_python_model_reject_the_same_outputs(mutate: Any)
     assert errors("llm_output", output)
     with pytest.raises(ValueError):
         LlmOutput.model_validate(output)
+
+
+def test_api_drafts_store_the_llm_output_contract() -> None:
+    """ADR-14 inside ADR-15 (findings B2, B3): an API draft stores what llm_output holds, with
+    the same limits (statements of label, fact_ids and text; phrasebook ids), plus the cited
+    facts in the fact shape of llm_case. One contract, generated on both sides."""
+    output = schema_of("llm_output")["properties"]
+    defs = schema_of("api/case_card")["$defs"]
+    statement = defs["ExplanationStatement"]["properties"]
+    llm_statement = output["operator_explanation"]["items"]["properties"]
+    assert set(statement) == {*llm_statement, "facts"}
+    assert statement["label"]["enum"] == llm_statement["label"]["enum"]
+    assert statement["fact_ids"]["maxItems"] == llm_statement["fact_ids"]["maxItems"]
+    assert statement["text"]["maxLength"] == llm_statement["text"]["maxLength"]
+    explanation = defs["DraftView"]["properties"]["explanation"]
+    assert explanation["maxItems"] == output["operator_explanation"]["maxItems"]
+    ids = defs["CustomerMessageView"]["properties"]["sentence_ids"]
+    llm_ids = output["customer_message"]["properties"]["sentence_ids"]
+    for key in ("minItems", "maxItems"):
+        assert ids[key] == llm_ids[key], key
+    assert ids["items"]["enum"] == llm_ids["items"]["enum"]
+    fact = defs["CitedFact"]["properties"]
+    llm_fact = schema_of("llm_case")["properties"]["facts"]["items"]["properties"]
+    assert set(fact) == set(llm_fact)
+    for key in ("id", "metric"):
+        assert fact[key]["pattern"] == llm_fact[key]["pattern"], key
+    for key in ("entity", "nature"):
+        assert fact[key]["enum"] == llm_fact[key]["enum"], key
+    assert fact["period"]["maxLength"] == llm_fact["period"]["maxLength"]
+    echo = defs["DecisionEchoView"]["properties"]["lever_ids"]
+    assert echo["maxItems"] == output["decision_echo"]["properties"]["lever_ids"]["maxItems"]
 
 
 # ---- Calibration contract (ASOS aggregates for the generator) ---------------------------------

@@ -368,24 +368,35 @@ Volumi attesi: circa 80.000 ordini, 200.000 righe, 60.000 resi. Tutto sta in mem
 
 ### Contratti dati tra moduli
 
+Contratti versione 2 (ADR-13), in `contracts/`. Ogni file Parquet porta nei metadati nome e versione del contratto e la provenienza (origine, periodo, natura: reale, sintetica, simulata); `contracts/io.py` lo valida in scrittura (tipi, nullabilità, enumerazioni, intervalli, ordine temporale) e lo scrive in modo deterministico.
+
 | File o tabella | Produttore | Consumatori | Colonne chiave |
 | --- | --- | --- | --- |
-| raw/asos\_{customers,variants,events}.parquet | ingest | propensity, profiler | ID hash, feature del paper, label reso |
-| calibration.json | profiler | generator | Distribuzioni di tasso di reso, motivi, tasso per variante |
-| store/customers.parquet | generator | tutti | customer\_id, created\_at, display\_name |
-| store/identifiers.parquet | generator | graph | customer\_id, kind, value\_hash |
-| store/orders.parquet, order\_lines.parquet | generator | features, value, checkout | order\_id, line\_id, variant\_id, size, price, coupon\_code, delivered\_at |
-| store/returns.parquet | generator | features, queue | return\_id, line\_id, requested\_at, reason, days\_since\_delivery |
-| truth/labels.parquet | generator | solo valutazione | customer\_id, behaviour, ring\_id |
-| features/clusters.parquet | graph | risk | customer\_id, cluster\_id, cluster\_size, shared\_strong\_ids, welcome\_coupons |
+| raw/asos\_events.parquet | ingest | propensity, profiler | split, variant\_hash, customer\_hash, is\_returned |
+| raw/asos\_{customers,variants}.parquet | ingest | propensity, profiler | split, hash, vendite, resi, tasso, quote dei 13 motivi mascherati (D e D2); varianti: tipo, brand, prezzo, sconto; is\_male, shipping\_country, year\_of\_birth solo descrittive |
+| calibration.json | profiler | generator | Solo aggregati con provenienza: tassi complessivi, per tipo di prodotto quote e quantili di prezzo e tasso, quote dei motivi, acquisti per cliente, copertura dei join |
+| store/customers.parquet | generator | tutti | customer\_id, display\_name (solo UI), event\_at = creazione |
+| store/identifiers.parquet | generator | graph | customer\_id, kind, value\_hash, event\_at = primo uso |
+| store/variants.parquet | generator | features, anomalies, checkout | variant\_id, product\_id, category, brand, price\_eur, size\_range (solo catalogo osservabile) |
+| store/terms\_snapshots.parquet | generator | policy, checkout, agente | terms\_snapshot\_id, order\_id, source (base o decisione), quadrant\_at\_purchase, condizioni |
+| store/orders.parquet, order\_lines.parquet | generator | features, value, checkout | order\_id, line\_id, variant\_id, size, price, coupon\_code, terms\_snapshot\_id |
+| store/deliveries.parquet | generator | features, policy | order\_id, event\_at = consegna |
+| store/returns.parquet | generator | features, queue | return\_id, line\_id, reason, days\_since\_delivery, event\_at = richiesta |
+| store/return\_events.parquet | generator | features, queue | return\_id, state (notified, shipped\_or\_proof, received, refunded, rejected), event\_at |
+| store/coupons.parquet | generator | graph, value | coupon\_code, customer\_id, kind, discount\_eur, order\_id del riscatto (una riga all'emissione, una al riscatto) |
+| truth/labels.parquet, truth/variants.parquet | generator | solo job offline di addestramento e valutazione | behaviour, ring\_id, family\_id, scenario; base\_return\_rate, defective, defect\_reason, defect\_start, defect\_end |
+| features/links.parquet | graph | risk, API (US-203, US-302, US-310) | customer\_a, customer\_b, kinds, weight, weight\_decayed, first/last\_shared\_at, n\_shared\_events, max\_sharers, disputed |
+| features/clusters.parquet | graph | risk | customer\_id, cluster\_id, cluster\_size, shared\_strong\_ids, welcome\_coupons, n\_distinct\_cards, creation\_spread\_days, welcome\_coupons\_per\_account, cluster\_return\_rate, strong\_id\_share |
 | features/customer\_features.parquet | features | risk, value | tassi, quote motivi, residuo, tempi di reso |
-| scores/scores.parquet | risk, value | policy, API | customer\_id, risk, value\_eur, clv\_eur, quadrant, shap\_top3, model\_version |
+| scores/scores.parquet | risk, value | policy, API | customer\_id, risk, evidence\_quality, value\_eur, quadrant, shap\_top3, model\_version |
 | decisions, audit\_log, outbox (PostgreSQL) | API | UI, export | decision\_id, return\_id, path, evidence\_quality, alternatives, levers, requires\_approval, approver, review\_at, rules\_version, model\_versions, llm\_output, created\_at |
-| features/product\_anomalies.parquet | anomalies | API, attività di catalogo | variant\_id, reason, week, observed, expected, z, n, status |
+| features/product\_anomalies.parquet | anomalies | API, attività di catalogo | variant\_id, reason, week, observed, expected, z, n, status (open, task\_opened, resolved) |
 
-Regola di separazione: i servizi in esecuzione non montano la cartella truth/. Un test lo verifica (US-103), così la valutazione non può contaminare il prodotto.
+Le leve viaggiano come oggetti {id, value, scope} del catalogo `contracts/levers.py` e, quando serve un identificatore unico, come stringa "id:value" del motore (per esempio instant\_refund:false); il welcome\_coupon dell'appendice 19.B è coupons\_enabled.
 
-Regola temporale: ogni tabella di eventi ha le colonne event\_at e available\_at, e ogni feature si calcola filtrando available\_at fino all'istante della decisione. Al checkout, per esempio, motivo ed esito di un reso futuro non esistono e non possono entrare nel modello.
+Regola di separazione: i servizi in esecuzione (api, ui, demo) non montano la cartella truth/; solo i job offline di addestramento e valutazione la leggono. Un test lo verifica (US-103), così la valutazione non può contaminare il prodotto.
+
+Regola temporale: ogni tabella di eventi ha le colonne event\_at e available\_at, ogni riga contiene solo fatti noti al suo available\_at, e ogni feature si calcola filtrando available\_at fino all'istante della decisione. Consegna e stati del reso sono quindi eventi a sé. Al checkout, per esempio, motivo ed esito di un reso futuro non esistono e non possono entrare nel modello.
 
 ## 8. Modelli e algoritmi
 
@@ -1111,7 +1122,7 @@ and drafts messages; a human approves restrictive actions. Full spec: docs/spec.
     The legal clause is fixed text from llm/legal_clause.py.
 11. Say "linked accounts", never "same person". Every number shown carries origin, period and nature
     (real, synthetic, simulated).
-12. Running services never read data/truth/. Ground truth is for evaluation only.
+12. Running services (api, ui, demo) never read data/truth/; only offline training and evaluation jobs do.
 13. Report every experiment as it is, regressions included. Same splits for every model.
 14. UI, README and code comments in English. Customer messages in Italian and English.
 15. Allowed licenses: MIT, BSD, Apache-2.0, ISC, PSF, PostgreSQL; data CC BY 4.0. No secrets in git.
@@ -1292,6 +1303,7 @@ Rules:
 
 | Data | Modifica | Dove |
 | --- | --- | --- |
+| 13 ott 2026 | Contratti dati v2: consegne e stati del reso come eventi separati, catalogo varianti, legami, ground truth delle varianti e scenario, contratti ASOS e di calibrazione, catalogo delle leve, metadati di provenienza; regola 12 precisata | 7, 19.A, ADR-13 |
 | 13 ott 2026 | Due protocolli di valutazione su ASOS (D-03); età esclusa dai punteggi; D-05 risolta | 1, 3, 5, 6, 7, 8.1, 12, 16, 18, 19.A, ADR-10, ADR-11 |
 | 12 ott 2026 | KPI riformulato come beneficio netto; il rimborso dovuto non è mai un risparmio | 1, 3, 8.10, 16, 17 |
 | 12 ott 2026 | Residuo calcolato su un riferimento di prodotto e coorte | 8.1, 8.2, US-206, MOD-09 |

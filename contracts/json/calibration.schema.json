@@ -1,0 +1,291 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Generator calibration: ASOS GraphReturns aggregates (profiler US-101, generator US-102)",
+  "description": "Aggregates only, never row-level data: the ASOS dataset is not redistributed (ADR-13). Prices in GBP as in the source; return-rate quantiles are weighted by sales.",
+  "type": "object",
+  "required": [
+    "contract_version",
+    "provenance",
+    "splits",
+    "overall",
+    "product_types",
+    "reason_shares",
+    "purchases_per_customer",
+    "join_coverage"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "share": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "quantiles": {
+      "type": "object",
+      "required": [
+        "p10",
+        "p25",
+        "p50",
+        "p75",
+        "p90"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "p10": {
+          "type": "number",
+          "minimum": 0
+        },
+        "p25": {
+          "type": "number",
+          "minimum": 0
+        },
+        "p50": {
+          "type": "number",
+          "minimum": 0
+        },
+        "p75": {
+          "type": "number",
+          "minimum": 0
+        },
+        "p90": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "rate_quantiles": {
+      "type": "object",
+      "required": [
+        "p10",
+        "p25",
+        "p50",
+        "p75",
+        "p90"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "p10": {
+          "$ref": "#/$defs/share"
+        },
+        "p25": {
+          "$ref": "#/$defs/share"
+        },
+        "p50": {
+          "$ref": "#/$defs/share"
+        },
+        "p75": {
+          "$ref": "#/$defs/share"
+        },
+        "p90": {
+          "$ref": "#/$defs/share"
+        }
+      }
+    },
+    "date": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    }
+  },
+  "properties": {
+    "contract_version": {
+      "const": "2.0.0"
+    },
+    "provenance": {
+      "type": "object",
+      "required": [
+        "origin",
+        "period",
+        "nature"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "origin": {
+          "type": "string",
+          "minLength": 1
+        },
+        "period": {
+          "type": "object",
+          "required": [
+            "start",
+            "end"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "start": {
+              "$ref": "#/$defs/date"
+            },
+            "end": {
+              "$ref": "#/$defs/date"
+            }
+          }
+        },
+        "nature": {
+          "enum": [
+            "real",
+            "synthetic",
+            "simulated"
+          ]
+        }
+      }
+    },
+    "splits": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "train",
+          "test"
+        ]
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "overall": {
+      "type": "object",
+      "required": [
+        "event_label_rate",
+        "product_sales_weighted_return_rate",
+        "n_events",
+        "n_customers",
+        "n_variants"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "event_label_rate": {
+          "$ref": "#/$defs/share",
+          "description": "Share of purchase events labelled returned"
+        },
+        "product_sales_weighted_return_rate": {
+          "$ref": "#/$defs/share",
+          "description": "Sum of variant returns over sum of variant sales"
+        },
+        "n_events": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "n_customers": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "n_variants": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "product_types": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "variant_share",
+          "sales_share",
+          "price_quantiles_gbp",
+          "return_rate_quantiles"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "variant_share": {
+            "$ref": "#/$defs/share"
+          },
+          "sales_share": {
+            "$ref": "#/$defs/share"
+          },
+          "price_quantiles_gbp": {
+            "$ref": "#/$defs/quantiles"
+          },
+          "return_rate_quantiles": {
+            "$ref": "#/$defs/rate_quantiles"
+          }
+        }
+      }
+    },
+    "reason_shares": {
+      "description": "Share of returns by masked ASOS reason code, weighted by returns; the second 'D' of the source is D2",
+      "type": "object",
+      "required": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E",
+        "D2",
+        "F",
+        "G",
+        "H",
+        "I",
+        "J",
+        "K",
+        "L"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "A": {
+          "$ref": "#/$defs/share"
+        },
+        "B": {
+          "$ref": "#/$defs/share"
+        },
+        "C": {
+          "$ref": "#/$defs/share"
+        },
+        "D": {
+          "$ref": "#/$defs/share"
+        },
+        "E": {
+          "$ref": "#/$defs/share"
+        },
+        "D2": {
+          "$ref": "#/$defs/share"
+        },
+        "F": {
+          "$ref": "#/$defs/share"
+        },
+        "G": {
+          "$ref": "#/$defs/share"
+        },
+        "H": {
+          "$ref": "#/$defs/share"
+        },
+        "I": {
+          "$ref": "#/$defs/share"
+        },
+        "J": {
+          "$ref": "#/$defs/share"
+        },
+        "K": {
+          "$ref": "#/$defs/share"
+        },
+        "L": {
+          "$ref": "#/$defs/share"
+        }
+      }
+    },
+    "purchases_per_customer": {
+      "$ref": "#/$defs/quantiles"
+    },
+    "join_coverage": {
+      "type": "object",
+      "required": [
+        "events_with_customer",
+        "events_with_variant",
+        "events_with_both"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "events_with_customer": {
+          "$ref": "#/$defs/share"
+        },
+        "events_with_variant": {
+          "$ref": "#/$defs/share"
+        },
+        "events_with_both": {
+          "$ref": "#/$defs/share"
+        }
+      }
+    }
+  }
+}

@@ -10,6 +10,8 @@ from datetime import date
 from decimal import Decimal
 from enum import StrEnum
 
+from contracts.levers import LEVERS, LeverObject, format_lever_id
+
 
 class ReturnReason(StrEnum):
     SIZE = "size"
@@ -97,27 +99,45 @@ class Levers:
     size_advice: bool
     priority_size_exchange: bool = False  # Q1 only: free size exchange "with priority"
 
-    def lever_ids(self, base: ReturnTerms) -> list[str]:
-        """Stable identifiers of the levers that differ from the merchant base policy."""
-        ids: list[str] = []
+    @classmethod
+    def standard(cls, base: ReturnTerms) -> Levers:
+        """The merchant base terms with the standard services: the reference for differences."""
+        return cls(
+            future_terms=base,
+            cluster_coupons_disabled=False,
+            transparency_notice=False,
+            size_advice=True,
+        )
+
+    def values(self) -> dict[str, int | bool]:
+        """Value of every lever, keyed by its id in the lever catalogue (contracts/levers.py)."""
         t = self.future_terms
-        if t.return_window_days != base.return_window_days:
-            ids.append(f"return_window_days:{t.return_window_days}")
-        if t.free_return_shipping != base.free_return_shipping:
-            ids.append(f"free_return_shipping:{str(t.free_return_shipping).lower()}")
-        if t.instant_refund != base.instant_refund:
-            ids.append(f"instant_refund:{str(t.instant_refund).lower()}")
-        if t.free_size_exchange != base.free_size_exchange:
-            ids.append(f"free_size_exchange:{str(t.free_size_exchange).lower()}")
-        if t.coupons_enabled != base.coupons_enabled:
-            ids.append(f"coupons_enabled:{str(t.coupons_enabled).lower()}")
-        if self.cluster_coupons_disabled:
-            ids.append("cluster_coupons_disabled:true")
-        if self.transparency_notice:
-            ids.append("transparency_notice:true")
-        if self.priority_size_exchange:
-            ids.append("priority_size_exchange:true")
-        return ids
+        return {
+            "return_window_days": t.return_window_days,
+            "free_return_shipping": t.free_return_shipping,
+            "instant_refund": t.instant_refund,
+            "free_size_exchange": t.free_size_exchange,
+            "coupons_enabled": t.coupons_enabled,
+            "cluster_coupons_disabled": self.cluster_coupons_disabled,
+            "transparency_notice": self.transparency_notice,
+            "size_advice": self.size_advice,
+            "priority_size_exchange": self.priority_size_exchange,
+        }
+
+    def to_contract(self, base: ReturnTerms) -> list[LeverObject]:
+        """The levers that differ from the standard levers on `base`, as {id, value, scope}
+        objects in catalogue order (ADR-13): the `levers` of llm_case and decision_request."""
+        mine, standard = self.values(), Levers.standard(base).values()
+        return [
+            LeverObject(id=lever.id, value=mine[lever.id], scope=lever.scope)
+            for lever in LEVERS
+            if mine[lever.id] != standard[lever.id]
+        ]
+
+    def lever_ids(self, base: ReturnTerms) -> list[str]:
+        """Stable "id:value" identifiers of the levers that differ from the merchant base policy,
+        for example "instant_refund:false"; the decision echo of the LLM must match them."""
+        return [format_lever_id(x["id"], x["value"]) for x in self.to_contract(base)]
 
 
 @dataclass(frozen=True)

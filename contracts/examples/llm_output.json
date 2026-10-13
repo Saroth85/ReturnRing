@@ -3,7 +3,12 @@
     "path": "withdrawal",
     "quadrant": "Q4",
     "lever_ids": [
-      "instant_refund:false"
+      "return_window_days:14",
+      "free_return_shipping:false",
+      "instant_refund:false",
+      "coupons_enabled:false",
+      "cluster_coupons_disabled:true",
+      "transparency_notice:true"
     ]
   },
   "operator_explanation": "OBSERVED: 7 linked accounts used the welcome coupon. SCORE: risk 0.87.",

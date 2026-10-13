@@ -18,6 +18,16 @@
           "title": "Version",
           "type": "integer"
         },
+        "state": {
+          "enum": [
+            "proposed",
+            "approved",
+            "overridden",
+            "rejected"
+          ],
+          "title": "State",
+          "type": "string"
+        },
         "quadrant": {
           "anyOf": [
             {
@@ -83,6 +93,7 @@
       "required": [
         "decision_id",
         "version",
+        "state",
         "quadrant",
         "evidence_quality",
         "risk",
@@ -93,6 +104,69 @@
         "active_links"
       ],
       "title": "CaseSnapshot",
+      "type": "object"
+    },
+    "CitedFact": {
+      "additionalProperties": false,
+      "description": "A fact of the llm_case, built by code from the engine inputs (llm/case.py, ADR-14) and\nstored with the draft as it was at generation time: the UI shows its entity, metric, value,\nperiod and nature next to the statement that cites it (US-305).",
+      "properties": {
+        "id": {
+          "pattern": "^F[1-9][0-9]?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "entity": {
+          "enum": [
+            "customer",
+            "return",
+            "order",
+            "cluster",
+            "policy"
+          ],
+          "title": "Entity",
+          "type": "string"
+        },
+        "metric": {
+          "pattern": "^[a-z][a-z0-9_]{0,63}$",
+          "title": "Metric",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Value"
+        },
+        "period": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Period",
+          "type": "string"
+        },
+        "nature": {
+          "enum": [
+            "real",
+            "synthetic",
+            "simulated"
+          ],
+          "title": "Nature",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "entity",
+        "metric",
+        "value",
+        "period",
+        "nature"
+      ],
+      "title": "CitedFact",
       "type": "object"
     },
     "ClaimView": {
@@ -144,6 +218,172 @@
         "rule_id"
       ],
       "title": "ClaimView",
+      "type": "object"
+    },
+    "CouponRuleApplication": {
+      "additionalProperties": false,
+      "description": "The general coupon rule applied to one cluster (US-402, LEG-09): proposed with a\ndecision, confirmed by the person who approves it, always reversible, with the review date\nof that decision (US-607).\n\nin_force says whether the block applies to the linked accounts at as_of (the time the\napplication was served): confirmed, not reversed, and before its review date (UTC days). It\nlapses at the review date like the restriction that applied it. The API reverses it when the\nversion that applied it is lifted (DecisionResult.coupon_application) or superseded by a\nrecompute; a person reverses it on request (rectification). as_of and in_force are computed\nwhen served, not stored.",
+      "properties": {
+        "application_id": {
+          "maxLength": 96,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:~-]*$",
+          "title": "Application Id",
+          "type": "string"
+        },
+        "rule_version": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Rule Version",
+          "type": "string"
+        },
+        "cluster_id": {
+          "maxLength": 96,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:~-]*$",
+          "title": "Cluster Id",
+          "type": "string"
+        },
+        "decision_id": {
+          "maxLength": 96,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:~-]*$",
+          "title": "Decision Id",
+          "type": "string"
+        },
+        "affected_customer_ids": {
+          "items": {
+            "maxLength": 96,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:~-]*$",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Affected Customer Ids",
+          "type": "array"
+        },
+        "state": {
+          "enum": [
+            "proposed",
+            "confirmed",
+            "reversed"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "proposed_at": {
+          "format": "date-time",
+          "title": "Proposed At",
+          "type": "string"
+        },
+        "confirmed_by": {
+          "anyOf": [
+            {
+              "not": {
+                "const": "system"
+              },
+              "pattern": "^[a-z][a-z0-9._-]{1,31}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Confirmed By"
+        },
+        "confirmed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Confirmed At"
+        },
+        "review_at": {
+          "format": "date",
+          "title": "Review At",
+          "type": "string"
+        },
+        "reversible": {
+          "const": true,
+          "default": true,
+          "title": "Reversible",
+          "type": "boolean"
+        },
+        "reversed_by": {
+          "anyOf": [
+            {
+              "not": {
+                "const": "system"
+              },
+              "pattern": "^[a-z][a-z0-9._-]{1,31}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reversed By"
+        },
+        "reversed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reversed At"
+        },
+        "reversal_reason": {
+          "anyOf": [
+            {
+              "maxLength": 1000,
+              "minLength": 3,
+              "pattern": "\\S[\\s\\S]+\\S",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reversal Reason"
+        },
+        "as_of": {
+          "format": "date-time",
+          "title": "As Of",
+          "type": "string"
+        },
+        "in_force": {
+          "title": "In Force",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "application_id",
+        "rule_version",
+        "cluster_id",
+        "decision_id",
+        "affected_customer_ids",
+        "state",
+        "proposed_at",
+        "confirmed_by",
+        "confirmed_at",
+        "review_at",
+        "reversible",
+        "reversed_by",
+        "reversed_at",
+        "reversal_reason",
+        "as_of",
+        "in_force"
+      ],
+      "title": "CouponRuleApplication",
       "type": "object"
     },
     "CouponRuleRef": {
@@ -209,24 +449,37 @@
     },
     "CustomerMessageView": {
       "additionalProperties": false,
-      "description": "A customer message: connective text from the LLM (placeholders only), template fields from\ncode, the fixed legal clause appended by code, and the text the customer receives.",
+      "description": "The customer message of a draft (ADR-14 decision 8): the phrasebook ids the model chose,\nwhether the fixed legal clause is appended (and which), and for each language the template\nfields and the text llm.phrasebook.render_selection composed: opening, the mandatory body\nwritten by code from the decision, the extras, the closing, then the clause.",
       "properties": {
-        "lang": {
-          "enum": [
-            "it",
-            "en"
-          ],
-          "title": "Lang",
-          "type": "string"
-        },
-        "connective_text": {
-          "maxLength": 900,
-          "minLength": 1,
-          "title": "Connective Text",
-          "type": "string"
-        },
-        "fields": {
-          "$ref": "#/$defs/TemplateFields"
+        "sentence_ids": {
+          "items": {
+            "enum": [
+              "OPEN_THANKS",
+              "OPEN_MESSAGE",
+              "OPEN_CHOICE",
+              "OPEN_SORRY_FIT",
+              "OPEN_SORRY_ITEM",
+              "HELP_SIZE",
+              "HELP_ADVICE",
+              "CONTACT_REPLY",
+              "CONTACT_TEAM",
+              "INFO_TERMS",
+              "GUARANTEE_CARE",
+              "GUARANTEE_PHOTO",
+              "THANKS_FEEDBACK",
+              "CLOSE_REGARDS",
+              "CLOSE_VALUED",
+              "CLOSE_HAPPY",
+              "CLOSE_DAY",
+              "CLOSE_SOON",
+              "CLOSE_PATIENCE"
+            ],
+            "type": "string"
+          },
+          "maxItems": 5,
+          "minItems": 2,
+          "title": "Sentence Ids",
+          "type": "array"
         },
         "legal_clause_kind": {
           "anyOf": [
@@ -243,19 +496,20 @@
           ],
           "title": "Legal Clause Kind"
         },
-        "rendered_text": {
-          "maxLength": 4000,
-          "minLength": 1,
-          "title": "Rendered Text",
-          "type": "string"
+        "texts": {
+          "items": {
+            "$ref": "#/$defs/RenderedMessage"
+          },
+          "maxItems": 2,
+          "minItems": 1,
+          "title": "Texts",
+          "type": "array"
         }
       },
       "required": [
-        "lang",
-        "connective_text",
-        "fields",
+        "sentence_ids",
         "legal_clause_kind",
-        "rendered_text"
+        "texts"
       ],
       "title": "CustomerMessageView",
       "type": "object"
@@ -282,6 +536,7 @@
             "minLength": 3,
             "type": "string"
           },
+          "maxItems": 9,
           "title": "Lever Ids",
           "type": "array"
         }
@@ -1481,7 +1736,7 @@
     },
     "DraftView": {
       "additionalProperties": false,
-      "description": "The explanation and messages drafted for a decision (US-304, US-305).",
+      "description": "The draft of a decision version (US-304, US-305, ADR-14): the output of llm.generate for\nthe engine's decision of the version (path, quadrant, proposed levers), validated by\nllm.validator, stored with the facts each statement cites and the messages composed by\nllm.phrasebook. Generated at intake, or again on request (regenerate).",
       "properties": {
         "generation": {
           "$ref": "#/$defs/GenerationInfo"
@@ -1502,18 +1757,16 @@
           "items": {
             "$ref": "#/$defs/ExplanationStatement"
           },
+          "maxItems": 8,
           "minItems": 1,
           "title": "Explanation",
           "type": "array"
         },
-        "messages": {
-          "items": {
-            "$ref": "#/$defs/CustomerMessageView"
-          },
-          "maxItems": 2,
-          "minItems": 1,
-          "title": "Messages",
-          "type": "array"
+        "message": {
+          "$ref": "#/$defs/CustomerMessageView"
+        },
+        "provenance": {
+          "$ref": "#/$defs/Provenance"
         }
       },
       "required": [
@@ -1521,7 +1774,8 @@
         "tone",
         "decision_echo",
         "explanation",
-        "messages"
+        "message",
+        "provenance"
       ],
       "title": "DraftView",
       "type": "object"
@@ -1536,7 +1790,7 @@
     },
     "ExplanationStatement": {
       "additionalProperties": false,
-      "description": "A statement of the operator explanation: observed data, a score contribution or a\nhypothesis to verify (US-305). A statement whose text has a digit names the entity, the\nmetric, the value and the period it cites, and the value appears in the text.",
+      "description": "A statement of the operator explanation (US-305, ADR-14): its label (observed data, a\nscore contribution or a hypothesis to verify), the ids of the code-built facts it cites, its\ntext, and the cited facts themselves, in the order of fact_ids. Every number of the text is\nthe value of a cited fact: llm.validator checks it on every draft (_check_draft).",
       "properties": {
         "label": {
           "enum": [
@@ -1547,80 +1801,42 @@
           "title": "Label",
           "type": "string"
         },
+        "fact_ids": {
+          "items": {
+            "pattern": "^F[1-9][0-9]?$",
+            "type": "string"
+          },
+          "maxItems": 4,
+          "title": "Fact Ids",
+          "type": "array"
+        },
         "text": {
-          "maxLength": 400,
+          "maxLength": 300,
           "minLength": 1,
           "title": "Text",
           "type": "string"
         },
-        "entity": {
-          "anyOf": [
-            {
-              "maxLength": 96,
-              "minLength": 1,
-              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:~-]*$",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Entity"
-        },
-        "metric": {
-          "anyOf": [
-            {
-              "maxLength": 300,
-              "minLength": 1,
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Metric"
-        },
-        "value": {
-          "anyOf": [
-            {
-              "maxLength": 300,
-              "minLength": 1,
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Value"
-        },
-        "period": {
-          "anyOf": [
-            {
-              "maxLength": 300,
-              "minLength": 1,
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Period"
+        "facts": {
+          "items": {
+            "$ref": "#/$defs/CitedFact"
+          },
+          "maxItems": 4,
+          "title": "Facts",
+          "type": "array"
         }
       },
       "required": [
         "label",
+        "fact_ids",
         "text",
-        "entity",
-        "metric",
-        "value",
-        "period"
+        "facts"
       ],
       "title": "ExplanationStatement",
       "type": "object"
     },
     "GenerationInfo": {
       "additionalProperties": false,
-      "description": "How an LLM output was produced (spec 8.7 validator path, US-901 cached label).",
+      "description": "How an LLM output was produced (spec 8.7, US-901 cached label): the path of llm.generate,\nthe model calls, the codes of llm.validator found on the way and, for the template, why.",
       "properties": {
         "generation_id": {
           "maxLength": 96,
@@ -1631,12 +1847,28 @@
         },
         "generation_path": {
           "enum": [
-            "llm",
-            "llm_regenerated",
+            "model",
+            "regenerated",
             "template"
           ],
           "title": "Generation Path",
           "type": "string"
+        },
+        "fallback_reason": {
+          "anyOf": [
+            {
+              "enum": [
+                "decision_echo",
+                "invalid_twice",
+                "unavailable"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Fallback Reason"
         },
         "llm_mode": {
           "enum": [
@@ -1660,19 +1892,30 @@
           "title": "Model",
           "type": "string"
         },
-        "attempts": {
+        "model_calls": {
           "maximum": 2,
           "minimum": 0,
-          "title": "Attempts",
+          "title": "Model Calls",
           "type": "integer"
         },
-        "validator_errors": {
+        "validator_codes": {
           "items": {
-            "maxLength": 300,
-            "minLength": 1,
+            "enum": [
+              "SCHEMA",
+              "CASE_INVALID",
+              "DECISION_ECHO",
+              "UNKNOWN_FACT",
+              "MISSING_FACT",
+              "LABEL_MISMATCH",
+              "UNGROUNDED_NUMBER",
+              "BANNED_TERM",
+              "SCRIPT",
+              "SENTENCE_ID",
+              "WRONG_LANGUAGE"
+            ],
             "type": "string"
           },
-          "title": "Validator Errors",
+          "title": "Validator Codes",
           "type": "array"
         },
         "created_at": {
@@ -1696,11 +1939,12 @@
       "required": [
         "generation_id",
         "generation_path",
+        "fallback_reason",
         "llm_mode",
         "served_from",
         "model",
-        "attempts",
-        "validator_errors",
+        "model_calls",
+        "validator_codes",
         "created_at",
         "latency_ms"
       ],
@@ -1813,6 +2057,36 @@
       "title": "Quadrant",
       "type": "string"
     },
+    "RenderedMessage": {
+      "additionalProperties": false,
+      "description": "The message of one language: the template fields and the text code composed.",
+      "properties": {
+        "lang": {
+          "enum": [
+            "it",
+            "en"
+          ],
+          "title": "Lang",
+          "type": "string"
+        },
+        "fields": {
+          "$ref": "#/$defs/TemplateFields"
+        },
+        "text": {
+          "maxLength": 4000,
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "lang",
+        "fields",
+        "text"
+      ],
+      "title": "RenderedMessage",
+      "type": "object"
+    },
     "ReturnReason": {
       "enum": [
         "size",
@@ -1894,13 +2168,20 @@
     },
     "TemplateFields": {
       "additionalProperties": false,
-      "description": "Values the code fills into the message placeholders (ADR-08): never written by the LLM.",
+      "description": "The values code fills into the placeholders of one language (ADR-08, rule 10):\nllm.messages.template_fields of the decision. A placeholder the decision does not have\n({amount} without a known refund, {terms} when the future terms do not change) is null.",
       "properties": {
         "terms": {
-          "maxLength": 300,
-          "minLength": 1,
-          "title": "Terms",
-          "type": "string"
+          "anyOf": [
+            {
+              "maxLength": 300,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Terms"
         },
         "amount": {
           "anyOf": [
@@ -1975,7 +2256,7 @@
     }
   },
   "additionalProperties": false,
-  "description": "A case recomputed after evidence or a dispute: a new decision version (F7).",
+  "description": "A case recomputed after evidence or a dispute: a new decision version (F7).\n\ncoupon_application is the cluster coupon application of the version superseded, when that\nversion blocked the cluster's coupons and a person had confirmed it (approved or\noverridden): the recompute reverses it in the same transaction (the author of the evidence\nor of the dispute, at the time of the new version), unless it was reversed before. It is\nnull otherwise (finding D4).",
   "properties": {
     "return_id": {
       "maxLength": 96,
@@ -2032,6 +2313,16 @@
     "draft": {
       "$ref": "#/$defs/DraftView"
     },
+    "coupon_application": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CouponRuleApplication"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "audit_entry_ids": {
       "items": {
         "type": "integer"
@@ -2053,6 +2344,7 @@
     "after",
     "decision",
     "draft",
+    "coupon_application",
     "audit_entry_ids",
     "provenance"
   ],

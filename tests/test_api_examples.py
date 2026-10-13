@@ -7,6 +7,7 @@ section 4 are checked one by one.
 
 from __future__ import annotations
 
+import functools
 import json
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
@@ -18,6 +19,10 @@ import pytest
 
 from apps.api import schemas as s
 from llm.decision import serialize_decision
+from llm.legal_clause import required_clause
+from llm.messages import template_fields
+from llm.phrasebook import render_selection
+from llm.validator import check_case, validate
 from policy.engine import (
     NAVIGLI_BASE_TERMS,
     REVIEW_DAYS,
@@ -221,7 +226,8 @@ def test_elena_follows_the_guarantee_path_with_a_catalogue_anomaly() -> None:
     recommended = next(a for a in c.alternatives if a.recommended)
     assert recommended.kind == "product_report"
     assert c.draft is not None
-    assert {m.legal_clause_kind for m in c.draft.messages} == {"guarantee"}
+    assert c.draft.message.legal_clause_kind == "guarantee"
+    assert not any(x.label == "SCORE" for x in c.draft.explanation)  # rule 4
 
 
 def test_override_and_legal_guard_error() -> None:
@@ -350,34 +356,90 @@ def test_simulator_example_reproduces_the_proposal_example() -> None:
     assert [h.version for h in v2.history] == ["assumptions-v2", "assumptions-v1"]
 
 
-DraftItem = tuple[str, s.DraftView, s.DecisionView, Any]
+def example_drafts() -> Iterator[tuple[str, s.DraftView, s.DecisionView]]:
+    """Every draft of the examples, with the decision version it explains."""
+    for path in sorted(EXAMPLES.glob("*.json")):
+        name = path.name.split(".")[0]
+        if name == "index":
+            continue
+        model = s.API_MODELS[name].model_validate_json(path.read_text(encoding="utf-8"))
+        holders = [model, getattr(model, "recompute", None)]
+        for holder in holders:
+            draft = getattr(holder, "draft", None)
+            if isinstance(draft, s.DraftView):
+                yield path.name, draft, holder.decision  # type: ignore[union-attr]
 
 
-def drafts() -> Iterator[DraftItem]:
-    for key in ALL_CASES:
-        c = card(key)
-        assert c.draft is not None
-        yield key, c.draft, c.decision, load(f"case_card.{key}.json")
-    for name in ("recompute_response.rossi_card.json",):
-        r = s.RecomputeResponse.model_validate(load(name))
-        yield name, r.draft, r.decision, load(name)
+DRAFTS = list(example_drafts())
 
 
-@pytest.mark.parametrize("item", list(drafts()), ids=lambda x: x[0])
-def test_drafts_echo_the_engine_decision(
-    item: tuple[str, s.DraftView, s.DecisionView, Any],
+@functools.cache
+def draft_sources() -> dict[str, Any]:
+    """The llm_case and engine decision of every example draft, as the builder made them."""
+    from scripts import build_api_examples as bae
+
+    bae.build()
+    return dict(bae.DRAFT_SOURCES)
+
+
+def test_examples_hold_drafts_of_every_generation_path() -> None:
+    assert len(DRAFTS) >= 16
+    assert {d.generation.generation_path for _, d, _ in DRAFTS} == {
+        "model", "regenerated", "template"
+    }  # fmt: skip
+
+
+@pytest.mark.parametrize(("name", "draft", "view"), DRAFTS, ids=[n for n, _, _ in DRAFTS])
+def test_every_example_draft_is_the_llm_output_for_its_case(
+    name: str, draft: s.DraftView, view: s.DecisionView
 ) -> None:
-    """Rule 1: the draft echoes what llm.decision.serialize_decision makes of the decision (the
-    expectation llm.validator compares the model's echo with)."""
-    _, draft, decision, _ = item
-    policy_decision, _ = s.to_policy_decision(decision)
-    _, expected = serialize_decision(policy_decision, BASE)
-    echo = draft.decision_echo
-    assert (echo.path.value, echo.quadrant.value if echo.quadrant else None) == (
-        expected.path,
-        expected.quadrant,
+    """B2 regression: every example draft was made through llm/ (case -> mock model or template
+    -> validate -> render): llm.validator accepts it against the llm_case it answers, its cited
+    facts are that case's facts, and llm.phrasebook renders its messages identically."""
+    source = draft_sources()[draft.generation.generation_id]
+    assert source.decision_id == view.decision_id
+    case, expected, decision = source.case, source.expected, source.decision
+    assert decision == s.proposal_decision(view)
+    assert serialize_decision(decision, BASE)[1] == expected
+    assert check_case(case, expected) == []
+    result = validate(draft.llm_output(), expected, case)
+    assert result.ok, result.errors
+    facts = {f["id"]: f for f in case["facts"]}
+    for statement in draft.explanation:
+        assert [f.model_dump() for f in statement.facts] == [facts[i] for i in statement.fact_ids]
+    message = draft.message
+    assert [t.lang for t in message.texts] == case["languages"]
+    assert message.legal_clause_kind == required_clause(decision, BASE)
+    for text in message.texts:
+        assert text.text == render_selection(message.sentence_ids, decision, BASE, text.lang)
+        fields = {k: v for k, v in text.fields.model_dump().items() if v is not None}
+        assert fields == template_fields(decision, BASE, text.lang)
+
+
+def test_example_drafts_take_every_path_of_llm_generate() -> None:
+    """The mock answers of the examples make llm.generate take each path: a first answer with
+    ungrounded numbers is regenerated; an answer that misreads the decision falls back to the
+    template at once. The validator codes are the audit record of the path (spec 8.7)."""
+    elena = s.CaseCard.model_validate(load("case_card.elena.json")).draft
+    assert elena is not None
+    assert (elena.generation.generation_path, elena.generation.model_calls) == ("regenerated", 2)
+    assert elena.generation.validator_codes == ["UNGROUNDED_NUMBER"]
+    insufficient = s.CaseCard.model_validate(load("case_card.insufficient.json")).draft
+    assert insufficient is not None
+    g = insufficient.generation
+    assert (g.generation_path, g.fallback_reason, g.model_calls, g.validator_codes) == (
+        "template",
+        "decision_echo",
+        1,
+        ["DECISION_ECHO"],
     )
-    assert sorted(echo.lever_ids) == sorted(expected.lever_ids)
+    marco = s.CaseCard.model_validate(load("case_card.marco.json")).draft
+    assert marco is not None and marco.generation.generation_path == "model"
+    audit = s.AuditPage.model_validate(load("audit_page.json"))
+    record = next(e.after for e in audit.items if e.action == "draft_generated")
+    assert record == s.GenerationAuditState.from_info(
+        marco.generation, "case_draft", "DEC-000102-1"
+    )
 
 
 def test_insufficient_evidence_case_lists_what_is_missing() -> None:
@@ -542,6 +604,30 @@ def test_earlier_decision_versions_keep_their_inputs_and_alternatives() -> None:
     )
 
 
+def audit_decision_ids() -> set[str]:
+    """The decision ids the audit entries name: their decision, and the ids of their typed
+    before and after (DecisionAuditState, GenerationAuditState)."""
+    page = s.AuditPage.model_validate(load("audit_page.json"))
+    ids = {e.decision_id for e in page.items if e.decision_id}
+    for entry in page.items:
+        for payload in (entry.before, entry.after):
+            if isinstance(payload, s.DecisionAuditState | s.GenerationAuditState):
+                ids.add(payload.decision_id)
+    return ids
+
+
+def application_decision_ids() -> set[str]:
+    """The decisions that applied the cluster coupon applications of the examples."""
+    ids: set[str] = set()
+    for name in ("coupon_rules.json", "coupon_rules.after_create.json"):
+        ids |= {
+            a.decision_id for a in s.CouponRulesResponse.model_validate(load(name)).applications
+        }
+    ids.add(s.CouponRuleApplication.model_validate(
+        load("coupon_rule_application.reversed.json")).decision_id)  # fmt: skip
+    return ids
+
+
 def test_every_version_named_in_the_examples_is_served_by_the_mock() -> None:
     """A UI that follows the version chain (supersedes, superseded_by) on the mock server finds
     every version it is pointed to (US-604)."""
@@ -553,6 +639,7 @@ def test_every_version_named_in_the_examples_is_served_by_the_mock() -> None:
     }
     named = {x for _, view in ALL_VIEWS for x in (view.supersedes, view.superseded_by) if x}
     assert named, "the examples hold version chains"
+    named |= audit_decision_ids() | application_decision_ids()  # D9
     assert named <= set(served), sorted(named - set(served))
     records = {
         key: s.DecisionRecord.model_validate(load(name)).decision for key, name in served.items()
@@ -575,7 +662,7 @@ def test_a_review_version_reruns_the_engine_on_the_latest_scores(action: str) ->
     v1 = lorenzo.card.decision
     when = datetime(2026, 9, 30, 19, 10, tzinfo=UTC)
     _, result = bae.review_result(
-        lorenzo.engine, v1, action, "luca", when, entry_id=14, message_id="MSG-000088-2",
+        lorenzo.engine, v1, action, "luca", when, entry_id=14,
         reason="Reviewed at the due date" if action == "lift" else None,
         category="periodic_review" if action == "lift" else None,
     )  # fmt: skip

@@ -165,7 +165,7 @@
     },
     "GenerationInfo": {
       "additionalProperties": false,
-      "description": "How an LLM output was produced (spec 8.7 validator path, US-901 cached label).",
+      "description": "How an LLM output was produced (spec 8.7, US-901 cached label): the path of llm.generate,\nthe model calls, the codes of llm.validator found on the way and, for the template, why.",
       "properties": {
         "generation_id": {
           "maxLength": 96,
@@ -176,12 +176,28 @@
         },
         "generation_path": {
           "enum": [
-            "llm",
-            "llm_regenerated",
+            "model",
+            "regenerated",
             "template"
           ],
           "title": "Generation Path",
           "type": "string"
+        },
+        "fallback_reason": {
+          "anyOf": [
+            {
+              "enum": [
+                "decision_echo",
+                "invalid_twice",
+                "unavailable"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Fallback Reason"
         },
         "llm_mode": {
           "enum": [
@@ -205,19 +221,30 @@
           "title": "Model",
           "type": "string"
         },
-        "attempts": {
+        "model_calls": {
           "maximum": 2,
           "minimum": 0,
-          "title": "Attempts",
+          "title": "Model Calls",
           "type": "integer"
         },
-        "validator_errors": {
+        "validator_codes": {
           "items": {
-            "maxLength": 300,
-            "minLength": 1,
+            "enum": [
+              "SCHEMA",
+              "CASE_INVALID",
+              "DECISION_ECHO",
+              "UNKNOWN_FACT",
+              "MISSING_FACT",
+              "LABEL_MISMATCH",
+              "UNGROUNDED_NUMBER",
+              "BANNED_TERM",
+              "SCRIPT",
+              "SENTENCE_ID",
+              "WRONG_LANGUAGE"
+            ],
             "type": "string"
           },
-          "title": "Validator Errors",
+          "title": "Validator Codes",
           "type": "array"
         },
         "created_at": {
@@ -241,11 +268,12 @@
       "required": [
         "generation_id",
         "generation_path",
+        "fallback_reason",
         "llm_mode",
         "served_from",
         "model",
-        "attempts",
-        "validator_errors",
+        "model_calls",
+        "validator_codes",
         "created_at",
         "latency_ms"
       ],

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import functools
 import json
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
@@ -24,11 +25,17 @@ from contracts.vocab import (
     CLAUSE_KINDS,
     DECISION_AUDIT_ACTIONS,
     DECISION_STATUSES,
+    FALLBACK_REASONS,
+    GENERATION_PATHS,
     HUMAN_ONLY_ACTIONS,
     LANGS,
     REASON_REQUIRED_ACTIONS,
+    VALIDATOR_CODES,
 )
+from llm import messages as llm_messages
+from llm.client import LlmUnavailable, MockClient
 from llm.legal_clause import CLAUSES
+from llm.phrasebook import render_selection
 from policy.engine import NAVIGLI_BASE_TERMS, levers_for
 from policy.legal_guard import check
 from policy.simulator import PROPOSAL_EXAMPLE, net_benefit, sensitivity
@@ -245,6 +252,42 @@ def test_vocabularies_match_their_sources() -> None:
     assert len(get_args(s.AgentTool)) == s.MAX_AGENT_STEPS == 5  # spec 8.8: five read-only tools
 
 
+def test_llm_vocabularies_are_the_llm_layer_ones() -> None:
+    """The generation records use the paths of llm.generate, the codes of llm.validator and its
+    fallback reasons; sentence ids and fact entities are those of the phrasebook and the case."""
+    from llm.case import ENTITIES
+    from llm.generate import GenerationBlocked, GenerationPath, generate
+    from llm.phrasebook import SENTENCE_IDS
+    from llm.validator import Code
+    from tests.llm_factories import make
+
+    assert tuple(p.value for p in GenerationPath) == GENERATION_PATHS
+    assert tuple(c.value for c in Code) == VALIDATOR_CODES
+    assert get_args(s.FactEntity) == ENTITIES
+    schema_ids = schema("case_card")["$defs"]["CustomerMessageView"]["properties"]["sentence_ids"]
+    assert schema_ids["items"]["enum"] == list(SENTENCE_IDS)
+    built = make("Q4")
+    bad = {"decision_echo": {"path": "withdrawal", "quadrant": "Q1", "lever_ids": []}}
+    reasons = {
+        generate(built.case, built.expected, MockClient([LlmUnavailable("down")])).fallback_reason,
+        generate(built.case, built.expected, MockClient(["{}", "{}"])).fallback_reason,
+        generate(
+            built.case,
+            built.expected,
+            MockClient([{**load_llm_output(), **bad}]),
+        ).fallback_reason,
+    }
+    assert reasons == set(FALLBACK_REASONS)
+    assert GenerationBlocked  # a blocked generation has no record: it is a code bug
+
+
+def load_llm_output() -> dict[str, Any]:
+    out: dict[str, Any] = json.loads(
+        (Path(__file__).resolve().parents[1] / "contracts/examples/llm_output.json").read_text()
+    )
+    return out
+
+
 # ---- Provenance and wording (rule 11, US-906) ---------------------------------------------------
 
 
@@ -390,14 +433,16 @@ REJECTED: list[tuple[str, str, Path_, Any]] = [
     ("decision_request.reject.json", "decision_request", ("override_reason",), None),
     ("decision_request.marco_approve.json", "decision_request", ("override_reason",), "why not"),
     ("decision_request.marco_approve.json", "decision_request", ("message",), DELETE),
-    (
-        "decision_request.override.json",
-        "decision_request",
-        ("message", "text"),
-        "Rimborso di 12 euro.",
-    ),  # noqa: E501
-    ("decision_request.override.json", "decision_request", ("message", "text"), "Entro il {date}."),  # noqa: E501
-    ("decision_request.override.json", "decision_request", ("message", "text"), "Sospetta frode."),  # noqa: E501
+    # the operator picks phrasebook ids, never free text (ADR-14 decision 8)
+    ("decision_request.override.json", "decision_request", ("message", "text"),
+     "Rimborso di 12 euro."),
+    ("decision_request.override.json", "decision_request", ("message", "sentence_ids"),
+     ["CLOSE_DAY", "OPEN_THANKS"]),
+    ("decision_request.override.json", "decision_request", ("message", "sentence_ids"),
+     ["OPEN_THANKS", "CONTACT_TEAM", "CONTACT_TEAM", "CLOSE_DAY"]),
+    ("decision_request.override.json", "decision_request", ("message", "sentence_ids"),
+     ["OPEN_THANKS", "Sospetta frode.", "CLOSE_DAY"]),
+    ("decision_request.lift.json", "decision_request", ("message",), {"lang": "it"}),
     # decision invariants (spec 8.6, rules 3 to 5, US-307, US-607)
     ("case_card.marco.json", "case_card", ("decision", "requires_approval"), False),
     ("case_card.marco.json", "case_card", ("decision", "review_at"), None),
@@ -440,26 +485,15 @@ REJECTED: list[tuple[str, str, Path_, Any]] = [
         ("draft", "decision_echo", "lever_ids"),
         ["instant_refund:false"],
     ),  # noqa: E501
-    ("case_card.marco.json", "case_card", ("draft", "messages", 0, "legal_clause_kind"), None),
-    ("case_card.marco.json", "case_card", ("draft", "messages", 0, "rendered_text"), "Ciao."),
-    (
-        "case_card.marco.json",
-        "case_card",
-        ("draft", "messages", 0, "connective_text"),
-        "Rimborso entro 14 giorni.",
-    ),  # noqa: E501
-    (
-        "case_card.marco.json",
-        "case_card",
-        ("draft", "messages", 1, "connective_text"),
-        "We noticed abuse: {terms}.",
-    ),  # noqa: E501
-    (
-        "case_card.marco.json",
-        "case_card",
-        ("draft", "explanation", 2, "text"),
-        "It is the same person.",
-    ),  # noqa: E501
+    ("case_card.marco.json", "case_card", ("draft", "message", "legal_clause_kind"), None),
+    ("case_card.marco.json", "case_card", ("draft", "message", "texts", 0, "text"), "Ciao."),
+    ("case_card.marco.json", "case_card", ("draft", "message", "sentence_ids"),
+     ["OPEN_THANKS", "GUARANTEE_CARE", "CLOSE_REGARDS"]),  # not allowed for Q4
+    ("case_card.marco.json", "case_card", ("draft", "message", "sentence_ids"),
+     ["OPEN_THANKS", "CLOSE_REGARDS"]),  # the texts are of other ids
+    ("case_card.marco.json", "case_card", ("draft", "explanation", 2, "text"),
+     "It is the same person."),
+    ("case_card.marco.json", "case_card", ("draft", "provenance", "nature"), "real"),
     ("case_card.marco.json", "case_card", ("alternatives", 0, "recommended"), False),
     ("case_card.marco.json", "case_card", ("alternatives", 1, "recommended"), True),
     ("case_card.marco.json", "case_card", ("alternatives", 0, "levers"), []),
@@ -502,13 +536,9 @@ REJECTED: list[tuple[str, str, Path_, Any]] = [
     ("case_card.marco.json", "case_card", ("order_terms", "confirmed_at"), None),
     ("case_card.marco.json", "case_card", ("request", "days_since_delivery"), 2),
     ("case_card.marco.json", "case_card", ("revisions", 0, "version"), 2),
-    (
-        "case_card.elena.json",
-        "case_card",
-        ("draft", "messages", 0, "legal_clause_kind"),
-        "withdrawal",
-    ),  # noqa: E501
-    ("case_card.elena.json", "case_card", ("draft", "explanation", 1, "label"), "SCORE"),
+    ("case_card.elena.json", "case_card", ("draft", "message", "legal_clause_kind"),
+     "withdrawal"),
+    ("case_card.elena.json", "case_card", ("draft", "explanation", 0, "label"), "SCORE"),
     ("case_card.elena.json", "case_card", ("product_anomaly", "z", "value"), 3.5),
     ("case_card.elena.json", "case_card", ("product_anomaly", "anomaly_id"), "V-JKT-DEF"),
     ("case_card.giulia.json", "case_card", ("evidence", "components", 0, "passed"), False),
@@ -653,11 +683,21 @@ REJECTED: list[tuple[str, str, Path_, Any]] = [
     # template fields and outbox (rule 10)
     ("decision_result.marco_approved.json", "decision_result", ("outbox_message", "body"),
      "Ciao."),
-    ("decision_result.override.json", "decision_result", ("outbox_message", "connective_text"),
-     "Rimborso entro 14 giorni."),
-    # explanation statements (US-305)
-    ("case_card.marco.json", "case_card", ("draft", "explanation", 0, "metric"), None),
-    ("case_card.marco.json", "case_card", ("draft", "explanation", 0, "value"), "8"),
+    ("decision_result.override.json", "decision_result", ("outbox_message", "sentence_ids"),
+     ["OPEN_THANKS", "GUARANTEE_CARE", "CLOSE_DAY"]),
+    ("decision_result.override.json", "decision_result", ("outbox_message", "fields", "deadline"),
+     "1 gennaio 2027"),
+    ("decision_result.lift.json", "decision_result", ("outbox_message",),
+     load("decision_result.override.json")["outbox_message"]),
+    # explanation statements (US-305, ADR-14): facts are code-built and cited, numbers grounded
+    ("case_card.marco.json", "case_card", ("draft", "explanation", 0, "fact_ids"), ["F2", "F3"]),
+    ("case_card.marco.json", "case_card", ("draft", "explanation", 0, "facts", 0, "value"), 0.5),
+    ("case_card.marco.json", "case_card", ("draft", "explanation", 0, "facts", 0, "nature"),
+     "simulated"),
+    ("case_card.marco.json", "case_card", ("draft", "explanation", 0, "label"), "OBSERVED"),
+    ("case_card.marco.json", "case_card", ("draft", "explanation", 1, "text"),
+     "The cluster has 8 linked accounts, created within 9 days."),
+    ("case_card.marco.json", "case_card", ("draft", "explanation", 1, "facts", 0, "value"), 8),
     # assumption sets (US-602)
     ("case_card.marco.json", "case_card",
      ("alternatives", 0, "net_benefit", "assumptions", "based_on"), "assumptions-v9"),
@@ -785,7 +825,6 @@ def test_lift_takes_a_reason_and_no_levers() -> None:
     body = {
         "decision_id": "DEC-000088-1",
         "action": "lift",
-        "message": {"lang": "it"},
         "override_reason": "Reviewed at the due date: returns back in line",
         "override_category": "periodic_review",
         "approver": "luca",
@@ -806,7 +845,10 @@ def test_review_versions_lift_or_renew_the_restriction() -> None:
     assert (lift.revision_trigger, lift.state, lift.levers) == ("review", "overridden", [])
     assert lift.supersedes is not None and lift.version == 2 and lift.in_force
     renewal = load("decision_result.marco_approved.json")["decision"]
-    renewal.update(revision_trigger="review", version=2, supersedes="DEC-000102-0")
+    renewal.update(
+        revision_trigger="review", version=2, supersedes="DEC-000102-0",
+        created_at=renewal["approved_at"], decided_on=renewal["approved_at"][:10],
+    )  # fmt: skip
     s.DecisionView.model_validate(renewal)  # an approved restriction: a renewal
     proposed = load("case_card.marco.json")["decision"]
     proposed.update(revision_trigger="review", version=2, supersedes="DEC-000102-0")
@@ -843,7 +885,6 @@ def test_renew_takes_no_levers_and_no_reason() -> None:
     body = {
         "decision_id": "DEC-000088-1",
         "action": "renew",
-        "message": {"lang": "it"},
         "approver": "luca",
     }
     s.DecisionRequest.model_validate(body)
@@ -858,52 +899,107 @@ def test_renew_takes_no_levers_and_no_reason() -> None:
         assert not Draft202012Validator(schema("decision_request")).is_valid(doc)
 
 
-# ---- Template fields come from the decision (rule 10, ADR-08) -----------------------------------
+# ---- Drafts and messages come from llm/ (rules 1 and 10, ADR-08, ADR-14) ------------------------
 
 
-def _rerender(message: dict[str, Any], **fields: Any) -> dict[str, Any]:
-    out = {**message, "fields": {**message["fields"], **fields}}
-    mapping = {k: v for k, v in out["fields"].items() if v is not None}
-    out["rendered_text"] = s.render_customer_message(
-        out["connective_text"], mapping, out["lang"], out["legal_clause_kind"]
-    )
+def _refill(text: dict[str, Any], **fields: str) -> dict[str, Any]:
+    """A rendered text with other field values, written into the text too."""
+    out = {**text, "fields": {**text["fields"], **fields}}
+    for key, value in fields.items():
+        out["text"] = out["text"].replace(text["fields"][key], value)
     return out
 
 
 @pytest.mark.parametrize(
-    "fields", [{"deadline": "1 gennaio 2027"}, {"terms": "finestra di reso di 90 giorni"}]
+    "fields", [{"deadline": "1 gennaio 2027"}, {"terms": "reso entro 90 giorni"}]
 )
 def test_draft_fields_are_the_decision_deadline_and_terms(fields: dict[str, str]) -> None:
     card = load("case_card.marco.json")
     s.CaseCard.model_validate(card)
-    card["draft"]["messages"][0] = _rerender(card["draft"]["messages"][0], **fields)
+    texts = card["draft"]["message"]["texts"]
+    texts[0] = _refill(texts[0], **fields)
+    s.CustomerMessageView.model_validate(card["draft"]["message"])  # consistent on its own
     with pytest.raises(ValidationError, match="template fields"):
         s.CaseCard.model_validate(card)
 
 
-def test_renderers_live_in_the_api_contract() -> None:
-    assert s.deadline_text(date(2026, 10, 12), "it") == "12 ottobre 2026"
-    assert s.deadline_text(date(2026, 10, 12), "en") == "12 October 2026"
-    assert s.terms_text(s.Terms.from_policy(NAVIGLI_BASE_TERMS), "en").startswith("30-day")
-
-
-# ---- Explanation statements (US-305) ------------------------------------------------------------
-
-
-def test_a_statement_with_a_number_names_entity_metric_value_and_period() -> None:
-    bare = {"label": "OBSERVED", "text": "Kept 5 of 11 items in 12 months."}
-    with pytest.raises(ValidationError, match="entity, metric, value and period"):
-        s.ExplanationStatement.model_validate(
-            {**bare, "entity": None, "metric": None, "value": None, "period": None}
+def test_the_api_has_no_renderer_of_its_own() -> None:
+    """B2: one source of truth. Template fields, texts and clauses come from llm/."""
+    for name in ("deadline_text", "terms_text", "amount_text", "render_customer_message",
+                 "check_connective_text", "required_clause"):  # fmt: skip
+        assert not hasattr(s, name), name
+    card = s.CaseCard.model_validate(load("case_card.marco.json"))
+    decision = s.proposal_decision(card.decision)
+    for text in card.draft.message.texts if card.draft else ():
+        expected = llm_messages.template_fields(decision, NAVIGLI_BASE_TERMS, text.lang)
+        assert {k: v for k, v in text.fields.model_dump().items() if v is not None} == expected
+        assert text.text == render_selection(
+            card.draft.message.sentence_ids, decision, NAVIGLI_BASE_TERMS, text.lang
         )
-    full = {**bare, "entity": "C-1", "metric": "kept_lines", "value": "5 of 11", "period": "12m"}
-    s.ExplanationStatement.model_validate(full)
-    with pytest.raises(ValidationError, match="value"):
-        s.ExplanationStatement.model_validate({**full, "value": "6 of 11"})
-    s.ExplanationStatement.model_validate(
-        {"label": "HYPOTHESIS", "text": "Verify the shared cards.", "entity": "CL-1",
-         "metric": None, "value": None, "period": None}
-    )  # fmt: skip
+
+
+def test_messages_are_phrasebook_ids_composed_by_code() -> None:
+    """ADR-14 decision 8: a draft carries the ids the model chose, the texts code composed
+    from them in Italian and English, the fields and the clause; free text is refused."""
+    card = load("case_card.marco.json")
+    message = card["draft"]["message"]
+    assert set(message) == {"sentence_ids", "legal_clause_kind", "texts"}
+    assert [t["lang"] for t in message["texts"]] == ["it", "en"]
+    assert message["legal_clause_kind"] == "withdrawal"
+    for text in message["texts"]:
+        assert text["text"].endswith(CLAUSES["withdrawal"][text["lang"]])
+    with pytest.raises(ValidationError):
+        s.CustomerMessageView.model_validate({**message, "connective_text": "Ciao {terms}"})
+    choice = load("decision_request.override.json")["message"]
+    assert set(choice) == {"lang", "sentence_ids"}
+
+
+# ---- Explanation statements (US-305, ADR-14, findings B2 and B3) ---------------------------------
+
+
+def _statement(card: dict[str, Any], index: int) -> dict[str, Any]:
+    out: dict[str, Any] = card["draft"]["explanation"][index]
+    return out
+
+
+def test_a_statement_carries_the_code_built_facts_it_cites() -> None:
+    """Entity, metric, value and period come from the facts of the llm_case, never from text."""
+    card = load("case_card.marco.json")
+    first = _statement(card, 0)
+    assert first["fact_ids"] == [f["id"] for f in first["facts"]]
+    assert {"id", "entity", "metric", "value", "period", "nature"} == set(first["facts"][0])
+    assert first["facts"][0]["metric"] == "risk_score"
+    assert first["facts"][0]["value"] == card["decision"]["inputs"]["risk"]
+    s.ExplanationStatement.model_validate(first)
+    with pytest.raises(ValidationError, match="order of fact_ids"):
+        s.ExplanationStatement.model_validate({**first, "facts": first["facts"][::-1]})
+    with pytest.raises(ValidationError):
+        s.ExplanationStatement.model_validate({**first, "entity": "C-MARCO-1"})
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Risk score 0.87; 9 returns in 12 months.",  # numbers no cited fact holds
+        "Risk score 0.87 from returns 0.83.",  # a value of a fact it does not cite
+        "Risk score 0.9: an estimate.",  # rounded, not the fact
+        "Risk score zero point eight seven.",  # a number in words
+    ],
+)
+def test_every_number_of_a_statement_is_a_cited_value(text: str) -> None:
+    """B3: the value check cannot be satisfied with a blank, a word or a value the statement
+    does not state: llm.validator grounds every number on the facts the statement cites."""
+    card = load("case_card.marco.json")
+    _statement(card, 0)["text"] = text
+    with pytest.raises(ValidationError, match="UNGROUNDED_NUMBER"):
+        s.CaseCard.model_validate(card)
+
+
+def test_a_statement_that_names_another_decision_is_refused() -> None:
+    card = load("case_card.marco.json")
+    _statement(card, 2)["text"] = "The case is in Q2: verify the shared payment cards."
+    with pytest.raises(ValidationError, match="DECISION_ECHO"):
+        s.CaseCard.model_validate(card)
 
 
 # ---- Matrix, checkout terms and link disputes ---------------------------------------------------
@@ -1022,7 +1118,7 @@ def test_lifting_a_cluster_restriction_reverses_its_coupon_application() -> None
     reason = "Rectification asked by the customer: the linked accounts are three colleagues"
     request, result = build_api_examples.review_result(
         build_api_examples.marco().engine, before, "lift", "luca", when,
-        entry_id=30, message_id="MSG-000102-2", reason=reason, category="customer_context",
+        entry_id=30, reason=reason, category="customer_context",
     )  # fmt: skip
     assert request.action == "lift" and request.decision_id == before.decision_id
     app = result.coupon_application
@@ -1054,7 +1150,7 @@ def test_a_restriction_due_for_review_is_renewed_with_a_new_version() -> None:
     assert v1.review_at is not None and not v1.in_force
     when = datetime(2026, 9, 30, 19, 20, tzinfo=UTC)
     request, result = build_api_examples.review_result(
-        lorenzo.engine, v1, "renew", "luca", when, entry_id=15, message_id="MSG-000088-3"
+        lorenzo.engine, v1, "renew", "luca", when, entry_id=15
     )
     assert (request.action, request.levers, request.override_reason) == ("renew", None, None)
     v2 = result.decision
@@ -1068,7 +1164,7 @@ def test_a_restriction_due_for_review_is_renewed_with_a_new_version() -> None:
     assert v2.decided_on == when.date() >= v1.review_at
     assert v2.review_at is not None and v2.review_at > v2.decided_on
     assert result.audit_entry.action == "restriction_renewed"
-    assert result.outbox_message.legal_clause_kind == "withdrawal"
+    assert result.outbox_message is None  # a review sends no message (ADR-15 section 11)
     doc = result.model_dump(mode="json")
     s.DecisionResult.model_validate(doc)
     early = mutated(doc, ("audit_entry", "before", "review_at"), "2026-12-01")
@@ -1099,9 +1195,9 @@ def test_regenerated_draft_fields_are_the_decision_fields() -> None:
     doc = load("regenerate_response.json")
     s.RegenerateResponse.model_validate(doc)
     assert doc["decision"]["decision_id"] == load("regenerate_request.json")["decision_id"]
-    doc["draft"]["messages"][0] = _rerender(
-        doc["draft"]["messages"][0], terms="finestra di reso di 90 giorni"
-    )
+    assert [t["lang"] for t in doc["draft"]["message"]["texts"]] == ["en"]
+    texts = doc["draft"]["message"]["texts"]
+    texts[0] = _refill(texts[0], deadline="1 January 2027")
     with pytest.raises(ValidationError, match="template fields"):
         s.RegenerateResponse.model_validate(doc)
 
@@ -1194,7 +1290,8 @@ NOT_FIGURES: frozenset[tuple[str, str]] = frozenset(
         ("RevisionSummary", "version"),
         ("Terms", "return_window_days"),  # a term of the return policy, not a measurement
         ("Lever", "value"),  # the value of a policy lever (a window in days, a flag)
-        ("GenerationInfo", "attempts"), ("GenerationInfo", "latency_ms"),
+        ("GenerationInfo", "model_calls"), ("GenerationInfo", "latency_ms"),
+        ("GenerationAuditState", "model_calls"),
         ("ToolCallEvent", "seq"), ("ToolCallEvent", "step"),
         ("ToolResultEvent", "seq"), ("ToolResultEvent", "step"),
         ("TokenEvent", "seq"), ("AnswerEvent", "seq"), ("RefusalEvent", "seq"),
@@ -1255,3 +1352,317 @@ def test_every_plain_number_of_a_response_has_a_covering_provenance() -> None:
     }
     assert found <= NOT_FIGURES, sorted(found - NOT_FIGURES)
     assert ("DecisionInputs", "risk") not in found and ("DecisionAuditState", "risk") not in found
+
+
+# ---- Round 3 of the review (findings D1..D9): each probe is a mutation that must be refused --
+
+RENEWED_AT = datetime(2026, 9, 30, 19, 20, tzinfo=UTC)
+
+
+@functools.cache
+def _lorenzo_renewal() -> dict[str, Any]:
+    """The renewal of Lorenzo's lapsed Q3 restriction, as review_result builds it."""
+    lorenzo = build_api_examples.simple_case(build_api_examples.SIMPLE_BY_KEY["lorenzo"])
+    _, result = build_api_examples.review_result(
+        lorenzo.engine, lorenzo.card.decision, "renew", "luca", RENEWED_AT, entry_id=15
+    )
+    return result.model_dump(mode="json")
+
+
+@functools.cache
+def _marco_lift() -> dict[str, Any]:
+    """A lift of Marco's approved Q4 restriction with its cluster coupon application."""
+    approved = s.DecisionResult.model_validate(load("decision_result.marco_approved.json"))
+    _, result = build_api_examples.review_result(
+        build_api_examples.marco().engine, approved.decision, "lift", "luca",
+        datetime(2026, 10, 2, 9, 30, tzinfo=UTC), entry_id=30,
+        reason="Rectification asked by the customer", category="customer_context",
+    )  # fmt: skip
+    return result.model_dump(mode="json")
+
+
+def _renewal() -> dict[str, Any]:
+    return copy.deepcopy(_lorenzo_renewal())
+
+
+def test_d1_an_early_renewal_cannot_move_its_decision_day() -> None:
+    """D1: a renewal two months before the review date, with decided_on moved to 2030 so that
+    the early-renewal rule passes, and a restriction running past the 180-day maximum."""
+    doc = _renewal()
+    s.DecisionResult.model_validate(doc)
+    doc["audit_entry"]["before"]["review_at"] = "2026-12-01"
+    doc["decision"]["decided_on"] = "2030-01-01"
+    doc["decision"]["review_at"] = doc["audit_entry"]["after"]["review_at"] = "2030-06-29"
+    if doc["coupon_application"] is not None:
+        doc["coupon_application"]["review_at"] = "2030-06-29"
+    with pytest.raises(ValidationError, match="decided_on"):
+        s.DecisionResult.model_validate(doc)
+
+
+def test_d1_a_decision_is_decided_no_later_than_it_is_created() -> None:
+    """D1: Marco's approved Q4 with decided_on 2030-01-01 and review_at 2030-06-29 would be in
+    force from 2026-09-30 for almost four years."""
+    view = load("decision_result.marco_approved.json")["decision"]
+    s.DecisionView.model_validate(view)
+    far = {**view, "decided_on": "2030-01-01", "review_at": "2030-06-29"}
+    with pytest.raises(ValidationError, match="decided_on"):
+        s.DecisionView.model_validate(far)
+
+
+def test_d1_a_review_version_is_decided_on_the_day_of_the_review() -> None:
+    """D1: a lift whose decided_on is moved back to June."""
+    doc = load("decision_result.lift.json")
+    s.DecisionResult.model_validate(doc)
+    doc["decision"]["decided_on"] = "2026-06-01"
+    with pytest.raises(ValidationError, match="decided_on"):
+        s.DecisionResult.model_validate(doc)
+
+
+def test_d2_checkout_terms_and_coupon_blocks_have_a_bounded_review_date() -> None:
+    """D2: a review date in 2099 would make the restriction never lapse."""
+    doc = load("checkout_evaluate_response.marco.json")
+    s.CheckoutEvaluateResponse.model_validate(doc)
+    with pytest.raises(ValidationError, match="review"):
+        s.CheckoutEvaluateResponse.model_validate({**doc, "review_at": "2099-01-01"})
+    block = {**doc["coupon_block"], "review_at": "2099-01-01"}
+    with pytest.raises(ValidationError, match="review"):
+        s.CheckoutEvaluateResponse.model_validate({**doc, "coupon_block": block})
+    snapshot = load("checkout_confirm_response.giulia.json")["terms_snapshot"]
+    restricted = {
+        **snapshot,
+        "source": "DEC-000102-1",
+        "quadrant_at_purchase": "Q4",
+        "terms": {**snapshot["terms"], "instant_refund": False},
+        "review_at": "2026-12-27",
+    }
+    s.TermsSnapshotView.model_validate(restricted)
+    with pytest.raises(ValidationError, match="review"):
+        s.TermsSnapshotView.model_validate({**restricted, "review_at": "2099-01-01"})
+
+
+def test_d2_a_coupon_application_has_a_bounded_review_date() -> None:
+    app = load("coupon_rules.json")["applications"][0]
+    s.CouponRuleApplication.model_validate(app)
+    with pytest.raises(ValidationError, match="review"):
+        s.CouponRuleApplication.model_validate({**app, "review_at": "2099-01-01", "in_force": True})
+
+
+@pytest.mark.parametrize(
+    ("shown_at", "confirmed_at"),
+    [
+        ("2026-12-26T23:00:00Z", "2027-03-01T10:00:00Z"),  # two months after the review date
+        ("2026-12-26T23:50:00Z", "2026-12-27T00:05:00Z"),  # across midnight on the review day
+    ],
+)
+def test_d3_a_snapshot_is_confirmed_before_its_review_date(
+    shown_at: str, confirmed_at: str
+) -> None:
+    """D3: terms of a restriction shown before its review date cannot bind an order placed on
+    or after it (/confirm answers 409 and the client evaluates again)."""
+    snapshot = load("case_card.giulia.json")["order_terms"]
+    doc = {
+        **snapshot,
+        "source": "DEC-000102-1",
+        "quadrant_at_purchase": "Q4",
+        "terms": {**snapshot["terms"], "instant_refund": False},
+        "review_at": "2026-12-27",
+        "shown_at": shown_at,
+        "order_id": "ORD-999999",
+        "confirmed_at": "2026-12-26T23:30:00Z" if confirmed_at > "2027" else shown_at,
+    }
+    s.TermsSnapshotView.model_validate(doc)
+    with pytest.raises(ValidationError, match="review"):
+        s.TermsSnapshotView.model_validate({**doc, "confirmed_at": confirmed_at})
+
+
+def test_d4_a_cluster_block_names_its_coupon_application_in_the_audit_state() -> None:
+    state = load("decision_result.marco_approved.json")["audit_entry"]["after"]
+    s.DecisionAuditState.model_validate(state)
+    assert "cluster_coupons_disabled:true" in state["lever_ids"]
+    with pytest.raises(ValidationError, match="coupon application"):
+        s.DecisionAuditState.model_validate({**state, "coupon_application_id": None})
+    other = {**state, "lever_ids": ["return_window_days:14"]}
+    with pytest.raises(ValidationError, match="coupon application"):
+        s.DecisionAuditState.model_validate(other)
+
+
+def test_d4_a_lift_cannot_drop_the_reversal_of_the_coupon_block() -> None:
+    doc = copy.deepcopy(_marco_lift())
+    s.DecisionResult.model_validate(doc)
+    doc["audit_entry"]["before"]["coupon_application_id"] = None
+    doc["coupon_application"] = None
+    with pytest.raises(ValidationError):
+        s.DecisionResult.model_validate(doc)
+
+
+def _reversed_application(recompute: dict[str, Any]) -> dict[str, Any]:
+    when = recompute["decision"]["created_at"]
+    return {
+        "application_id": "CRA-000040",
+        "rule_version": "coupon-rule-v1",
+        "cluster_id": "CL-000588",
+        "decision_id": recompute["before"]["decision_id"],
+        "affected_customer_ids": ["C-ROSSI-CARD-1", "C-ROSSI-CARD-2", "C-ROSSI-CARD-3"],
+        "state": "reversed",
+        "proposed_at": "2026-09-26T11:03:00Z",
+        "confirmed_by": "sara",
+        "confirmed_at": "2026-09-26T12:00:00Z",
+        "review_at": "2026-12-25",
+        "reversible": True,
+        "reversed_by": "sara",
+        "reversed_at": when,
+        "reversal_reason": "Superseded by the recompute after the evidence",
+        "as_of": recompute["decision"]["as_of"],
+        "in_force": False,
+    }
+
+
+def test_d4_a_recompute_reverses_the_coupon_block_of_the_version_it_supersedes() -> None:
+    """ADR-15: a recompute that supersedes a version with a confirmed cluster coupon block
+    reverses it, and the response carries the reversal (like a lift)."""
+    doc = load("recompute_response.rossi_card.json")
+    s.RecomputeResponse.model_validate(doc)
+    assert doc["coupon_application"] is None and doc["before"]["state"] == "proposed"
+    blocking = copy.deepcopy(doc)
+    blocking["before"].update(
+        state="approved",
+        lever_ids=[*doc["before"]["lever_ids"], "cluster_coupons_disabled:true"],
+    )
+    with pytest.raises(ValidationError, match="coupon"):
+        s.RecomputeResponse.model_validate(blocking)
+    s.RecomputeResponse.model_validate(
+        {**blocking, "coupon_application": _reversed_application(doc)}
+    )
+    still = {**_reversed_application(doc), "state": "confirmed", "reversed_by": None,
+             "reversed_at": None, "reversal_reason": None, "in_force": True}  # fmt: skip
+    with pytest.raises(ValidationError, match="coupon"):
+        s.RecomputeResponse.model_validate({**blocking, "coupon_application": still})
+    with pytest.raises(ValidationError, match="coupon"):
+        s.RecomputeResponse.model_validate(
+            {**doc, "coupon_application": _reversed_application(doc)}
+        )
+
+
+def test_d5_renewal_entries_are_checked_for_timing_and_a_new_review_date() -> None:
+    entry = _renewal()["audit_entry"]
+    s.AuditEntry.model_validate(entry)
+    early = copy.deepcopy(entry)
+    early["before"]["review_at"] = "2026-12-01"  # renewed on 30 September, before the date
+    no_date = copy.deepcopy(entry)
+    no_date["after"]["review_at"] = None
+    same = copy.deepcopy(entry)
+    same["after"]["review_at"] = entry["before"]["review_at"]
+    for doc in (early, no_date, same):
+        with pytest.raises(ValidationError, match="review"):
+            s.AuditEntry.model_validate(doc)
+
+
+def test_d5_an_audit_state_has_a_review_date_exactly_for_a_restriction() -> None:
+    state = _renewal()["audit_entry"]["after"]
+    with pytest.raises(ValidationError, match="review"):
+        s.DecisionAuditState.model_validate({**state, "review_at": None})
+    with pytest.raises(ValidationError, match="review"):
+        s.DecisionAuditState.model_validate({**state, "requires_approval": False})
+
+
+@pytest.mark.parametrize(
+    ("path", "value"),
+    [
+        (("audit_entry", "at"), "2020-01-01T00:00:00Z"),
+        (("outbox_message", "created_at"), "2020-01-01T00:00:00Z"),
+        (("audit_entry", "rules_version"), "policy-1999"),
+        (("audit_entry", "model_versions"), {"risk": "risk-xgb-9.9.9"}),
+        (("audit_entry", "assumptions_version"), "assumptions-v9"),
+        (("audit_entry", "before", "quadrant"), "Q1"),
+        (("audit_entry", "before", "risk", "value"), 0.01),
+        (("audit_entry", "before", "lever_ids"), ["return_window_days:14"]),
+    ],
+)
+def test_d6_the_result_entry_is_tied_to_the_decision(path: Path_, value: Any) -> None:
+    """D6: the time of the entry and of the message, the versions, and the proposal recorded
+    as before are the decision's."""
+    doc = load("decision_result.marco_approved.json")
+    s.DecisionResult.model_validate(doc)
+    with pytest.raises(ValidationError):
+        s.DecisionResult.model_validate(mutated(doc, path, value))
+
+
+def test_d6_the_before_of_an_approval_is_the_proposal() -> None:
+    """D6 probe 3: a before that says a non-restrictive Q1 proposal was approved."""
+    doc = load("decision_result.marco_approved.json")
+    before = doc["audit_entry"]["before"]
+    before.update(
+        quadrant="Q1", lever_ids=[], requires_approval=False, review_at=None,
+        coupon_application_id=None,
+    )  # fmt: skip
+    before["risk"]["value"] = 0.01
+    s.DecisionAuditState.model_validate(before)  # a valid state on its own
+    with pytest.raises(ValidationError, match="proposal"):
+        s.DecisionResult.model_validate(doc)
+
+
+def _payload_numbers(node: Any, inside_metric: bool = False) -> Iterator[Any]:
+    if isinstance(node, dict):
+        metric = set(node) == {"value", "unit", "provenance"}
+        for key, value in node.items():
+            yield from _payload_numbers(value, inside_metric or (metric and key == "value"))
+    elif isinstance(node, list):
+        for value in node:
+            yield from _payload_numbers(value, inside_metric)
+    elif isinstance(node, int | float) and not isinstance(node, bool) and not inside_metric:
+        yield node
+
+
+def test_d7_audit_payload_numbers_carry_their_provenance() -> None:
+    """D7: every number in the before and after of an audit entry, typed or not, is a Metric
+    (or a counter of a typed record); the compensation of an inspection is a Metric."""
+    page = load("audit_page.json")
+    for entry in page["items"]:
+        if entry["entity_type"] in ("decision", "llm_generation"):
+            continue  # typed: the walker of the response models covers them
+        for key in ("before", "after"):
+            assert list(_payload_numbers(entry[key])) == [], (entry["action"], key)
+    inspection = next(e for e in page["items"] if e["action"] == "inspection_confirmed")
+    assert inspection["after"]["compensation"]["unit"] == "eur"
+    plain = mutated(inspection, ("after", "compensation"), 17.98)
+    with pytest.raises(ValidationError, match="Metric"):
+        s.AuditEntry.model_validate(plain)
+    nested = mutated(inspection, ("after", "detail"), {"amounts": [1.5]})
+    with pytest.raises(ValidationError, match="Metric"):
+        s.AuditEntry.model_validate(nested)
+
+
+def _kpi_with_realized(**changes: Any) -> dict[str, Any]:
+    doc = load("kpi.json")
+    simulated = s.NetBenefitView.model_validate(doc["net_benefit_simulated"])
+    week = doc["period_start"]
+    assumptions = simulated.assumptions.model_copy(
+        update={"version": f"kpi/{week}/realized", "basis": "realized", **changes}
+    )
+    provenance = simulated.total.provenance.model_copy(update={"nature": "synthetic"})
+    realized = s.NetBenefitView.build(s.Assumptions.model_validate(assumptions.model_dump()),
+                                      provenance)  # fmt: skip
+    return {**doc, "net_benefit_realized": realized.model_dump(mode="json")}
+
+
+def test_d8_the_realized_kpi_set_uses_the_stored_version_of_the_simulated_one() -> None:
+    s.KpiResponse.model_validate(_kpi_with_realized())
+    for changes in (
+        {"based_on": None},
+        {"based_on": "assumptions-v9"},
+        {"logistics_cost_per_return_eur": 24.0},
+    ):
+        with pytest.raises(ValidationError, match="realized"):
+            s.KpiResponse.model_validate(_kpi_with_realized(**changes))
+
+
+def test_d8_a_realized_set_passes_check_unit_costs_against_its_stored_version() -> None:
+    realized = s.KpiResponse.model_validate(_kpi_with_realized()).net_benefit_realized
+    assert realized is not None
+    stored = s.SimulatorAssumptionsResponse.model_validate(
+        load("simulator_assumptions.v1.json")
+    ).current.net_benefit.assumptions
+    s.check_unit_costs(realized.assumptions, stored)
+    simulated_label = realized.assumptions.model_copy(update={"version": "kpi/x"})
+    with pytest.raises(ValueError, match="basis"):
+        s.check_unit_costs(simulated_label, stored)

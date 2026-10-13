@@ -36,6 +36,7 @@ from contracts.vocab import (
     COUPON_APPLICATION_STATES,
     DECISION_STATUSES,
     EVIDENCE_KINDS,
+    FALLBACK_REASONS,
     GENERATION_PATHS,
     INSPECTION_STATES,
     OUTBOX_STATUSES,
@@ -99,13 +100,15 @@ def generation(generation_id: str) -> Row:
         "model": "mock",
         "llm_mode": "mock",
         "served_from": "live",
-        "generation_path": "llm",
-        "attempts": 1,
+        "generation_path": "model",
+        "fallback_reason": None,
+        "model_calls": 1,
         "prompt_version": "prompt-0.1.0",
         "input_digest": "0" * 64,
         "tone": "warm",
+        "llm_case": {"case_id": "RET-000102", "facts": []},
         "output": {"decision_echo": {"path": "withdrawal"}},
-        "validator_errors": [],
+        "validator_codes": [],
         "latency_ms": 14,
         "prompt_tokens": 1200,
         "completion_tokens": 310,
@@ -193,7 +196,7 @@ def decision(decision_id: str, return_id: str, **changes: Any) -> Row:
         "model_versions": {"risk": "risk-xgb-0.1.0"},
         "assumptions_version": "assumptions-v1",
         "generation_id": "GEN-1",
-        "generation_path": "llm",
+        "generation_path": "model",
         "created_at": T0 - timedelta(days=2),
     }
     return {**row, **changes}
@@ -207,7 +210,11 @@ def audit_state(state: str, approver: str | None) -> Row:
         "state": state,
         "quadrant": "Q4",
         "risk": {"value": 0.87, "unit": "probability", "provenance": SCORES_PROVENANCE},
-        "lever_ids": ["return_window_days:14", "transparency_notice:true"],
+        "lever_ids": [
+            "return_window_days:14",
+            "cluster_coupons_disabled:true",
+            "transparency_notice:true",
+        ],
         "requires_approval": True,
         "review_at": (DAY + timedelta(days=90)).isoformat(),
         "approver": approver,
@@ -239,6 +246,7 @@ STANDARD_Q2: Row = {
     "review_at": None,
     "future_terms": BASE_TERMS,
 }
+UNBOUND_SNAPSHOT: Row = {"order_id": None, "confirmed_at": None}  # shown, not confirmed yet
 BASE_SNAPSHOT: Row = {
     "source": "base",
     "source_decision_id": None,
@@ -304,10 +312,12 @@ def fresh_rows() -> dict[str, Row]:
             "customer_id": "C-MARCO-1",
             "lang": "it",
             "subject": "Il tuo reso RET-000102",
-            "connective_text": "Ciao, il rimborso arriverà entro il {deadline}.",
+            "sentence_ids": ["OPEN_THANKS", "CONTACT_REPLY", "CLOSE_REGARDS"],
             "body": "Ciao...",
             "legal_clause_kind": "withdrawal",
-            "template_fields": {"terms": "...", "deadline": "12 ottobre 2026"},
+            "template_fields": {"terms": "...", "amount": None, "deadline": "12 ottobre 2026"},
+            "refund_eur": None,
+            "refund_provenance": None,
             "generation_id": "GEN-1",
             "status": "sent_simulated",
             "created_by": "sara",
@@ -577,6 +587,14 @@ VIOLATIONS: list[tuple[str, dict[str, Any], str]] = [
         "review_only_restriction",
     ),
     ("decisions", {"review_at": DAY - timedelta(days=1)}, "review_after_decision"),
+    # D1: the decision day is the day of the act, so the review rules count from it
+    ("decisions", {"decided_on": DAY + timedelta(days=1)}, "decided_by_creation"),
+    (
+        "decisions",
+        {**SECOND_VERSION, "revision_trigger": "review", "decided_on": DAY - timedelta(days=1)},
+        "review_decided_on_creation",
+    ),
+    ("decisions", {"review_at": DAY + timedelta(days=181)}, "review_within_max"),
     ("decisions", {"approver": None}, "acted_has_approver"),
     ("decisions", {"approver": "system"}, "acted_has_approver"),
     ("decisions", {"approver": "  "}, "acted_has_approver"),
@@ -656,7 +674,13 @@ VIOLATIONS: list[tuple[str, dict[str, Any], str]] = [
     ("outbox", {"created_by": "system"}, "created_by_person"),
     ("outbox", {"lang": "fr"}, "lang"),
     ("outbox", {"body": " "}, "body"),
-    ("outbox", {"connective_text": " "}, "connective_text"),
+    ("outbox", {"refund_eur": Decimal("71.92")}, "refund_provenance"),
+    ("outbox", {"refund_provenance": SCORES_PROVENANCE}, "refund_provenance"),
+    (
+        "outbox",
+        {"refund_eur": Decimal("-1.00"), "refund_provenance": SCORES_PROVENANCE},
+        "refund_non_negative",
+    ),
     ("outbox", {"legal_clause_kind": "marketing"}, "legal_clause_kind"),
     ("outbox", {"status": "bounced"}, "status"),
     # terms_snapshots: rule 3, ADR-05, E2E-02, US-607
@@ -675,8 +699,19 @@ VIOLATIONS: list[tuple[str, dict[str, Any], str]] = [
     ),
     ("terms_snapshots", {"review_at": None}, "restriction_has_review"),
     # US-607: a restriction is shown at checkout only before its review date (UTC day)
-    ("terms_snapshots", {"review_at": date(2026, 9, 1)}, "review_after_shown"),
-    ("terms_snapshots", {"review_at": T0.date()}, "review_after_shown"),
+    (
+        "terms_snapshots",
+        {"review_at": date(2026, 9, 1), **UNBOUND_SNAPSHOT},
+        "review_after_shown",
+    ),
+    ("terms_snapshots", {"review_at": T0.date(), **UNBOUND_SNAPSHOT}, "review_after_shown"),
+    # D2, D3: a bounded review date, and no order bound on or after it
+    ("terms_snapshots", {"review_at": date(2099, 1, 1)}, "review_within_max"),
+    (
+        "terms_snapshots",
+        {"confirmed_at": datetime(2027, 3, 1, tzinfo=UTC)},
+        "review_after_confirmed",
+    ),
     # inspections: US-501..503, LEG-05
     ("inspections", {"compensation_rule_id": None}, "compensation_evidence"),
     ("inspections", {"compensation_eur": Decimal("0")}, "compensation_evidence"),
@@ -721,6 +756,17 @@ VIOLATIONS: list[tuple[str, dict[str, Any], str]] = [
     ("coupon_rule_applications", {"state": "proposed"}, "confirmed_by_person"),
     ("coupon_rule_applications", {"reversible": False}, "always_reversible"),
     ("coupon_rule_applications", {"state": "expired"}, "state"),
+    ("coupon_rule_applications", {"review_at": date(2099, 1, 1)}, "review_within_max"),
+    (
+        "coupon_rule_applications",
+        {
+            "state": "proposed",
+            "confirmed_by": None,
+            "confirmed_at": None,
+            "review_at": date(2027, 3, 31),
+        },
+        "review_within_max",
+    ),  # fmt: skip
     ("coupon_rule_applications", {"state": "reversed"}, "reversal_fields"),
     (
         "coupon_rule_applications",
@@ -738,8 +784,20 @@ VIOLATIONS: list[tuple[str, dict[str, Any], str]] = [
     ("simulator_assumptions", {"created_by": ""}, "created_by"),
     ("simulator_assumptions", {"note": "  "}, "note"),
     # llm generations: spec 8.7
-    ("llm_generations", {"attempts": 2}, "path_attempts"),
-    ("llm_generations", {"attempts": 3, "generation_path": "template"}, "attempts_range"),
+    ("llm_generations", {"model_calls": 2}, "path_calls"),
+    ("llm_generations", {"generation_path": "regenerated"}, "path_calls"),
+    (
+        "llm_generations",
+        {"model_calls": 3, "generation_path": "template", "fallback_reason": "invalid_twice"},
+        "calls_range",
+    ),
+    ("llm_generations", {"generation_path": "template"}, "template_fallback"),
+    ("llm_generations", {"fallback_reason": "unavailable"}, "template_fallback"),
+    (
+        "llm_generations",
+        {"generation_path": "template", "fallback_reason": "timeout"},
+        "fallback_reason",
+    ),
     ("llm_generations", {"served_from": "cached"}, "mock_is_live"),
     ("llm_generations", {"input_digest": "abc"}, "input_digest"),
     ("llm_generations", {"latency_ms": -1}, "non_negative"),
@@ -851,7 +909,7 @@ def test_review_versions_fit_the_table(database_url: str, outcome: str) -> None:
     v1 = lorenzo.card.decision
     _, result = bae.review_result(
         lorenzo.engine, v1, outcome, "luca", T0 + timedelta(minutes=70),
-        entry_id=14, message_id="MSG-000088-2",
+        entry_id=14,
         reason="Reviewed at the due date" if outcome == "lift" else None,
         category="periodic_review" if outcome == "lift" else None,
     )  # fmt: skip
@@ -957,7 +1015,7 @@ def decision_row(view: s.DecisionView) -> Row:
         "model_versions": view.model_versions,
         "assumptions_version": view.assumptions_version,
         "generation_id": "GEN-1" if view.generation_id else None,
-        "generation_path": "llm" if view.generation_id else None,
+        "generation_path": "model" if view.generation_id else None,
         "created_at": view.created_at,
     }
 
@@ -978,6 +1036,29 @@ def snapshot_row(view: s.TermsSnapshotView) -> Row:
         "cart": [],
         "shown_at": view.shown_at,
         "confirmed_at": view.confirmed_at,
+    }
+
+
+def outbox_row(message: s.OutboxMessage) -> Row:
+    """The outbox row of an API OutboxMessage."""
+    refund = message.refund
+    return {
+        "message_id": message.message_id,
+        "return_id": message.return_id,
+        "decision_id": message.decision_id,
+        "customer_id": message.customer_id,
+        "lang": message.lang,
+        "subject": message.subject,
+        "sentence_ids": message.sentence_ids,
+        "body": message.body,
+        "legal_clause_kind": message.legal_clause_kind,
+        "template_fields": message.fields.model_dump(),
+        "refund_eur": None if refund is None else Decimal(str(refund.value)),
+        "refund_provenance": None if refund is None else refund.provenance.model_dump(mode="json"),
+        "generation_id": "GEN-1" if message.generation_id else None,
+        "status": message.status,
+        "created_by": message.created_by,
+        "created_at": message.created_at,
     }
 
 
@@ -1016,9 +1097,11 @@ def example_snapshots() -> list[s.TermsSnapshotView]:
     return list(found.values())
 
 
-def test_every_example_decision_and_snapshot_fits_its_table(database_url: str) -> None:
+def test_every_example_decision_snapshot_and_message_fits_its_table(database_url: str) -> None:
     views = example_decisions()
     snapshots = example_snapshots()
+    messages = s.OutboxResponse.model_validate(load("outbox.json")).items
+    assert any(m.refund is not None for m in messages)
     assert {v.state for v in views} == {"proposed", "approved", "overridden", "rejected"}
     assert {v.revision_trigger for v in views} >= {"initial", "evidence_added", "review"}
     assert {x.source == "base" for x in snapshots} == {True, False}
@@ -1037,6 +1120,8 @@ def test_every_example_decision_and_snapshot_fits_its_table(database_url: str) -
             await insert(engine, "decisions", decision_row(view))
         for snapshot in snapshots:
             await insert(engine, "terms_snapshots", snapshot_row(snapshot))
+        for message in messages:
+            await insert(engine, "outbox", outbox_row(message))
 
     run(database_url, action)
 
@@ -1077,6 +1162,8 @@ def test_postgresql_ddl_has_jsonb_checks_and_append_only_triggers() -> None:
         ("decisions", "state", DECISION_STATUSES),
         ("decisions", "override_category", OVERRIDE_CATEGORIES),
         ("decisions", "generation_path", GENERATION_PATHS),
+        ("llm_generations", "generation_path", GENERATION_PATHS),
+        ("llm_generations", "fallback_reason", FALLBACK_REASONS),
         ("decisions", "revision_trigger", REVISION_TRIGGERS),
         ("audit_log", "action", AUDIT_ACTIONS),
         ("audit_log", "entity_type", AUDIT_ENTITY_TYPES),

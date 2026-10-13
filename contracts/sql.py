@@ -59,6 +59,8 @@ from sqlalchemy import (
     column,
     event,
     false,
+    func,
+    literal_column,
     or_,
     true,
 )
@@ -80,6 +82,7 @@ from contracts.vocab import (
     DECISION_AUDIT_ACTIONS,
     DECISION_STATUSES,
     EVIDENCE_KINDS,
+    FALLBACK_REASONS,
     GENERATION_KINDS,
     GENERATION_PATHS,
     HUMAN_ONLY_ACTIONS,
@@ -97,7 +100,7 @@ from contracts.vocab import (
     SYSTEM_ACTOR,
     TONES,
 )
-from policy.legal_guard import LEGAL_WITHDRAWAL_DAYS
+from policy.legal_guard import LEGAL_WITHDRAWAL_DAYS, MAX_REVIEW_DAYS
 from policy.types import EvidenceQuality, Path, Quadrant, ReturnReason
 
 NAMING_CONVENTION = {
@@ -190,6 +193,31 @@ def _utc_date_postgresql(element: utc_date, compiler: SQLCompiler, **kw: Any) ->
     return f"(({compiler.process(element.clauses, **kw)}) AT TIME ZONE 'UTC')::date"
 
 
+class days_after(FunctionElement[date]):  # noqa: N801 - a SQL function, named as SQL names it
+    """The day `days` days after a date expression, the same on both databases: SQLite adds
+    a modifier to date(), PostgreSQL adds an integer to the date. `days` is a constant of the
+    contract (MAX_REVIEW_DAYS), written into the DDL."""
+
+    type = Date()
+    name = "days_after"
+    inherit_cache = True
+
+    def __init__(self, expression: Any, days: int) -> None:
+        super().__init__(expression, literal_column(str(int(days))))
+
+
+@compiles(days_after)
+def _days_after_sqlite(element: days_after, compiler: SQLCompiler, **kw: Any) -> str:
+    expression, days = list(element.clauses)
+    return f"date({compiler.process(expression, **kw)}, '+{compiler.process(days, **kw)} days')"
+
+
+@compiles(days_after, "postgresql")
+def _days_after_postgresql(element: days_after, compiler: SQLCompiler, **kw: Any) -> str:
+    expression, days = list(element.clauses)
+    return f"(({compiler.process(expression, **kw)}) + {compiler.process(days, **kw)})"
+
+
 # ---- Return requests (F1: the simulated shop adapter publishes them, the API stores them) -----
 
 return_requests = Table(
@@ -226,13 +254,16 @@ llm_generations = Table(
     Column("model", String(128), nullable=False),
     Column("llm_mode", String(8), nullable=False),
     Column("served_from", String(8), nullable=False),
-    Column("generation_path", String(16), nullable=False),
-    Column("attempts", Integer, nullable=False),
+    Column("generation_path", String(16), nullable=False),  # llm.generate: model, regenerated...
+    Column("fallback_reason", String(16)),  # why the template was used, if it was
+    Column("model_calls", Integer, nullable=False),
     Column("prompt_version", String(64), nullable=False),
     Column("input_digest", String(64), nullable=False),  # sha256 of the case sent to the model
     Column("tone", String(16)),
-    Column("output", JSONDoc, nullable=False),  # the validated output, or the template output
-    Column("validator_errors", JSONDoc, nullable=False),  # list of strings
+    # the llm_case sent (with its code-built facts) and the validated or template output
+    Column("llm_case", JSONDoc, nullable=False),
+    Column("output", JSONDoc, nullable=False),
+    Column("validator_codes", JSONDoc, nullable=False),  # llm.validator codes found on the way
     Column("latency_ms", Integer),
     Column("prompt_tokens", Integer),
     Column("completion_tokens", Integer),
@@ -242,12 +273,20 @@ llm_generations = Table(
     _check(one_of("llm_mode", LLM_MODES), "llm_mode"),
     _check(one_of("served_from", SERVED_FROM), "served_from"),
     _check(one_of("generation_path", GENERATION_PATHS), "generation_path"),
+    _check(one_of("fallback_reason", FALLBACK_REASONS, nullable=True), "fallback_reason"),
     _check(one_of("tone", TONES, nullable=True), "tone"),
-    _check("attempts >= 0 AND attempts <= 2", "attempts_range"),
+    _check("model_calls >= 0 AND model_calls <= 2", "calls_range"),
+    # spec 8.7, llm.generate: model is validated on the first call, regenerated on the second
     _check(
-        "(generation_path <> 'llm' OR attempts = 1)"
-        " AND (generation_path <> 'llm_regenerated' OR attempts = 2)",
-        "path_attempts",
+        "(generation_path <> 'model' OR model_calls = 1)"
+        " AND (generation_path <> 'regenerated' OR model_calls = 2)",
+        "path_calls",
+    ),
+    # the template, and only it, records why the model output was not used
+    _check(
+        "(generation_path <> 'template' OR fallback_reason IS NOT NULL)"
+        " AND (generation_path = 'template' OR fallback_reason IS NULL)",
+        "template_fallback",
     ),
     _check("llm_mode <> 'mock' OR served_from = 'live'", "mock_is_live"),
     _check("length(input_digest) = 64", "input_digest"),
@@ -423,6 +462,26 @@ decisions = Table(
     _check("NOT requires_approval OR review_at IS NOT NULL", "restriction_has_review"),
     _check("review_at IS NULL OR requires_approval", "review_only_restriction"),
     _check("review_at IS NULL OR review_at > decided_on", "review_after_decision"),
+    CheckConstraint(
+        or_(
+            column("review_at").is_(None),
+            column("review_at", Date) <= days_after(column("decided_on"), MAX_REVIEW_DAYS),
+        ),
+        name="review_within_max",
+    ),
+    # D1: the decision day is the UTC day of the act that created the version (or earlier, for
+    # the intake of a return noticed before), and a review version is decided at the review
+    CheckConstraint(
+        column("decided_on", Date) <= utc_date(column("created_at")),
+        name="decided_by_creation",
+    ),
+    CheckConstraint(
+        or_(
+            column("revision_trigger") != "review",
+            column("decided_on", Date) == utc_date(column("created_at")),
+        ),
+        name="review_decided_on_creation",
+    ),
     # rule 5: a person acted exactly when the state is not proposed. With the two review CHECKs
     # above, an approved or overridden restriction has a person as approver and a review date.
     _check(
@@ -480,6 +539,16 @@ coupon_rule_applications = Table(
     Column("reversal_reason", Text),
     _check(one_of("state", COUPON_APPLICATION_STATES), "state"),
     _check("reversible", "always_reversible"),  # no permanent label (US-607)
+    # D2: the review date is at most MAX_REVIEW_DAYS after the application is confirmed (or
+    # proposed, while it waits for a person)
+    CheckConstraint(
+        column("review_at", Date)
+        <= days_after(
+            utc_date(func.coalesce(column("confirmed_at"), column("proposed_at"))),
+            MAX_REVIEW_DAYS,
+        ),
+        name="review_within_max",
+    ),
     # US-402, LEG-09: an application is a proposal an operator confirms
     _check(
         "(state <> 'proposed' OR (confirmed_by IS NULL AND confirmed_at IS NULL))"
@@ -562,10 +631,14 @@ outbox = Table(
     Column("customer_id", Id, nullable=False),
     Column("lang", String(2), nullable=False),
     Column("subject", String(300), nullable=False),
-    Column("connective_text", Text, nullable=False),  # placeholders only (rule 10)
+    # phrasebook ids (llm/phrasebook.py); the body is llm.phrasebook.render_selection of them
+    Column("sentence_ids", JSONDoc, nullable=False),
     Column("body", Text, nullable=False),  # rendered text, legal clause included
     Column("legal_clause_kind", String(16)),
     Column("template_fields", JSONDoc, nullable=False),
+    # the refund the {amount} field states, with its provenance (rule 11), when known
+    Column("refund_eur", Money),
+    Column("refund_provenance", JSONDoc),
     Column("generation_id", Id, ForeignKey("llm_generations.generation_id")),
     Column("status", String(16), nullable=False),
     Column("created_by", ActorColumn, nullable=False),
@@ -574,7 +647,12 @@ outbox = Table(
     _check(one_of("legal_clause_kind", CLAUSE_KINDS, nullable=True), "legal_clause_kind"),
     _check(one_of("status", OUTBOX_STATUSES), "status"),
     _check(present("body"), "body"),
-    _check(present("connective_text"), "connective_text"),
+    _check(
+        "(refund_eur IS NULL OR refund_provenance IS NOT NULL)"
+        " AND (refund_eur IS NOT NULL OR refund_provenance IS NULL)",
+        "refund_provenance",
+    ),
+    _check("refund_eur IS NULL OR refund_eur >= 0", "refund_non_negative"),
     _check(person("created_by"), "created_by_person"),  # a message leaves after a person acts
 )
 Index(None, outbox.c.return_id)
@@ -651,6 +729,23 @@ terms_snapshots = Table(
             utc_date(column("shown_at")) < column("review_at", Date),
         ),
         name="review_after_shown",
+    ),
+    # D2: a review date at most MAX_REVIEW_DAYS after the day the terms are shown
+    CheckConstraint(
+        or_(
+            column("review_at").is_(None),
+            column("review_at", Date) <= days_after(utc_date(column("shown_at")), MAX_REVIEW_DAYS),
+        ),
+        name="review_within_max",
+    ),
+    # D3: an order is bound to the terms of a restriction only before its review date
+    CheckConstraint(
+        or_(
+            column("review_at").is_(None),
+            column("confirmed_at").is_(None),
+            utc_date(column("confirmed_at")) < column("review_at", Date),
+        ),
+        name="review_after_confirmed",
     ),
 )
 Index(None, terms_snapshots.c.customer_id)

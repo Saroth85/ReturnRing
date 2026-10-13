@@ -174,13 +174,17 @@
     "customer_id": "C-11872",
     "lang": "en",
     "subject": "Your return RET-000107",
-    "connective_text": "Hello, thank you for letting us know. We have registered your return and your refund will arrive by {deadline}.",
+    "sentence_ids": [
+      "OPEN_THANKS",
+      "CLOSE_HAPPY"
+    ],
     "fields": {
-      "terms": "30-day return window, free return shipping, instant refund, free size exchange",
+      "terms": null,
       "amount": null,
       "deadline": "12 October 2026"
     },
-    "body": "Hello, thank you for letting us know. We have registered your return and your refund will arrive by 12 October 2026.",
+    "refund": null,
+    "body": "Hello, thank you for writing to us. We have registered your return request and your refund is due by 12 October 2026. The return terms of your orders stay the same as always. We are happy to have you with us.",
     "legal_clause_kind": null,
     "generation_id": null,
     "status": "sent_simulated",

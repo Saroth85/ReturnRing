@@ -1049,12 +1049,13 @@
   "draft": {
     "generation": {
       "generation_id": "GEN-000101-1",
-      "generation_path": "llm",
+      "generation_path": "model",
+      "fallback_reason": null,
       "llm_mode": "mock",
       "served_from": "live",
       "model": "mock",
-      "attempts": 1,
-      "validator_errors": [],
+      "model_calls": 1,
+      "validator_codes": [],
       "created_at": "2026-09-27T10:15:00Z",
       "latency_ms": 14
     },
@@ -1069,54 +1070,100 @@
     },
     "explanation": [
       {
-        "label": "OBSERVED",
-        "text": "C-GIULIA kept 5 of 11 items in 12 months; 5 of her 6 returns were for size.",
-        "entity": "C-GIULIA",
-        "metric": "kept_lines",
-        "value": "5 of 11",
-        "period": "2025-10-01 to 2026-09-30"
-      },
-      {
         "label": "SCORE",
-        "text": "Size returns lower the risk score to 0.12: a contribution to the score, not a cause.",
-        "entity": "C-GIULIA",
-        "metric": "risk",
-        "value": "0.12",
-        "period": "2025-10-01 to 2026-09-30"
+        "fact_ids": [
+          "F1",
+          "F3"
+        ],
+        "text": "Risk score 0.12; size_share at 0.83 lowers it: a contribution to the score, not a cause.",
+        "facts": [
+          {
+            "id": "F1",
+            "entity": "customer",
+            "metric": "risk_score",
+            "value": 0.12,
+            "period": "as of 2026-09-27",
+            "nature": "synthetic"
+          },
+          {
+            "id": "F3",
+            "entity": "customer",
+            "metric": "size_share",
+            "value": 0.83,
+            "period": "as of 2026-09-27",
+            "nature": "synthetic"
+          }
+        ]
       },
       {
         "label": "OBSERVED",
-        "text": "Customer value is 211.85 EUR, above the 185.00 EUR threshold: quadrant Q1.",
-        "entity": "C-GIULIA",
-        "metric": "value_eur",
-        "value": "211.85",
-        "period": "2025-10-01 to 2026-09-30"
+        "fact_ids": [
+          "F2"
+        ],
+        "text": "Customer net margin over the period: 211.85 EUR, above the value threshold.",
+        "facts": [
+          {
+            "id": "F2",
+            "entity": "customer",
+            "metric": "value_eur_12m",
+            "value": 211.85,
+            "period": "12 months to 2026-09-27",
+            "nature": "synthetic"
+          }
+        ]
+      },
+      {
+        "label": "OBSERVED",
+        "fact_ids": [
+          "F6"
+        ],
+        "text": "The size return came 3 days after delivery.",
+        "facts": [
+          {
+            "id": "F6",
+            "entity": "return",
+            "metric": "days_since_delivery",
+            "value": 3,
+            "period": "2026-09-24/2026-09-27",
+            "nature": "synthetic"
+          }
+        ]
       }
     ],
-    "messages": [
-      {
-        "lang": "it",
-        "connective_text": "Ciao, grazie per averci scritto. Abbiamo registrato il reso per la taglia e il rimborso arriverà entro il {deadline}. Per i tuoi prossimi ordini valgono queste condizioni: {terms}.",
-        "fields": {
-          "terms": "finestra di reso di 60 giorni, reso gratuito, rimborso immediato, cambio taglia gratuito e prioritario",
-          "amount": null,
-          "deadline": "11 ottobre 2026"
+    "message": {
+      "sentence_ids": [
+        "OPEN_CHOICE",
+        "HELP_SIZE",
+        "CLOSE_HAPPY"
+      ],
+      "legal_clause_kind": null,
+      "texts": [
+        {
+          "lang": "it",
+          "fields": {
+            "terms": "reso entro 60 giorni dalla consegna; cambio taglia con priorità",
+            "amount": null,
+            "deadline": "11 ottobre 2026"
+          },
+          "text": "Ciao, grazie per aver scelto i nostri capi. Abbiamo registrato la tua richiesta di reso e il rimborso è previsto per il 11 ottobre 2026. Per i tuoi prossimi ordini ti offriamo condizioni di reso migliori: reso entro 60 giorni dalla consegna; cambio taglia con priorità. Se ti serve un'altra taglia, rispondi pure a questo messaggio. Siamo felici di averti tra i nostri clienti."
         },
-        "legal_clause_kind": null,
-        "rendered_text": "Ciao, grazie per averci scritto. Abbiamo registrato il reso per la taglia e il rimborso arriverà entro il 11 ottobre 2026. Per i tuoi prossimi ordini valgono queste condizioni: finestra di reso di 60 giorni, reso gratuito, rimborso immediato, cambio taglia gratuito e prioritario."
-      },
-      {
-        "lang": "en",
-        "connective_text": "Hello, thank you for letting us know. We have registered your size return and your refund will arrive by {deadline}. Your next orders come with these terms: {terms}.",
-        "fields": {
-          "terms": "60-day return window, free return shipping, instant refund, free priority size exchange",
-          "amount": null,
-          "deadline": "11 October 2026"
-        },
-        "legal_clause_kind": null,
-        "rendered_text": "Hello, thank you for letting us know. We have registered your size return and your refund will arrive by 11 October 2026. Your next orders come with these terms: 60-day return window, free return shipping, instant refund, free priority size exchange."
-      }
-    ]
+        {
+          "lang": "en",
+          "fields": {
+            "terms": "returns within 60 days of delivery; priority size exchange",
+            "amount": null,
+            "deadline": "11 October 2026"
+          },
+          "text": "Hello, thank you for choosing our clothes. We have registered your return request and your refund is due by 11 October 2026. For your next orders we are glad to offer you better return terms: returns within 60 days of delivery; priority size exchange. If you need a different size, just reply to this message. We are happy to have you with us."
+        }
+      ]
+    },
+    "provenance": {
+      "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+      "period_start": "2025-10-01",
+      "period_end": "2026-09-27",
+      "nature": "synthetic"
+    }
   },
   "product_anomaly": null,
   "revisions": [

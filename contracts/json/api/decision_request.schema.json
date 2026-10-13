@@ -4,7 +4,7 @@
   "$defs": {
     "MessageChoice": {
       "additionalProperties": false,
-      "description": "The customer message to send: its language, and optionally the operator's edit of the\nconnective text (placeholders only; the API fills the fields and appends the legal clause).",
+      "description": "The customer message to send after approve, override or reject: its language and,\noptionally, a selection of phrasebook ids (llm/phrasebook.py) other than the default one.\nThe operator chooses reviewed sentences, never free text (ADR-14 decision 8). The API\ncomposes the message for the decision acted on with llm.phrasebook.render_selection (the\nmandatory body, the template fields and the legal clause come from the decision) and\nrefuses a selection that is not allowed for it (422 invalid_request). Without sentence_ids:\nthe draft's selection when it is allowed for the decision acted on, otherwise the fallback\nselection of llm.templates (default_selection_for).",
       "properties": {
         "lang": {
           "enum": [
@@ -14,19 +14,43 @@
           "title": "Lang",
           "type": "string"
         },
-        "text": {
+        "sentence_ids": {
           "anyOf": [
             {
-              "maxLength": 900,
-              "minLength": 1,
-              "type": "string"
+              "items": {
+                "enum": [
+                  "OPEN_THANKS",
+                  "OPEN_MESSAGE",
+                  "OPEN_CHOICE",
+                  "OPEN_SORRY_FIT",
+                  "OPEN_SORRY_ITEM",
+                  "HELP_SIZE",
+                  "HELP_ADVICE",
+                  "CONTACT_REPLY",
+                  "CONTACT_TEAM",
+                  "INFO_TERMS",
+                  "GUARANTEE_CARE",
+                  "GUARANTEE_PHOTO",
+                  "THANKS_FEEDBACK",
+                  "CLOSE_REGARDS",
+                  "CLOSE_VALUED",
+                  "CLOSE_HAPPY",
+                  "CLOSE_DAY",
+                  "CLOSE_SOON",
+                  "CLOSE_PATIENCE"
+                ],
+                "type": "string"
+              },
+              "maxItems": 5,
+              "minItems": 2,
+              "type": "array"
             },
             {
               "type": "null"
             }
           ],
           "default": null,
-          "title": "Text"
+          "title": "Sentence Ids"
         }
       },
       "required": [
@@ -124,9 +148,42 @@
           }
         }
       }
+    },
+    {
+      "else": {
+        "properties": {
+          "message": {
+            "type": "null"
+          }
+        }
+      },
+      "if": {
+        "properties": {
+          "action": {
+            "enum": [
+              "approve",
+              "override",
+              "reject"
+            ]
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "then": {
+        "properties": {
+          "message": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "message"
+        ]
+      }
     }
   ],
-  "description": "POST /api/returns/{return_id}/decision (spec 19.B, plus decision_id and the category).\n\napprove: confirm the proposal (levers, if sent, must equal it: 409 otherwise); override:\nreplace the levers, with a reason and a category, checked by the legal guard (422); reject:\ndiscard the proposal (no lever applies, the order's terms stay; the return itself is never\nrefused), with a reason and a category. The three act on a proposed version.\n\nlift and renew (US-607) review an approved or overridden restriction, the latest version\n(409 if it is not a restriction). Each creates the next version (trigger review) from\npolicy.engine.decide() on the latest scores at the day of the review. lift ends the\nrestriction, before or after its review date (a review, or a rectification the customer\nasked for), with a reason and a category: the new version is overridden to the standard\nlevers, and the cluster coupon application of the restriction, if any, is reversed. renew\nkeeps a restriction, at or after its review date (409 before), with no levers and no reason:\nthe person approves the fresh proposal, which gets a new review date (409 if the fresh\nproposal is not a restriction: lift it). Every action sends one message to the outbox.",
+  "description": "POST /api/returns/{return_id}/decision (spec 19.B, plus decision_id and the category).\n\napprove: confirm the proposal (levers, if sent, must equal it: 409 otherwise); override:\nreplace the levers, with a reason and a category, checked by the legal guard (422); reject:\ndiscard the proposal (no lever applies, the order's terms stay; the return itself is never\nrefused), with a reason and a category. The three act on a proposed version.\n\nlift and renew (US-607) review an approved or overridden restriction, the latest version\n(409 if it is not a restriction). Each creates the next version (trigger review) from\npolicy.engine.decide() on the latest scores at the day of the review. lift ends the\nrestriction, before or after its review date (a review, or a rectification the customer\nasked for), with a reason and a category: the new version is overridden to the standard\nlevers, and the cluster coupon application of the restriction, if any, is reversed. renew\nkeeps a restriction, at or after its review date (409 before), with no levers and no reason:\nthe person approves the fresh proposal, which gets a new review date (409 if the fresh\nproposal is not a restriction: lift it).\n\napprove, override and reject send one message to the outbox (`message` required). lift and\nrenew send none (`message` null): the phrasebook has no reviewed sentence about a review yet,\nand its return registration would state the refund deadline of a return closed long ago; the\ncustomer sees the terms of a lift or a renewal at checkout, before each purchase (US-403).",
   "properties": {
     "decision_id": {
       "maxLength": 96,
@@ -531,7 +588,15 @@
       "title": "Levers"
     },
     "message": {
-      "$ref": "#/$defs/MessageChoice"
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MessageChoice"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "override_reason": {
       "anyOf": [
@@ -580,7 +645,6 @@
   "required": [
     "decision_id",
     "action",
-    "message",
     "approver"
   ],
   "title": "DecisionRequest",

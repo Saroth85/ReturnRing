@@ -669,13 +669,14 @@
   "draft": {
     "generation": {
       "generation_id": "GEN-000105-1",
-      "generation_path": "llm_regenerated",
+      "generation_path": "regenerated",
+      "fallback_reason": null,
       "llm_mode": "mock",
       "served_from": "live",
       "model": "mock",
-      "attempts": 2,
-      "validator_errors": [
-        "UNGROUNDED_NUMBER: ['12']"
+      "model_calls": 2,
+      "validator_codes": [
+        "UNGROUNDED_NUMBER"
       ],
       "created_at": "2026-09-26T15:42:00Z",
       "latency_ms": 31
@@ -689,45 +690,61 @@
     "explanation": [
       {
         "label": "OBSERVED",
-        "text": "Variant V-JKT-DEF had 11 returns for defect in the week of 2026-09-21, against 1.8 expected from its category.",
-        "entity": "V-JKT-DEF",
-        "metric": "returns_defective",
-        "value": "11",
-        "period": "week of 2026-09-21"
+        "fact_ids": [],
+        "text": "The return reason is a defect or a non-conformity: the case follows the legal guarantee path, with no risk score and no restrictive levers.",
+        "facts": []
       },
       {
-        "label": "HYPOTHESIS",
-        "text": "The sleeves of one production batch may be shorter than the size guide: the catalogue task checks it.",
-        "entity": "V-JKT-DEF",
-        "metric": null,
-        "value": null,
-        "period": null
+        "label": "OBSERVED",
+        "fact_ids": [
+          "F1"
+        ],
+        "text": "Days from delivery to the return notice: 8.",
+        "facts": [
+          {
+            "id": "F1",
+            "entity": "return",
+            "metric": "days_since_delivery",
+            "value": 8,
+            "period": "2026-09-18/2026-09-26",
+            "nature": "synthetic"
+          }
+        ]
       }
     ],
-    "messages": [
-      {
-        "lang": "it",
-        "connective_text": "Ciao, ci dispiace per il problema con la giacca. Il reso è gratuito e il rimborso arriverà entro il {deadline}. Abbiamo segnalato il capo al nostro team catalogo.",
-        "fields": {
-          "terms": "finestra di reso di 30 giorni, reso gratuito, rimborso immediato, cambio taglia gratuito",
-          "amount": null,
-          "deadline": "10 ottobre 2026"
+    "message": {
+      "sentence_ids": [
+        "OPEN_SORRY_ITEM",
+        "CLOSE_PATIENCE"
+      ],
+      "legal_clause_kind": "guarantee",
+      "texts": [
+        {
+          "lang": "it",
+          "fields": {
+            "terms": null,
+            "amount": null,
+            "deadline": null
+          },
+          "text": "Ciao, ci dispiace per il problema con il prodotto che hai ricevuto. Abbiamo registrato la tua segnalazione e ti scriveremo presto con i prossimi passi. Grazie per la pazienza e per averci avvisato.\n\nIl prodotto è coperto dalla garanzia legale di conformità. Puoi chiedere prima di tutto la riparazione o la sostituzione, senza spese ed entro un periodo ragionevole. Nei casi previsti dalla legge, per esempio se la riparazione o la sostituzione non sono possibili o non eliminano il difetto, puoi chiedere una riduzione del prezzo oppure, se il difetto non è di lieve entità, la risoluzione del contratto con la restituzione del prezzo."
         },
-        "legal_clause_kind": "guarantee",
-        "rendered_text": "Ciao, ci dispiace per il problema con la giacca. Il reso è gratuito e il rimborso arriverà entro il 10 ottobre 2026. Abbiamo segnalato il capo al nostro team catalogo.\n\nIl prodotto è coperto dalla garanzia legale di conformità. Puoi chiedere prima di tutto la riparazione o la sostituzione, senza spese ed entro un periodo ragionevole. Nei casi previsti dalla legge, per esempio se la riparazione o la sostituzione non sono possibili o non eliminano il difetto, puoi chiedere una riduzione del prezzo oppure, se il difetto non è di lieve entità, la risoluzione del contratto con la restituzione del prezzo."
-      },
-      {
-        "lang": "en",
-        "connective_text": "Hello, we are sorry about the problem with the jacket. The return is free and your refund will arrive by {deadline}. We have reported the item to our catalogue team.",
-        "fields": {
-          "terms": "30-day return window, free return shipping, instant refund, free size exchange",
-          "amount": null,
-          "deadline": "10 October 2026"
-        },
-        "legal_clause_kind": "guarantee",
-        "rendered_text": "Hello, we are sorry about the problem with the jacket. The return is free and your refund will arrive by 10 October 2026. We have reported the item to our catalogue team.\n\nThe item is covered by the legal guarantee of conformity. You can first ask for a repair or a replacement, free of charge and within a reasonable time. Where the law provides for it, for example if a repair or a replacement is not possible or does not remove the defect, you can ask for a price reduction or, unless the defect is minor, end the contract and get the price back."
-      }
-    ]
+        {
+          "lang": "en",
+          "fields": {
+            "terms": null,
+            "amount": null,
+            "deadline": null
+          },
+          "text": "Hello, we are sorry about the problem with the item you received. We have registered your report and we will write to you soon with the next steps. Thank you for your patience and for letting us know.\n\nThe item is covered by the legal guarantee of conformity. You can first ask for a repair or a replacement, free of charge and within a reasonable time. Where the law provides for it, for example if a repair or a replacement is not possible or does not remove the defect, you can ask for a price reduction or, unless the defect is minor, end the contract and get the price back."
+        }
+      ]
+    },
+    "provenance": {
+      "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+      "period_start": "2025-10-01",
+      "period_end": "2026-09-26",
+      "nature": "synthetic"
+    }
   },
   "product_anomaly": {
     "anomaly_id": "V-JKT-DEF~defective~2026-09-21",

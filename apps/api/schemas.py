@@ -15,9 +15,11 @@ contracts/examples/api/. Rules that hold for every model:
   exactly what policy.engine produces; the validators below check the engine's invariants again.
 - Every DecisionView passes policy.legal_guard under the mapping of to_policy_decision (ADR-15
   section 8): an override is a person's approved decision on the operator's levers.
-- The LLM never decides: a draft must echo the decision shown; amounts, terms and deadlines are
-  template fields rendered here from the decision (deadline_text, terms_text, amount_text); the
-  legal clause is the fixed text of llm/legal_clause.py (rules 1 and 10).
+- The LLM never decides, and the LLM contract has one source, llm/ (ADR-14): a draft is the
+  output of llm.generate for the engine's decision, accepted by llm.validator against the
+  code-built facts its statements cite; customer messages are phrasebook ids composed by
+  llm.phrasebook with the template fields of llm.messages and the fixed clause of
+  llm/legal_clause.py (rules 1 and 10). Nothing here renders customer text of its own.
 - "Linked accounts", never "same person" (rule 11).
 
 The JSON Schemas are structural. The model validators add the semantic rules listed in ADR-15;
@@ -28,9 +30,9 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Annotated, Any, Literal, Self, get_args
 
 from pydantic import (
@@ -67,6 +69,7 @@ from contracts.vocab import (
     CHECKLIST_ITEMS,
     DECISION_AUDIT_ACTIONS,
     DEMO_ROLES,
+    GENERATION_AUDIT_ACTIONS,
     HUMAN_ONLY_ACTIONS,
     LANGS,
     LINK_EXPLAINING_EVIDENCE,
@@ -84,6 +87,8 @@ from contracts.vocab import (
     DecisionAction,
     DecisionStatus,
     EvidenceKind,
+    FallbackReason,
+    GenerationKind,
     GenerationPath,
     InspectionState,
     Lang,
@@ -97,12 +102,36 @@ from contracts.vocab import (
     ServedFrom,
     SizeAdviceKind,
     Tone,
+    ValidatorCode,
 )
-from llm.legal_clause import append_clause, clause
-from llm.messages import PLACEHOLDERS, MessageError, placeholders_in
+from llm.case import Entity as FactEntity
+from llm.decision import serialize_decision
+from llm.generate import MAX_MODEL_CALLS, Generation
+from llm.legal_clause import LegalClauseError, assert_clause
+from llm.legal_clause import required_clause as llm_required_clause
+from llm.messages import template_fields
+from llm.phrasebook import (
+    MAX_SENTENCES,
+    MIN_SENTENCES,
+    PHRASEBOOK,
+    SENTENCE_IDS,
+    context_of,
+    render_selection,
+    selection_problems,
+)
+from llm.templates import default_selection
 from llm.text import banned_terms
+from llm.validator import (
+    MAX_FACTS_PER_STATEMENT,
+    MAX_LEVER_IDS,
+    MAX_STATEMENT_CHARS,
+    MAX_STATEMENTS,
+    SCORE_METRICS,
+    LlmOutput,
+    validate,
+)
+from policy.engine import REVIEW_DAYS, guarantee_terms, quadrant_for
 from policy.engine import Thresholds as PolicyThresholds
-from policy.engine import guarantee_terms, quadrant_for
 from policy.legal_guard import (
     APPROVAL_QUADRANTS,
     LEGAL_REFUND_DAYS,
@@ -129,8 +158,10 @@ from policy.types import (
 from policy.types import CouponRuleApplication as PolicyCouponRule
 
 # 1.1.0: first review round of ADR-15 (lift, versions, history); 1.2.0: second review round
-# (lapse at checkout and of coupon applications, renew, typed links, input provenance, labels)
-API_CONTRACT_VERSION = "1.2.0"
+# (lapse at checkout and of coupon applications, renew, typed links, input provenance, labels);
+# 1.3.0: third round (the LLM contract of llm/ in drafts and messages, decision day, bounded
+# review dates, typed generation records, payload metrics, realized KPI sets)
+API_CONTRACT_VERSION = "1.3.0"
 MODE_HEADER = "X-ReturnRing-Mode"  # every response: "live" or "cached" (US-901)
 REQUEST_ID_HEADER = "X-Request-Id"  # every response; also in the audit log (NFR-12)
 CachedLabel = Literal["Precomputed on AMD MI300X"]
@@ -585,15 +616,26 @@ class Assumptions(AssumptionInputs):
         )
 
 
+REALIZED_SUFFIX = "/realized"
+
+
+def is_realized_set(a: Assumptions) -> bool:
+    """A set of observed quantities ("<label>/realized", basis realized): it prices outcomes
+    with the unit costs of the stored version its simulated counterpart uses (US-602, US-603)."""
+    return a.basis == "realized" and a.version.endswith(REALIZED_SUFFIX)
+
+
 def check_unit_costs(derived: Assumptions, stored: Assumptions) -> None:
     """A derived set uses exactly the unit costs and the basis of the stored version it names
-    (the API calls it when it builds a net benefit; the tests run it on every example)."""
+    (the API calls it when it builds a net benefit; the tests run it on every example). A
+    realized set ("<label>/realized") keeps its own basis: it measures what happened, with the
+    unit costs of the stored version (finding D8)."""
     if stored.based_on is not None or derived.based_on != stored.version:
         raise ValueError(f"{derived.version} is not based on the stored version {stored.version}")
     for name in UNIT_COST_FIELDS:
         if getattr(derived, name) != getattr(stored, name):
             raise ValueError(f"{derived.version}: {name} differs from {stored.version}")
-    if derived.basis != stored.basis:
+    if derived.basis != stored.basis and not is_realized_set(derived):
         raise ValueError(f"{derived.version}: basis differs from {stored.version}")
 
 
@@ -881,6 +923,21 @@ class EvidenceView(ApiModel):
 
 
 StatementLabel = Literal["OBSERVED", "SCORE", "HYPOTHESIS"]
+FactId = Annotated[str, StringConstraints(pattern=r"^F[1-9][0-9]?$")]  # F1, F2... (llm/case.py)
+
+
+def _known_sentence(sentence_id: str) -> str:
+    if sentence_id not in PHRASEBOOK:
+        raise ValueError(f"unknown phrasebook sentence {sentence_id!r}")
+    return sentence_id
+
+
+# A sentence id of the customer phrasebook (llm/phrasebook.py, ADR-14 decision 8).
+SentenceId = Annotated[
+    str,
+    AfterValidator(_known_sentence),
+    WithJsonSchema({"type": "string", "enum": list(SENTENCE_IDS)}),
+]
 EntityKind = Literal[
     "return",
     "order",
@@ -1171,6 +1228,10 @@ def _check_terms_source(
             "a restriction lapses at its review date: its terms are shown only before the "
             "review date (US-607)"
         )
+    if review_at is not None and review_at > utc_day(shown_at) + timedelta(days=MAX_REVIEW_DAYS):
+        raise ValueError(
+            "a review date is at most MAX_REVIEW_DAYS days after the day the terms are shown"
+        )
 
 
 class TermsSnapshotView(ApiModel):
@@ -1196,6 +1257,15 @@ class TermsSnapshotView(ApiModel):
             raise ValueError("a snapshot gets its order id when it is confirmed, not before")
         if self.confirmed_at is not None and self.confirmed_at < self.shown_at:
             raise ValueError("confirmed_at is before shown_at")
+        if (
+            self.confirmed_at is not None
+            and self.review_at is not None
+            and utc_day(self.confirmed_at) >= self.review_at
+        ):
+            raise ValueError(
+                "a restriction lapses at its review date: an order is bound to its terms only "
+                "before the review date (/confirm answers 409, the client evaluates again)"
+            )
         if (self.source == "base") != (self.quadrant_at_purchase is None):
             raise ValueError("base terms have no quadrant; terms from a decision have one")
         _check_terms_source(self.terms, self.base_terms, self.source, self.review_at, self.shown_at)
@@ -1417,6 +1487,16 @@ class DecisionView(ApiModel):
             )
         if self.as_of < self.created_at:
             raise ValueError("as_of is not before created_at")
+        created_day = utc_day(self.created_at)
+        if self.decided_on > created_day:
+            raise ValueError("decided_on is no later than the UTC day of created_at")
+        if self.revision_trigger == "review" and (
+            self.decided_on != created_day or self.approved_at != self.created_at
+        ):
+            raise ValueError(
+                "a review version is decided at the review: decided_on is the UTC day of "
+                "created_at, and the person's act (approved_at) creates it"
+            )
         lapsed = self.review_at is not None and utc_day(self.as_of) >= self.review_at
         expected = (
             (self.state in ("approved", "overridden"))
@@ -1435,6 +1515,36 @@ _POLICY_STATES: dict[DecisionStatus, DecisionState] = {
     "overridden": DecisionState.APPROVED,  # a person took it, on the operator's levers
     "rejected": DecisionState.REJECTED,
 }
+
+
+def proposal_audit_state(
+    view: DecisionView, coupon_application_id: str | None
+) -> DecisionAuditState:
+    """The audit state of the engine's proposal of a version, before a person acted on it
+    (approve, override and reject record it as before, finding D6): the version's quadrant,
+    risk and proposed levers, with the approval flag and the review date the engine gave them
+    (policy.engine: review_on is decided_on + REVIEW_DAYS for a restriction)."""
+    base = view.inputs.base_terms.to_policy()
+    levers = to_policy_levers(view.proposed_levers, base)
+    needs = is_restrictive(levers, base) or view.quadrant in APPROVAL_QUADRANTS
+    risk = view.inputs.risk
+    return DecisionAuditState(
+        decision_id=view.decision_id,
+        version=view.version,
+        state="proposed",
+        quadrant=view.quadrant,
+        risk=(
+            Metric(value=risk, unit="probability", provenance=view.inputs.provenance)
+            if risk is not None
+            else None
+        ),
+        lever_ids=[x.lever_id() for x in view.proposed_levers],
+        requires_approval=needs,
+        review_at=view.decided_on + timedelta(days=REVIEW_DAYS) if needs else None,
+        approver=None,
+        override_category=None,
+        coupon_application_id=coupon_application_id,
+    )
 
 
 def to_policy_decision(view: DecisionView) -> tuple[Decision, ReturnRequest]:
@@ -1512,6 +1622,13 @@ class DecisionAuditState(ApiModel):
     @model_validator(mode="after")
     def _risk(self) -> Self:
         _same_unit(self.risk, unit="probability")
+        if (self.review_at is not None) != self.requires_approval:
+            raise ValueError("a restriction, and only a restriction, has a review date (US-607)")
+        blocks = "cluster_coupons_disabled:true" in self.lever_ids
+        if blocks != (self.coupon_application_id is not None):
+            raise ValueError(
+                "a cluster coupon block names its coupon application, and only a block does"
+            )
         return self
 
     @classmethod
@@ -1579,234 +1696,323 @@ def _check_alternatives(alternatives: Sequence[Alternative], decision: DecisionV
     _same_unit_costs(sets, decision.assumptions_version, "alternatives")
 
 
+class CitedFact(ApiModel):
+    """A fact of the llm_case, built by code from the engine inputs (llm/case.py, ADR-14) and
+    stored with the draft as it was at generation time: the UI shows its entity, metric, value,
+    period and nature next to the statement that cites it (US-305)."""
+
+    id: FactId
+    entity: FactEntity
+    metric: Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]{0,63}$")]
+    value: StrictInt | StrictFloat
+    period: Annotated[str, StringConstraints(min_length=1, max_length=64)]
+    nature: Nature
+
+
 class ExplanationStatement(ApiModel):
-    """A statement of the operator explanation: observed data, a score contribution or a
-    hypothesis to verify (US-305). A statement whose text has a digit names the entity, the
-    metric, the value and the period it cites, and the value appears in the text."""
+    """A statement of the operator explanation (US-305, ADR-14): its label (observed data, a
+    score contribution or a hypothesis to verify), the ids of the code-built facts it cites, its
+    text, and the cited facts themselves, in the order of fact_ids. Every number of the text is
+    the value of a cited fact: llm.validator checks it on every draft (_check_draft)."""
 
     label: StatementLabel
-    text: Annotated[str, StringConstraints(min_length=1, max_length=400)]
-    entity: Id | None
-    metric: ShortText | None
-    value: ShortText | None
-    period: ShortText | None
+    fact_ids: list[FactId] = Field(max_length=MAX_FACTS_PER_STATEMENT)
+    text: Annotated[str, StringConstraints(min_length=1, max_length=MAX_STATEMENT_CHARS)]
+    facts: list[CitedFact] = Field(max_length=MAX_FACTS_PER_STATEMENT)
 
     @model_validator(mode="after")
-    def _words(self) -> Self:
-        if banned_terms(self.text):
-            raise ValueError('say "linked accounts", never "same person" (rule 11)')
-        cited = (self.entity, self.metric, self.value, self.period)
-        if any(ch.isdigit() for ch in self.text) and any(x is None for x in cited):
-            raise ValueError("a statement with a number names its entity, metric, value and period")
-        if self.value is not None and self.value not in self.text:
-            raise ValueError("the value cited appears in the statement text")
+    def _cited(self) -> Self:
+        if len(set(self.fact_ids)) != len(self.fact_ids):
+            raise ValueError("a statement cites a fact once")
+        if [f.id for f in self.facts] != self.fact_ids:
+            raise ValueError("facts are the facts the statement cites, in the order of fact_ids")
         return self
 
 
 class TemplateFields(ApiModel):
-    """Values the code fills into the message placeholders (ADR-08): never written by the LLM."""
+    """The values code fills into the placeholders of one language (ADR-08, rule 10):
+    llm.messages.template_fields of the decision. A placeholder the decision does not have
+    ({amount} without a known refund, {terms} when the future terms do not change) is null."""
 
-    terms: ShortText
+    terms: ShortText | None
     amount: ShortText | None
     deadline: ShortText | None
 
-    def as_mapping(self) -> dict[str, str]:
-        out = {"terms": self.terms}
-        if self.amount is not None:
-            out["amount"] = self.amount
-        if self.deadline is not None:
-            out["deadline"] = self.deadline
-        return out
-
-
-# ---- Template renderers (ADR-08, rule 10): the only source of the template fields -------------
-
-_MONTHS: dict[Lang, tuple[str, ...]] = {
-    "it": (
-        "gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno",
-        "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre",
-    ),
-    "en": (
-        "January", "February", "March", "April", "May", "June",
-        "July", "August", "September", "October", "November", "December",
-    ),
-}  # fmt: skip
-
-
-def deadline_text(day: date, lang: Lang) -> str:
-    """A date in a customer message: "12 ottobre 2026", "12 October 2026" (no locale)."""
-    return f"{day.day} {_MONTHS[lang][day.month - 1]} {day.year}"
-
-
-def amount_text(amount: float, lang: Lang) -> str:
-    """A euro amount in a customer message: "1.234,56 €" in Italian, "€1,234.56" in English."""
-    grouped = f"{_dec(amount).quantize(Decimal('0.01')):,.2f}"
-    if lang == "it":
-        return grouped.replace(",", " ").replace(".", ",").replace(" ", ".") + " €"
-    return f"€{grouped}"
-
-
-def terms_text(terms: Terms, lang: Lang, priority_exchange: bool = False) -> str:
-    """The return terms of future orders, in words (the {terms} field)."""
-    if lang == "it":
-        parts = [
-            f"finestra di reso di {terms.return_window_days} giorni",
-            "reso gratuito" if terms.free_return_shipping else "spedizione del reso a tuo carico",
-            "rimborso immediato" if terms.instant_refund else "rimborso nei termini di legge",
-            (
-                "cambio taglia gratuito" + (" e prioritario" if priority_exchange else "")
-                if terms.free_size_exchange
-                else "cambio taglia a pagamento"
-            ),
-        ]
-        if not terms.coupons_enabled:
-            parts.append("coupon non disponibili")
-    else:
-        parts = [
-            f"{terms.return_window_days}-day return window",
-            "free return shipping"
-            if terms.free_return_shipping
-            else "return shipping at your cost",
-            "instant refund" if terms.instant_refund else "refund within the legal terms",
-            (
-                ("free priority size exchange" if priority_exchange else "free size exchange")
-                if terms.free_size_exchange
-                else "size exchange at your cost"
-            ),
-        ]
-        if not terms.coupons_enabled:
-            parts.append("coupons not available")
-    return ", ".join(parts)
-
-
-def template_fields(decision: DecisionView, lang: Lang) -> TemplateFields:
-    """The template fields of every message about a decision: the terms of future orders, the
-    refund deadline (notice + 14 days) and, with a diminished-value claim, its amount."""
-    priority = any(x.id == "priority_size_exchange" and x.value is True for x in decision.levers)
-    claim = decision.diminished_value_claim
-    return TemplateFields(
-        terms=terms_text(decision.future_terms, lang, priority),
-        amount=amount_text(float(claim.amount.value), lang) if claim is not None else None,
-        deadline=deadline_text(decision.refund_due_by, lang),
-    )
-
-
-def _check_fields(fields: TemplateFields, decision: DecisionView, lang: Lang) -> None:
-    if fields != template_fields(decision, lang):
-        raise ValueError(
-            "the template fields are the decision's terms, refund deadline and claim amount "
-            "(template_fields, rule 10)"
+    @classmethod
+    def of(
+        cls, decision: Decision, base: ReturnTerms, lang: Lang, refund_eur: Decimal | None = None
+    ) -> TemplateFields:
+        values = template_fields(decision, base, lang, refund_eur)
+        return cls(
+            terms=values.get("terms"), amount=values.get("amount"), deadline=values.get("deadline")
         )
 
-
-MAX_CUSTOMER_WORDS = 120  # spec 8.7
-
-
-def render_customer_message(
-    llm_text: str, fields: Mapping[str, str], lang: Lang, clause_kind: ClauseKind | None
-) -> str:
-    """Fill the placeholders of connective text from the template fields and append the fixed
-    legal clause (the v1 draft renderer; llm/messages.py now renders from phrasebook ids)."""
-    used = placeholders_in(llm_text)
-    missing = [name for name in used if name not in fields]
-    if missing:
-        raise MessageError(f"Missing values for placeholders: {missing}")
-    text = llm_text
-    for name in used:
-        text = text.replace("{" + name + "}", fields[name])
-    return append_clause(text, clause_kind, lang)
+    def filled(self) -> list[str]:
+        return [x for x in (self.terms, self.amount, self.deadline) if x is not None]
 
 
-def check_connective_text(text: str) -> None:
-    """Rules of the connective text of a customer message, written by the LLM or edited by an
-    operator: known placeholders only, no digit outside them (amounts, terms and deadlines are
-    template fields, rule 10), no accusatory term, no "same person", at most 120 words."""
-    rest = text
-    for name in PLACEHOLDERS:
-        rest = rest.replace("{" + name + "}", "")
-    if any(ch in rest for ch in "{}"):
-        raise ValueError("unknown placeholders: only {terms}, {amount} and {deadline}")
-    if banned_terms(text):
-        raise ValueError("no accusatory term and no 'same person' in a customer message")
-    stripped = text
-    for name in PLACEHOLDERS:
-        stripped = stripped.replace("{" + name + "}", "")
-    if any(ch.isdigit() for ch in stripped):
-        raise ValueError("amounts, terms and deadlines come from template fields (rule 10)")
-    if len(text.split()) > MAX_CUSTOMER_WORDS:
-        raise ValueError(f"at most {MAX_CUSTOMER_WORDS} words")
+MessageText = Annotated[str, StringConstraints(min_length=1, max_length=4000)]
+
+
+def _check_selection_shape(ids: Sequence[str]) -> None:
+    """The slots of a phrasebook selection, whatever the decision: one opening, up to three
+    extras, one closing, each id once (llm/phrasebook.py; selection_problems checks the rest
+    against the decision)."""
+    if len(set(ids)) != len(ids):
+        raise ValueError("a phrasebook sentence is used once")
+    slots = [PHRASEBOOK[i].slot for i in ids]
+    if slots != ["opening", *["extra"] * (len(ids) - 2), "closing"]:
+        raise ValueError("a selection is one opening, up to three extras and one closing")
+
+
+def _check_rendered(
+    ids: Sequence[str], fields: TemplateFields, kind: ClauseKind | None, lang: Lang, text: str
+) -> None:
+    """What a rendered message shows without its decision: the chosen sentences in order, the
+    field values, and exactly the fixed legal clause at the end (llm.legal_clause)."""
+    try:
+        assert_clause(text, kind, lang)
+    except LegalClauseError as exc:
+        raise ValueError(str(exc)) from None
+    position = 0
+    for sentence_id in ids:
+        found = text.find(PHRASEBOOK[sentence_id].text(lang), position)
+        if found < 0:
+            raise ValueError(f"the message shows the {lang} text of {sentence_id}, in order")
+        position = found
+    if any(value not in text for value in fields.filled()):
+        raise ValueError("the message shows its template fields")
+
+
+def check_rendering(
+    ids: Sequence[str],
+    fields: TemplateFields,
+    kind: ClauseKind | None,
+    lang: Lang,
+    text: str,
+    decision: Decision,
+    base: ReturnTerms,
+    refund_eur: Decimal | None = None,
+) -> None:
+    """A customer message is llm.phrasebook.render_selection of its sentence ids for the
+    decision: ids allowed for it, the fields of llm.messages.template_fields, the clause of
+    llm.legal_clause.required_clause and exactly the composed text (rules 1, 10, ADR-14)."""
+    _, expected = serialize_decision(decision, base, refund_eur)
+    problems = selection_problems(ids, context_of(expected))
+    if problems:
+        raise ValueError(f"phrasebook ids not allowed for the decision: {'; '.join(problems)}")
+    if fields != TemplateFields.of(decision, base, lang, refund_eur):
+        raise ValueError("the template fields are llm.messages.template_fields of the decision")
+    if kind != llm_required_clause(decision, base):
+        raise ValueError("the message carries the legal clause the decision requires")
+    if text != render_selection(ids, decision, base, lang, refund_eur):
+        raise ValueError("the text is llm.phrasebook.render_selection of the ids")
+
+
+def default_selection_for(
+    decision: Decision,
+    base: ReturnTerms,
+    preferred: Sequence[str] | None = None,
+    refund_eur: Decimal | None = None,
+) -> list[str]:
+    """The phrasebook ids of a message about the decision: `preferred` (the draft's selection)
+    when it is allowed for this decision, otherwise the fallback selection of llm.templates."""
+    _, expected = serialize_decision(decision, base, refund_eur)
+    ctx = context_of(expected)
+    if preferred is not None and not selection_problems(preferred, ctx):
+        return list(preferred)
+    return default_selection(ctx)
+
+
+class RenderedMessage(ApiModel):
+    """The message of one language: the template fields and the text code composed."""
+
+    lang: Lang
+    fields: TemplateFields
+    text: MessageText
 
 
 class CustomerMessageView(ApiModel):
-    """A customer message: connective text from the LLM (placeholders only), template fields from
-    code, the fixed legal clause appended by code, and the text the customer receives."""
+    """The customer message of a draft (ADR-14 decision 8): the phrasebook ids the model chose,
+    whether the fixed legal clause is appended (and which), and for each language the template
+    fields and the text llm.phrasebook.render_selection composed: opening, the mandatory body
+    written by code from the decision, the extras, the closing, then the clause."""
 
-    lang: Lang
-    connective_text: Annotated[str, StringConstraints(min_length=1, max_length=900)]
-    fields: TemplateFields
+    sentence_ids: list[SentenceId] = Field(min_length=MIN_SENTENCES, max_length=MAX_SENTENCES)
     legal_clause_kind: ClauseKind | None
-    rendered_text: Annotated[str, StringConstraints(min_length=1, max_length=4000)]
+    texts: list[RenderedMessage] = Field(min_length=1, max_length=2)
 
     @model_validator(mode="after")
     def _render(self) -> Self:
-        check_connective_text(self.connective_text)
-        rendered = render_customer_message(
-            self.connective_text, self.fields.as_mapping(), self.lang, self.legal_clause_kind
-        )
-        if rendered != self.rendered_text:
-            raise ValueError("rendered_text must be llm.messages.render_customer_message output")
+        _check_selection_shape(self.sentence_ids)
+        langs = [t.lang for t in self.texts]
+        if len(set(langs)) != len(langs):
+            raise ValueError("one text per language")
+        for t in self.texts:
+            _check_rendered(self.sentence_ids, t.fields, self.legal_clause_kind, t.lang, t.text)
         return self
 
 
 class DecisionEchoView(ApiModel):
     path: Path
     quadrant: Quadrant | None
-    lever_ids: list[LeverIdText]
+    lever_ids: list[LeverIdText] = Field(max_length=MAX_LEVER_IDS)
+
+
+def check_generation_path(
+    path: GenerationPath,
+    fallback: FallbackReason | None,
+    calls: int,
+    codes: Sequence[ValidatorCode],
+) -> None:
+    """The paths of llm.generate (spec 8.7): model, validated on the first call; regenerated,
+    validated on the second call after validator errors; template, the fixed fallback, with
+    its reason (the model was unavailable, echoed another decision or failed twice)."""
+    if len(set(codes)) != len(codes):
+        raise ValueError("each validator code is listed once")
+    if (path == "template") != (fallback is not None):
+        raise ValueError("a template output, and only it, has a fallback reason")
+    if path == "model" and (calls != 1 or codes):
+        raise ValueError("model: validated on the first call")
+    if path == "regenerated" and (calls != MAX_MODEL_CALLS or not codes):
+        raise ValueError("regenerated: validated on the second call, after validator errors")
+    if fallback == "unavailable" and bool(codes) != (calls > 0):
+        raise ValueError("unavailable: the codes of the calls made before the model failed")
+    if fallback == "decision_echo" and (calls == 0 or "DECISION_ECHO" not in codes):
+        raise ValueError("decision_echo: a call answered with another decision")
+    if fallback == "invalid_twice" and (calls != MAX_MODEL_CALLS or not codes):
+        raise ValueError("invalid_twice: both calls failed the validator")
 
 
 class GenerationInfo(ApiModel):
-    """How an LLM output was produced (spec 8.7 validator path, US-901 cached label)."""
+    """How an LLM output was produced (spec 8.7, US-901 cached label): the path of llm.generate,
+    the model calls, the codes of llm.validator found on the way and, for the template, why."""
 
     generation_id: Id
     generation_path: GenerationPath
+    fallback_reason: FallbackReason | None
     llm_mode: LlmMode
     served_from: ServedFrom
     model: ShortText  # the served model id, "mock" in LLM_MODE=mock
-    attempts: int = Field(ge=0, le=2)
-    validator_errors: list[ShortText]
+    model_calls: int = Field(ge=0, le=MAX_MODEL_CALLS)
+    validator_codes: list[ValidatorCode]
     created_at: AwareDatetime
     latency_ms: int | None = Field(ge=0)
 
     @model_validator(mode="after")
     def _path(self) -> Self:
-        if self.generation_path == "llm" and (self.attempts != 1 or self.validator_errors):
-            raise ValueError("llm: validated on the first attempt")
-        if self.generation_path == "llm_regenerated" and (
-            self.attempts != 2 or not self.validator_errors
-        ):
-            raise ValueError("llm_regenerated: second attempt after validator errors")
-        if self.generation_path == "template" and self.attempts > 0 and not self.validator_errors:
-            raise ValueError("template: the LLM was unavailable (0 attempts) or failed validation")
+        check_generation_path(
+            self.generation_path, self.fallback_reason, self.model_calls, self.validator_codes
+        )
         if self.llm_mode == "mock" and self.served_from == "cached":
             raise ValueError("cached outputs were produced by vLLM on the MI300X, not by the mock")
         return self
 
+    @classmethod
+    def from_generation(
+        cls,
+        result: Generation,
+        *,
+        generation_id: str,
+        llm_mode: LlmMode,
+        served_from: ServedFrom,
+        model: str,
+        created_at: datetime,
+        latency_ms: int | None,
+    ) -> GenerationInfo:
+        """The record of an llm.generate.generate result."""
+        codes = list(dict.fromkeys(issue.code.value for issue in result.issues))
+        return cls.model_validate(
+            {
+                "generation_id": generation_id,
+                "generation_path": result.path.value,
+                "fallback_reason": result.fallback_reason,
+                "llm_mode": llm_mode,
+                "served_from": served_from,
+                "model": model,
+                "model_calls": result.model_calls,
+                "validator_codes": codes,
+                "created_at": created_at,
+                "latency_ms": latency_ms,
+            }
+        )
+
 
 class DraftView(ApiModel):
-    """The explanation and messages drafted for a decision (US-304, US-305)."""
+    """The draft of a decision version (US-304, US-305, ADR-14): the output of llm.generate for
+    the engine's decision of the version (path, quadrant, proposed levers), validated by
+    llm.validator, stored with the facts each statement cites and the messages composed by
+    llm.phrasebook. Generated at intake, or again on request (regenerate)."""
 
     generation: GenerationInfo
     tone: Tone
     decision_echo: DecisionEchoView
-    explanation: list[ExplanationStatement] = Field(min_length=1)
-    messages: list[CustomerMessageView] = Field(min_length=1, max_length=2)
+    explanation: list[ExplanationStatement] = Field(min_length=1, max_length=MAX_STATEMENTS)
+    message: CustomerMessageView
+    provenance: Provenance  # the engine inputs the cited facts were built from (rule 11)
 
-    @model_validator(mode="after")
-    def _langs(self) -> Self:
-        langs = [m.lang for m in self.messages]
-        if len(set(langs)) != len(langs):
-            raise ValueError("one message per language")
-        return self
+    def llm_output(self) -> dict[str, Any]:
+        """The output as the model gave it (contracts/json/llm_output.schema.json)."""
+        echo = self.decision_echo
+        return {
+            "decision_echo": {
+                "path": echo.path.value,
+                "quadrant": echo.quadrant.value if echo.quadrant else None,
+                "lever_ids": list(echo.lever_ids),
+            },
+            "operator_explanation": [
+                {"label": x.label, "fact_ids": list(x.fact_ids), "text": x.text}
+                for x in self.explanation
+            ],
+            "customer_message": {"sentence_ids": list(self.message.sentence_ids)},
+        }
+
+    @classmethod
+    def build(
+        cls,
+        generation: GenerationInfo,
+        output: LlmOutput,
+        case: Mapping[str, Any],
+        decision: Decision,
+        base: ReturnTerms,
+        provenance: Provenance,
+        tone: Tone = "warm",
+    ) -> DraftView:
+        """The draft of a validated output for the llm_case it answers (llm.case.build_case of
+        `decision`): the cited facts copied from the case, the messages in the case languages,
+        and the provenance of the engine inputs the facts were built from."""
+        facts = {fact["id"]: fact for fact in case["facts"]}
+        ids = list(output.customer_message.sentence_ids)
+        texts = [
+            RenderedMessage(
+                lang=lang,
+                fields=TemplateFields.of(decision, base, lang),
+                text=render_selection(ids, decision, base, lang),
+            )
+            for lang in case["languages"]
+        ]
+        return cls.model_validate(
+            {
+                "generation": generation,
+                "tone": tone,
+                "decision_echo": output.decision_echo.model_dump(),
+                "explanation": [
+                    {
+                        "label": x.label,
+                        "fact_ids": x.fact_ids,
+                        "text": x.text,
+                        "facts": [facts[i] for i in x.fact_ids],
+                    }
+                    for x in output.operator_explanation
+                ],
+                "message": {
+                    "sentence_ids": ids,
+                    "legal_clause_kind": llm_required_clause(decision, base),
+                    "texts": texts,
+                },
+                "provenance": provenance,
+            }
+        )
 
 
 AnomalyStatus = Literal["open", "task_opened", "resolved"]
@@ -1879,32 +2085,122 @@ class RevisionSummary(ApiModel):
         return self
 
 
-def required_clause(decision: DecisionView) -> ClauseKind | None:
-    """The fixed legal clause a message must end with: the guarantee clause on the guarantee
-    path, the withdrawal clause when the decision's levers are restrictive, none otherwise."""
-    if decision.path is Path.GUARANTEE:
-        return "guarantee"
-    base = decision.inputs.base_terms.to_policy()
-    if is_restrictive(to_policy_levers(decision.levers, base), base):
-        return "withdrawal"
-    return None
+def proposal_decision(view: DecisionView) -> Decision:
+    """The policy Decision of the engine's proposal of a version, which its draft explains:
+    path, evidence quality, quadrant and proposed levers, as policy.engine.decide gave them
+    (whatever a person did with them afterwards)."""
+    decision, _ = to_policy_decision(view)
+    base = view.inputs.base_terms.to_policy()
+    levers = to_policy_levers(view.proposed_levers, base)
+    needs = is_restrictive(levers, base) or view.quadrant in APPROVAL_QUADRANTS
+    return replace(
+        decision,
+        quadrant=view.quadrant,
+        levers=levers,
+        requires_approval=needs,
+        state=DecisionState.PROPOSED,
+        approver=None,
+        review_on=view.decided_on + timedelta(days=REVIEW_DAYS) if needs else None,
+        coupon_rule=None,
+        diminished_value_claim=None,
+    )
 
 
-def _check_draft(draft: DraftView, decision: DecisionView) -> None:
-    echo = draft.decision_echo
-    if (echo.path, echo.quadrant, sorted(echo.lever_ids)) != (
-        decision.path,
-        decision.quadrant,
-        sorted(decision.lever_ids),
+# Facts of a scored case only (llm/case.py): never on the guarantee path (rule 4) or with
+# insufficient evidence (US-307).
+SCORED_METRICS = frozenset({*SCORE_METRICS, "value_eur_12m", "cluster_size"})
+
+
+def _fact_number(value: float | int) -> Decimal:
+    """A number as llm.case writes it in a fact: rounded half-up to 2 decimals."""
+    return Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def _check_cited_facts(draft: DraftView, view: DecisionView) -> list[CitedFact]:
+    """The facts a draft cites are code-built facts of its version: one content per id, the
+    nature of the engine inputs, no score where the case is not scored, and the risk, the value
+    and the days since delivery given to the engine."""
+    facts: dict[str, CitedFact] = {}
+    for statement in draft.explanation:
+        for fact in statement.facts:
+            if facts.setdefault(fact.id, fact) != fact:
+                raise ValueError(f"fact {fact.id} is cited with two different contents")
+    inputs = view.inputs
+    if draft.provenance != inputs.provenance:
+        raise ValueError("the facts of a draft are built from the engine inputs of its version")
+    scored = view.path is Path.WITHDRAWAL and view.evidence_quality is EvidenceQuality.SUFFICIENT
+    if not scored and any(s.label == "SCORE" for s in draft.explanation):
+        raise ValueError("a case that is not scored has no SCORE statement (rule 4, US-307)")
+    known: dict[str, float | int | None] = {
+        "days_since_delivery": (inputs.notice_on - inputs.delivered_on).days
+    }
+    if scored:
+        known.update(risk_score=inputs.risk, value_eur_12m=inputs.value_eur)
+    for fact in facts.values():
+        if fact.nature != inputs.provenance.nature:
+            raise ValueError("a cited fact has the nature of the engine inputs (rule 11)")
+        if not scored and fact.metric in SCORED_METRICS:
+            raise ValueError(
+                "a case on the guarantee path or with insufficient evidence is not scored"
+            )
+        value = known.get(fact.metric)
+        if value is not None and _fact_number(value) != Decimal(str(fact.value)):
+            raise ValueError(f"fact {fact.id} ({fact.metric}) is not the value given to the engine")
+    return list(facts.values())
+
+
+def _check_draft(draft: DraftView, view: DecisionView) -> None:
+    """A draft is the validated output of llm/ for the engine's decision of its version (rule 1):
+    llm.validator accepts it against the facts it cites (echo, labels, grounding of every
+    number, banned terms, script, phrasebook ids), and each message is
+    llm.phrasebook.render_selection of its ids, with the fields and the clause of the decision."""
+    decision = proposal_decision(view)
+    base = view.inputs.base_terms.to_policy()
+    levers, expected = serialize_decision(decision, base)
+    facts = _check_cited_facts(draft, view)
+    case: dict[str, Any] = {
+        "case_id": view.return_id,
+        "path": expected.path,
+        "evidence_quality": expected.evidence_quality,
+        "quadrant": expected.quadrant,
+        "levers": levers,
+        "placeholders": {
+            "available": sorted(expected.placeholders),
+            "required": ["terms"] if expected.requires_terms else [],
+        },
+        "facts": [fact.model_dump() for fact in facts],
+    }
+    scored = view.path is Path.WITHDRAWAL and view.evidence_quality is EvidenceQuality.SUFFICIENT
+    if scored and view.inputs.cluster_id is not None:
+        case["cluster"] = {"id": view.inputs.cluster_id}  # an identifier, never a value
+    result = validate(draft.llm_output(), expected, case)
+    if result.errors:
+        found = "; ".join(f"{e.code.value} {e.where}: {e.detail}" for e in result.errors)
+        raise ValueError(f"the draft fails llm.validator: {found}")
+    message = draft.message
+    for t in message.texts:
+        check_rendering(
+            message.sentence_ids, t.fields, message.legal_clause_kind, t.lang, t.text,
+            decision, base,
+        )  # fmt: skip
+
+
+def check_outbox_message(message: OutboxMessage, view: DecisionView) -> None:
+    """An outbox message about a decision version: its return and customer, and the text
+    llm.phrasebook.render_selection composes for the decision as it stands (the levers a person
+    approved or chose), with the refund it states, if any."""
+    if (message.decision_id, message.return_id, message.customer_id) != (
+        view.decision_id,
+        view.return_id,
+        view.inputs.customer_id,
     ):
-        raise ValueError("the draft must echo the decision shown (rule 1)")
-    kind = required_clause(decision)
-    if any(m.legal_clause_kind != kind for m in draft.messages):
-        raise ValueError(f"every message must carry the {kind} legal clause")
-    for message in draft.messages:
-        _check_fields(message.fields, decision, message.lang)
-    if decision.path is Path.GUARANTEE and any(s.label == "SCORE" for s in draft.explanation):
-        raise ValueError("the guarantee path is not scored: no SCORE statement")
+        raise ValueError("the message is about this decision, its return and its customer")
+    decision, _ = to_policy_decision(view)
+    refund = _dec(float(message.refund.value)) if message.refund is not None else None
+    check_rendering(
+        message.sentence_ids, message.fields, message.legal_clause_kind, message.lang,
+        message.body, decision, view.inputs.base_terms.to_policy(), refund,
+    )  # fmt: skip
 
 
 class CaseCard(ApiModel):
@@ -2019,19 +2315,29 @@ class DecisionRecord(ApiModel):
 
 
 class MessageChoice(ApiModel):
-    """The customer message to send: its language, and optionally the operator's edit of the
-    connective text (placeholders only; the API fills the fields and appends the legal clause)."""
+    """The customer message to send after approve, override or reject: its language and,
+    optionally, a selection of phrasebook ids (llm/phrasebook.py) other than the default one.
+    The operator chooses reviewed sentences, never free text (ADR-14 decision 8). The API
+    composes the message for the decision acted on with llm.phrasebook.render_selection (the
+    mandatory body, the template fields and the legal clause come from the decision) and
+    refuses a selection that is not allowed for it (422 invalid_request). Without sentence_ids:
+    the draft's selection when it is allowed for the decision acted on, otherwise the fallback
+    selection of llm.templates (default_selection_for)."""
 
     lang: Lang
-    text: Annotated[str, StringConstraints(min_length=1, max_length=900)] | None = None
+    sentence_ids: (
+        Annotated[list[SentenceId], Field(min_length=MIN_SENTENCES, max_length=MAX_SENTENCES)]
+        | None
+    ) = None
 
     @model_validator(mode="after")
-    def _text(self) -> Self:
-        if self.text is not None:
-            check_connective_text(self.text)
+    def _ids(self) -> Self:
+        if self.sentence_ids is not None:
+            _check_selection_shape(self.sentence_ids)
         return self
 
 
+_MESSAGE_ACTIONS: tuple[DecisionAction, ...] = ("approve", "override", "reject")
 _REASON_ACTIONS: tuple[DecisionAction, ...] = ("override", "reject", "lift")
 _NO_LEVER_ACTIONS: tuple[DecisionAction, ...] = ("reject", "lift", "renew")
 
@@ -2061,7 +2367,12 @@ class DecisionRequest(ApiModel):
     levers, and the cluster coupon application of the restriction, if any, is reversed. renew
     keeps a restriction, at or after its review date (409 before), with no levers and no reason:
     the person approves the fresh proposal, which gets a new review date (409 if the fresh
-    proposal is not a restriction: lift it). Every action sends one message to the outbox."""
+    proposal is not a restriction: lift it).
+
+    approve, override and reject send one message to the outbox (`message` required). lift and
+    renew send none (`message` null): the phrasebook has no reviewed sentence about a review yet,
+    and its return registration would state the refund deadline of a return closed long ago; the
+    customer sees the terms of a lift or a renewal at checkout, before each purchase (US-403)."""
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -2090,6 +2401,14 @@ class DecisionRequest(ApiModel):
                     "if": _action_is(_NO_LEVER_ACTIONS),
                     "then": {"properties": {"levers": {"type": "null"}}},
                 },
+                {
+                    "if": _action_is(_MESSAGE_ACTIONS),
+                    "then": {
+                        "required": ["message"],
+                        "properties": {"message": {"type": "object"}},
+                    },
+                    "else": {"properties": {"message": {"type": "null"}}},
+                },
             ]
         }
     )
@@ -2097,7 +2416,7 @@ class DecisionRequest(ApiModel):
     decision_id: Id  # the version the operator saw: 409 stale_decision if a newer one exists
     action: DecisionAction
     levers: LeverList | None = None
-    message: MessageChoice
+    message: MessageChoice | None = None
     override_reason: Reason | None = None
     override_category: OverrideCategory | None = None
     approver: HumanActor
@@ -2115,6 +2434,8 @@ class DecisionRequest(ApiModel):
             raise ValueError(f"{self.action} takes no levers")
         if self.levers is not None and len({x.id for x in self.levers}) != len(self.levers):
             raise ValueError("a lever is given twice")
+        if (self.action in _MESSAGE_ACTIONS) != (self.message is not None):
+            raise ValueError("approve, override and reject send a message; lift and renew none")
         return self
 
 
@@ -2131,13 +2452,83 @@ _REVIEW_ACTIONS = ("restriction_lifted", "restriction_renewed")  # a person's re
 _NEW_VERSION_ACTIONS = (*_REVIEW_ACTIONS, "case_recomputed")
 
 
+def _check_payload_numbers(node: Any) -> None:
+    """Rule 11 in the untyped payload of an audit entry: a number is a Metric {value, unit,
+    provenance} (a compensation in euros, for example), never a plain number (finding D7)."""
+    if isinstance(node, dict):
+        if set(node) == {"value", "unit", "provenance"}:
+            Metric.model_validate(node)
+            return
+        for value in node.values():
+            _check_payload_numbers(value)
+    elif isinstance(node, list):
+        for value in node:
+            _check_payload_numbers(value)
+    elif isinstance(node, int | float) and not isinstance(node, bool):
+        raise ValueError(
+            "a number in an audit payload is a Metric {value, unit, provenance} (rule 11)"
+        )
+
+
+_GENERATION_KINDS: dict[AuditAction, GenerationKind] = {
+    "draft_generated": "case_draft",
+    "draft_regenerated": "regenerate",
+}
+
+
+class GenerationAuditState(ApiModel):
+    """The after of an audit entry about a draft generation (entity_type llm_generation): the
+    path llm.generate took (model, regenerated, template), why it fell back, the model calls
+    and the llm.validator codes found on the way (spec 8.7, ADR-14), with the decision version
+    the draft explains."""
+
+    generation_id: Id
+    kind: GenerationKind
+    decision_id: Id
+    generation_path: GenerationPath
+    fallback_reason: FallbackReason | None
+    model_calls: int = Field(ge=0, le=MAX_MODEL_CALLS)
+    validator_codes: list[ValidatorCode]
+    llm_mode: LlmMode
+    served_from: ServedFrom
+    model: ShortText
+
+    @model_validator(mode="after")
+    def _path(self) -> Self:
+        check_generation_path(
+            self.generation_path, self.fallback_reason, self.model_calls, self.validator_codes
+        )
+        return self
+
+    @classmethod
+    def from_info(
+        cls, info: GenerationInfo, kind: GenerationKind, decision_id: str
+    ) -> GenerationAuditState:
+        return cls(
+            generation_id=info.generation_id,
+            kind=kind,
+            decision_id=decision_id,
+            generation_path=info.generation_path,
+            fallback_reason=info.fallback_reason,
+            model_calls=info.model_calls,
+            validator_codes=info.validator_codes,
+            llm_mode=info.llm_mode,
+            served_from=info.served_from,
+            model=info.model,
+        )
+
+
 class AuditEntry(ApiModel):
     """One row of the append-only audit log (US-604).
 
     The entries about a decision version (entity_type decision, actions DECISION_AUDIT_ACTIONS)
     name its return and carry a typed before and after (DecisionAuditState). approve, override
     and reject change a proposed version; restriction_lifted, restriction_renewed and
-    case_recomputed create the next version, so before and after are two versions."""
+    case_recomputed create the next version, so before and after are two versions.
+
+    The entries about a draft generation (entity_type llm_generation, actions
+    GENERATION_AUDIT_ACTIONS) carry a typed after (GenerationAuditState): the generation path
+    and the validator codes are part of the audit record (spec 8.7)."""
 
     entry_id: int = Field(ge=1)
     at: AwareDatetime
@@ -2149,8 +2540,8 @@ class AuditEntry(ApiModel):
     return_id: Id | None
     decision_id: Id | None
     reason: Reason | None
-    before: DecisionAuditState | dict[str, Any] | None
-    after: DecisionAuditState | dict[str, Any] | None
+    before: DecisionAuditState | GenerationAuditState | dict[str, Any] | None
+    after: DecisionAuditState | GenerationAuditState | dict[str, Any] | None
     rules_version: Version | None
     model_versions: dict[str, Version] | None
     assumptions_version: Version | None
@@ -2159,11 +2550,16 @@ class AuditEntry(ApiModel):
     @model_validator(mode="before")
     @classmethod
     def _typed_payloads(cls, data: Any) -> Any:
-        if isinstance(data, dict) and data.get("entity_type") == "decision":
+        typed: dict[str, type[BaseModel]] = {
+            "decision": DecisionAuditState,
+            "llm_generation": GenerationAuditState,
+        }
+        model = typed.get(str(data.get("entity_type"))) if isinstance(data, dict) else None
+        if model is not None:
             data = dict(data)
             for key in ("before", "after"):
                 if isinstance(data.get(key), dict):
-                    data[key] = DecisionAuditState.model_validate(data[key])
+                    data[key] = model.model_validate(data[key])
         return data
 
     @classmethod
@@ -2172,20 +2568,35 @@ class AuditEntry(ApiModel):
     ) -> JsonSchemaValue:
         schema = handler(core_schema)
         target = handler.resolve_ref_schema(schema)
-        ref = next(x for x in target["properties"]["after"]["anyOf"] if "$ref" in x)
+        refs = [x for x in target["properties"]["after"]["anyOf"] if "$ref" in x]
+        # the refs are in field order (DecisionAuditState, then GenerationAuditState); pydantic
+        # names them only once the whole schema is generated
+        decision, generation = refs
         actions = {"enum": sorted(DECISION_AUDIT_ACTIONS)}
+        drafts = {"enum": sorted(GENERATION_AUDIT_ACTIONS)}
         target["allOf"] = [
             {
                 "if": _has("entity_type", {"const": "decision"}),
                 "then": {
                     "properties": {
                         "action": actions,
-                        "before": {"anyOf": [ref, {"type": "null"}]},
-                        "after": ref,
+                        "before": {"anyOf": [decision, {"type": "null"}]},
+                        "after": decision,
                     }
                 },
                 "else": {"properties": {"action": {"not": actions}}},
-            }
+            },
+            {
+                "if": _has("entity_type", {"const": "llm_generation"}),
+                "then": {
+                    "properties": {
+                        "action": drafts,
+                        "before": {"type": "null"},
+                        "after": generation,
+                    }
+                },
+                "else": {"properties": {"action": {"not": drafts}}},
+            },
         ]
         return schema
 
@@ -2199,13 +2610,48 @@ class AuditEntry(ApiModel):
             raise ValueError(f"{self.action} needs a reason")
         if (self.entity_type == "decision") != (self.action in DECISION_AUDIT_ACTIONS):
             raise ValueError("the entries about a decision version have entity_type decision")
+        if (self.entity_type == "llm_generation") != (self.action in GENERATION_AUDIT_ACTIONS):
+            raise ValueError("the entries about a draft generation have entity_type llm_generation")
         if self.entity_type == "decision":
             self._check_decision_payloads()
+        elif self.entity_type == "llm_generation":
+            self._check_generation_payloads()
+        elif not all(isinstance(x, dict | None) for x in (self.before, self.after)):
+            raise ValueError("only decision and generation entries carry a typed payload")
+        else:
+            for payload in (self.before, self.after):
+                _check_payload_numbers(payload)
         return self
+
+    def _check_renewal(self, before: DecisionAuditState, after: DecisionAuditState) -> None:
+        """US-607: a renewal is made at or after the review date of the restriction it renews,
+        and sets a new review date after the day of the renewal, within the maximum."""
+        day = utc_day(self.at)
+        if not after.requires_approval or after.review_at is None:
+            raise ValueError("a renewal keeps a restriction, with a new review date")
+        if before.review_at is None or day < before.review_at:
+            raise ValueError("a restriction is renewed at or after its review date (US-607)")
+        if not day < after.review_at <= day + timedelta(days=MAX_REVIEW_DAYS):
+            raise ValueError(
+                "a renewal sets a new review date after the day of the renewal, within the maximum"
+            )
+
+    def _check_generation_payloads(self) -> None:
+        after = self.after
+        if self.before is not None or not isinstance(after, GenerationAuditState):
+            raise ValueError("a generation entry has a typed after (the record) and no before")
+        if not (self.entity_id == after.generation_id and self.decision_id == after.decision_id):
+            raise ValueError("a generation entry is about the generation and the decision it names")
+        if self.return_id is None:
+            raise ValueError("a generation entry names the return of the decision")
+        if after.kind != _GENERATION_KINDS[self.action]:
+            raise ValueError(f"{self.action} records a {_GENERATION_KINDS[self.action]} generation")
 
     def _check_decision_payloads(self) -> None:  # noqa: C901 - one rule per action, together
         before, after = self.before, self.after
-        if not isinstance(after, DecisionAuditState) or isinstance(before, dict):
+        if not isinstance(after, DecisionAuditState) or not isinstance(
+            before, DecisionAuditState | None
+        ):
             raise ValueError("a decision entry has a typed after, and a typed before or none")
         if not (self.entity_id == self.decision_id == after.decision_id):
             raise ValueError("a decision entry is about the version in its after")
@@ -2233,8 +2679,8 @@ class AuditEntry(ApiModel):
                 )
             if self.action == "restriction_lifted" and after.lever_ids:
                 raise ValueError("a lift ends the restriction with the standard levers")
-            if self.action == "restriction_renewed" and not after.requires_approval:
-                raise ValueError("a renewal keeps a restriction, with a new review date")
+            if self.action == "restriction_renewed":
+                self._check_renewal(before, after)
         elif before.decision_id != after.decision_id or before.state != "proposed":
             raise ValueError(f"{self.action} acts on a proposed version")
 
@@ -2260,8 +2706,11 @@ AUDIT_CSV_COLUMNS: tuple[str, ...] = (
 
 
 class OutboxMessage(ApiModel):
-    """A message in the simulated outbox (spec 4: no real email): the connective text, the
-    template fields, and the body render_customer_message makes of them with the legal clause."""
+    """A message in the simulated outbox (spec 4: no real email), sent after a person acted: the
+    phrasebook ids, the template fields of its language, the refund the {amount} field states
+    (null when the refund amount is not known), and the body llm.phrasebook.render_selection
+    composed for the decision acted on, ending with the fixed legal clause it requires. The
+    models that hold the decision check the body against it (check_outbox_message)."""
 
     message_id: Id
     return_id: Id
@@ -2269,9 +2718,10 @@ class OutboxMessage(ApiModel):
     customer_id: Id
     lang: Lang
     subject: ShortText
-    connective_text: Annotated[str, StringConstraints(min_length=1, max_length=900)]
+    sentence_ids: list[SentenceId] = Field(min_length=MIN_SENTENCES, max_length=MAX_SENTENCES)
     fields: TemplateFields
-    body: Annotated[str, StringConstraints(min_length=1, max_length=4000)]
+    refund: Metric | None  # eur: the refund after a diminished-value claim, when stated
+    body: MessageText
     legal_clause_kind: ClauseKind | None
     generation_id: Id | None
     status: OutboxStatus
@@ -2280,17 +2730,52 @@ class OutboxMessage(ApiModel):
 
     @model_validator(mode="after")
     def _render(self) -> Self:
-        check_connective_text(self.connective_text)
-        rendered = render_customer_message(
-            self.connective_text, self.fields.as_mapping(), self.lang, self.legal_clause_kind
+        _check_selection_shape(self.sentence_ids)
+        _same_unit(self.refund, unit="eur")
+        if self.refund is not None and self.refund.value < 0:
+            raise ValueError("a refund is not negative")
+        if self.fields.amount is not None and self.refund is None:
+            raise ValueError("the {amount} field states the refund the message carries")
+        _check_rendered(
+            self.sentence_ids, self.fields, self.legal_clause_kind, self.lang, self.body
         )
-        if rendered != self.body:
-            raise ValueError("body is render_customer_message of the text and the fields")
-        if self.legal_clause_kind is not None and not self.body.endswith(
-            clause(self.legal_clause_kind, self.lang)
-        ):
-            raise ValueError("the body ends with the fixed legal clause (ADR-06)")
         return self
+
+    @classmethod
+    def compose(
+        cls,
+        view: DecisionView,
+        *,
+        message_id: str,
+        lang: Lang,
+        subject: str,
+        sentence_ids: Sequence[str],
+        created_by: str,
+        created_at: datetime,
+        generation_id: str | None = None,
+        refund: Metric | None = None,
+    ) -> OutboxMessage:
+        """The message of llm.phrasebook.render_selection for the decision as it stands."""
+        decision, _ = to_policy_decision(view)
+        base = view.inputs.base_terms.to_policy()
+        amount = _dec(float(refund.value)) if refund is not None else None
+        return cls(
+            message_id=message_id,
+            return_id=view.return_id,
+            decision_id=view.decision_id,
+            customer_id=view.inputs.customer_id,
+            lang=lang,
+            subject=subject,
+            sentence_ids=list(sentence_ids),
+            fields=TemplateFields.of(decision, base, lang, amount),
+            refund=refund,
+            body=render_selection(sentence_ids, decision, base, lang, amount),
+            legal_clause_kind=llm_required_clause(decision, base),
+            generation_id=generation_id,
+            status="sent_simulated",
+            created_by=created_by,
+            created_at=created_at,
+        )
 
 
 class CouponRuleApplication(ApiModel):
@@ -2336,6 +2821,12 @@ class CouponRuleApplication(ApiModel):
         times = [x for x in (self.proposed_at, self.confirmed_at, self.reversed_at) if x]
         if times != sorted(times) or times[-1] > self.as_of:
             raise ValueError("proposed, confirmed and reversed in this order, before as_of")
+        start = utc_day(self.confirmed_at or self.proposed_at)
+        if self.review_at > start + timedelta(days=MAX_REVIEW_DAYS):
+            raise ValueError(
+                "the review date of an application is at most MAX_REVIEW_DAYS days after it is "
+                "confirmed (or proposed)"
+            )
         in_force = self.state == "confirmed" and utc_day(self.as_of) < self.review_at
         if self.in_force != in_force:
             raise ValueError(
@@ -2360,14 +2851,16 @@ def result_action(decision: DecisionView) -> AuditAction:
 
 class DecisionResult(ApiModel):
     """The outcome of POST .../decision: the version acted on (for a lift or a renewal, the new
-    version), its audit entry, its outbox message, and the cluster coupon application the act
-    changed: confirmed by approve, override or renew of levers that block the cluster's coupons
-    (the decision's own application), or reversed by a lift of a version that had one (US-402,
-    US-607). The entry and the message are about this decision, its return and its customer."""
+    version), its audit entry, its outbox message (approve, override and reject; none for a
+    lift or a renewal), and the cluster coupon application the act changed: confirmed by
+    approve, override or renew of levers that block the cluster's coupons (the decision's own
+    application), or reversed by a lift of a version that had one (US-402, US-607). The entry
+    and the message are about this decision, its return and its customer; the message is
+    llm.phrasebook.render_selection for the decision as it stands (check_outbox_message)."""
 
     decision: DecisionView
     audit_entry: AuditEntry
-    outbox_message: OutboxMessage
+    outbox_message: OutboxMessage | None
     coupon_application: CouponRuleApplication | None
 
     @model_validator(mode="after")
@@ -2384,18 +2877,29 @@ class DecisionResult(ApiModel):
             raise ValueError("the audit entry records the decision as returned")
         if entry.reason != d.override_reason:
             raise ValueError("the audit entry carries the reason of the decision")
-        if entry.actor != d.approver or message.created_by != d.approver:
-            raise ValueError("the person who acted is the actor and the sender")
-        if (message.decision_id, message.return_id, message.customer_id) != (
-            d.decision_id,
-            d.return_id,
-            d.inputs.customer_id,
-        ):
-            raise ValueError("the message is about this decision, its return and its customer")
-        if message.legal_clause_kind != required_clause(d):
-            raise ValueError("the message carries the legal clause the decision requires")
-        _check_fields(message.fields, d, message.lang)
+        if entry.actor != d.approver:
+            raise ValueError("the person who acted is the actor of the audit entry")
+        if entry.at != d.approved_at:
+            raise ValueError("the audit entry is written at the time of the act (approved_at)")
+        versions = (entry.rules_version, entry.model_versions, entry.assumptions_version)
+        if versions != (d.rules_version, d.model_versions, d.assumptions_version):
+            raise ValueError("the audit entry records the rules, model and assumption versions")
+        if (message is None) != (action in _REVIEW_ACTIONS):
+            raise ValueError("approve, override and reject send a message; lift and renew none")
+        if message is not None:
+            if message.created_by != d.approver or message.created_at != d.approved_at:
+                raise ValueError("the person who acted sends the message, at the time of the act")
+            check_outbox_message(message, d)
         before = entry.before
+        if action not in _REVIEW_ACTIONS:
+            if not isinstance(before, DecisionAuditState):
+                raise ValueError("the audit entry records the proposal acted on as before")
+            app = d.coupon_rule.application_id if d.coupon_rule else before.coupon_application_id
+            if before != proposal_audit_state(d, app):
+                raise ValueError(
+                    "the audit entry records the proposal acted on as before: the engine's "
+                    "quadrant, risk, levers, approval and review date, no person yet"
+                )
         if action in _REVIEW_ACTIONS:
             if not isinstance(before, DecisionAuditState) or before.decision_id != d.supersedes:
                 raise ValueError("a lift or a renewal records the version it supersedes as before")
@@ -2407,7 +2911,9 @@ class DecisionResult(ApiModel):
         return self
 
     def _check_coupon_application(
-        self, action: AuditAction, before: DecisionAuditState | dict[str, Any] | None
+        self,
+        action: AuditAction,
+        before: DecisionAuditState | GenerationAuditState | dict[str, Any] | None,
     ) -> None:
         d, app = self.decision, self.coupon_application
         if action == "restriction_lifted":
@@ -2527,6 +3033,7 @@ class CaseSnapshot(ApiModel):
 
     decision_id: Id
     version: int = Field(ge=1)
+    state: DecisionStatus
     quadrant: Quadrant | None
     evidence_quality: EvidenceQuality
     risk: Metric | None  # probability
@@ -2543,7 +3050,13 @@ class CaseSnapshot(ApiModel):
 
 
 class RecomputeResponse(ApiModel):
-    """A case recomputed after evidence or a dispute: a new decision version (F7)."""
+    """A case recomputed after evidence or a dispute: a new decision version (F7).
+
+    coupon_application is the cluster coupon application of the version superseded, when that
+    version blocked the cluster's coupons and a person had confirmed it (approved or
+    overridden): the recompute reverses it in the same transaction (the author of the evidence
+    or of the dispute, at the time of the new version), unless it was reversed before. It is
+    null otherwise (finding D4)."""
 
     return_id: Id
     trigger: Literal["evidence_added", "link_disputed"]
@@ -2553,6 +3066,7 @@ class RecomputeResponse(ApiModel):
     after: CaseSnapshot
     decision: DecisionView  # the new version
     draft: DraftView  # regenerated for the new version
+    coupon_application: CouponRuleApplication | None
     audit_entry_ids: list[int] = Field(min_length=1)
     provenance: Provenance  # covers the plain numbers of before and after
 
@@ -2578,8 +3092,33 @@ class RecomputeResponse(ApiModel):
             raise ValueError("decision is the after version")
         if self.after.lever_ids != self.decision.lever_ids:
             raise ValueError("after shows the levers of the new decision")
+        if (self.after.state, self.after.quadrant) != (self.decision.state, self.decision.quadrant):
+            raise ValueError("after shows the state and the quadrant of the new decision")
         _check_draft(self.draft, self.decision)
+        self._check_coupon_application()
         return self
+
+    def _check_coupon_application(self) -> None:
+        before, app = self.before, self.coupon_application
+        confirmed_block = "cluster_coupons_disabled:true" in before.lever_ids and before.state in (
+            "approved",
+            "overridden",
+        )
+        if confirmed_block != (app is not None):
+            raise ValueError(
+                "a recompute that supersedes a confirmed cluster coupon block carries its "
+                "coupon application, reversed; otherwise none"
+            )
+        if app is None:
+            return
+        if app.state != "reversed" or app.decision_id != before.decision_id:
+            raise ValueError("the coupon application of the superseded version, reversed")
+        assert app.reversed_at is not None
+        if app.reversed_at > self.decision.created_at or app.as_of != self.decision.as_of:
+            raise ValueError(
+                "the coupon application is reversed by the recompute or before it, and served "
+                "as of the new version"
+            )
 
 
 class LinkDisputeRequest(ApiModel):
@@ -2711,6 +3250,10 @@ class CheckoutEvaluateResponse(ApiModel):
             raise ValueError(
                 "a coupon block lapses at its review date: it is shown only before it (US-607)"
             )
+        if block is not None and block.review_at > utc_day(self.shown_at) + timedelta(
+            days=MAX_REVIEW_DAYS
+        ):
+            raise ValueError("a coupon block has a review date within MAX_REVIEW_DAYS days")
         for line in self.lines:
             if (line.size_advice is not None) != (line.p_return >= self.p_return_threshold):
                 raise ValueError("size advice is shown exactly above the threshold (F2)")
@@ -2860,17 +3403,11 @@ class InspectionConfirmResponse(ApiModel):
                 raise ValueError("a claim rests on confirmed visible damage, never on vision alone")
             if self.claim.confirmed_by != self.inspection.confirmed_by:
                 raise ValueError("the inspector who confirmed signs the claim")
-            if self.outbox_message is None:
-                raise ValueError("a claim is communicated with its motivation")
+            if self.outbox_message is None or self.outbox_message.refund is None:
+                raise ValueError("a claim is communicated with the refund it leaves")
         message = self.outbox_message
         if message is not None:
-            if (message.decision_id, message.return_id, message.customer_id) != (
-                d.decision_id,
-                d.return_id,
-                d.inputs.customer_id,
-            ):
-                raise ValueError("the message is about this decision, its return and its customer")
-            _check_fields(message.fields, self.decision, message.lang)
+            check_outbox_message(message, d)
         return self
 
 
@@ -3105,6 +3642,18 @@ class KpiResponse(ApiModel):
             and self.net_benefit_realized.assumptions.basis != "realized"
         ):
             raise ValueError("net_benefit_realized has basis realized")
+        realized = self.net_benefit_realized
+        simulated = self.net_benefit_simulated.assumptions
+        if realized is not None and (
+            realized.assumptions.based_on != simulated.based_on
+            or any(
+                getattr(realized.assumptions, f) != getattr(simulated, f) for f in UNIT_COST_FIELDS
+            )
+        ):
+            raise ValueError(
+                "the realized set prices the week's outcomes with the stored version and the "
+                "unit costs of the simulated set (US-602)"
+            )
         return self
 
 

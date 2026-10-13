@@ -78,6 +78,8 @@ def test_override_requires_a_reason(action: str) -> None:
     lift without a reason and a category, and an override without levers."""
     body = example_of("api/decision_request.override")
     body.update(action=action, levers=[] if action == "override" else None)
+    if action == "lift":
+        body["message"] = None  # a review sends no message (ADR-15 section 11)
     assert not errors(API_DECISION, body)
     for key in ("override_reason", "override_category"):
         assert errors(API_DECISION, {**body, key: None}), key
@@ -501,6 +503,37 @@ def test_llm_output_schema_and_python_model_reject_the_same_outputs(mutate: Any)
     assert errors("llm_output", output)
     with pytest.raises(ValueError):
         LlmOutput.model_validate(output)
+
+
+def test_api_drafts_store_the_llm_output_contract() -> None:
+    """ADR-14 inside ADR-15 (findings B2, B3): an API draft stores what llm_output holds, with
+    the same limits (statements of label, fact_ids and text; phrasebook ids), plus the cited
+    facts in the fact shape of llm_case. One contract, generated on both sides."""
+    output = schema_of("llm_output")["properties"]
+    defs = schema_of("api/case_card")["$defs"]
+    statement = defs["ExplanationStatement"]["properties"]
+    llm_statement = output["operator_explanation"]["items"]["properties"]
+    assert set(statement) == {*llm_statement, "facts"}
+    assert statement["label"]["enum"] == llm_statement["label"]["enum"]
+    assert statement["fact_ids"]["maxItems"] == llm_statement["fact_ids"]["maxItems"]
+    assert statement["text"]["maxLength"] == llm_statement["text"]["maxLength"]
+    explanation = defs["DraftView"]["properties"]["explanation"]
+    assert explanation["maxItems"] == output["operator_explanation"]["maxItems"]
+    ids = defs["CustomerMessageView"]["properties"]["sentence_ids"]
+    llm_ids = output["customer_message"]["properties"]["sentence_ids"]
+    for key in ("minItems", "maxItems"):
+        assert ids[key] == llm_ids[key], key
+    assert ids["items"]["enum"] == llm_ids["items"]["enum"]
+    fact = defs["CitedFact"]["properties"]
+    llm_fact = schema_of("llm_case")["properties"]["facts"]["items"]["properties"]
+    assert set(fact) == set(llm_fact)
+    for key in ("id", "metric"):
+        assert fact[key]["pattern"] == llm_fact[key]["pattern"], key
+    for key in ("entity", "nature"):
+        assert fact[key]["enum"] == llm_fact[key]["enum"], key
+    assert fact["period"]["maxLength"] == llm_fact["period"]["maxLength"]
+    echo = defs["DecisionEchoView"]["properties"]["lever_ids"]
+    assert echo["maxItems"] == output["decision_echo"]["properties"]["lever_ids"]["maxItems"]
 
 
 # ---- Calibration contract (ASOS aggregates for the generator) ---------------------------------

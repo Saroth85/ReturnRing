@@ -102,12 +102,13 @@
     "steps_used": 2,
     "generation": {
       "generation_id": "GEN-AGENT-000002",
-      "generation_path": "llm",
+      "generation_path": "model",
+      "fallback_reason": null,
       "llm_mode": "mock",
       "served_from": "live",
       "model": "mock",
-      "attempts": 1,
-      "validator_errors": [],
+      "model_calls": 1,
+      "validator_codes": [],
       "created_at": "2026-09-30T18:10:00Z",
       "latency_ms": 27
     }

@@ -65,12 +65,13 @@
     "confirmed_at": "2026-09-30T18:47:00Z",
     "generation": {
       "generation_id": "GEN-INS-000014",
-      "generation_path": "llm",
+      "generation_path": "model",
+      "fallback_reason": null,
       "llm_mode": "mock",
       "served_from": "live",
       "model": "mock",
-      "attempts": 1,
-      "validator_errors": [],
+      "model_calls": 1,
+      "validator_codes": [],
       "created_at": "2026-09-30T18:41:00Z",
       "latency_ms": 22
     },
@@ -211,13 +212,27 @@
     "customer_id": "C-14502",
     "lang": "it",
     "subject": "Il tuo reso RET-000110",
-    "connective_text": "Ciao, abbiamo controllato il capo reso: presenta una macchia visibile, quindi tratteniamo {amount} dal rimborso, che arriverà entro il {deadline}.",
+    "sentence_ids": [
+      "OPEN_THANKS",
+      "HELP_SIZE",
+      "CLOSE_REGARDS"
+    ],
     "fields": {
-      "terms": "finestra di reso di 30 giorni, reso gratuito, rimborso immediato, cambio taglia gratuito",
-      "amount": "17,98 €",
+      "terms": null,
+      "amount": "71,92 €",
       "deadline": "10 ottobre 2026"
     },
-    "body": "Ciao, abbiamo controllato il capo reso: presenta una macchia visibile, quindi tratteniamo 17,98 € dal rimborso, che arriverà entro il 10 ottobre 2026.",
+    "refund": {
+      "value": 71.92,
+      "unit": "eur",
+      "provenance": {
+        "origin": "Contract example: diminished-value rule DV-RULE-1 applied to a synthetic return",
+        "period_start": "2025-10-01",
+        "period_end": "2026-09-30",
+        "nature": "synthetic"
+      }
+    },
+    "body": "Ciao, grazie per averci scritto. Abbiamo registrato la tua richiesta di reso e il rimborso di 71,92 € è previsto per il 10 ottobre 2026. Se ti serve un'altra taglia, rispondi pure a questo messaggio. Un caro saluto dal nostro team.",
     "legal_clause_kind": null,
     "generation_id": null,
     "status": "sent_simulated",

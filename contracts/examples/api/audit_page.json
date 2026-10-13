@@ -245,7 +245,16 @@
       },
       "after": {
         "state": "confirmed",
-        "compensation_eur": 17.98,
+        "compensation": {
+          "value": 17.98,
+          "unit": "eur",
+          "provenance": {
+            "origin": "Contract example: diminished-value rule DV-RULE-1 applied to a synthetic return",
+            "period_start": "2025-10-01",
+            "period_end": "2026-09-30",
+            "nature": "synthetic"
+          }
+        },
         "rule_id": "DV-RULE-1"
       },
       "rules_version": "policy-2026-10-12",
@@ -595,8 +604,16 @@
       "reason": null,
       "before": null,
       "after": {
-        "generation_path": "llm",
-        "llm_mode": "mock"
+        "generation_id": "GEN-000102-1",
+        "kind": "case_draft",
+        "decision_id": "DEC-000102-1",
+        "generation_path": "model",
+        "fallback_reason": null,
+        "model_calls": 1,
+        "validator_codes": [],
+        "llm_mode": "mock",
+        "served_from": "live",
+        "model": "mock"
       },
       "rules_version": "policy-2026-10-12",
       "model_versions": {

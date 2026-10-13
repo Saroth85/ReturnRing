@@ -1,7 +1,7 @@
 # ADR-15: API and persistence contract
 
-Status: accepted, 13 Oct 2026; amended the same day after two reviews (sections 9 and 10). API
-contract version `1.2.0`. Covers spec section 9 (API table, flows F1 to F7), the stories of E3,
+Status: accepted, 13 Oct 2026; amended the same day after three reviews (sections 9 to 11). API
+contract version `1.3.0`. Covers spec section 9 (API table, flows F1 to F7), the stories of E3,
 E4, E5, E6, E7 and E9, NFR-16 and CLAUDE.md rules 1, 3, 4, 5, 9, 10, 11 and 12. Changes
 `contracts/` (new `contracts/vocab.py`, `contracts/sql.py`, `contracts/json/api/`,
 `contracts/examples/api/`), removes two v1 API schemas, and adds `apps/api/schemas.py` and two
@@ -107,7 +107,9 @@ Rules on these files:
   - the alternatives of a decision version: `<decision_id>/<alternative kind>`; all the
     alternatives of a decision are based on its `assumptions_version`, with its unit costs and
     its basis;
-  - the week of the KPIs: `kpi/<week>` (simulated), `kpi/<week>/realized` (observed);
+  - the week of the KPIs: `kpi/<week>` (simulated), `kpi/<week>/realized` (observed). The
+    realized set names the same stored version as the simulated one and uses its unit costs; it
+    keeps its own basis (realized), which `check_unit_costs` accepts for a `/realized` set only;
   - a sensitivity scenario: `<version>/<scenario>`, whose unit costs change on purpose.
 
   The models check these labels and the shared unit costs and basis; `check_unit_costs` also
@@ -227,6 +229,11 @@ The intake function, and only it, triggers the decision:
   `superseded_by`, and `as_of`, the time the view was served.
 - **States.** `proposed`, `approved`, `overridden`, `rejected`. The last three are the policy
   `DecisionState` values plus `overridden`.
+- **The decision day is the day of the act.** `decided_on` is no later than the UTC day of
+  `created_at`; a version created by a review is decided on that day, and the person's act
+  creates it (`approved_at` equals `created_at`). The review date, the no-early-renewal rule
+  and the 180-day maximum all count from `decided_on`, so moving it cannot stretch a
+  restriction (section 11, D1).
 - **`levers` are the levers of the current state.** They are the proposal while proposed or
   approved, the operator's choice when overridden, and none when rejected. `requires_approval`,
   `review_at` and `future_terms` refer to them: `requires_approval` is exactly "restrictive
@@ -245,8 +252,9 @@ The intake function, and only it, triggers the decision:
     person replaced them (overridden, rejected): the guard judges the levers chosen;
   - levers, `requires_approval`, review date and approver are those of the current state; when
     approved or overridden, the approver has confirmed the coupon rule application.
-- **`POST .../decision`** takes the body of spec 19.B plus `decision_id` and `override_category`,
-  and `message` is required. `approve`, `override` and `reject` act on a proposed version:
+- **`POST .../decision`** takes the body of spec 19.B plus `decision_id` and `override_category`;
+  `message` is required for approve, override and reject and null for lift and renew.
+  `approve`, `override` and `reject` act on a proposed version:
   - `approve` confirms the proposal. Levers, if sent, must equal it. The approver also confirms
     the cluster coupon application (`policy.engine.approve`).
   - `override` sets other levers with a reason (at least 3 characters) and a category. The
@@ -270,15 +278,23 @@ The intake function, and only it, triggers the decision:
       person approves the fresh proposal, which gets a new review date and, if its levers block
       the cluster's coupons, a new application confirmed by that person. 409 if the fresh
       proposal is not a restriction: there is nothing to renew, and the person lifts it.
-  - Every action writes one audit entry and one outbox message, about the decision, its return
-    and its customer; the entry carries the decision's reason. `DecisionResult.coupon_application`
-    is the cluster coupon application the act changed: the decision's own, confirmed by approve,
-    override or renew of levers that block the cluster's coupons, or the restriction's, reversed
-    by a lift; otherwise null. The message has the chosen language. `message.text` optionally
-    replaces the connective text; placeholders only. The API fills the template fields and
-    appends the fixed legal clause.
+  - Every action writes one audit entry, about the decision and its return, at the time of the
+    act (`approved_at`), with the decision's reason and its rules, model and assumption versions.
+    For approve, override and reject its `before` is the engine's proposal of the version
+    (`proposal_audit_state`). `DecisionResult.coupon_application` is the cluster coupon
+    application the act changed: the decision's own, confirmed by approve, override or renew of
+    levers that block the cluster's coupons, or the restriction's, reversed by a lift; otherwise
+    null.
+  - approve, override and reject also send one outbox message to the customer, at the time of
+    the act, in the chosen language (`message.lang`). `message.sentence_ids` optionally chooses
+    other phrasebook sentences (ADR-14 decision 8): never free text. Without them the API uses
+    the draft's selection when it is allowed for the decision acted on, otherwise the fallback
+    selection of `llm.templates` (`default_selection_for`). The API composes the message with
+    `llm.phrasebook.render_selection` for the decision as it stands, and refuses a selection
+    that is not allowed for it (422). lift and renew send no message (`message` null; section
+    11).
   - The clause is the guarantee clause on the guarantee path, the withdrawal clause when the levers
-    are restrictive, and none otherwise (`required_clause`).
+    are restrictive, and none otherwise (`llm.legal_clause.required_clause`).
   - An override never becomes training data: training uses the synthetic labels (spec 8.4).
 - **Review (US-607).** `QueueQuery.review_due=true` lists the cases whose latest decision is an
   approved or overridden restriction at or past its review date; `QueueItem.review_due` marks
@@ -291,19 +307,40 @@ The intake function, and only it, triggers the decision:
   disputed the link, with their note or reason); a person also reverses it on request
   (`POST /api/coupon-rules/applications/{application_id}/reverse`). `as_of` and `in_force` are
   computed when served, not stored.
-- **Draft.** `DraftView` echoes the decision shown (rule 1). Its explanation is a list of
-  statements labelled `OBSERVED`, `SCORE` or `HYPOTHESIS`. A statement whose text has a digit
-  names its entity, metric, value and period, and the value appears in the text (US-305); there
-  is no `SCORE` on the guarantee path.
-- **Messages and template fields (rule 10, ADR-08).** The renderers live in the contract:
-  `deadline_text`, `terms_text`, `amount_text` and `template_fields(decision, lang)`, which
-  gives the terms of the decision's future orders, its refund deadline and the amount of its
-  diminished-value claim. A draft message and an outbox message have exactly these fields. Each
-  message carries its connective text (placeholders only, no digits, no accusatory term, at most
-  120 words), the fields, the clause kind and the exact `llm.messages.render_customer_message`
-  output (`rendered_text` in a draft, `body` in the outbox).
-- **`GenerationInfo`** gives the validator path: `llm`, `llm_regenerated` or `template`. It also
-  gives `llm_mode` (vllm or mock) and `served_from` (live or cached).
+- **Draft (ADR-14 inside the API).** A `DraftView` is the output of `llm.generate` for the
+  engine's decision of its version (`proposal_decision`: path, quadrant, proposed levers), made
+  at intake or on request: `llm.case.build_case` builds the llm_case with its code-built facts,
+  the model (or the template) answers, `llm.validator` accepts the answer, and
+  `DraftView.build` stores it:
+  - the echo of the decision (rule 1);
+  - the operator statements, each `{label, fact_ids, text, facts}`: `facts` are the cited
+    facts of the llm_case `{id, entity, metric, value, period, nature}` as stored at
+    generation time, so entity, metric, value and period come from code, never from the text;
+  - the customer message `{sentence_ids, legal_clause_kind, texts}`: the phrasebook ids the
+    model chose, the fixed clause appended (or none), and per language the template fields and
+    the text `llm.phrasebook.render_selection` composed;
+  - `provenance`: the provenance of the engine inputs the facts were built from.
+
+  `_check_draft` runs `llm.validator.validate` on the stored output against the cited facts
+  (echo, labels, every number grounded on a cited value, banned terms, script, phrasebook ids)
+  and renders the messages again. It also checks that the facts of the risk, the value and the
+  days since delivery are the values given to the engine, that a case that is not scored cites
+  no score fact and has no `SCORE` statement (rule 4, US-307), and that the facts have the
+  nature of the inputs.
+- **Messages and template fields (rule 10, ADR-08).** There is one renderer, in `llm/`: the
+  fields are `llm.messages.template_fields` of the decision ({terms} when the levers change
+  the terms of future orders, {deadline} on the withdrawal path, {amount} when the refund is
+  known; null otherwise), the text is `llm.phrasebook.render_selection` and the clause
+  `llm.legal_clause.required_clause`. `check_rendering` compares a stored message with them;
+  the API has no renderer of its own. An outbox message carries its sentence ids, the fields
+  of its language, the refund the {amount} field states (a `Metric`, after a
+  diminished-value claim) and the body.
+- **`GenerationInfo`** gives the path of `llm.generate`: `model`, `regenerated` or `template`,
+  the fallback reason of a template (`unavailable`, `decision_echo`, `invalid_twice`), the model
+  calls and the `llm.validator` codes found on the way. It also gives `llm_mode` (vllm or mock)
+  and `served_from` (live or cached). The audit entry of a draft generation (`draft_generated`,
+  `draft_regenerated`, entity type `llm_generation`) records the same in a typed
+  `GenerationAuditState`, and `llm_generations` stores the llm_case sent with its facts.
 - **Regeneration** returns plain JSON, not a stream: the validator checks the whole output before
   the UI sees it. It takes no free-text instruction (NFR-11). `RegenerateResponse` holds the
   latest decision version with the draft, and the model checks the draft against it as on the
@@ -322,9 +359,11 @@ mock routes serve every version a version chain of the examples points to.
 - `customer_contact` and `other` are recorded but change no feature.
 - A dispute marks the link (one dispute per link) and recomputes every open case of the cluster.
   A dispute sent from a case card names the case and the `decision_id` shown.
-- The response holds the before and after `CaseSnapshot`, the new decision version (version + 1,
-  trigger `evidence_added` or `link_disputed`, superseding the one before) and its regenerated
-  draft.
+- The response holds the before and after `CaseSnapshot` (with their state), the new decision
+  version (version + 1, trigger `evidence_added` or `link_disputed`, superseding the one
+  before), its regenerated draft and `coupon_application`: the cluster coupon application of
+  the version superseded, reversed, when that version blocked the cluster's coupons with a
+  person's confirmation (approved or overridden); otherwise null.
 - Earlier versions keep their state for the audit. Only the latest is actionable, and the
   in-force levers of a customer are those of its latest in-force version.
 
@@ -340,11 +379,15 @@ mock routes serve every version a version chain of the examples points to.
   date and no quadrant. Terms less generous than the base come from a decision in force and carry
   its review date. A restriction lapses at its review date, so its terms are shown only before
   it: `review_at` is after the UTC day of `shown_at`, and so is the review date of
-  `coupon_block`. The terms snapshot follows the same rules and stores the base terms and the
-  review date; the database checks them (`ck_terms_snapshots_review_after_shown` compares
-  `utc_date(shown_at)` with `review_at`).
+  `coupon_block`. Both review dates are at most 180 days (`MAX_REVIEW_DAYS`) after that day. The
+  terms snapshot follows the same rules and stores the base terms and the review date; the
+  database checks them (`ck_terms_snapshots_review_after_shown` compares `utc_date(shown_at)`
+  with `review_at`, `ck_terms_snapshots_review_within_max` bounds it).
 - **The API stores the shown terms** before it answers, as a `terms_snapshots` row with no order.
-  `/confirm` binds that row to the new order, so the terms shown are the terms stored.
+  `/confirm` binds that row to the new order, so the terms shown are the terms stored. A
+  restriction lapses at its review date also between evaluate and confirm: `/confirm` on or
+  after the UTC review day answers 409 `conflict` and the client evaluates again
+  (`ck_terms_snapshots_review_after_confirmed`).
 
 **Inspection (US-501..503).**
 
@@ -375,7 +418,8 @@ mock routes serve every version a version chain of the examples points to.
 
 - False positives need labels. They come from the offline evaluation report
   (`evaluation_report_id`, nature synthetic); the API never reads `data/truth/`.
-- `net_benefit_realized` stays null until outcomes are observed.
+- `net_benefit_realized` stays null until outcomes are observed; then it prices the week's
+  observed quantities with the stored version and the unit costs of `net_benefit_simulated`.
 - Fairness reports false positives by segment for each dimension, with `warning` exactly when
   the gap exceeds `max_gap_threshold` (NFR-04: 5 points).
 
@@ -391,6 +435,14 @@ mock routes serve every version a version chain of the examples points to.
   quadrant, risk as a `Metric`, lever ids, approval flag, review date, approver, category,
   coupon application): approve, override and reject change a proposed version; a lift, a
   renewal and a recompute create the next version, so `before` and `after` have different ids.
+  A state has a review date exactly when it is a restriction, and a coupon application exactly
+  when its levers block the cluster's coupons. A renewal entry is made at or after the review
+  date of the version it renews, and sets a new one after its day, within the maximum.
+- The entries about a draft generation (`draft_generated`, `draft_regenerated`) have
+  `entity_type: llm_generation` and a typed `after` (`GenerationAuditState`): the path of
+  `llm.generate`, the fallback reason, the model calls and the validator codes.
+- Any other `before` and `after` is a free JSON object whose numbers are `Metric`s (an
+  inspection's compensation in euros, for example): a plain number is refused (rule 11).
 - CSV export uses `AUDIT_CSV_COLUMNS`, with JSON cells for `before`, `after` and `model_versions`.
 
 **Agent (US-701, US-702, spec 8.8).**
@@ -439,12 +491,14 @@ Tables:
 - `decisions`: one row per version, with the engine inputs and their provenance
   (`inputs_provenance`), the outputs, the alternatives, the human outcome, the version chain and
   the versions;
-- `audit_log`, `outbox` (with the connective text, the template fields and the rendered body);
+- `audit_log`, `outbox` (with the phrasebook ids, the template fields, the refund stated with
+  its provenance, and the rendered body);
 - `terms_snapshots`: shown, then confirmed; with the base terms and the review date;
 - `evidence_additions`, `link_disputes`, `inspections`, `catalog_tasks`;
 - `simulator_assumptions` and `coupon_rules`: versioned, with a `seq` chain;
 - `coupon_rule_applications`;
-- `llm_generations`.
+- `llm_generations`: the llm_case sent (with its code-built facts), the output, the path of
+  `llm.generate`, the fallback reason, the model calls and the validator codes.
 
 Column types:
 
@@ -454,8 +508,8 @@ Column types:
 - **JSON** columns are JSONB on PostgreSQL and store a Python `None` as SQL NULL
   (`none_as_null`), so the `IS NULL` rules of the CHECKs see it.
 
-`tests/test_sql_contract.py` maps every `DecisionView` and `TermsSnapshotView` of the examples to
-a row.
+`tests/test_sql_contract.py` maps every `DecisionView`, `TermsSnapshotView` and `OutboxMessage`
+of the examples to a row.
 
 Named CHECK constraints (`ck_<table>_<rule>`) carry the invariants that SQL can see. Each CHECK
 is one rule, and a rule on a state is written as an implication, so a row that breaks one rule
@@ -468,23 +522,27 @@ is refused with its CHECK, and accepted once that one CHECK is removed.
 | The guarantee path is unscored and unrestricted (rule 4) | `ck_decisions_guarantee_unscored` |
 | Insufficient evidence has no quadrant (US-307) | `ck_decisions_insufficient_no_quadrant` |
 | Q3 and Q4 need approval (rule 5) | `ck_decisions_q3_q4_need_approval` |
-| A restriction, and only a restriction, has a review date after the decision (US-607) | `ck_decisions_restriction_has_review`, `ck_decisions_review_only_restriction`, `ck_decisions_review_after_decision` |
+| A restriction, and only a restriction, has a review date after the decision, within 180 days (US-607) | `ck_decisions_restriction_has_review`, `ck_decisions_review_only_restriction`, `ck_decisions_review_after_decision`, `ck_decisions_review_within_max` |
+| The decision day is no later than the UTC day of the version's creation; a review version is decided on that day (D1) | `ck_decisions_decided_by_creation`, `ck_decisions_review_decided_on_creation` |
 | A person acted exactly when the state is not proposed; with the review rules, an approved or overridden restriction has a person as approver and a review date (rule 5) | `ck_decisions_acted_has_approver` |
 | An override or rejection has a reason and a category, an approval none | `ck_decisions_override_has_reason` |
 | A version created by a review lifts the restriction (overridden, not restrictive) or renews it (approved restriction) (US-607) | `ck_decisions_review_outcome` |
 | Version 1 is initial; later versions supersede another | `ck_decisions_version_chain` |
 | Applying the coupon rule to a cluster needs a person's confirmation and stays reversible (LEG-09) | `ck_coupon_rule_applications_confirmed_by_person`, `ck_coupon_rule_applications_always_reversible` |
+| A coupon application's review date is at most 180 days after it is confirmed, or proposed (D2) | `ck_coupon_rule_applications_review_within_max` |
 | The general coupon rule is approved by a person | `ck_coupon_rules_approved_by_person` |
 | Compensation needs a photo, a confirmation and a rule (LEG-05) | `ck_inspections_compensation_evidence` |
 | No proposal when unsure (US-503) | `ck_inspections_unsure_no_proposal` |
 | No window below 14 days (LEG-01) | `ck_terms_snapshots_window_legal` |
 | A snapshot gets its order at confirmation, not before | `ck_terms_snapshots_confirmed_with_order` |
 | Base terms are the base terms, with no review date; less generous terms come from a decision with a review date (US-403, US-607) | `ck_terms_snapshots_base_terms`, `ck_terms_snapshots_base_no_review`, `ck_terms_snapshots_restriction_has_review` |
-| Terms from a restriction are shown before its review date, in UTC days (US-607) | `ck_terms_snapshots_review_after_shown` |
+| Terms from a restriction are shown before its review date, in UTC days, within 180 days of the day shown, and bound to an order only before it (US-607, D2, D3) | `ck_terms_snapshots_review_after_shown`, `ck_terms_snapshots_review_within_max`, `ck_terms_snapshots_review_after_confirmed` |
 | Human actions are never logged as the system | `ck_audit_log_human_action` |
 | Reasons where the log needs them | `ck_audit_log_reason_required` |
 | Decision entries, and only they, are about a decision | `ck_audit_log_decision_entity` |
 | Every simulator input is non-negative; there is no refund column (rule 9) | `ck_simulator_assumptions_non_negative` |
+| A refund stated in a message carries its provenance and is not negative (rule 11) | `ck_outbox_refund_provenance`, `ck_outbox_refund_non_negative` |
+| A generation follows the paths of `llm.generate`: model on the first call, regenerated on the second, template with its fallback reason (spec 8.7) | `ck_llm_generations_path_calls`, `ck_llm_generations_template_fallback`, `ck_llm_generations_calls_range` |
 
 - **Append-only tables.** `audit_log`, `simulator_assumptions` and `coupon_rules` refuse UPDATE
   and DELETE through triggers, plus TRUNCATE on PostgreSQL.
@@ -494,10 +552,11 @@ is refused with its CHECK, and accepted once that one CHECK is removed.
   or a coupon application) are computed when served.
 - **Dates against timestamps.** `utc_date(column)` compiles to `date(column)` on SQLite (UTC
   text) and to `(column AT TIME ZONE 'UTC')::date` on PostgreSQL, so a CHECK counts the UTC day
-  whatever the session `TimeZone`.
+  whatever the session `TimeZone`. `days_after(date, n)` compiles to `date(date, '+n days')` on
+  SQLite and to `(date + n)` on PostgreSQL.
 - **SQLite.** `enable_sqlite_foreign_keys(engine)` runs before `create_all`.
 - **Tests.** `tests/test_sql_contract.py` runs on SQLite. With `RETURNRING_TEST_POSTGRES_URL` it
-  also runs on PostgreSQL (run on PostgreSQL 16.15 for both rounds of this ADR); otherwise the
+  also runs on PostgreSQL (run on PostgreSQL 16.15 for every round of this ADR); otherwise the
   PostgreSQL DDL is compiled and inspected.
 
 ### 7. Examples (mock data of the UI)
@@ -518,20 +577,30 @@ is refused with its CHECK, and accepted once that one CHECK is removed.
   lapsed and due for review; lifted in `decision_result.lift`).
 - **The other demo examples.** The override, the rejection, the lift, the legal-guard refusal,
   the evidence and dispute recomputes, the six versions of the three version chains (Rossi card,
-  Chiara, Lorenzo) served by `GET /api/decisions/{decision_id}`, the queue filtered for approval
+  Chiara, Lorenzo) and every decision the audit log and the coupon applications name (Marco
+  approved, Andrea rejected, Martina overridden, Valentina with her claim, and DEC-000077-1, an
+  earlier Q4 of cluster CL-000655 whose coupon block was reversed on request) served by
+  `GET /api/decisions/{decision_id}`, the queue filtered for approval
   and for review, both checkouts, the inspections and the agent streams (the three questions of
   US-702 and a refused write). Two review outcomes are built by `review_result` in the tests and
   not served by the mock: a renewal of Lorenzo (the other outcome of the review the lift already
   shows, with the same next version id) and a lift of Marco's Q4 restriction with its coupon
   application (in the demo story Marco's restriction stays in force, as the checkout shows).
-- **How they are built.** By code from `policy.engine`, `policy.simulator`, `llm.messages` and
-  the renderers of `apps/api/schemas.py`. Every provenance is synthetic or simulated and starts
-  with "Contract example: ". Golden cases are never accuracy (US-906). A matrix point of a
-  customer with a card is that card.
+- **How they are built.** By code from `policy.engine`, `policy.simulator` and `llm/`. Every
+  draft goes through `llm/` as the API makes it: `llm.case.build_case` of the engine decision,
+  `llm.generate.generate` with the mock model (`MockClient`, given a scripted answer before its
+  default one for some cases), `llm.validator`, then `DraftView.build`, which composes the
+  messages with `llm.phrasebook`. The examples hold every path: `model` (Giulia and Marco with
+  richer scripted statements, the others with the mock's default answer), `regenerated`
+  (Elena: a first answer with ungrounded numbers) and `template` (the insufficient case and the
+  dispute recompute: an answer that misreads the decision). Outbox messages are composed by
+  `OutboxMessage.compose`. Every provenance is synthetic or simulated and starts with
+  "Contract example: ". Golden cases are never accuracy (US-906). A matrix point of a customer
+  with a card is that card.
 - **`index.json`** maps each request to its example for a mock server: method, concrete path,
   query example, request example and `scenario`. The scenario is `default` unless the request
   names another one in the `X-Mock-Scenario` header (for example `stale_decision`, `cached`). Drafts
-  in examples are `llm_mode: mock`: hand-written stand-ins, not Gemma output.
+  in examples are `llm_mode: mock`: outputs of the mock model, not Gemma output.
 
 ### 8. Changes to earlier contracts
 
@@ -542,9 +611,11 @@ is refused with its CHECK, and accepted once that one CHECK is removed.
   tests now read it from there;
   the tests that an override needs a reason and that the checkout window never goes below 14 days
   run against the generated schemas.
-- **Spec 19.B decision body.** Adds `decision_id` and `override_category`. `message` is required.
+- **Spec 19.B decision body.** Adds `decision_id` and `override_category`. `message` is required
+  for approve, override and reject, null for lift and renew.
   The actions are approve, override, reject, lift and renew; "edit" is gone, because editing the
-  message is `message.text` and editing levers is an override.
+  message is a choice of phrasebook ids (`message.sentence_ids`, section 11) and editing levers
+  is an override.
 - **Spec 19.B checkout response.** See section 4.
 - **Policy types.** `policy.types.DecisionState` is unchanged. The API state `overridden` maps to
   an approved policy decision on the operator's levers without the engine's quadrant, and
@@ -586,10 +657,52 @@ is refused with its CHECK, and accepted once that one CHECK is removed.
 | B7: derived assumption labels and basis not enforced | `_check_alternatives` checks `<decision_id>/<kind>` and one basis; `KpiResponse` checks `kpi/<week>` and `kpi/<week>/realized` |
 | B8: mock routes missing for versions named by `superseded_by` | `decision_record` examples and routes for every version of the three chains; a test resolves every `supersedes` and `superseded_by` |
 
-Not in this round: the operator explanation statements (findings B2 and B3). The LLM layer
-changes that contract on another branch (ADR-14: facts built by code, statements grounded on the
-cited facts, the customer message assembled from reviewed phrasebook sentences); the API
-models and the renderers are unified with it when both branches are merged.
+The operator explanation statements (findings B2 and B3) were left to the merge with the LLM
+layer (ADR-14); section 11 resolves them.
+
+### 11. Amendments after the third review (13 Oct 2026, contract 1.3.0)
+
+The API branch was merged with the branch of the LLM layer (ADR-14), and the drafts and messages
+of the API now use `llm/` as their one source.
+
+| Finding | Change |
+| --- | --- |
+| B2: the digit rule of `ExplanationStatement` made the live LLM path impossible; the API re-implemented message rendering | The API stores `llm_output` as `llm/` makes it: statements `{label, fact_ids, text, facts}` with the cited facts of the llm_case as stored at generation time; the customer message as phrasebook ids with the texts `llm.phrasebook.render_selection` composes in Italian and English, the template fields of `llm.messages` and the clause of `llm.legal_clause`. `deadline_text`, `terms_text`, `amount_text`, `template_fields`, `check_connective_text` and `required_clause` are gone from `apps/api/schemas.py`, and so is the "parse `LABEL: text`" fallback. `GenerationInfo` and the new typed audit record `GenerationAuditState` carry the path of `llm.generate` (`model`, `regenerated`, `template`), the fallback reason, the model calls and the validator codes; `llm_generations` stores them with the llm_case. The examples are built through `llm/`, and a test validates every example draft with `llm.validator` against its case and renders it again |
+| B3: the cited value was trivially satisfiable | No value is parsed from text: `llm.validator` grounds every number of a statement on the facts it cites, and `_check_draft` checks the facts of risk, value and days since delivery against the engine inputs |
+| D1: `decided_on` was not tied to the time of the act | `decided_on` is no later than the UTC day of `created_at`; a review version is decided on that day and created by the person's act. CHECKs `ck_decisions_decided_by_creation`, `ck_decisions_review_decided_on_creation` and `ck_decisions_review_within_max` |
+| D2: unbounded review dates at checkout, in snapshots and in coupon applications | At most 180 days after the day shown (terms, coupon block, snapshot) or after the confirmation (application); CHECKs `ck_terms_snapshots_review_within_max`, `ck_coupon_rule_applications_review_within_max` |
+| D3: a snapshot could be confirmed after its review date | Confirmed only before the review date (UTC day); `/confirm` answers 409 otherwise; `ck_terms_snapshots_review_after_confirmed` |
+| D4: a lift could drop the coupon reversal | `DecisionAuditState` names a coupon application exactly when its levers block the cluster's coupons; `RecomputeResponse.coupon_application` carries the reversal a recompute makes, and `CaseSnapshot` has the state |
+| D5: renewal entries were not checked on their own | A state has a review date exactly for a restriction; a `restriction_renewed` entry is made at or after the review date it renews and sets a new one after its day, within the maximum |
+| D6: the time, the versions and the `before` of a result's entry were free | The entry and the message are dated `approved_at`; the entry has the decision's rules, model and assumption versions; for approve, override and reject `before` is the engine's proposal (`proposal_audit_state`) |
+| D7: euro amounts in untyped audit payloads had no provenance | Every number of an untyped payload is a `Metric` (the inspection's `compensation`); a test scans the example payloads |
+| D8: the realized KPI set was unchecked and contradicted `check_unit_costs` | The realized set names the simulated set's stored version and has its unit costs; `check_unit_costs` keeps the basis of a `/realized` set |
+| D9: audit entries named versions the mock did not serve | `decision_record` examples and routes for DEC-000102-1, DEC-000107-1, DEC-000108-1, DEC-000110-1 and DEC-000077-1; the test resolves every decision id of the audit payloads and of the coupon applications |
+
+Other changes of the merge: every lever array of the API schemas is
+`contracts.levers.lever_list_json_schema()` (ADR-13, ADR-14), and the models check it with
+`check_lever_objects`.
+
+Known limits, reported as they are:
+
+- **Lift and renew send no customer message.** The phrasebook has no reviewed sentence about a
+  review, and its mandatory body starts with the return registration, whose refund deadline
+  is that of a return closed long ago. A lift or a renewal therefore reaches the customer as the
+  terms shown at checkout before each purchase (US-403). A review sentence needs the phrasebook
+  review of ADR-14 decision 8.
+- **The message after a diminished-value claim states the refund after the deduction** (the
+  {amount} field, `OutboxMessage.refund`), not why it was deducted: the phrasebook has no
+  reviewed sentence for it either. The claim, its rule and its photo are on the decision.
+  `InspectionConfirmResponse` cannot check the refund against the price of the line, which it
+  does not hold.
+- **A stored draft is validated against the facts it cites.** The model check rebuilds a case
+  from the cited facts, the return and cluster ids and the decision; metric names the
+  statement mentions without citing them are not removed before numbers are read, so such a
+  statement can be refused here although `llm.validator` accepted it against the whole case.
+  Phase 4 runs the same check before it stores a draft, and uses the template when it fails
+  (Consequences).
+- **Lever arrays in the JSON Schemas carry a pydantic `title`** next to the catalogue schema;
+  the tests compare them without it.
 
 ## Consequences
 
@@ -597,8 +710,14 @@ models and the renderers are unified with it when both branches are merged.
   - Implement the routes of `ENDPOINTS` with these models (`response_model`, query models with
     `Annotated[Model, Query()]`). Map pydantic errors to `ErrorResponse`, set the two headers,
     and check the role of the actor against `roles`.
-  - Use `contracts/sql.py` for the state, `to_policy_decision` before writing a decision, and
-    `template_fields` for every message. Store `inputs.provenance` with each decision version.
+  - Use `contracts/sql.py` for the state and `to_policy_decision` before writing a decision.
+    Store `inputs.provenance` with each decision version.
+  - Make drafts with `llm/` only: `llm.case.build_case` of `proposal_decision(view)`,
+    `llm.generate.generate`, `GenerationInfo.from_generation` and `DraftView.build`; validate
+    the draft with the models before storing it (fall back to the template when the stored
+    form fails), and store the llm_case in `llm_generations`. Compose every outbox message with
+    `OutboxMessage.compose` (phrasebook ids from `MessageChoice` or `default_selection_for`).
+  - `/confirm` answers 409 when the review date of the shown terms has been reached.
   - Implement `lift` and `renew` by running `policy.engine.decide()` on the latest scores, and
     reverse the cluster coupon application of a version that a lift or a recompute supersedes,
     in the same transaction. Compute `in_force` of decisions and coupon applications when
@@ -614,15 +733,16 @@ models and the renderers are unified with it when both branches are merged.
     illustrative benchmarks. Show `review_due` and the lapsed state of a restriction, with the
     two review actions (lift, renew), and `in_force` of each cluster coupon application.
 - **Alignment with parallel work.**
-  - The agent tool names and the statement structure (phase 3, `llm/`) must match `AgentTool` and
-    `ExplanationStatement`. Otherwise the API parses `LABEL: text` segments of
-    `operator_explanation`.
+  - The agent tool names (phase 3, `llm/agent.py`) must match `AgentTool`. The statement and
+    message structure is the one of `llm/` (section 11): the API stores `llm_output` as it is,
+    with the cited facts and the composed messages.
   - The golden account ids `C-ROSSI-1..3` and `C-ROSSI-CARD-1..3`, and the opaque cluster ids,
     must match the generator (phase 1) and the graph (phase 2).
   - The evidence-quality components and their thresholds (D-15) come from phase 2.
   - The lever rules come from `contracts/levers.py` (`lever_json_schema()`, `format_lever_id`):
     a change there reaches the API schemas at the next export.
 - **Regeneration after a model change.** Run `python -m scripts.export_api_schemas` and
-  `python -m scripts.build_api_examples`; the tests say when.
+  `python -m scripts.build_api_examples`; the tests say when. A change of the phrasebook, the
+  case builder or the mock model of `llm/` changes the example drafts too.
 - No new dependency. Persistence uses the pinned sqlalchemy, greenlet and asyncpg; the tests use
   aiosqlite and jsonschema from `requirements/dev.txt`.

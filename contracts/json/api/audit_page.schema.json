@@ -61,9 +61,49 @@
               }
             }
           }
+        },
+        {
+          "else": {
+            "properties": {
+              "action": {
+                "not": {
+                  "enum": [
+                    "draft_generated",
+                    "draft_regenerated"
+                  ]
+                }
+              }
+            }
+          },
+          "if": {
+            "properties": {
+              "entity_type": {
+                "const": "llm_generation"
+              }
+            },
+            "required": [
+              "entity_type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "action": {
+                "enum": [
+                  "draft_generated",
+                  "draft_regenerated"
+                ]
+              },
+              "before": {
+                "type": "null"
+              },
+              "after": {
+                "$ref": "#/$defs/GenerationAuditState"
+              }
+            }
+          }
         }
       ],
-      "description": "One row of the append-only audit log (US-604).\n\nThe entries about a decision version (entity_type decision, actions DECISION_AUDIT_ACTIONS)\nname its return and carry a typed before and after (DecisionAuditState). approve, override\nand reject change a proposed version; restriction_lifted, restriction_renewed and\ncase_recomputed create the next version, so before and after are two versions.",
+      "description": "One row of the append-only audit log (US-604).\n\nThe entries about a decision version (entity_type decision, actions DECISION_AUDIT_ACTIONS)\nname its return and carry a typed before and after (DecisionAuditState). approve, override\nand reject change a proposed version; restriction_lifted, restriction_renewed and\ncase_recomputed create the next version, so before and after are two versions.\n\nThe entries about a draft generation (entity_type llm_generation, actions\nGENERATION_AUDIT_ACTIONS) carry a typed after (GenerationAuditState): the generation path\nand the validator codes are part of the audit record (spec 8.7).",
       "properties": {
         "entry_id": {
           "minimum": 1,
@@ -189,6 +229,9 @@
               "$ref": "#/$defs/DecisionAuditState"
             },
             {
+              "$ref": "#/$defs/GenerationAuditState"
+            },
+            {
               "additionalProperties": true,
               "type": "object"
             },
@@ -202,6 +245,9 @@
           "anyOf": [
             {
               "$ref": "#/$defs/DecisionAuditState"
+            },
+            {
+              "$ref": "#/$defs/GenerationAuditState"
             },
             {
               "additionalProperties": true,
@@ -425,6 +471,123 @@
         "coupon_application_id"
       ],
       "title": "DecisionAuditState",
+      "type": "object"
+    },
+    "GenerationAuditState": {
+      "additionalProperties": false,
+      "description": "The after of an audit entry about a draft generation (entity_type llm_generation): the\npath llm.generate took (model, regenerated, template), why it fell back, the model calls\nand the llm.validator codes found on the way (spec 8.7, ADR-14), with the decision version\nthe draft explains.",
+      "properties": {
+        "generation_id": {
+          "maxLength": 96,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:~-]*$",
+          "title": "Generation Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "case_draft",
+            "regenerate",
+            "agent_answer",
+            "inspection_checklist"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "decision_id": {
+          "maxLength": 96,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:~-]*$",
+          "title": "Decision Id",
+          "type": "string"
+        },
+        "generation_path": {
+          "enum": [
+            "model",
+            "regenerated",
+            "template"
+          ],
+          "title": "Generation Path",
+          "type": "string"
+        },
+        "fallback_reason": {
+          "anyOf": [
+            {
+              "enum": [
+                "decision_echo",
+                "invalid_twice",
+                "unavailable"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Fallback Reason"
+        },
+        "model_calls": {
+          "maximum": 2,
+          "minimum": 0,
+          "title": "Model Calls",
+          "type": "integer"
+        },
+        "validator_codes": {
+          "items": {
+            "enum": [
+              "SCHEMA",
+              "CASE_INVALID",
+              "DECISION_ECHO",
+              "UNKNOWN_FACT",
+              "MISSING_FACT",
+              "LABEL_MISMATCH",
+              "UNGROUNDED_NUMBER",
+              "BANNED_TERM",
+              "SCRIPT",
+              "SENTENCE_ID",
+              "WRONG_LANGUAGE"
+            ],
+            "type": "string"
+          },
+          "title": "Validator Codes",
+          "type": "array"
+        },
+        "llm_mode": {
+          "enum": [
+            "vllm",
+            "mock"
+          ],
+          "title": "Llm Mode",
+          "type": "string"
+        },
+        "served_from": {
+          "enum": [
+            "live",
+            "cached"
+          ],
+          "title": "Served From",
+          "type": "string"
+        },
+        "model": {
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Model",
+          "type": "string"
+        }
+      },
+      "required": [
+        "generation_id",
+        "kind",
+        "decision_id",
+        "generation_path",
+        "fallback_reason",
+        "model_calls",
+        "validator_codes",
+        "llm_mode",
+        "served_from",
+        "model"
+      ],
+      "title": "GenerationAuditState",
       "type": "object"
     },
     "Metric": {

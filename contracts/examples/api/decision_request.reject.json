@@ -4,7 +4,7 @@
   "levers": null,
   "message": {
     "lang": "en",
-    "text": null
+    "sentence_ids": null
   },
   "override_reason": "The customer asked to keep the standard terms",
   "override_category": "customer_context",

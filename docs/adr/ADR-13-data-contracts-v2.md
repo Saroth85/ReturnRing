@@ -327,3 +327,16 @@ aggregates:
 `n_distinct_cards`, `card_count`, `free_return_shipping`, `zipper_defect_rate` and `discard_rate`
 stay allowed. The verdict changes for no column of any contract schema and for no name in the
 spec.
+
+Round 3 of the same review made the verdict independent of separators and removed two false
+positives:
+
+- A fragment counts inside one word, or across words only where a word starts, so
+  `time_in_transit` ("timein") no longer reads as `imei`.
+- `mobile`, `card` and `cards` name an identifier only as the head noun (`customer_mobile`,
+  `credit_card`, `card`), not as a modifier or after a preposition (`is_mobile`,
+  `mobile_checkout`, `paid_by_card`, `gift_card_used`).
+- More fragments and word forms: `mobilenumber`, `postalcode`, `cardnum`, `cardno`, `cardid`,
+  `cardtoken`, `cclast`, `ccnum`, `ipblock`, `iprange`, `ipsubnet`, `useragent`, `advertisingid`,
+  `androidid`, `idfa`, `addr1`, `ip24prefix`, and IP names after signup, lastlogin, visitor, buyer,
+  registration, account and request.

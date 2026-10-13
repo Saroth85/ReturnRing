@@ -337,7 +337,6 @@ _IDENTIFIER_WORDS = frozenset(
         "ipv6",
         "phone",
         "phones",
-        "mobile",
         "msisdn",
         "device",
         "devices",
@@ -350,14 +349,19 @@ _IDENTIFIER_WORDS = frozenset(
         "zipcode",
         "fingerprint",
         "iban",
-        "card",
-        "cards",
         "pan",  # primary account number of a payment card
     }
 )
+# Words that name an identifier only as the head noun of the name (customer_mobile,
+# credit_card), not as a modifier or after a preposition (is_mobile, mobile_checkout,
+# paid_by_card, gift_card_used).
+_HEAD_IDENTIFIER_WORDS = frozenset({"mobile", "card", "cards"})
+_NOT_AFTER = frozenset({"is", "by", "via", "with", "on", "gift", "paid", "pay", "per"})
 # The same stems inside a word written without separators ("customeremail", "shippingaddress",
 # "ipprefix24", "cardlast4"). Short stems (ip, zip, card, addr) are matched only in these longer
-# forms or by _IDENTIFIER_WORD_FORMS, so "shipping", "zipper" or "discard" stay allowed.
+# forms or by _IDENTIFIER_WORD_FORMS, so "shipping", "zipper" or "discard" stay allowed. A fragment
+# counts inside one word, or across words only when it starts where a word starts, so "time_in"
+# ("timein") does not read as "imei".
 _IDENTIFIER_FRAGMENTS = (
     "email",
     "address",
@@ -373,16 +377,32 @@ _IDENTIFIER_FRAGMENTS = (
     "imei",
     "cardlast",
     "cardbin",
-    "cardnumber",
+    "cardnum",
+    "cardno",
+    "cardid",
+    "cardtoken",
     "creditcard",
     "debitcard",
     "paymentcard",
+    "cclast",
+    "ccnum",
+    "mobilenumber",
+    "mobileno",
+    "mobilephone",
+    "postalcode",
+    "ipblock",
+    "iprange",
+    "ipsubnet",
+    "useragent",
+    "advertisingid",
+    "androidid",
 )
 # Whole words that are a short stem with a prefix or a suffix: ip24, customerip, remoteip,
 # shippingaddr, shippingzip, zip5.
 _IDENTIFIER_WORD_FORMS = re.compile(
-    r"ip\d+|(?:customer|client|remote|user|source|src|login|order|session|checkout)ip"
-    r"|\w*addr|\w*zip|zip\d+"
+    r"ip\d+\w*|(?:customer|client|remote|user|source|src|login|lastlogin|signup|order|session"
+    r"|checkout|visitor|buyer|registration|account|request)ip"
+    r"|\w*addr\d*|\w*zip|zip\d+|idfa"
 )
 _AGGREGATE_PREFIXES = ("n", "shared")
 _AGGREGATE_SUFFIXES = ("count", "share")
@@ -399,11 +419,33 @@ def _is_aggregate(words: list[str]) -> bool:
     return bool(words) and (words[0] in _AGGREGATE_PREFIXES or words[-1] in _AGGREGATE_SUFFIXES)
 
 
+def _has_fragment(words: list[str]) -> bool:
+    starts, joined, at = set(), "", 0
+    for w in words:
+        starts.add(at)
+        joined += w
+        at += len(w)
+    for fragment in _IDENTIFIER_FRAGMENTS:
+        if any(fragment in w for w in words):
+            return True
+        found = joined.find(fragment)
+        while found != -1:
+            if found in starts:
+                return True
+            found = joined.find(fragment, found + 1)
+    return False
+
+
 def _names_an_identifier(words: list[str], joined: str) -> bool:
     if joined in _RAW_IDENTIFIERS:
         return True
     word = any(w in _IDENTIFIER_WORDS or _IDENTIFIER_WORD_FORMS.fullmatch(w) for w in words)
-    stem = word or any(fragment in joined for fragment in _IDENTIFIER_FRAGMENTS)
+    head = (
+        bool(words)
+        and words[-1] in _HEAD_IDENTIFIER_WORDS
+        and (len(words) == 1 or words[-2] not in _NOT_AFTER)
+    )
+    stem = word or head or _has_fragment(words)
     return stem and not _is_aggregate(words)
 
 

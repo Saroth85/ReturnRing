@@ -11,9 +11,33 @@
       "transparency_notice:true"
     ]
   },
-  "operator_explanation": "OBSERVED: 7 linked accounts used the welcome coupon. SCORE: risk 0.87.",
+  "operator_explanation": [
+    {
+      "label": "OBSERVED",
+      "fact_ids": [
+        "F4"
+      ],
+      "text": "Cluster R-MARCO has 7 linked accounts that share a device, an address and a card."
+    },
+    {
+      "label": "SCORE",
+      "fact_ids": [
+        "F1",
+        "F3"
+      ],
+      "text": "Risk score 0.87; the largest contribution is cluster_welcome_coupons: 7 linked accounts each used the welcome coupon."
+    },
+    {
+      "label": "HYPOTHESIS",
+      "fact_ids": [],
+      "text": "The linked accounts may share a household; check the links before approving."
+    }
+  ],
   "customer_message": {
-    "it": "Ciao, per i prossimi ordini valgono queste condizioni: {terms}.",
-    "en": "Hello, these terms apply to your next orders: {terms}."
+    "sentence_ids": [
+      "OPEN_SORRY_FIT",
+      "INFO_TERMS",
+      "CLOSE_REGARDS"
+    ]
   }
 }

@@ -17,6 +17,7 @@
     },
     "levers": {
       "type": "array",
+      "maxItems": 9,
       "uniqueItems": true,
       "items": {
         "type": "object",

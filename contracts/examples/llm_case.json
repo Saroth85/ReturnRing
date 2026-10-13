@@ -39,6 +39,65 @@
       "scope": "communication"
     }
   ],
+  "placeholders": {
+    "available": [
+      "terms",
+      "deadline"
+    ],
+    "required": [
+      "terms"
+    ]
+  },
+  "facts": [
+    {
+      "id": "F1",
+      "entity": "customer",
+      "metric": "risk_score",
+      "value": 0.87,
+      "period": "as of 2026-10-14",
+      "nature": "synthetic"
+    },
+    {
+      "id": "F2",
+      "entity": "customer",
+      "metric": "value_eur_12m",
+      "value": 42.1,
+      "period": "12 months to 2026-10-14",
+      "nature": "synthetic"
+    },
+    {
+      "id": "F3",
+      "entity": "cluster",
+      "metric": "cluster_welcome_coupons",
+      "value": 7,
+      "period": "as of 2026-10-14",
+      "nature": "synthetic"
+    },
+    {
+      "id": "F4",
+      "entity": "cluster",
+      "metric": "cluster_size",
+      "value": 7,
+      "period": "as of 2026-10-14",
+      "nature": "synthetic"
+    },
+    {
+      "id": "F5",
+      "entity": "return",
+      "metric": "days_since_delivery",
+      "value": 6,
+      "period": "2026-10-08/2026-10-14",
+      "nature": "synthetic"
+    },
+    {
+      "id": "F6",
+      "entity": "policy",
+      "metric": "return_window_days",
+      "value": 14,
+      "period": "orders from 2026-10-14",
+      "nature": "synthetic"
+    }
+  ],
   "risk": {
     "score": 0.87,
     "top_factors": [

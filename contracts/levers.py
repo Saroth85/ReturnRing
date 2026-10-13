@@ -189,9 +189,11 @@ def lever_json_schema() -> dict[str, Any]:
 
 def lever_list_json_schema() -> dict[str, Any]:
     """JSON Schema of the `levers` array of llm_case and decision_request: lever objects, each
-    lever id at most once (also with different values), no repeated object."""
+    lever id at most once (also with different values), no repeated object, at most one object per
+    catalogue lever (maxItems keeps the array bounded for guided decoding, ADR-14)."""
     return {
         "type": "array",
+        "maxItems": len(LEVERS),
         "uniqueItems": True,
         "items": lever_json_schema(),
         "allOf": [

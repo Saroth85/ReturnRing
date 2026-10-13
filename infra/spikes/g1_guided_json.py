@@ -34,8 +34,10 @@ LLM_OUTPUT_SCHEMA = ROOT / "contracts/json/llm_output.schema.json"
 CASE_SYSTEM = (
     "You explain return decisions that are already taken. Reply with one JSON object with exactly "
     "these fields: decision_echo (path, quadrant and lever_ids copied from the case), "
-    "operator_explanation (English, at most 900 characters), customer_message with 'it' (Italian) "
-    "and 'en' (English), each at most 900 characters, using the placeholder {terms} for the terms."
+    "operator_explanation (at most 8 statements, each with a label OBSERVED, SCORE or HYPOTHESIS, "
+    "the fact_ids it uses and an English text of at most 300 characters) and customer_message "
+    "with sentence_ids: 2 to 5 phrasebook ids from the schema, one opening first, at most three "
+    "extras, one closing last. You do not write the customer message: code writes it from the ids."
 )
 CASE_USER = (
     "Case: withdrawal path, quadrant Q4, lever instant_refund:false, risk 0.87, 7 linked accounts. "

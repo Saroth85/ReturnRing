@@ -79,6 +79,13 @@ NOTICE_AFTER_TERMS = {
     "it": "Queste condizioni tengono conto dei resi dei tuoi ordini precedenti.",
     "en": "These terms take into account the returns on your previous orders.",
 }
+RESTRICTIVE_TERMS = {
+    "it": (
+        "I tuoi prossimi ordini avranno nuove condizioni di reso, mostrate prima di ogni "
+        "acquisto: {terms}."
+    ),
+    "en": "Your next orders will have new return terms, shown before each purchase: {terms}.",
+}
 NOTICE_ALONE = {
     "it": (
         "Le condizioni di reso dei tuoi prossimi ordini tengono conto dei resi dei tuoi ordini "
@@ -92,8 +99,8 @@ NOTICE_ALONE = {
 
 
 def selections(ctx: MessageContext, *, ordered: bool = True) -> Iterator[list[str]]:
-    """Every allowed selection: one opening, up to three extras (in any order, or one order per
-    set of extras), one closing, without the incoherent ones."""
+    """Every allowed selection: one opening, up to three extras (two in Q3 and Q4; in any order,
+    or one order per set of extras), one closing, without the incoherent ones."""
     allowed_now = allowed_sentences(ctx)
     by_slot = {slot: [s.id for s in allowed_now if s.slot == slot] for slot in SLOTS}
     choose = itertools.permutations if ordered else itertools.combinations
@@ -242,7 +249,7 @@ def test_the_body_writes_the_fields_the_decision_has() -> None:
     assert "il rimborso è previsto al più tardi per il {deadline}." in text
     insufficient = make("insufficient")
     text = compose(["OPEN_THANKS", "CLOSE_REGARDS"], context_of(insufficient.expected), "en")
-    assert "Your next orders keep our standard return terms." in text
+    assert "Your next orders have our standard return terms." in text
     guarantee = make("guarantee")
     text = compose(["OPEN_SORRY_ITEM", "CLOSE_PATIENCE"], context_of(guarantee.expected), "it")
     assert placeholders_in(text) == []
@@ -274,8 +281,9 @@ def test_the_composed_order_is_opening_body_extras_closing() -> None:
 @pytest.mark.parametrize("lang", LANGS)
 def test_the_notice_never_follows_the_registration_as_these_terms(lang: Lang) -> None:
     """On every base of the sweep, for every scenario, with and without a refund: the notice
-    says "these terms" only right after the {terms} sentence; otherwise it names the next
-    orders. So it never reads as if the current refund depended on past returns (rule 3)."""
+    says "these terms" only right after the restrictive {terms} sentence; otherwise it names the
+    next orders (also after the neutral {terms} sentence of a benefit alone, round 4, finding
+    U4). So it never reads as if the current refund depended on past returns (rule 3)."""
     alone = 0
     for base, name in itertools.product(SWEEP, sorted(SCENARIOS)):
         for refund in (None, REFUND):
@@ -285,9 +293,9 @@ def test_the_notice_never_follows_the_registration_as_these_terms(lang: Lang) ->
             assert len(notice) == ("transparency_notice:true" in ctx.lever_ids), (base, name)
             for before, sentence in zip(body, body[1:], strict=False):
                 if sentence == NOTICE_AFTER_TERMS[lang]:
-                    assert "{terms}" in before, (base, name)
+                    assert before == RESTRICTIVE_TERMS[lang], (base, name)
                 if sentence == NOTICE_ALONE[lang]:
-                    assert "{terms}" not in before, (base, name)
+                    assert before != RESTRICTIVE_TERMS[lang], (base, name)
                     alone += 1
     assert alone > 0  # the sweep reaches the case of the review
 

@@ -4,7 +4,7 @@ of 13 Oct, round 2, finding R1).
 Gemma does not write the customer message. It picks the ids of fixed sentences, and code writes
 the message in Italian and in English:
 
-    opening + mandatory body + up to three extras + closing (+ the fixed legal clause)
+    opening + mandatory body + up to three extras (two in Q3 and Q4) + closing (+ legal clause)
 
 - Each sentence has a stable id, fixed Italian and English texts, a slot (opening, extra or
   closing) and the decision kinds where it is allowed (guarantee, insufficient, Q1 to Q4), with
@@ -13,15 +13,19 @@ the message in Italian and in English:
   deadline, term, legal wording or decision word: those come from code. The tests run every
   text check of llm/text.py on each sentence, in both languages (`phrase_problems`).
 - The mandatory body is built by code from the engine decision and is never chosen by the
-  model: the return registration with {deadline} (and {amount} when known), the {terms}
-  sentence when the terms of future orders change, the standard-terms sentence for
-  insufficient evidence, the transparency notice (Q3, Q4) and the guarantee registration. The
-  notice always refers to future orders: after the {terms} sentence it says "these terms",
-  otherwise it names the next orders, so it never reads as if the current refund depended on
-  past returns (rule 3; round 3, finding T1).
+  model: the return registration with {deadline} (and {amount} when known), in Q3 and Q4 the
+  sentence that this return keeps the terms of its order (rule 3, spec 8.6; round 4, finding
+  U2), the {terms} sentence when the terms of future orders change, the standard-terms sentence
+  for insufficient evidence, the transparency notice (Q3, Q4) and the guarantee registration.
+  The {terms} sentence presents new terms as a consequence of past returns only when a
+  restrictive lever has a phrase; a benefit alone (a free size exchange) gets the neutral
+  sentence (round 4, finding U4). The notice always refers to future orders: after the
+  restrictive {terms} sentence it says "these terms", otherwise it names the next orders, so it
+  never reads as if the current refund depended on past returns (rule 3; round 3, finding T1).
 - `selection_problems` lists why a selection is refused: an unknown or repeated id, an id in the
-  wrong slot, an id not allowed for the decision, two sentences that ask for a reply, or a
-  "thanks again" closing without a thanks opening (round 3, finding T4). The validator reports
+  wrong slot, an id not allowed for the decision, two sentences that ask for a reply, a "thanks
+  again" closing without a thanks opening (round 3, finding T4), or more than two extras in Q3
+  and Q4 (round 4, finding U2). The validator reports
   them as SENTENCE_ID.
 - `render_selection` composes the message and fills it through llm/messages.render, which
   appends the legal clause the decision requires and checks it.
@@ -54,6 +58,10 @@ SLOTS: tuple[Slot, ...] = ("opening", "extra", "closing")
 MIN_SENTENCES = 2  # one opening and one closing
 MAX_EXTRAS = 3
 MAX_SENTENCES = MIN_SENTENCES + MAX_EXTRAS
+# Q3 and Q4 carry one more body sentence (this return keeps its terms), so they take at most two
+# extras and stay within 120 words before the clause (round 4, finding U2).
+RESTRICTIVE_KINDS = frozenset({"Q3", "Q4"})
+RESTRICTIVE_MAX_EXTRAS = 2
 
 WITHDRAWAL_KINDS = frozenset({"insufficient", "Q1", "Q2", "Q3", "Q4"})
 GUARANTEE_KINDS = frozenset({"guarantee"})
@@ -273,12 +281,28 @@ _TERMS: dict[str, dict[Lang, str]] = {
     },
 }
 # US-307: insufficient evidence means standard terms, neither safe nor suspicious. The message
-# states the engine decision, not a comparison with the order's snapshot that code does not make
-# (round 3, finding T3).
+# states the engine decision, not a comparison with the order's snapshot that code does not make:
+# "have", never "keep" (round 3, finding T3; round 4, finding U3).
 _STANDARD: dict[Lang, str] = {
-    "it": "I tuoi prossimi ordini mantengono le nostre condizioni di reso standard.",
-    "en": "Your next orders keep our standard return terms.",
+    "it": "I tuoi prossimi ordini hanno le nostre condizioni di reso standard.",
+    "en": "Your next orders have our standard return terms.",
 }
+# Q3 and Q4: the current return keeps the terms shown when the order was bought (rule 3, spec
+# 8.6, LEG-04), so the new terms are never read as applying to it (round 4, finding U2).
+_KEEPS: dict[Lang, str] = {
+    "it": "Questo reso mantiene le condizioni del tuo ordine.",
+    "en": "This return keeps the terms of your order.",
+}
+# Levers whose {terms} phrase restricts. In a decision that requires terms (Q3, Q4) the window
+# lever only shortens the window (policy/engine.levers_for); a free or priority size exchange is a
+# benefit that holds for every order (round 4, finding U4).
+_RESTRICTIVE_TERMS = (
+    "return_window_days:",
+    "free_return_shipping:false",
+    "instant_refund:false",
+    "coupons_enabled:false",
+    "cluster_coupons_disabled:true",
+)
 # The transparency notice of spec 8.6 (Q3, Q4): neutral, never a judgement, and about future
 # orders only. Right after the {terms} sentence, "these terms" are the terms of the next orders;
 # alone (the base already lacks what Q3 or Q4 would withdraw) it names the next orders, so it
@@ -348,11 +372,18 @@ def _slot_at(index: int, count: int) -> Slot:
     return "closing" if index == count - 1 else "extra"
 
 
+def max_extras(ctx: MessageContext) -> int:
+    """The number of extras a selection may have: two in Q3 and Q4, three otherwise."""
+    return RESTRICTIVE_MAX_EXTRAS if ctx.kind in RESTRICTIVE_KINDS else MAX_EXTRAS
+
+
 def selection_problems(ids: Sequence[str], ctx: MessageContext) -> list[str]:
     """Why a selection of sentence ids cannot be used; empty when it can."""
     problems: list[str] = []
     if not MIN_SENTENCES <= len(ids) <= MAX_SENTENCES:
         problems.append(f"{len(ids)} ids, expected {MIN_SENTENCES} to {MAX_SENTENCES}")
+    elif len(ids) - MIN_SENTENCES > max_extras(ctx):
+        problems.append(f"{len(ids) - MIN_SENTENCES} extras, at most {max_extras(ctx)} here")
     for index, sentence_id in enumerate(ids):
         sentence = PHRASEBOOK.get(sentence_id)
         if sentence is None:
@@ -404,6 +435,14 @@ def selection_rules(ctx: MessageContext) -> list[str]:
     return rules
 
 
+def _terms_style(ctx: MessageContext) -> str:
+    """The {terms} sentence: restrictive only when a restrictive lever has a phrase."""
+    restricts = any(lever.startswith(_RESTRICTIVE_TERMS) for lever in ctx.lever_ids)
+    if ctx.requires_terms and restricts:
+        return "restrictive"
+    return "Q1" if ctx.kind == "Q1" else "other"
+
+
 def mandatory_body(ctx: MessageContext, lang: Lang) -> list[str]:
     """The sentences code writes for the decision, with placeholders; never chosen by the
     model."""
@@ -411,13 +450,15 @@ def mandatory_body(ctx: MessageContext, lang: Lang) -> list[str]:
         return [_GUARANTEE_REGISTERED[lang]]
     registered = _REGISTERED_AMOUNT if "amount" in ctx.placeholders else _REGISTERED
     body = [registered[lang]]
-    if "terms" in ctx.placeholders:
-        style = "restrictive" if ctx.requires_terms else "Q1" if ctx.kind == "Q1" else "other"
+    if ctx.kind in RESTRICTIVE_KINDS:
+        body.append(_KEEPS[lang])
+    style = _terms_style(ctx) if "terms" in ctx.placeholders else ""
+    if style:
         body.append(_TERMS[style][lang])
     elif ctx.kind == "insufficient":
         body.append(_STANDARD[lang])
     if "transparency_notice:true" in ctx.lever_ids:
-        notice = _NOTICE_AFTER_TERMS if "terms" in ctx.placeholders else _NOTICE
+        notice = _NOTICE_AFTER_TERMS if style == "restrictive" else _NOTICE
         body.append(notice[lang])
     return body
 

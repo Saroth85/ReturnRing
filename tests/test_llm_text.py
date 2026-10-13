@@ -818,7 +818,21 @@ def test_number_words_skip_and_forms() -> None:
         ("The risk of damage is low.", []),
         ("Risk score 0.87 from the model.", []),
         ("the highest contribution to the score", []),
-        ("Customer net margin is low.", []),
+        # Round 4, finding U5: the customer value in other words, negations, middle levels, an axis
+        # carried over "and", numbers before the level
+        ("Customer net margin is low.", [("score", "value", "low")]),
+        ("The customer is highly profitable.", [("score", "value", "high")]),
+        ("The customer is not profitable.", [("score", "value", "?")]),
+        ("The customer is trustworthy.", [("axis", "risk", "low")]),
+        ("The risk score is not high.", [("score", "risk", "?")]),
+        ("The risk score isn't high.", [("score", "risk", "?")]),
+        ("The risk score is moderate.", [("score", "risk", "?")]),
+        ("The risk score (0.87) is low.", [("score", "risk", "low")]),
+        (
+            "The risk score and the margin are both low.",
+            [("score", "risk", "low"), ("score", "value", "low")],
+        ),
+        ("The order margin is low.", []),
     ],
 )
 def test_quadrant_levels(text: str, levels: list[tuple[str, str, str]]) -> None:
@@ -839,23 +853,30 @@ def test_quadrant_positions() -> None:
         ("Restrictive levers apply.", ["restrict", "lever"]),
         ("No restrictive levers.", ["restrict", "lever"]),
         ("There is no restriction on instant refund.", ["restrict", "instant", "refund"]),
-        ("Promo codes are enabled.", ["promo"]),
+        ("Promo codes are enabled.", ["promo", "enabl"]),
         ("Stricter return terms apply.", ["strict", "terms"]),
-        ("Si applicano limitazioni ai prossimi ordini.", ["limitazion"]),
+        ("Si applicano limitazioni ai prossimi ordini.", ["prossimi ordini", "limitazion"]),
         ("The customer loses instant refund.", ["loses", "instant", "refund"]),
         ("Instant refund is withheld.", ["instant", "refund", "withh"]),
         ("Return shipping is charged.", ["ship", "charged"]),
         ("The merchant policy applies.", ["policy"]),
         ("Size advice is on.", ["size advice"]),
-        ("Customers get their money back at once.", ["money back"]),
+        ("Customers get their money back at once.", ["money back", "money"]),
         (
             "Postage is prepaid; perks and privileges stay.",
             ["postage", "prepaid", "perk", "privileg"],
         ),
-        ("The customer is repaid with store credit.", ["repaid", "store credit"]),
+        ("The customer is repaid with store credit.", ["store credit", "repaid"]),
         ("The return is approved.", ["approv"]),
         ("Risk level: high.", ["risk high"]),
-        ("The top left quadrant.", ["top left"]),
+        ("The top left quadrant.", ["top left", "quadrant"]),
+        # Round 4, finding U6: the state and scope of a lever
+        ("Welcome coupons are disabled.", ["disabl"]),
+        ("No welcome coupon on future orders.", ["no welcome coupon", "futur"]),
+        ("Size swaps are no longer offered.", ["no longer", "swap", "offer"]),
+        ("The case sits in the generous quadrant.", ["quadrant"]),
+        ("The case sits in quadrant Q4.", []),
+        ("The 7 linked accounts share a shipping address.", []),
         # observed data and plain words
         ("7 linked accounts each used the welcome coupon.", []),
         ("Welcome coupons per account: 1.", []),
@@ -874,7 +895,8 @@ def test_operator_topics(text: str, found: list[str]) -> None:
 
 _ALLOWED_NAME = re.compile(
     r"LATIN (?:SMALL|CAPITAL) LETTER [AEIOU] WITH (?:GRAVE|ACUTE)|(?:LEFT|RIGHT) (?:SINGLE|DOUBLE) "
-    r"QUOTATION MARK|EN DASH|EM DASH|HORIZONTAL ELLIPSIS|EURO SIGN|NO-BREAK SPACE"
+    r"QUOTATION MARK|EN DASH|EM DASH|HORIZONTAL ELLIPSIS|EURO SIGN|NO-BREAK SPACE|HYPHEN"
+    r"|NON-BREAKING HYPHEN|THIN SPACE|NARROW NO-BREAK SPACE"
 )
 
 
@@ -895,7 +917,7 @@ def _block(first: int, last: int) -> list[str]:
 
 MIXED_SCRIPTS = (
     list("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ àèéìíòóùúÀÈÉÌÒÙ .,;:-'")
-    + list("’‘“”–—…€\u00a0°∀∧○●◯⊙⒡⒜🅵🅕🇫🇷×±−➖")
+    + list("’‘“”–—…€\u00a0\u2010\u2011\u2009\u202f°∀∧○●◯⊙⒡⒜🅵🅕🇫🇷×±−➖")
     + _block(0x0100, 0x024F)  # Latin Extended-A and B
     + _block(0x0250, 0x02FF)  # IPA, modifier letters
     + _block(0x0300, 0x036F)  # combining marks

@@ -13,3 +13,4 @@
 | ADR-09 | Guarantee path decided before scoring | A defect is not customer behaviour and has its own legal regime |
 | ADR-10 | [ASOS evaluated with two protocols](ADR-10-asos-two-protocols.md) | ASOS aggregates contain the label; only decision-time features may measure the product |
 | ADR-11 | [Age is a forbidden feature](ADR-11-age-excluded.md) | Protected ground; the ASOS column is also dirty |
+| ADR-12 | [Rule 15 covers the repository, not pulled images](ADR-12-container-licences.md) | ROCm and vLLM images ship GPL and other licences and are never redistributed |

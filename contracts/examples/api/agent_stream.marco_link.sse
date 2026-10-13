@@ -1,0 +1,44 @@
+event: tool_call
+id: 0
+data: {"type":"tool_call","seq":0,"step":1,"tool":"get_cluster","arguments":{"customer_id":"C-MARCO-1"}}
+
+event: tool_result
+id: 1
+data: {"type":"tool_result","seq":1,"step":1,"tool":"get_cluster","ok":true,"summary":"Cluster CL-000417: 7 linked accounts; C-MARCO-1~C-MARCO-3 shares card, device, address","refs":[{"kind":"cluster","id":"CL-000417"},{"kind":"link","id":"C-MARCO-1~C-MARCO-3"}]}
+
+event: tool_call
+id: 2
+data: {"type":"tool_call","seq":2,"step":2,"tool":"get_orders","arguments":{"customer_id":"C-MARCO-3"}}
+
+event: tool_result
+id: 3
+data: {"type":"tool_result","seq":3,"step":2,"tool":"get_orders","ok":true,"summary":"C-MARCO-3: 2 orders, welcome coupon redeemed on 2026-09-04","refs":[{"kind":"customer","id":"C-MARCO-3"}]}
+
+event: token
+id: 4
+data: {"type":"token","seq":4,"text":"C-MARCO-1 and C-MARCO-3 are linked by a payment card, a device "}
+
+event: token
+id: 5
+data: {"type":"token","seq":5,"text":"and a delivery address, all shared since 2026-09-03, when C-MARCO-3 was "}
+
+event: token
+id: 6
+data: {"type":"token","seq":6,"text":"created. Both accounts redeemed a welcome coupon within a day of "}
+
+event: token
+id: 7
+data: {"type":"token","seq":7,"text":"creation. A link is a shared identifier, not proof of who "}
+
+event: token
+id: 8
+data: {"type":"token","seq":8,"text":"uses the accounts."}
+
+event: answer
+id: 9
+data: {"type":"answer","seq":9,"text":"C-MARCO-1 and C-MARCO-3 are linked by a payment card, a device and a delivery address, all shared since 2026-09-03, when C-MARCO-3 was created. Both accounts redeemed a welcome coupon within a day of creation. A link is a shared identifier, not proof of who uses the accounts.","evidence_consulted":[{"kind":"cluster","id":"CL-000417"},{"kind":"link","id":"C-MARCO-1~C-MARCO-3"},{"kind":"customer","id":"C-MARCO-3"}],"evidence_missing":["No contact with the customer about the shared card"],"refs":[{"kind":"cluster","id":"CL-000417"},{"kind":"link","id":"C-MARCO-1~C-MARCO-3"},{"kind":"customer","id":"C-MARCO-3"}]}
+
+event: done
+id: 10
+data: {"type":"done","seq":10,"steps_used":2,"generation":{"generation_id":"GEN-AGENT-000001","generation_path":"model","fallback_reason":null,"llm_mode":"mock","served_from":"live","model":"mock","model_calls":1,"validator_codes":[],"created_at":"2026-09-30T18:10:00Z","latency_ms":27}}
+

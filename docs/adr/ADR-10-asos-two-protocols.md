@@ -67,3 +67,31 @@ This is a declared limitation, written in the README next to the results.
   its report includes join coverage.
 - US-201 reports protocols A and B side by side; B1 timings use protocol A data.
 - The spec rows of US-201, MOD-01 and MOD-02 point to this ADR.
+
+## Amendment 1 (13 Oct 2026): protocol B's decision-time population (US-201)
+
+Found while building protocol B; measured numbers in `docs/results/us-201-propensity.md` (origin:
+ASOS GraphReturns, OSF c793h; nature: real).
+
+Every customer and variant row of the dataset has at least one return (the paper's selection). A
+row whose only return is the event's own return exists because that event was returned: its
+leave-one-out returns are 0, and the event is returned in practically every case (train 60,451
+events, 99.77% returned; test 59,884, 100%). Such an event cannot occur at decision time, where the
+event's outcome is unknown and cannot select the rows.
+
+**Decision.** Protocol B is trained, calibrated and judged on the decision-time population: the
+events except those whose customer row or variant row holds no other return
+(`selected_by_own_return` in `ml.propensity.features`, the `decision_time` mask of
+`ml.propensity.features.population_masks`). Left in, they teach the model that a customer or a
+variant without another return returns this purchase, the opposite of what a store sees. The full
+test set and the fully featured subset are still reported, and a diagnostic row trains the same
+features on every event; it is never saved or used.
+
+**Risk R-07, distribution shift.** ASOS holds only customers with at least one return, and the
+decision-time population still has no customer with zero returns besides the event. The synthetic
+store, and any real shop, has many customers with no return at all, and new customers with no
+history. Protocol B has never seen them: its probabilities for those customers are an
+extrapolation. The store-side models do not inherit this: the product/cohort reference of the
+residual (rule 8) is trained on the store's own lines (`ml/reference`), and the checks of R-07
+(calibration of the store models, ECE <= 0.05, MOD-06) are run there. A protocol B probability is
+never used for a store customer without that calibration check.

@@ -20,8 +20,8 @@ jobs:
       - run: make lint
       - run: python -m pytest -m "not gpu" -q --cov=policy --cov=llm --cov-branch --cov-report=term-missing
       # NFR-14: 100% line and branch coverage on the policy package (engine, legal guard,
-      # simulator, types) and on the LLM output validator.
-      - run: python -m coverage report --include="policy/*,llm/validator.py" --fail-under=100
+      # simulator, types) and on the whole LLM layer (validator, phrasebook, messages, agent, client).
+      - run: python -m coverage report --include="policy/*,llm/*" --fail-under=100
       - run: make licenses
 
   secrets:

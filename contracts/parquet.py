@@ -1,48 +1,138 @@
-"""Parquet schemas for every file exchanged between modules (docs/spec.md section 7).
+"""Parquet schemas for every file exchanged between modules (docs/spec.md section 7, ADR-13).
 
-Every store/ table is an event table: it carries event_at and available_at, and features are
-computed only from rows with available_at <= decision time (CLAUDE.md rule 7).
+Contract version 2. Three kinds of table:
+
+- event tables (store/*): every row carries event_at and available_at, and a row holds only facts
+  known at its available_at (CON-01). A fact learnt later (a delivery, a return state) is a row of
+  its own. Features are computed only from rows with available_at <= decision time (rule 7);
+  contracts.io.read_table(..., as_of=...) applies that filter.
+- as-of tables (features/*, scores/*): computed at as_of; no timestamp in a row is after as_of.
+- static tables (raw/asos_*, truth/*): no decision time. raw/ is real ASOS data (ADR-10); truth/ is
+  the generator's ground truth, read only by offline training and evaluation jobs (rule 12).
+
+Value checks (enums, ranges, keys, time order) live in contracts/checks.py; contracts/io.py writes
+and reads the files with provenance metadata.
 """
 
 from __future__ import annotations
 
+import re
+from collections.abc import Iterable
+
 import pyarrow as pa
+
+CONTRACT_VERSION = "2.0.0"
 
 TS = pa.timestamp("us", tz="UTC")
 EUR = pa.decimal128(12, 2)
 
+# ---- Vocabularies ------------------------------------------------------------------------------
+
+IDENTIFIER_KINDS = ("card", "email", "device", "address", "phone", "ip_prefix")
+RETURN_STATES = ("notified", "shipped_or_proof", "received", "refunded", "rejected")  # NFR-17
+COUPON_KINDS = ("welcome", "referral", "promo")
+BEHAVIOURS = ("normal", "size", "wardrober", "promo_ring", "shared_benign")
+SCENARIOS = ("main", "ood")  # ood: the out-of-distribution scenario, never trained on (US-105)
+ANOMALY_STATUSES = ("open", "task_opened", "resolved")
+ASOS_SPLITS = ("train", "test")
+# The 13 masked ASOS reason codes in source order. The source repeats the label "D" (the 4th and
+# the 6th code, after E); by position the first is D and the second D2 (ADR-13).
+ASOS_REASON_CODES = ("A", "B", "C", "D", "E", "D2", "F", "G", "H", "I", "J", "K", "L")
+
+# ---- Schemas -----------------------------------------------------------------------------------
+
 _EVENT = [pa.field("event_at", TS, nullable=False), pa.field("available_at", TS, nullable=False)]
+_AS_OF = pa.field("as_of", TS, nullable=False)
 
 
 def _event_table(*fields: pa.Field) -> pa.Schema:
     return pa.schema([*fields, *_EVENT])
 
 
+def _as_of_table(*fields: pa.Field) -> pa.Schema:
+    return pa.schema([*fields, _AS_OF])
+
+
+def _reason_shares() -> list[pa.Field]:
+    return [pa.field(f"reason_share_{code}", pa.float64()) for code in ASOS_REASON_CODES]
+
+
 SCHEMAS: dict[str, pa.Schema] = {
-    "store/customers": _event_table(
-        pa.field("customer_id", pa.string(), nullable=False),
-        pa.field("display_name", pa.string()),
+    # ---- raw: ASOS GraphReturns, real data, no timestamps (ADR-10) ----
+    "raw/asos_events": pa.schema(
+        [
+            pa.field("split", pa.string(), nullable=False),
+            pa.field("variant_hash", pa.int64(), nullable=False),
+            pa.field("customer_hash", pa.int64(), nullable=False),
+            pa.field("is_returned", pa.bool_(), nullable=False),
+        ]
     ),
-    "store/identifiers": _event_table(
+    "raw/asos_customers": pa.schema(
+        [
+            pa.field("split", pa.string(), nullable=False),
+            pa.field("customer_hash", pa.int64(), nullable=False),
+            pa.field("sales", pa.int64(), nullable=False),
+            pa.field("returns", pa.int64(), nullable=False),
+            pa.field("return_rate", pa.float64(), nullable=False),
+            *_reason_shares(),
+            pa.field("premier", pa.bool_(), nullable=False),
+            # Descriptive statistics only, never a feature (rule 6, ADR-11): DESCRIPTIVE_ONLY.
+            pa.field("is_male", pa.bool_()),
+            pa.field("shipping_country", pa.string()),
+            pa.field("year_of_birth", pa.int32()),
+        ]
+    ),
+    "raw/asos_variants": pa.schema(
+        [
+            pa.field("split", pa.string(), nullable=False),
+            pa.field("variant_hash", pa.int64(), nullable=False),
+            pa.field("product_hash", pa.int64(), nullable=False),
+            pa.field("supplier_hash", pa.int64()),
+            pa.field("product_type", pa.string()),
+            pa.field("brand", pa.string()),
+            pa.field("avg_price_gbp", pa.float64()),
+            pa.field("avg_discount", pa.float64()),
+            pa.field("sales", pa.int64(), nullable=False),
+            pa.field("returns", pa.int64(), nullable=False),
+            pa.field("return_rate", pa.float64(), nullable=False),
+            *_reason_shares(),
+        ]
+    ),
+    # ---- store: the synthetic shop, event tables ----
+    "store/customers": _event_table(  # event_at: account created
         pa.field("customer_id", pa.string(), nullable=False),
-        pa.field("kind", pa.string(), nullable=False),  # card, email, device, address, phone, ip
+        pa.field("display_name", pa.string()),  # UI only, a forbidden feature
+    ),
+    "store/identifiers": _event_table(  # event_at: first use of the identifier by the customer
+        pa.field("customer_id", pa.string(), nullable=False),
+        pa.field("kind", pa.string(), nullable=False),  # IDENTIFIER_KINDS
         pa.field("value_hash", pa.string(), nullable=False),  # pseudonymous personal data
     ),
-    "store/terms_snapshots": _event_table(
+    "store/variants": _event_table(  # event_at: listed; observable catalogue attributes only
+        pa.field("variant_id", pa.string(), nullable=False),
+        pa.field("product_id", pa.string(), nullable=False),
+        pa.field("category", pa.string(), nullable=False),
+        pa.field("brand", pa.string()),
+        pa.field("price_eur", EUR, nullable=False),
+        pa.field("size_range", pa.string()),  # for example "XS-XL"
+    ),
+    "store/terms_snapshots": _event_table(  # event_at: terms shown at checkout (ADR-05)
         pa.field("terms_snapshot_id", pa.string(), nullable=False),
+        pa.field("order_id", pa.string(), nullable=False),
+        pa.field("source", pa.string(), nullable=False),  # "base" or the id of a decision
+        pa.field("quadrant_at_purchase", pa.string()),  # Q1..Q4, null when none applied
         pa.field("return_window_days", pa.int32(), nullable=False),
         pa.field("free_return_shipping", pa.bool_(), nullable=False),
         pa.field("instant_refund", pa.bool_(), nullable=False),
         pa.field("free_size_exchange", pa.bool_(), nullable=False),
         pa.field("coupons_enabled", pa.bool_(), nullable=False),
     ),
-    "store/orders": _event_table(
+    "store/orders": _event_table(  # event_at: order placed; delivery is in store/deliveries
         pa.field("order_id", pa.string(), nullable=False),
         pa.field("customer_id", pa.string(), nullable=False),
         pa.field("terms_snapshot_id", pa.string(), nullable=False),
         pa.field("coupon_code", pa.string()),
         pa.field("total_eur", EUR, nullable=False),
-        pa.field("delivered_at", TS),
     ),
     "store/order_lines": _event_table(
         pa.field("line_id", pa.string(), nullable=False),
@@ -51,73 +141,432 @@ SCHEMAS: dict[str, pa.Schema] = {
         pa.field("size", pa.string()),
         pa.field("price_eur", EUR, nullable=False),
     ),
-    "store/returns": _event_table(
+    "store/deliveries": _event_table(  # event_at: delivered
+        pa.field("order_id", pa.string(), nullable=False),
+    ),
+    "store/returns": _event_table(  # event_at: return requested; states in store/return_events
         pa.field("return_id", pa.string(), nullable=False),
         pa.field("line_id", pa.string(), nullable=False),
-        pa.field("reason", pa.string(), nullable=False),
-        pa.field("days_since_delivery", pa.int32(), nullable=False),
-        pa.field("status", pa.string(), nullable=False),
+        pa.field("reason", pa.string(), nullable=False),  # policy.types.ReturnReason
+        pa.field("days_since_delivery", pa.int32(), nullable=False),  # known at request time
+    ),
+    "store/return_events": _event_table(  # one row per state reached (NFR-17, spec 8.6)
+        pa.field("return_id", pa.string(), nullable=False),
+        pa.field("state", pa.string(), nullable=False),  # RETURN_STATES
     ),
     "store/coupons": _event_table(
+        # An event log: one row when a coupon is issued (order_id null) and one when it is
+        # redeemed (order_id set, event_at = redemption), so no row holds a later fact.
         pa.field("coupon_code", pa.string(), nullable=False),
         pa.field("customer_id", pa.string(), nullable=False),
-        pa.field("kind", pa.string(), nullable=False),  # welcome, referral, promo
+        pa.field("kind", pa.string(), nullable=False),  # COUPON_KINDS
         pa.field("discount_eur", EUR, nullable=False),
+        pa.field("order_id", pa.string()),
     ),
+    # ---- truth: ground truth of the generator (rule 12: never read by running services) ----
     "truth/labels": pa.schema(
         [
             pa.field("customer_id", pa.string(), nullable=False),
-            pa.field("behaviour", pa.string(), nullable=False),
-            pa.field("ring_id", pa.string()),
+            pa.field("behaviour", pa.string(), nullable=False),  # BEHAVIOURS
+            pa.field("ring_id", pa.string()),  # set exactly for promo_ring
+            pa.field("family_id", pa.string()),  # set for every shared_benign account
+            pa.field("scenario", pa.string(), nullable=False),  # SCENARIOS
         ]
     ),
-    "features/clusters": pa.schema(
-        [
-            pa.field("customer_id", pa.string(), nullable=False),
-            pa.field("cluster_id", pa.string()),
-            pa.field("cluster_size", pa.int32(), nullable=False),
-            pa.field("shared_strong_ids", pa.int32(), nullable=False),
-            pa.field("welcome_coupons", pa.int32(), nullable=False),
-            pa.field("as_of", TS, nullable=False),
-        ]
-    ),
-    "features/customer_features": pa.schema(
-        [
-            pa.field("customer_id", pa.string(), nullable=False),
-            pa.field("return_rate", pa.float64(), nullable=False),
-            pa.field("changed_mind_share", pa.float64(), nullable=False),
-            pa.field("size_share", pa.float64(), nullable=False),
-            pa.field("median_days_to_return", pa.float64()),
-            pa.field("residual_z", pa.float64()),
-            pa.field("n_observations", pa.int32(), nullable=False),
-            pa.field("as_of", TS, nullable=False),
-        ]
-    ),
-    "features/product_anomalies": pa.schema(
+    "truth/variants": pa.schema(
         [
             pa.field("variant_id", pa.string(), nullable=False),
-            pa.field("reason", pa.string(), nullable=False),
-            pa.field("week", pa.date32(), nullable=False),
-            pa.field("observed", pa.int32(), nullable=False),
-            pa.field("expected", pa.float64(), nullable=False),
-            pa.field("z", pa.float64(), nullable=False),
-            pa.field("n", pa.int32(), nullable=False),
-            pa.field("status", pa.string(), nullable=False),
+            pa.field("base_return_rate", pa.float64(), nullable=False),  # latent, from ASOS
+            pa.field("defective", pa.bool_(), nullable=False),
+            pa.field("defect_reason", pa.string()),  # policy.types.ReturnReason
+            pa.field("defect_start", TS),
+            pa.field("defect_end", TS),  # null: the defect is never fixed in the period
         ]
     ),
-    "scores/scores": pa.schema(
-        [
-            pa.field("customer_id", pa.string(), nullable=False),
-            pa.field("risk", pa.float64(), nullable=False),
-            pa.field("evidence_quality", pa.string(), nullable=False),
-            pa.field("value_eur", EUR, nullable=False),
-            pa.field("quadrant", pa.string()),
-            pa.field("shap_top3", pa.string()),  # JSON: contributions to the score, not causes
-            pa.field("model_version", pa.string(), nullable=False),
-            pa.field("as_of", TS, nullable=False),
-        ]
+    # ---- features ----
+    "features/links": _as_of_table(  # US-203, US-302, US-310; spec 8.3
+        pa.field("customer_a", pa.string(), nullable=False),  # customer_a < customer_b
+        pa.field("customer_b", pa.string(), nullable=False),
+        # Identifier kinds shared by the pair: at least one, each once (checks.ListItems).
+        pa.field(
+            "kinds", pa.list_(pa.field("element", pa.string(), nullable=False)), nullable=False
+        ),
+        pa.field("weight", pa.float64(), nullable=False),  # w_ij of 8.3, no decay
+        pa.field("weight_decayed", pa.float64(), nullable=False),  # with time and d_k decay
+        pa.field("first_shared_at", TS, nullable=False),
+        pa.field("last_shared_at", TS, nullable=False),
+        pa.field("n_shared_events", pa.int32(), nullable=False),
+        pa.field("max_sharers", pa.int32(), nullable=False),  # largest d_k among the kinds
+        pa.field("disputed", pa.bool_(), nullable=False),  # disputed by an operator (US-310)
+    ),
+    "features/clusters": _as_of_table(
+        pa.field("customer_id", pa.string(), nullable=False),
+        pa.field("cluster_id", pa.string()),
+        pa.field("cluster_size", pa.int32(), nullable=False),
+        pa.field("shared_strong_ids", pa.int32(), nullable=False),
+        pa.field("welcome_coupons", pa.int32(), nullable=False),
+        pa.field("n_distinct_cards", pa.int32(), nullable=False),
+        pa.field("creation_spread_days", pa.float64(), nullable=False),
+        pa.field("welcome_coupons_per_account", pa.float64(), nullable=False),
+        pa.field("cluster_return_rate", pa.float64()),  # null: no line delivered yet
+        pa.field("strong_id_share", pa.float64(), nullable=False),
+    ),
+    # Behaviour features and the return residual at as_of (US-204 inputs, US-206; amendment 2,
+    # docs/customer-features.md). No customer value here: it never feeds risk (rule 6).
+    "features/customer_features": _as_of_table(
+        pa.field("customer_id", pa.string(), nullable=False),
+        pa.field("n_orders", pa.int32(), nullable=False),
+        pa.field("n_lines", pa.int32(), nullable=False),
+        pa.field("n_delivered_lines", pa.int32(), nullable=False),
+        pa.field("n_observations", pa.int32(), nullable=False),  # lines with a settled outcome
+        pa.field("n_returns", pa.int32(), nullable=False),  # withdrawal-path returns known
+        pa.field("return_rate", pa.float64()),  # over n_observations; null without any
+        pa.field("return_rate_to_date", pa.float64()),  # over delivered lines; null without any
+        pa.field("size_share", pa.float64()),  # reason shares of the n_returns; null without any
+        pa.field("changed_mind_share", pa.float64()),
+        pa.field("not_as_expected_share", pa.float64()),
+        pa.field("other_reason_share", pa.float64()),
+        pa.field("median_days_to_return", pa.float64()),
+        pa.field("tenure_days", pa.float64(), nullable=False),  # since the account was opened
+        pa.field("n_welcome_coupons_used", pa.int32(), nullable=False),
+        pa.field("n_promo_coupons_used", pa.int32(), nullable=False),  # promo and referral
+        pa.field("coupon_order_share", pa.float64()),  # null without orders
+        pa.field("weekend_order_share", pa.float64()),  # orders on Saturday or Sunday (UTC)
+        pa.field("mean_line_price_eur", pa.float64()),  # null without lines
+        pa.field("expected_returns", pa.float64(), nullable=False),  # sum of p_l, spec 8.2
+        pa.field("residual", pa.float64(), nullable=False),  # R_c
+        pa.field("residual_z", pa.float64()),  # z_c; null when the variance is zero
+        pa.field("reference_model_version", pa.string(), nullable=False),
+    ),
+    # Net margin over 12 months (US-205, spec 8.5): never a risk feature (rule 6).
+    "features/customer_value": _as_of_table(
+        pa.field("customer_id", pa.string(), nullable=False),
+        pa.field("value_eur", EUR, nullable=False),  # V_c
+        pa.field("kept_eur", EUR, nullable=False),  # price of the lines not returned
+        pa.field("returned_eur", EUR, nullable=False),
+        pa.field("discount_eur", EUR, nullable=False),  # coupon discounts redeemed
+        pa.field("orders_total_eur", EUR, nullable=False),  # kept + returned - discount
+        pa.field("n_orders", pa.int32(), nullable=False),
+        pa.field("n_lines", pa.int32(), nullable=False),
+        pa.field("n_returns", pa.int32(), nullable=False),
+        pa.field("window_start", TS, nullable=False),  # orders placed after it count
+        pa.field("assumptions_version", pa.string(), nullable=False),
+    ),
+    # Evidence quality, separate from risk (US-209, US-307).
+    "features/evidence_quality": _as_of_table(
+        pa.field("customer_id", pa.string(), nullable=False),
+        pa.field("evidence_quality", pa.string(), nullable=False),  # policy.types.EvidenceQuality
+        pa.field("n_observations", pa.int32(), nullable=False),
+        pa.field("n_observations_linked", pa.int32()),  # own plus linked accounts; null: no graph
+        pa.field("identifier_completeness", pa.float64(), nullable=False),  # weighted, 0..1
+        pa.field(
+            "missing_identifier_kinds",
+            pa.list_(pa.field("element", pa.string(), nullable=False)),
+            nullable=False,
+        ),
+        pa.field("n_reasons", pa.int32(), nullable=False),  # withdrawal returns judged
+        pa.field("reason_coherence", pa.float64()),  # null without returns
+        pa.field(
+            "missing_evidence",  # plain words, empty when sufficient (US-307)
+            pa.list_(pa.field("element", pa.string(), nullable=False)),
+            nullable=False,
+        ),
+        pa.field("thresholds_version", pa.string(), nullable=False),
+    ),
+    "features/product_anomalies": _as_of_table(
+        pa.field("variant_id", pa.string(), nullable=False),
+        pa.field("reason", pa.string(), nullable=False),  # policy.types.ReturnReason
+        pa.field("week", pa.date32(), nullable=False),  # first day of the week
+        pa.field("observed", pa.int32(), nullable=False),
+        pa.field("expected", pa.float64(), nullable=False),
+        pa.field("z", pa.float64(), nullable=False),
+        pa.field("n", pa.int32(), nullable=False),
+        pa.field("status", pa.string(), nullable=False),  # ANOMALY_STATUSES
+    ),
+    # ---- scores ----
+    # The thresholds of spec 8.6 are stored with each quadrant (ADR-13 amendment 5, review F15):
+    # the API shows and reproduces them without reading features/ or the models.
+    "scores/scores": _as_of_table(
+        pa.field("customer_id", pa.string(), nullable=False),
+        pa.field("risk", pa.float64(), nullable=False),
+        pa.field("risk_threshold", pa.float64(), nullable=False),  # of the customer model
+        pa.field("evidence_quality", pa.string(), nullable=False),
+        pa.field("value_eur", EUR, nullable=False),
+        pa.field("value_threshold_eur", EUR, nullable=False),  # 70th percentile at as_of
+        pa.field("quadrant", pa.string()),
+        pa.field("shap_top3", pa.string()),  # JSON: contributions to the score, not causes
+        pa.field("model_version", pa.string(), nullable=False),
+    ),
+    # Per return request, scored as known when the request arrived (US-204, spec 8.4; ADR-13
+    # amendments 4 and 5). A guarantee-path request is listed with its path and no score, no
+    # evidence and no model version (rule 4).
+    "scores/request_scores": _as_of_table(
+        pa.field("return_id", pa.string(), nullable=False),
+        pa.field("customer_id", pa.string(), nullable=False),
+        pa.field("decided_at", TS, nullable=False),  # the request's decision time
+        pa.field("path", pa.string(), nullable=False),  # policy.types.Path
+        pa.field("context_as_of", TS),  # the customer snapshot used: the last before decided_at
+        pa.field("risk", pa.float64()),  # null on the guarantee path: not scored
+        pa.field("risk_threshold", pa.float64()),  # of the request model; with risk
+        pa.field("evidence_quality", pa.string()),  # at context_as_of; insufficient without one
+        pa.field("value_eur", EUR),  # at context_as_of; null without one
+        pa.field("value_threshold_eur", EUR),  # 70th percentile at context_as_of; with value
+        pa.field("quadrant", pa.string()),  # null: guarantee path or insufficient evidence
+        pa.field("shap_top3", pa.string()),  # JSON: contributions to the score, not causes
+        pa.field("model_version", pa.string()),  # with risk; null on the guarantee path
     ),
 }
 
-# Never allowed in features or scores (CLAUDE.md rule 6).
-FORBIDDEN_FEATURE_FIELDS = frozenset({"gender", "country", "display_name", "name", "value_hash"})
+EVENT_TABLES = frozenset(name for name in SCHEMAS if name.startswith("store/"))
+AS_OF_TABLES = frozenset(name for name in SCHEMAS if name.startswith(("features/", "scores/")))
+
+# ---- Forbidden features (rule 6, FAIR-01, ADR-11, ASOS-7) ---------------------------------------
+
+# ASOS columns kept in raw/asos_customers for descriptive statistics only.
+DESCRIPTIVE_ONLY = frozenset({"is_male", "shipping_country", "year_of_birth"})
+
+# Canonical names, kept for compatibility; is_forbidden_feature is the check to use.
+FORBIDDEN_FEATURE_FIELDS = frozenset(
+    {
+        "gender",
+        "country",
+        "display_name",
+        "name",
+        "value_hash",
+        "age",
+        "is_male",
+        "isMale",
+        "shipping_country",
+        "shippingCountry",
+        "year_of_birth",
+        "yearOfBirth",
+    }
+)
+
+# A name is split into lower-case words ("yearOfBirth" -> year, of, birth; "Country_A" ->
+# country, a; "hash(customerId)" -> hash, customer, id). A forbidden word anywhere forbids it.
+_FORBIDDEN_WORDS = frozenset(
+    {
+        "gender",
+        "sex",
+        "male",
+        "female",
+        "ismale",
+        "country",
+        "age",
+        "dob",
+        "birth",
+        "yearofbirth",
+        "name",
+        "names",
+        "displayname",
+        "firstname",
+        "lastname",
+        "surname",
+        "hash",
+        "nationality",
+        "nation",
+        "citizenship",
+    }
+)
+# Also forbidden inside a word, for names written without separators ("shippingcountry").
+_FORBIDDEN_FRAGMENTS = (
+    "gender",
+    "country",
+    "ismale",
+    "yearofbirth",
+    "birth",
+    "hash",
+    "nationality",
+    "citizenship",
+)
+# Raw identifiers (pseudonymous personal data) by their whole name, separators removed.
+_RAW_IDENTIFIERS = frozenset(
+    {
+        "email",
+        "emailaddress",
+        "phone",
+        "phonenumber",
+        "ip",
+        "ipaddress",
+        "ipprefix",
+        "address",
+        "deviceid",
+        "cardnumber",
+        "cardfingerprint",
+        "iban",
+    }
+)
+# Identifier stems (C4, P4): a name holding one of these words is a raw identifier or a location
+# proxy (postcode), unless it is clearly an aggregate over identifiers (_is_aggregate).
+_IDENTIFIER_WORDS = frozenset(
+    {
+        "email",
+        "emails",
+        "mail",
+        "address",
+        "addresses",
+        "addr",
+        "ip",
+        "ipv4",
+        "ipv6",
+        "phone",
+        "phones",
+        "msisdn",
+        "device",
+        "devices",
+        "imei",
+        "mac",
+        "postcode",
+        "postcodes",
+        "postal",
+        "zip",
+        "zipcode",
+        "fingerprint",
+        "iban",
+        "pan",  # primary account number of a payment card
+    }
+)
+# Words that name an identifier only as the head noun of the name (customer_mobile,
+# credit_card), not as a modifier or after a preposition (is_mobile, mobile_checkout,
+# paid_by_card, gift_card_used).
+_HEAD_IDENTIFIER_WORDS = frozenset({"mobile", "card", "cards"})
+_NOT_AFTER = frozenset({"is", "by", "via", "with", "on", "gift", "paid", "pay", "per"})
+# The same stems inside a word written without separators ("customeremail", "shippingaddress",
+# "ipprefix24", "cardlast4"). Short stems (ip, zip, card, addr) are matched only in these longer
+# forms or by _IDENTIFIER_WORD_FORMS, so "shipping", "zipper" or "discard" stay allowed. A fragment
+# counts inside one word, or across words only when it starts where a word starts, so "time_in"
+# ("timein") does not read as "imei".
+_IDENTIFIER_FRAGMENTS = (
+    "email",
+    "address",
+    "phone",
+    "device",
+    "postcode",
+    "zipcode",
+    "ipprefix",
+    "ipaddr",
+    "ipv4",
+    "ipv6",
+    "msisdn",
+    "imei",
+    "cardlast",
+    "cardbin",
+    "cardnum",
+    "cardno",
+    "cardid",
+    "cardtoken",
+    "creditcard",
+    "debitcard",
+    "paymentcard",
+    "cclast",
+    "ccnum",
+    "mobilenumber",
+    "mobileno",
+    "mobilephone",
+    "postalcode",
+    "ipblock",
+    "iprange",
+    "ipsubnet",
+    "useragent",
+    "advertisingid",
+    "androidid",
+)
+# Whole words that are a short stem with a prefix or a suffix: ip24, customerip, remoteip,
+# shippingaddr, shippingzip, zip5.
+_IDENTIFIER_WORD_FORMS = re.compile(
+    r"ip\d+\w*|(?:customer|client|remote|user|source|src|login|lastlogin|signup|order|session"
+    r"|checkout|visitor|buyer|registration|account|request)ip"
+    r"|\w*addr\d*|\w*zip|zip\d+|idfa"
+)
+_AGGREGATE_PREFIXES = ("n", "shared")
+_AGGREGATE_SUFFIXES = ("count", "share")
+
+
+def _words(name: str) -> list[str]:
+    spaced = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", name)
+    spaced = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", spaced)
+    return [w for w in re.split(r"[^a-z0-9]+", spaced.lower()) if w]
+
+
+def _is_aggregate(words: list[str]) -> bool:
+    """n_*, shared_*, *_count and *_share: a count or share over identifiers, not an identifier."""
+    return bool(words) and (words[0] in _AGGREGATE_PREFIXES or words[-1] in _AGGREGATE_SUFFIXES)
+
+
+def _has_fragment(words: list[str]) -> bool:
+    starts, joined, at = set(), "", 0
+    for w in words:
+        starts.add(at)
+        joined += w
+        at += len(w)
+    for fragment in _IDENTIFIER_FRAGMENTS:
+        if any(fragment in w for w in words):
+            return True
+        found = joined.find(fragment)
+        while found != -1:
+            if found in starts:
+                return True
+            found = joined.find(fragment, found + 1)
+    return False
+
+
+def _names_an_identifier(words: list[str], joined: str) -> bool:
+    if joined in _RAW_IDENTIFIERS:
+        return True
+    word = any(w in _IDENTIFIER_WORDS or _IDENTIFIER_WORD_FORMS.fullmatch(w) for w in words)
+    head = (
+        bool(words)
+        and words[-1] in _HEAD_IDENTIFIER_WORDS
+        and (len(words) == 1 or words[-2] not in _NOT_AFTER)
+    )
+    stem = word or head or _has_fragment(words)
+    return stem and not _is_aggregate(words)
+
+
+def is_forbidden_feature(name: str) -> bool:
+    """True if a column with this name may never feed a score or a model (case-insensitive):
+    gender, country and nationality, age, names, hashes and raw identifiers (e-mail, address, IP,
+    phone or mobile number, device, IMEI or MAC, payment card, postcode or zip), with or without
+    separators and in their usual abbreviations (addr, ip24, zip5, msisdn, pan). Aggregates over
+    identifiers (n_shared_devices, n_distinct_cards, email_share) stay allowed; aggregates over
+    protected grounds do not."""
+    words = _words(name)
+    joined = "".join(words)
+    return (
+        any(w in _FORBIDDEN_WORDS for w in words)
+        or any(fragment in joined for fragment in _FORBIDDEN_FRAGMENTS)
+        or _names_an_identifier(words, joined)
+    )
+
+
+def forbidden_features(names: Iterable[str]) -> list[str]:
+    """The forbidden names among `names`, in order: run it on every model's feature list."""
+    return [name for name in names if is_forbidden_feature(name)]
+
+
+# ---- Labels and row keys (review F6): never model features ---------------------------------------
+
+# Every column of the ground truth (labels and defective variants), and the binary label the
+# offline jobs derive from it. is_forbidden_feature allows customer_id, variant_id and cluster_id
+# by design (feature tables carry them as keys), so these are checked apart.
+GROUND_TRUTH_COLUMNS = frozenset(
+    {f.name for name in SCHEMAS if name.startswith("truth/") for f in SCHEMAS[name]}
+    | {"abusive", "label"}
+)
+# Row keys: every column named *_id of any contract, the pair of a link, coupon codes and hashed
+# values. A key follows creation order or a random draw, never behaviour, and may proxy a label.
+KEY_COLUMNS = frozenset(
+    {f.name for schema in SCHEMAS.values() for f in schema if f.name.endswith("_id")}
+    | {"customer_a", "customer_b", "coupon_code", "value_hash"}
+)
+
+
+def label_or_key_features(names: Iterable[str]) -> list[str]:
+    """The names among `names` that are ground-truth columns or row keys (any name ending in
+    _id included), in order: no model may use one (rule 6, FAIR-01; review F6)."""
+    return [
+        name
+        for name in names
+        if name in GROUND_TRUTH_COLUMNS or name in KEY_COLUMNS or name.lower().endswith("_id")
+    ]

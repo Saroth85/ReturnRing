@@ -1,0 +1,115 @@
+[
+  {
+    "type": "tool_call",
+    "seq": 0,
+    "step": 1,
+    "tool": "get_case",
+    "arguments": {
+      "return_id": "RET-000102"
+    }
+  },
+  {
+    "type": "tool_result",
+    "seq": 1,
+    "step": 1,
+    "tool": "get_case",
+    "ok": true,
+    "summary": "Order ORD-005230 placed on 2026-09-18 with terms snapshot TS-005230 (base terms)",
+    "refs": [
+      {
+        "kind": "order",
+        "id": "ORD-005230"
+      },
+      {
+        "kind": "terms_snapshot",
+        "id": "TS-005230"
+      }
+    ]
+  },
+  {
+    "type": "tool_call",
+    "seq": 2,
+    "step": 2,
+    "tool": "get_policy_text",
+    "arguments": {
+      "terms_snapshot_id": "TS-005230"
+    }
+  },
+  {
+    "type": "tool_result",
+    "seq": 3,
+    "step": 2,
+    "tool": "get_policy_text",
+    "ok": true,
+    "summary": "Base terms: 30-day window, free return shipping, instant refund, free size exchange",
+    "refs": [
+      {
+        "kind": "terms_snapshot",
+        "id": "TS-005230"
+      }
+    ]
+  },
+  {
+    "type": "token",
+    "seq": 4,
+    "text": "Order ORD-005230 was placed on 2026-09-18 with the base terms "
+  },
+  {
+    "type": "token",
+    "seq": 5,
+    "text": "of snapshot TS-005230: a 30-day window, free return shipping, instant "
+  },
+  {
+    "type": "token",
+    "seq": 6,
+    "text": "refund and free size exchange. These terms stay valid for "
+  },
+  {
+    "type": "token",
+    "seq": 7,
+    "text": "this order; the proposed terms apply only to future orders."
+  },
+  {
+    "type": "answer",
+    "seq": 8,
+    "text": "Order ORD-005230 was placed on 2026-09-18 with the base terms of snapshot TS-005230: a 30-day window, free return shipping, instant refund and free size exchange. These terms stay valid for this order; the proposed terms apply only to future orders.",
+    "evidence_consulted": [
+      {
+        "kind": "order",
+        "id": "ORD-005230"
+      },
+      {
+        "kind": "terms_snapshot",
+        "id": "TS-005230"
+      }
+    ],
+    "evidence_missing": [],
+    "refs": [
+      {
+        "kind": "order",
+        "id": "ORD-005230"
+      },
+      {
+        "kind": "terms_snapshot",
+        "id": "TS-005230"
+      }
+    ]
+  },
+  {
+    "type": "done",
+    "seq": 9,
+    "steps_used": 2,
+    "generation": {
+      "generation_id": "GEN-AGENT-000003",
+      "generation_path": "model",
+      "fallback_reason": null,
+      "llm_mode": "mock",
+      "served_from": "live",
+      "model": "mock",
+      "model_calls": 1,
+      "validator_codes": [],
+      "created_at": "2026-09-30T18:10:00Z",
+      "latency_ms": 27
+    }
+  }
+]

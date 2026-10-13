@@ -1,0 +1,9 @@
+{
+  "decision_id": "DEC-000104-1",
+  "kind": "shared_payment_explained",
+  "note": "The card belongs to the parents: mother and daughter in one household (phone call)",
+  "target_link_ids": [
+    "C-ROSSI-CARD-1~C-ROSSI-CARD-2"
+  ],
+  "author": "sara"
+}

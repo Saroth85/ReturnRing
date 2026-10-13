@@ -1,0 +1,22 @@
+{
+  "application_id": "CRA-000027",
+  "rule_version": "coupon-rule-v1",
+  "cluster_id": "CL-000655",
+  "decision_id": "DEC-000077-1",
+  "affected_customer_ids": [
+    "C-12007",
+    "C-12930",
+    "C-15561"
+  ],
+  "state": "reversed",
+  "proposed_at": "2026-09-29T14:00:00Z",
+  "confirmed_by": "sara",
+  "confirmed_at": "2026-09-29T15:00:00Z",
+  "review_at": "2026-12-28",
+  "reversible": true,
+  "reversed_by": "luca",
+  "reversed_at": "2026-09-30T17:00:00Z",
+  "reversal_reason": "The linked accounts share a pickup point only: application reversed",
+  "as_of": "2026-09-30T17:00:00Z",
+  "in_force": false
+}

@@ -1,0 +1,685 @@
+{
+  "items": [
+    {
+      "entry_id": 14,
+      "at": "2026-09-30T19:10:00Z",
+      "actor": "luca",
+      "actor_role": "manager",
+      "action": "restriction_lifted",
+      "entity_type": "decision",
+      "entity_id": "DEC-000088-2",
+      "return_id": "RET-000088",
+      "decision_id": "DEC-000088-2",
+      "reason": "Reviewed at the due date: the returns are back in line with the products",
+      "before": {
+        "decision_id": "DEC-000088-1",
+        "version": 1,
+        "state": "approved",
+        "quadrant": "Q3",
+        "risk": {
+          "value": 0.68,
+          "unit": "probability",
+          "provenance": {
+            "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+            "period_start": "2025-10-01",
+            "period_end": "2026-06-29",
+            "nature": "synthetic"
+          }
+        },
+        "lever_ids": [
+          "instant_refund:false",
+          "transparency_notice:true"
+        ],
+        "requires_approval": true,
+        "review_at": "2026-09-27",
+        "approver": "luca",
+        "override_category": null,
+        "coupon_application_id": null
+      },
+      "after": {
+        "decision_id": "DEC-000088-2",
+        "version": 2,
+        "state": "overridden",
+        "quadrant": "Q3",
+        "risk": {
+          "value": 0.68,
+          "unit": "probability",
+          "provenance": {
+            "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+            "period_start": "2025-10-01",
+            "period_end": "2026-09-30",
+            "nature": "synthetic"
+          }
+        },
+        "lever_ids": [],
+        "requires_approval": false,
+        "review_at": null,
+        "approver": "luca",
+        "override_category": "periodic_review",
+        "coupon_application_id": null
+      },
+      "rules_version": "policy-2026-10-12",
+      "model_versions": {
+        "risk": "risk-xgb-0.1.0",
+        "propensity": "propensity-xgb-0.1.0",
+        "graph": "graph-0.1.0",
+        "evidence": "evidence-0.1.0",
+        "value": "value-0.1.0"
+      },
+      "assumptions_version": "assumptions-v1",
+      "request_id": "req-000014"
+    },
+    {
+      "entry_id": 13,
+      "at": "2026-09-30T19:00:00Z",
+      "actor": "luca",
+      "actor_role": "manager",
+      "action": "assumptions_updated",
+      "entity_type": "simulator_assumptions",
+      "entity_id": "assumptions-v2",
+      "return_id": null,
+      "decision_id": null,
+      "reason": null,
+      "before": {
+        "version": "assumptions-v1"
+      },
+      "after": {
+        "version": "assumptions-v2"
+      },
+      "rules_version": null,
+      "model_versions": null,
+      "assumptions_version": null,
+      "request_id": "req-000013"
+    },
+    {
+      "entry_id": 12,
+      "at": "2026-09-30T18:55:00Z",
+      "actor": "sara",
+      "actor_role": "operator",
+      "action": "decision_rejected",
+      "entity_type": "decision",
+      "entity_id": "DEC-000107-1",
+      "return_id": "RET-000107",
+      "decision_id": "DEC-000107-1",
+      "reason": "The customer asked to keep the standard terms",
+      "before": {
+        "decision_id": "DEC-000107-1",
+        "version": 1,
+        "state": "proposed",
+        "quadrant": "Q1",
+        "risk": {
+          "value": 0.22,
+          "unit": "probability",
+          "provenance": {
+            "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+            "period_start": "2025-10-01",
+            "period_end": "2026-09-28",
+            "nature": "synthetic"
+          }
+        },
+        "lever_ids": [
+          "return_window_days:60",
+          "priority_size_exchange:true"
+        ],
+        "requires_approval": false,
+        "review_at": null,
+        "approver": null,
+        "override_category": null,
+        "coupon_application_id": null
+      },
+      "after": {
+        "decision_id": "DEC-000107-1",
+        "version": 1,
+        "state": "rejected",
+        "quadrant": "Q1",
+        "risk": {
+          "value": 0.22,
+          "unit": "probability",
+          "provenance": {
+            "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+            "period_start": "2025-10-01",
+            "period_end": "2026-09-28",
+            "nature": "synthetic"
+          }
+        },
+        "lever_ids": [],
+        "requires_approval": false,
+        "review_at": null,
+        "approver": "sara",
+        "override_category": "customer_context",
+        "coupon_application_id": null
+      },
+      "rules_version": "policy-2026-10-12",
+      "model_versions": {
+        "risk": "risk-xgb-0.1.0",
+        "propensity": "propensity-xgb-0.1.0",
+        "graph": "graph-0.1.0",
+        "evidence": "evidence-0.1.0",
+        "value": "value-0.1.0"
+      },
+      "assumptions_version": "assumptions-v1",
+      "request_id": "req-000012"
+    },
+    {
+      "entry_id": 11,
+      "at": "2026-09-30T18:50:00Z",
+      "actor": "sara",
+      "actor_role": "operator",
+      "action": "decision_overridden",
+      "entity_type": "decision",
+      "entity_id": "DEC-000108-1",
+      "return_id": "RET-000108",
+      "decision_id": "DEC-000108-1",
+      "reason": "The customer explained two wrong deliveries by phone; restriction not justified",
+      "before": {
+        "decision_id": "DEC-000108-1",
+        "version": 1,
+        "state": "proposed",
+        "quadrant": "Q3",
+        "risk": {
+          "value": 0.71,
+          "unit": "probability",
+          "provenance": {
+            "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+            "period_start": "2025-10-01",
+            "period_end": "2026-09-29",
+            "nature": "synthetic"
+          }
+        },
+        "lever_ids": [
+          "instant_refund:false",
+          "transparency_notice:true"
+        ],
+        "requires_approval": true,
+        "review_at": "2026-12-28",
+        "approver": null,
+        "override_category": null,
+        "coupon_application_id": null
+      },
+      "after": {
+        "decision_id": "DEC-000108-1",
+        "version": 1,
+        "state": "overridden",
+        "quadrant": "Q3",
+        "risk": {
+          "value": 0.71,
+          "unit": "probability",
+          "provenance": {
+            "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+            "period_start": "2025-10-01",
+            "period_end": "2026-09-29",
+            "nature": "synthetic"
+          }
+        },
+        "lever_ids": [],
+        "requires_approval": false,
+        "review_at": null,
+        "approver": "sara",
+        "override_category": "customer_context",
+        "coupon_application_id": null
+      },
+      "rules_version": "policy-2026-10-12",
+      "model_versions": {
+        "risk": "risk-xgb-0.1.0",
+        "propensity": "propensity-xgb-0.1.0",
+        "graph": "graph-0.1.0",
+        "evidence": "evidence-0.1.0",
+        "value": "value-0.1.0"
+      },
+      "assumptions_version": "assumptions-v1",
+      "request_id": "req-000011"
+    },
+    {
+      "entry_id": 10,
+      "at": "2026-09-30T18:47:00Z",
+      "actor": "ahmed",
+      "actor_role": "warehouse",
+      "action": "inspection_confirmed",
+      "entity_type": "inspection",
+      "entity_id": "INS-000014",
+      "return_id": "RET-000110",
+      "decision_id": "DEC-000110-1",
+      "reason": null,
+      "before": {
+        "state": "awaiting_confirmation"
+      },
+      "after": {
+        "state": "confirmed",
+        "compensation": {
+          "value": 17.98,
+          "unit": "eur",
+          "provenance": {
+            "origin": "Contract example: diminished-value rule DV-RULE-1 applied to a synthetic return",
+            "period_start": "2025-10-01",
+            "period_end": "2026-09-30",
+            "nature": "synthetic"
+          }
+        },
+        "rule_id": "DV-RULE-1"
+      },
+      "rules_version": "policy-2026-10-12",
+      "model_versions": {
+        "risk": "risk-xgb-0.1.0",
+        "propensity": "propensity-xgb-0.1.0",
+        "graph": "graph-0.1.0",
+        "evidence": "evidence-0.1.0",
+        "value": "value-0.1.0"
+      },
+      "assumptions_version": "assumptions-v1",
+      "request_id": "req-000010"
+    },
+    {
+      "entry_id": 9,
+      "at": "2026-09-30T18:45:00Z",
+      "actor": "luca",
+      "actor_role": "manager",
+      "action": "catalog_task_opened",
+      "entity_type": "catalog_task",
+      "entity_id": "CT-000012",
+      "return_id": "RET-000105",
+      "decision_id": null,
+      "reason": null,
+      "before": null,
+      "after": {
+        "kind": "batch_check",
+        "anomaly_id": "V-JKT-DEF~defective~2026-09-21"
+      },
+      "rules_version": null,
+      "model_versions": null,
+      "assumptions_version": null,
+      "request_id": "req-000009"
+    },
+    {
+      "entry_id": 8,
+      "at": "2026-09-30T18:40:00Z",
+      "actor": "system",
+      "actor_role": "system",
+      "action": "case_recomputed",
+      "entity_type": "decision",
+      "entity_id": "DEC-000106-2",
+      "return_id": "RET-000106",
+      "decision_id": "DEC-000106-2",
+      "reason": null,
+      "before": {
+        "decision_id": "DEC-000106-1",
+        "version": 1,
+        "state": "proposed",
+        "quadrant": "Q3",
+        "risk": {
+          "value": 0.66,
+          "unit": "probability",
+          "provenance": {
+            "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+            "period_start": "2025-10-01",
+            "period_end": "2026-09-29",
+            "nature": "synthetic"
+          }
+        },
+        "lever_ids": [
+          "instant_refund:false",
+          "transparency_notice:true"
+        ],
+        "requires_approval": true,
+        "review_at": "2026-12-28",
+        "approver": null,
+        "override_category": null,
+        "coupon_application_id": null
+      },
+      "after": {
+        "decision_id": "DEC-000106-2",
+        "version": 2,
+        "state": "proposed",
+        "quadrant": "Q1",
+        "risk": {
+          "value": 0.41,
+          "unit": "probability",
+          "provenance": {
+            "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+            "period_start": "2025-10-01",
+            "period_end": "2026-09-29",
+            "nature": "synthetic"
+          }
+        },
+        "lever_ids": [
+          "return_window_days:60",
+          "priority_size_exchange:true"
+        ],
+        "requires_approval": false,
+        "review_at": null,
+        "approver": null,
+        "override_category": null,
+        "coupon_application_id": null
+      },
+      "rules_version": "policy-2026-10-12",
+      "model_versions": {
+        "risk": "risk-xgb-0.1.0",
+        "propensity": "propensity-xgb-0.1.0",
+        "graph": "graph-0.1.0",
+        "evidence": "evidence-0.1.0",
+        "value": "value-0.1.0"
+      },
+      "assumptions_version": "assumptions-v1",
+      "request_id": "req-000008"
+    },
+    {
+      "entry_id": 7,
+      "at": "2026-09-30T18:40:00Z",
+      "actor": "sara",
+      "actor_role": "operator",
+      "action": "link_disputed",
+      "entity_type": "link_dispute",
+      "entity_id": "LD-000002",
+      "return_id": "RET-000106",
+      "decision_id": "DEC-000106-1",
+      "reason": "Card used once for a gift; the accounts are in different households",
+      "before": {
+        "disputed": false
+      },
+      "after": {
+        "disputed": true,
+        "link_id": "C-10233~C-20871"
+      },
+      "rules_version": "policy-2026-10-12",
+      "model_versions": {
+        "risk": "risk-xgb-0.1.0",
+        "propensity": "propensity-xgb-0.1.0",
+        "graph": "graph-0.1.0",
+        "evidence": "evidence-0.1.0",
+        "value": "value-0.1.0"
+      },
+      "assumptions_version": "assumptions-v1",
+      "request_id": "req-000007"
+    },
+    {
+      "entry_id": 6,
+      "at": "2026-09-30T18:30:00Z",
+      "actor": "system",
+      "actor_role": "system",
+      "action": "case_recomputed",
+      "entity_type": "decision",
+      "entity_id": "DEC-000104-2",
+      "return_id": "RET-000104",
+      "decision_id": "DEC-000104-2",
+      "reason": null,
+      "before": {
+        "decision_id": "DEC-000104-1",
+        "version": 1,
+        "state": "proposed",
+        "quadrant": "Q2",
+        "risk": {
+          "value": 0.34,
+          "unit": "probability",
+          "provenance": {
+            "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+            "period_start": "2025-10-01",
+            "period_end": "2026-09-26",
+            "nature": "synthetic"
+          }
+        },
+        "lever_ids": [],
+        "requires_approval": false,
+        "review_at": null,
+        "approver": null,
+        "override_category": null,
+        "coupon_application_id": null
+      },
+      "after": {
+        "decision_id": "DEC-000104-2",
+        "version": 2,
+        "state": "proposed",
+        "quadrant": "Q2",
+        "risk": {
+          "value": 0.21,
+          "unit": "probability",
+          "provenance": {
+            "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+            "period_start": "2025-10-01",
+            "period_end": "2026-09-26",
+            "nature": "synthetic"
+          }
+        },
+        "lever_ids": [],
+        "requires_approval": false,
+        "review_at": null,
+        "approver": null,
+        "override_category": null,
+        "coupon_application_id": null
+      },
+      "rules_version": "policy-2026-10-12",
+      "model_versions": {
+        "risk": "risk-xgb-0.1.0",
+        "propensity": "propensity-xgb-0.1.0",
+        "graph": "graph-0.1.0",
+        "evidence": "evidence-0.1.0",
+        "value": "value-0.1.0"
+      },
+      "assumptions_version": "assumptions-v1",
+      "request_id": "req-000006"
+    },
+    {
+      "entry_id": 5,
+      "at": "2026-09-30T18:30:00Z",
+      "actor": "sara",
+      "actor_role": "operator",
+      "action": "evidence_added",
+      "entity_type": "evidence_addition",
+      "entity_id": "EV-000004",
+      "return_id": "RET-000104",
+      "decision_id": "DEC-000104-1",
+      "reason": "The card belongs to the parents: mother and daughter in one household (phone call)",
+      "before": null,
+      "after": {
+        "kind": "shared_payment_explained",
+        "target_link_ids": [
+          "C-ROSSI-CARD-1~C-ROSSI-CARD-2"
+        ]
+      },
+      "rules_version": "policy-2026-10-12",
+      "model_versions": {
+        "risk": "risk-xgb-0.1.0",
+        "propensity": "propensity-xgb-0.1.0",
+        "graph": "graph-0.1.0",
+        "evidence": "evidence-0.1.0",
+        "value": "value-0.1.0"
+      },
+      "assumptions_version": "assumptions-v1",
+      "request_id": "req-000005"
+    },
+    {
+      "entry_id": 4,
+      "at": "2026-09-30T18:20:00Z",
+      "actor": "system",
+      "actor_role": "system",
+      "action": "message_queued",
+      "entity_type": "outbox_message",
+      "entity_id": "MSG-000102-1",
+      "return_id": "RET-000102",
+      "decision_id": "DEC-000102-1",
+      "reason": null,
+      "before": null,
+      "after": {
+        "lang": "it"
+      },
+      "rules_version": "policy-2026-10-12",
+      "model_versions": {
+        "risk": "risk-xgb-0.1.0",
+        "propensity": "propensity-xgb-0.1.0",
+        "graph": "graph-0.1.0",
+        "evidence": "evidence-0.1.0",
+        "value": "value-0.1.0"
+      },
+      "assumptions_version": "assumptions-v1",
+      "request_id": "req-000004"
+    },
+    {
+      "entry_id": 3,
+      "at": "2026-09-30T18:20:00Z",
+      "actor": "sara",
+      "actor_role": "operator",
+      "action": "decision_approved",
+      "entity_type": "decision",
+      "entity_id": "DEC-000102-1",
+      "return_id": "RET-000102",
+      "decision_id": "DEC-000102-1",
+      "reason": null,
+      "before": {
+        "decision_id": "DEC-000102-1",
+        "version": 1,
+        "state": "proposed",
+        "quadrant": "Q4",
+        "risk": {
+          "value": 0.87,
+          "unit": "probability",
+          "provenance": {
+            "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+            "period_start": "2025-10-01",
+            "period_end": "2026-09-28",
+            "nature": "synthetic"
+          }
+        },
+        "lever_ids": [
+          "return_window_days:14",
+          "free_return_shipping:false",
+          "instant_refund:false",
+          "coupons_enabled:false",
+          "cluster_coupons_disabled:true",
+          "transparency_notice:true"
+        ],
+        "requires_approval": true,
+        "review_at": "2026-12-27",
+        "approver": null,
+        "override_category": null,
+        "coupon_application_id": "CRA-000031"
+      },
+      "after": {
+        "decision_id": "DEC-000102-1",
+        "version": 1,
+        "state": "approved",
+        "quadrant": "Q4",
+        "risk": {
+          "value": 0.87,
+          "unit": "probability",
+          "provenance": {
+            "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+            "period_start": "2025-10-01",
+            "period_end": "2026-09-28",
+            "nature": "synthetic"
+          }
+        },
+        "lever_ids": [
+          "return_window_days:14",
+          "free_return_shipping:false",
+          "instant_refund:false",
+          "coupons_enabled:false",
+          "cluster_coupons_disabled:true",
+          "transparency_notice:true"
+        ],
+        "requires_approval": true,
+        "review_at": "2026-12-27",
+        "approver": "sara",
+        "override_category": null,
+        "coupon_application_id": "CRA-000031"
+      },
+      "rules_version": "policy-2026-10-12",
+      "model_versions": {
+        "risk": "risk-xgb-0.1.0",
+        "propensity": "propensity-xgb-0.1.0",
+        "graph": "graph-0.1.0",
+        "evidence": "evidence-0.1.0",
+        "value": "value-0.1.0"
+      },
+      "assumptions_version": "assumptions-v1",
+      "request_id": "req-000003"
+    },
+    {
+      "entry_id": 2,
+      "at": "2026-09-28T09:17:00Z",
+      "actor": "system",
+      "actor_role": "system",
+      "action": "draft_generated",
+      "entity_type": "llm_generation",
+      "entity_id": "GEN-000102-1",
+      "return_id": "RET-000102",
+      "decision_id": "DEC-000102-1",
+      "reason": null,
+      "before": null,
+      "after": {
+        "generation_id": "GEN-000102-1",
+        "kind": "case_draft",
+        "decision_id": "DEC-000102-1",
+        "generation_path": "model",
+        "fallback_reason": null,
+        "model_calls": 1,
+        "validator_codes": [],
+        "llm_mode": "mock",
+        "served_from": "live",
+        "model": "mock"
+      },
+      "rules_version": "policy-2026-10-12",
+      "model_versions": {
+        "risk": "risk-xgb-0.1.0",
+        "propensity": "propensity-xgb-0.1.0",
+        "graph": "graph-0.1.0",
+        "evidence": "evidence-0.1.0",
+        "value": "value-0.1.0"
+      },
+      "assumptions_version": "assumptions-v1",
+      "request_id": "req-000002"
+    },
+    {
+      "entry_id": 1,
+      "at": "2026-09-28T09:16:00Z",
+      "actor": "system",
+      "actor_role": "system",
+      "action": "decision_proposed",
+      "entity_type": "decision",
+      "entity_id": "DEC-000102-1",
+      "return_id": "RET-000102",
+      "decision_id": "DEC-000102-1",
+      "reason": null,
+      "before": null,
+      "after": {
+        "decision_id": "DEC-000102-1",
+        "version": 1,
+        "state": "proposed",
+        "quadrant": "Q4",
+        "risk": {
+          "value": 0.87,
+          "unit": "probability",
+          "provenance": {
+            "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+            "period_start": "2025-10-01",
+            "period_end": "2026-09-28",
+            "nature": "synthetic"
+          }
+        },
+        "lever_ids": [
+          "return_window_days:14",
+          "free_return_shipping:false",
+          "instant_refund:false",
+          "coupons_enabled:false",
+          "cluster_coupons_disabled:true",
+          "transparency_notice:true"
+        ],
+        "requires_approval": true,
+        "review_at": "2026-12-27",
+        "approver": null,
+        "override_category": null,
+        "coupon_application_id": "CRA-000031"
+      },
+      "rules_version": "policy-2026-10-12",
+      "model_versions": {
+        "risk": "risk-xgb-0.1.0",
+        "propensity": "propensity-xgb-0.1.0",
+        "graph": "graph-0.1.0",
+        "evidence": "evidence-0.1.0",
+        "value": "value-0.1.0"
+      },
+      "assumptions_version": "assumptions-v1",
+      "request_id": "req-000001"
+    }
+  ],
+  "total": 14,
+  "page": 1,
+  "page_size": 50
+}

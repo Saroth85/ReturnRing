@@ -23,7 +23,7 @@ and drafts messages; a human approves restrictive actions. Full spec: docs/spec.
     The legal clause is fixed text from llm/legal_clause.py.
 11. Say "linked accounts", never "same person". Every number shown carries origin, period and nature
     (real, synthetic, simulated).
-12. Running services never read data/truth/. Ground truth is for evaluation only.
+12. Running services (api, ui, demo) never read data/truth/; only offline training and evaluation jobs do.
 13. Report every experiment as it is, regressions included. Same splits for every model.
 14. UI, README and code comments in English. Customer messages in Italian and English.
 15. Allowed licenses: MIT, BSD, Apache-2.0, ISC, PSF, PostgreSQL; data CC BY 4.0. No secrets in git.

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Case sent to Gemma (already decided)",
+  "title": "Case sent to Gemma (already decided), contract v2 (ADR-14)",
   "type": "object",
   "required": [
     "case_id",
@@ -9,14 +9,16 @@
     "evidence_quality",
     "quadrant",
     "levers",
-    "risk",
-    "value_eur",
+    "placeholders",
+    "facts",
     "policy_text"
   ],
   "additionalProperties": false,
   "properties": {
     "case_id": {
-      "type": "string"
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
     },
     "languages": {
       "type": "array",
@@ -26,7 +28,9 @@
           "en"
         ]
       },
-      "minItems": 1
+      "minItems": 1,
+      "maxItems": 2,
+      "uniqueItems": true
     },
     "path": {
       "enum": [
@@ -40,6 +44,16 @@
         "insufficient"
       ]
     },
+    "missing_evidence": {
+      "description": "US-307: evidence that is missing, in plain words; required when evidence is insufficient",
+      "type": "array",
+      "maxItems": 10,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200
+      }
+    },
     "quadrant": {
       "enum": [
         "Q1",
@@ -51,6 +65,8 @@
     },
     "levers": {
       "type": "array",
+      "maxItems": 9,
+      "uniqueItems": true,
       "items": {
         "type": "object",
         "required": [
@@ -58,17 +74,449 @@
           "value",
           "scope"
         ],
+        "additionalProperties": false,
         "properties": {
           "id": {
-            "type": "string"
+            "enum": [
+              "return_window_days",
+              "free_return_shipping",
+              "instant_refund",
+              "free_size_exchange",
+              "coupons_enabled",
+              "cluster_coupons_disabled",
+              "transparency_notice",
+              "size_advice",
+              "priority_size_exchange"
+            ]
           },
-          "value": {},
+          "value": {
+            "type": [
+              "integer",
+              "boolean"
+            ]
+          },
           "scope": {
             "enum": [
               "future_orders",
               "future_orders_cluster",
+              "all_orders",
               "current_order",
               "communication"
+            ]
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "required": [
+                "id"
+              ],
+              "properties": {
+                "id": {
+                  "const": "return_window_days"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "value": {
+                  "type": "integer",
+                  "minimum": 14
+                },
+                "scope": {
+                  "const": "future_orders"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "required": [
+                "id"
+              ],
+              "properties": {
+                "id": {
+                  "const": "free_return_shipping"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "value": {
+                  "type": "boolean"
+                },
+                "scope": {
+                  "const": "future_orders"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "required": [
+                "id"
+              ],
+              "properties": {
+                "id": {
+                  "const": "instant_refund"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "value": {
+                  "type": "boolean"
+                },
+                "scope": {
+                  "const": "future_orders"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "required": [
+                "id"
+              ],
+              "properties": {
+                "id": {
+                  "const": "free_size_exchange"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "value": {
+                  "type": "boolean",
+                  "const": true
+                },
+                "scope": {
+                  "const": "all_orders"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "required": [
+                "id"
+              ],
+              "properties": {
+                "id": {
+                  "const": "coupons_enabled"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "value": {
+                  "type": "boolean"
+                },
+                "scope": {
+                  "const": "future_orders"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "required": [
+                "id"
+              ],
+              "properties": {
+                "id": {
+                  "const": "cluster_coupons_disabled"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "value": {
+                  "type": "boolean"
+                },
+                "scope": {
+                  "const": "future_orders_cluster"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "required": [
+                "id"
+              ],
+              "properties": {
+                "id": {
+                  "const": "transparency_notice"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "value": {
+                  "type": "boolean"
+                },
+                "scope": {
+                  "const": "communication"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "required": [
+                "id"
+              ],
+              "properties": {
+                "id": {
+                  "const": "size_advice"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "value": {
+                  "type": "boolean"
+                },
+                "scope": {
+                  "const": "current_order"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "required": [
+                "id"
+              ],
+              "properties": {
+                "id": {
+                  "const": "priority_size_exchange"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "value": {
+                  "type": "boolean",
+                  "const": true
+                },
+                "scope": {
+                  "const": "all_orders"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "allOf": [
+        {
+          "contains": {
+            "required": [
+              "id"
+            ],
+            "properties": {
+              "id": {
+                "const": "return_window_days"
+              }
+            }
+          },
+          "minContains": 0,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "required": [
+              "id"
+            ],
+            "properties": {
+              "id": {
+                "const": "free_return_shipping"
+              }
+            }
+          },
+          "minContains": 0,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "required": [
+              "id"
+            ],
+            "properties": {
+              "id": {
+                "const": "instant_refund"
+              }
+            }
+          },
+          "minContains": 0,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "required": [
+              "id"
+            ],
+            "properties": {
+              "id": {
+                "const": "free_size_exchange"
+              }
+            }
+          },
+          "minContains": 0,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "required": [
+              "id"
+            ],
+            "properties": {
+              "id": {
+                "const": "coupons_enabled"
+              }
+            }
+          },
+          "minContains": 0,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "required": [
+              "id"
+            ],
+            "properties": {
+              "id": {
+                "const": "cluster_coupons_disabled"
+              }
+            }
+          },
+          "minContains": 0,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "required": [
+              "id"
+            ],
+            "properties": {
+              "id": {
+                "const": "transparency_notice"
+              }
+            }
+          },
+          "minContains": 0,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "required": [
+              "id"
+            ],
+            "properties": {
+              "id": {
+                "const": "size_advice"
+              }
+            }
+          },
+          "minContains": 0,
+          "maxContains": 1
+        },
+        {
+          "contains": {
+            "required": [
+              "id"
+            ],
+            "properties": {
+              "id": {
+                "const": "priority_size_exchange"
+              }
+            }
+          },
+          "minContains": 0,
+          "maxContains": 1
+        }
+      ]
+    },
+    "placeholders": {
+      "description": "Placeholders the customer message may use (available) and must use (required); code fills them (rule 10)",
+      "type": "object",
+      "required": [
+        "available",
+        "required"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "available": {
+          "type": "array",
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "terms",
+              "amount",
+              "deadline"
+            ]
+          }
+        },
+        "required": {
+          "type": "array",
+          "maxItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "terms"
+            ]
+          }
+        }
+      }
+    },
+    "facts": {
+      "description": "US-305: the only numbers the operator explanation may use, built by code; a statement cites them by id",
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "entity",
+          "metric",
+          "value",
+          "period",
+          "nature"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^F[1-9][0-9]?$"
+          },
+          "entity": {
+            "enum": [
+              "customer",
+              "return",
+              "order",
+              "cluster",
+              "policy"
+            ]
+          },
+          "metric": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,63}$"
+          },
+          "value": {
+            "type": "number"
+          },
+          "period": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "nature": {
+            "enum": [
+              "real",
+              "synthetic",
+              "simulated"
             ]
           }
         }
@@ -80,6 +528,7 @@
         "score",
         "top_factors"
       ],
+      "additionalProperties": false,
       "properties": {
         "score": {
           "type": "number",
@@ -95,7 +544,22 @@
               "feature",
               "value",
               "phrase"
-            ]
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "feature": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_]{0,63}$"
+              },
+              "value": {
+                "type": "number"
+              },
+              "phrase": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            }
           }
         }
       }
@@ -104,16 +568,187 @@
       "type": "number"
     },
     "cluster": {
-      "type": [
-        "object",
-        "null"
-      ]
+      "type": "object",
+      "required": [
+        "id",
+        "size",
+        "shared"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 2
+        },
+        "shared": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "card",
+              "email",
+              "device",
+              "address",
+              "phone",
+              "ip_prefix"
+            ]
+          }
+        }
+      }
     },
     "policy_text": {
-      "type": "string"
+      "type": "string",
+      "maxLength": 4000
     },
     "customer_text": {
-      "type": "string"
+      "description": "Customer free text as data: escaped, between delimiters",
+      "type": "string",
+      "maxLength": 10100,
+      "pattern": "^<customer_text>[^<>]*</customer_text>$"
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": [
+          "evidence_quality"
+        ],
+        "properties": {
+          "evidence_quality": {
+            "const": "insufficient"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "missing_evidence"
+        ],
+        "properties": {
+          "missing_evidence": {
+            "minItems": 1
+          },
+          "quadrant": {
+            "const": null
+          },
+          "levers": {
+            "maxItems": 0
+          },
+          "placeholders": {
+            "properties": {
+              "required": {
+                "maxItems": 0
+              }
+            }
+          }
+        },
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "risk"
+              ]
+            },
+            {
+              "required": [
+                "value_eur"
+              ]
+            },
+            {
+              "required": [
+                "cluster"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "path"
+        ],
+        "properties": {
+          "path": {
+            "const": "guarantee"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "quadrant": {
+            "const": null
+          },
+          "levers": {
+            "maxItems": 0
+          },
+          "placeholders": {
+            "properties": {
+              "available": {
+                "maxItems": 0
+              },
+              "required": {
+                "maxItems": 0
+              }
+            }
+          }
+        },
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "risk"
+              ]
+            },
+            {
+              "required": [
+                "value_eur"
+              ]
+            },
+            {
+              "required": [
+                "cluster"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "path",
+          "evidence_quality"
+        ],
+        "properties": {
+          "path": {
+            "const": "withdrawal"
+          },
+          "evidence_quality": {
+            "const": "sufficient"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "risk",
+          "value_eur"
+        ],
+        "properties": {
+          "quadrant": {
+            "enum": [
+              "Q1",
+              "Q2",
+              "Q3",
+              "Q4"
+            ]
+          }
+        }
+      }
+    }
+  ]
 }

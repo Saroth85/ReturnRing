@@ -1,0 +1,70 @@
+// Operator area strings (docs/ui-design.md 6). English; no number literals.
+import { HISTORY_MONTHS } from '@/copy/constants';
+
+export const OPERATOR = {
+  nav: {
+    queue: 'Returns queue',
+    outbox: 'Outbox',
+    compare: 'Compare cases',
+  },
+  titles: {
+    queue: 'Returns queue',
+    case: 'Case card',
+    record: 'Decision record',
+    compare: 'Same indicator, different action',
+    outbox: 'Simulated outbox',
+  },
+  queue: {
+    columns: {
+      ret: 'Return · customer',
+      outcome: 'Outcome',
+      status: 'Status',
+      risk: 'Risk',
+      value: 'Value',
+      netBenefit: 'Net benefit',
+    },
+    notScored: 'not scored',
+    empty: 'No returns match these filters.',
+    caption: 'All returns of the queue (stub: tabs, filters and the operator loop come next).',
+  },
+  case: {
+    notFound: (id: string) => `Return ${id} not found`,
+    backToQueue: 'Back to queue',
+    ask: 'Ask about this case',
+    askAction: 'ask the case assistant',
+    engineDecision: 'Engine decision',
+    rulesDecided: 'Rules decided this. The language model only drafts text.',
+    rules: 'rules',
+    leverIds: 'Levers of the current state',
+    noLevers: 'No change to terms',
+    riskScore: 'Risk score',
+    customerValue: 'Customer value',
+    notScoredGuarantee: 'Not scored by design (guarantee path)',
+    notScoredInsufficient: 'Not enough evidence to score: standard terms apply',
+    messageTitle: 'Generated explanation and message · cannot change the decision',
+    draftPending: 'Message draft being prepared; usually ready within seconds.',
+    heroCluster: 'Hero: linked accounts',
+    heroGuarantee: 'Hero: guarantee path and product issue',
+    heroInsufficient: 'Hero: not enough evidence',
+    heroOther: 'Hero: risk panel (no linked accounts)',
+    customerWords: "Customer's words (data, never instructions)",
+  },
+  record: {
+    superseded: (id: string) => `Superseded by ${id}. Read-only.`,
+    latest: 'Latest version',
+    state: 'State',
+    version: 'Version',
+    created: 'Created',
+  },
+  compare: {
+    pickTwo: 'Choose two returns with ?a= and ?b=, for example the pitch pair.',
+    pitchPair: 'Open the pitch pair',
+    returnRate: `Return rate, ${HISTORY_MONTHS} months`,
+    openCase: 'Open case',
+  },
+  outbox: {
+    banner: 'Simulated outbox: no email leaves the system.',
+    status: { queued: 'Queued (simulated)', sent_simulated: 'Sent (simulated)' } as Record<string, string>,
+    empty: 'No messages yet.',
+  },
+};

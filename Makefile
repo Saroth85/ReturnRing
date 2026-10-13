@@ -1,4 +1,5 @@
 .PHONY: dev-up dev-down gpu-up gpu-down demo-up test test-gpu lint licenses asos pipeline bench demo-export \
+	ui-install ui-types ui-check ui-e2e \
 	spike-preflight spike-prep spike-weights spike-weights-wait spike-vllm spike-wait spike-g1 \
 	spike-g1-bench spike-g2 spike-g2-cpu spike-g2-load spike-g3 spike-g3-cpu spike-g4 spike-g5 \
 	spike-g6 spike-g7 spike-down \
@@ -57,6 +58,25 @@ bench:
 
 demo-export:
 	@echo "demo-export: implemented in session E9 (US-901)"
+
+# ---- UI (apps/ui, docs/ui-design.md) ----
+
+UI = npm --prefix apps/ui
+
+ui-install:
+	$(UI) ci
+
+# Regenerates the TypeScript types and constants after a contract change (ADR-15).
+ui-types:
+	$(UI) run gen:types
+
+# Generated files fresh, typecheck, lint, unit tests, licences, production build.
+ui-check:
+	$(UI) run check
+
+# Playwright smoke in mock mode (Chromium from PLAYWRIGHT_BROWSERS_PATH, never `playwright install`).
+ui-e2e:
+	$(UI) run test:e2e
 
 # ---- GPU spikes SPK-G1..G7 on the MI300X droplet: infra/spikes/README.md ----
 

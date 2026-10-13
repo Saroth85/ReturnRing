@@ -390,6 +390,24 @@ def evidence_rows(store: Store, frame: pd.DataFrame, label: str) -> list[str]:
     ]
 
 
+def linked_evidence_sentence(frames: Sequence[pd.DataFrame]) -> str:
+    """What the evidence frames say about the account graph, read from n_observations_linked
+    (review F13: never a fixed sentence)."""
+    known = sum(int(f["n_observations_linked"].notna().sum()) for f in frames)
+    rows = sum(len(f) for f in frames)
+    if known == 0:
+        return (
+            "n_observations_linked is null in every row: this evidence was computed without the "
+            "account graph. The outcome counts each account's own settled lines only, with or "
+            "without it (review F14)."
+        )
+    return (
+        f"n_observations_linked is known for {known:,} of {rows:,} rows (the account graph was "
+        "given); it is reported and never counted: the outcome counts each account's own settled "
+        "lines only (review F14)."
+    )
+
+
 def section_evidence(
     main: Store, ood: Store, sets: dict[datetime, FeatureSet], ood_set: FeatureSet
 ) -> list[str]:
@@ -457,13 +475,13 @@ def section_evidence(
     return [
         "## D. Evidence quality (US-209, D-15)",
         "",
-        f"Thresholds {t.version}: at least {t.min_observations} settled lines (own, or with "
-        f"linked accounts when the account graph is given), identifier completeness at least "
+        f"Thresholds {t.version}: at least {t.min_observations} settled lines of the account's "
+        f"own, identifier completeness at least "
         f"{t.min_identifier_completeness}, reason coherence at least {t.min_reason_coherence} "
         f"from {t.min_reasons} withdrawal returns on. Origin: main store at the decision times of "
-        "the risk split, and the OOD store at the end (separate row); nature: synthetic. The "
-        "account graph (features/clusters) was not available, so these use own observations "
-        "only. Columns 4-6: share of customers missing that piece of evidence.",
+        "the risk split, and the OOD store at the end (separate row); nature: synthetic. "
+        + linked_evidence_sentence([fs.evidence for fs in (*sets.values(), ood_set)])
+        + " Columns 4-6: share of customers missing that piece of evidence.",
         "",
         *table(header, rows),
         "",
@@ -548,9 +566,9 @@ def report(data: Path, log: Callable[[str], None]) -> str:
         "Navigli Fashion store, whose behaviours and rules are design hypotheses calibrated on "
         "real ASOS aggregates. None is a measure on real customers.",
         "",
-        f"- Main store origin: {main.provenance.origin}; period {main.provenance.period_start} "
+        f"- Main store origin: {main.provenance.chain}; period {main.provenance.period_start} "
         f"to {main.provenance.period_end}; nature {main.provenance.nature}.",
-        f"- OOD store origin: {ood.provenance.origin}; nature {ood.provenance.nature}.",
+        f"- OOD store origin: {ood.provenance.chain}; nature {ood.provenance.nature}.",
         f"- Code: {FEATURES_VERSION}, reference model {MODEL_VERSION}, value "
         f"{VALUE_ASSUMPTIONS.version}, evidence {EVIDENCE_THRESHOLDS.version}.",
         "",

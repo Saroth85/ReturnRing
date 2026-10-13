@@ -9,7 +9,8 @@
   artifacts`, `customer-quantities.md` by `python -m ml.reference.report`, `account-graph.md` by
   `python -m pipeline.graph.evaluate --data data`, `us-208-product-anomalies.md` by
   `python -m pipeline.anomalies.evaluate --data data`, `us-204-risk.md` by `python -m ml.risk
-  --data data --out artifacts --scores data`.
+  --data data --out artifacts --scores data`. `make pipeline` then `make results` rewrite all but
+  the first, which needs `make asos` and `make propensity`.
 - `synthetic-store.md` — the Navigli Fashion generator (US-102..US-105): calibration, behaviours,
   golden cases, out-of-distribution scenario, measured numbers.
 - `customer-features.md` — decision-time customer features, the product/cohort reference model, the

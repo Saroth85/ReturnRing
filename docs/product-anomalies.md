@@ -66,9 +66,13 @@ Three choices in E, each for a reason measured or stated:
   rate (Bonferroni): each reason is tested at 0.00135 / 8. A variant-week is one catalogue decision,
   so the 3-sigma promise is kept for the decision, not for each of its 8 tests.
 
-No value was tuned on the store: 20 and 3 are the spec's, 8 is the number of reasons of
-`policy.types.ReturnReason`, and the rule of succession has no parameter. The results file
-reports the literal rule and each step on the same cells, regressions included (rule 13).
+No constant was tuned on the store: 20 and 3 are the spec's, 8 is the number of reasons of
+`policy.types.ReturnReason`, and the rule of succession has no parameter. **The rule itself was
+chosen on the main store**, after measuring the literal rule of spec 8.9 there (precision 0.386 at
+commit 68c6afb): the MOD-10 figures of the main store are in-sample for that choice, and the OOD
+store changes the customers, not the defect mechanism, so its rows do not test the rule on another
+defect mechanism (review F10). The results file reports the literal rule and each step on the same
+cells, regressions included (rule 13). Spec 8.9 and decision D-15 record the rule as implemented.
 
 The **multi-week window** variant (pooling weeks under 20 sales) was not built. It is needed only
 if the single-week rule cannot work: every defective variant of both stores reaches 20 sales in at

@@ -13,7 +13,8 @@ python -m pipeline.graph --store data [--out data] [--as-of 2026-10-01T00:00:00Z
 python -m pipeline.graph --store data/ood          # OOD store: evaluation only, never training
 
 # Offline evaluation (reads truth/labels, rule 12): rewrites docs/results/account-graph.md and
-# artifacts/graph/evaluation.json from the data, for the main and the OOD scenario.
+# artifacts/eval/graph/evaluation.json (offline outputs, never mounted by a service) from the data,
+# for the main and the OOD scenario. Clusters are listed by rank and size, never by id (rule 12).
 python -m pipeline.graph.evaluate --data data
 ```
 
@@ -148,17 +149,28 @@ never used to choose a parameter. Definitions, on the accounts known at T:
 - **Unrelated pairs (MOD-11).** Pairs in one cluster that are not of the same ring or family. A
   common address is an address value used by two groups or more (pickup points and collective
   addresses, which no truth table marks); the report counts the unrelated pairs joined among their
-  users, lists the most used ones without their values, and the largest clusters by composition.
+  users, lists the most used ones without their values, and the largest clusters by rank, size
+  and composition (never their ids, which a service could join to features/clusters).
   F-ROSSI and F-ROSSI-CARD must be clusters of exactly their accounts.
 - **Diagnostics.** Same-ring pairs by the weight of their direct link; cluster features by cluster
   type; the pruning check; variants (decayed weight, thresholds 0.6, 0.7 and 0.9).
 
 ## Limits
 
+- **Precision at 0.8 by construction in the main store** (review F3). In the main scenario no card,
+  e-mail or device is shared by accounts of different rings or families, or by unrelated accounts;
+  unrelated accounts share only addresses and IP prefixes, whose best combined weight is
+  1 - 0.4 x 0.8 = 0.68 < 0.8. So pairwise precision 1.000, "no unrelated pair in one cluster", and
+  the recall of the main rings and of every family (each always shares a strong identifier) hold
+  by construction there: they confirm the code, not the method. The OOD scenario adds strong
+  identifiers shared by unrelated accounts (pairs that come to use one device, a second-hand phone
+  or a shared laptop, and flatmates who pay with one card at half the collective addresses:
+  `pipeline.generator.config.OOD`), so its precision and its unrelated pairs are measured, not
+  given; the threshold-0.6 variant is the other check with power.
 - **Circularity.** The generator plants the sharing the graph looks for, so the main scenario
   measures consistency with the generator. The OOD scenario, where rings share weakly and miss
-  identifiers, is the honest stress test, and its recall is far below the target (see the
-  results). Most of its same-ring pairs have no direct link, and many linked ones weigh less than
+  identifiers and unrelated accounts share strong identifiers, is the honest stress test, and its
+  recall is far below the target (see the results). Most of its same-ring pairs have no direct link, and many linked ones weigh less than
   0.8 (an address, an IP prefix): the same property that keeps pickup points out. A lower threshold mixes unrelated accounts (the
   threshold-0.6 variant). More recall needs other evidence, such as the GraphSAGE embeddings of
   spec 8.3 (A4), measured against the cluster features on the same splits, never a threshold tuned

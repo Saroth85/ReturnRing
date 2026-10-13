@@ -35,7 +35,7 @@ import numpy as np
 import numpy.typing as npt
 import polars as pl
 
-from contracts.parquet import ASOS_REASON_CODES, forbidden_features
+from contracts.parquet import ASOS_REASON_CODES, forbidden_features, label_or_key_features
 
 Protocol = Literal["A", "B"]
 PROTOCOLS: tuple[Protocol, ...] = ("A", "B")
@@ -216,7 +216,7 @@ def feature_names(protocol: Protocol, vocabulary: Vocabulary) -> list[str]:
 def check_feature_names(protocol: Protocol, names: Sequence[str]) -> None:
     """Fail closed: no forbidden feature in any model (rule 6, FAIR-01), and under protocol B no
     rate, reason share or other node aggregate that holds the event's own label (ADR-10)."""
-    forbidden = forbidden_features(names)
+    forbidden = forbidden_features(names) + label_or_key_features(names)  # F6: no label or key
     if forbidden:
         raise FeatureError(f"forbidden features in protocol {protocol}: {forbidden}")
     if protocol == "B":

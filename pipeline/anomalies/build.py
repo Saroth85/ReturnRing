@@ -120,15 +120,16 @@ def provenance(
     """Origin names the code, the thresholds and the store (rule 11); the period runs from the
     store's first day to the last decision time."""
     base = snap.provenance["store/order_lines"]
+    # A short origin (ADR-13 amendment 5); the lineage ends with the chain of the store it read.
     origin = (
         f"ReturnRing {ANOMALIES_VERSION} (pipeline.anomalies; thresholds {thresholds.version}: "
         f"at least {thresholds.min_sales} sales in the week, z > {thresholds.z:g}"
         f"{', exact Poisson tail' if thresholds.exact_tail else ''}"
         f"{' shared by the reasons of a variant-week' if thresholds.family_wise else ''}), "
-        f"computed from: {base.origin}"
+        "computed from the store of the lineage"
     )
     last = (max(as_ofs) - timedelta(microseconds=1)).date()
-    return Provenance(origin, base.period_start, max(last, base.period_start), base.nature)
+    return base.derive(origin, base.period_start, max(last, base.period_start))
 
 
 def table(rows: pd.DataFrame) -> pa.Table:

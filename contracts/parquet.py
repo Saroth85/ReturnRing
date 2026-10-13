@@ -322,8 +322,8 @@ _RAW_IDENTIFIERS = frozenset(
         "iban",
     }
 )
-# Identifier stems (C4): a name holding one of these words is a raw identifier or a location proxy
-# (postcode), unless it is clearly an aggregate over identifiers (_is_aggregate).
+# Identifier stems (C4, P4): a name holding one of these words is a raw identifier or a location
+# proxy (postcode), unless it is clearly an aggregate over identifiers (_is_aggregate).
 _IDENTIFIER_WORDS = frozenset(
     {
         "email",
@@ -331,13 +331,18 @@ _IDENTIFIER_WORDS = frozenset(
         "mail",
         "address",
         "addresses",
+        "addr",
         "ip",
         "ipv4",
         "ipv6",
         "phone",
         "phones",
+        "mobile",
+        "msisdn",
         "device",
         "devices",
+        "imei",
+        "mac",
         "postcode",
         "postcodes",
         "postal",
@@ -345,10 +350,40 @@ _IDENTIFIER_WORDS = frozenset(
         "zipcode",
         "fingerprint",
         "iban",
+        "card",
+        "cards",
+        "pan",  # primary account number of a payment card
     }
 )
-# The same stems inside a word written without separators ("customeremail", "shippingaddress").
-_IDENTIFIER_FRAGMENTS = ("email", "address", "phone", "device", "postcode", "zipcode")
+# The same stems inside a word written without separators ("customeremail", "shippingaddress",
+# "ipprefix24", "cardlast4"). Short stems (ip, zip, card, addr) are matched only in these longer
+# forms or by _IDENTIFIER_WORD_FORMS, so "shipping", "zipper" or "discard" stay allowed.
+_IDENTIFIER_FRAGMENTS = (
+    "email",
+    "address",
+    "phone",
+    "device",
+    "postcode",
+    "zipcode",
+    "ipprefix",
+    "ipaddr",
+    "ipv4",
+    "ipv6",
+    "msisdn",
+    "imei",
+    "cardlast",
+    "cardbin",
+    "cardnumber",
+    "creditcard",
+    "debitcard",
+    "paymentcard",
+)
+# Whole words that are a short stem with a prefix or a suffix: ip24, customerip, remoteip,
+# shippingaddr, shippingzip, zip5.
+_IDENTIFIER_WORD_FORMS = re.compile(
+    r"ip\d+|(?:customer|client|remote|user|source|src|login|order|session|checkout)ip"
+    r"|\w*addr|\w*zip|zip\d+"
+)
 _AGGREGATE_PREFIXES = ("n", "shared")
 _AGGREGATE_SUFFIXES = ("count", "share")
 
@@ -367,17 +402,18 @@ def _is_aggregate(words: list[str]) -> bool:
 def _names_an_identifier(words: list[str], joined: str) -> bool:
     if joined in _RAW_IDENTIFIERS:
         return True
-    stem = any(w in _IDENTIFIER_WORDS for w in words) or any(
-        fragment in joined for fragment in _IDENTIFIER_FRAGMENTS
-    )
+    word = any(w in _IDENTIFIER_WORDS or _IDENTIFIER_WORD_FORMS.fullmatch(w) for w in words)
+    stem = word or any(fragment in joined for fragment in _IDENTIFIER_FRAGMENTS)
     return stem and not _is_aggregate(words)
 
 
 def is_forbidden_feature(name: str) -> bool:
     """True if a column with this name may never feed a score or a model (case-insensitive):
     gender, country and nationality, age, names, hashes and raw identifiers (e-mail, address, IP,
-    phone, device, postcode), in any spelling found in our data. Aggregates over identifiers
-    (n_shared_devices, email_share) stay allowed; aggregates over protected grounds do not."""
+    phone or mobile number, device, IMEI or MAC, payment card, postcode or zip), with or without
+    separators and in their usual abbreviations (addr, ip24, zip5, msisdn, pan). Aggregates over
+    identifiers (n_shared_devices, n_distinct_cards, email_share) stay allowed; aggregates over
+    protected grounds do not."""
     words = _words(name)
     joined = "".join(words)
     return (

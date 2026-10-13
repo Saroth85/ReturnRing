@@ -1,0 +1,65 @@
+{
+  "return_id": "RET-000101",
+  "decision_id": "DEC-000101-1",
+  "draft": {
+    "generation": {
+      "generation_id": "GEN-000101-2",
+      "generation_path": "llm",
+      "llm_mode": "mock",
+      "served_from": "live",
+      "model": "mock",
+      "attempts": 1,
+      "validator_errors": [],
+      "created_at": "2026-09-30T18:05:00Z",
+      "latency_ms": 11
+    },
+    "tone": "formal",
+    "decision_echo": {
+      "path": "withdrawal",
+      "quadrant": "Q1",
+      "lever_ids": [
+        "return_window_days:60",
+        "priority_size_exchange:true"
+      ]
+    },
+    "explanation": [
+      {
+        "label": "OBSERVED",
+        "text": "C-GIULIA kept 5 of 11 items in 12 months; 5 of her 6 returns were for size.",
+        "entity": "C-GIULIA",
+        "metric": "returned_lines",
+        "value": "6 of 11",
+        "period": "2025-10-01 to 2026-09-30"
+      },
+      {
+        "label": "SCORE",
+        "text": "Size returns lower the risk score to 0.12: a contribution to the score, not a cause.",
+        "entity": "C-GIULIA",
+        "metric": "risk",
+        "value": "0.12",
+        "period": "2025-10-01 to 2026-09-30"
+      },
+      {
+        "label": "OBSERVED",
+        "text": "Customer value is 211.85 EUR, above the 185.00 EUR threshold: quadrant Q1.",
+        "entity": "C-GIULIA",
+        "metric": "value_eur",
+        "value": "211.85",
+        "period": "2025-10-01 to 2026-09-30"
+      }
+    ],
+    "messages": [
+      {
+        "lang": "en",
+        "connective_text": "Dear customer, thank you for your message. Your size return is registered and the refund will reach you by {deadline}. Your next orders come with these terms: {terms}.",
+        "fields": {
+          "terms": "60-day return window, free return shipping, instant refund, free priority size exchange",
+          "amount": null,
+          "deadline": "11 October 2026"
+        },
+        "legal_clause_kind": null,
+        "rendered_text": "Dear customer, thank you for your message. Your size return is registered and the refund will reach you by 11 October 2026. Your next orders come with these terms: 60-day return window, free return shipping, instant refund, free priority size exchange."
+      }
+    ]
+  }
+}

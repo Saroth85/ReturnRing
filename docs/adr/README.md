@@ -15,3 +15,4 @@
 | ADR-11 | [Age is a forbidden feature](ADR-11-age-excluded.md) | Protected ground; the ASOS column is also dirty |
 | ADR-12 | [Rule 15 covers the repository, not pulled images](ADR-12-container-licences.md) | ROCm and vLLM images ship GPL and other licences and are never redistributed |
 | ADR-13 | [Data contracts v2](ADR-13-data-contracts-v2.md) | A row holds only facts known at its available_at; one lever vocabulary; every file carries contract version and provenance |
+| ADR-15 | [API and persistence contract](ADR-15-api-and-persistence-contract.md) | One generated contract for the API and the UI: pydantic models, JSON Schemas, OpenAPI, tested examples and PostgreSQL tables with named CHECKs |

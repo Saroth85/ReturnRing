@@ -1,0 +1,47 @@
+{
+  "items": [
+    {
+      "message_id": "MSG-000108-1",
+      "return_id": "RET-000108",
+      "decision_id": "DEC-000108-1",
+      "customer_id": "C-17305",
+      "lang": "it",
+      "subject": "Il tuo reso RET-000108",
+      "body": "Ciao, abbiamo registrato il reso e il rimborso arriverà entro il 13 ottobre 2026.",
+      "legal_clause_kind": null,
+      "generation_id": null,
+      "status": "sent_simulated",
+      "created_by": "sara",
+      "created_at": "2026-09-30T18:50:00Z"
+    },
+    {
+      "message_id": "MSG-000102-1",
+      "return_id": "RET-000102",
+      "decision_id": "DEC-000102-1",
+      "customer_id": "C-MARCO-1",
+      "lang": "it",
+      "subject": "Il tuo reso RET-000102",
+      "body": "Ciao, abbiamo ricevuto la tua richiesta di reso e il rimborso arriverà entro il 12 ottobre 2026. Dal prossimo ordine valgono queste condizioni: finestra di reso di 14 giorni, spedizione del reso a tuo carico, rimborso nei termini di legge, cambio taglia gratuito, coupon non disponibili. Le condizioni dell'ordine attuale non cambiano.\n\nTi ricordiamo che puoi sempre esercitare il diritto di recesso entro 14 giorni dalla consegna, senza indicarne il motivo. Ti rimborseremo entro 14 giorni dalla tua comunicazione, al ricevimento dei prodotti o della prova della loro spedizione.",
+      "legal_clause_kind": "withdrawal",
+      "generation_id": "GEN-000102-1",
+      "status": "sent_simulated",
+      "created_by": "sara",
+      "created_at": "2026-09-30T18:20:00Z"
+    },
+    {
+      "message_id": "MSG-000110-1",
+      "return_id": "RET-000110",
+      "decision_id": "DEC-000110-1",
+      "customer_id": "C-14502",
+      "lang": "it",
+      "subject": "Il tuo reso RET-000110",
+      "body": "Ciao, abbiamo controllato il capo reso: presenta una macchia visibile, quindi tratteniamo 17,98 € dal rimborso, che arriverà entro il 10 ottobre 2026.",
+      "legal_clause_kind": null,
+      "generation_id": null,
+      "status": "sent_simulated",
+      "created_by": "ahmed",
+      "created_at": "2026-09-30T18:47:00Z"
+    }
+  ],
+  "total": 3
+}

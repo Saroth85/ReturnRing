@@ -15,6 +15,7 @@ from jsonschema import Draft202012Validator
 
 from contracts.levers import format_lever_id
 from llm.case import (
+    ENTITIES,
     MAX_CUSTOMER_CHARS,
     CaseError,
     ClusterSummary,
@@ -85,12 +86,23 @@ def test_golden_q4_facts() -> None:
         ("F3", "cluster", "cluster_welcome_coupons", 7),
         ("F4", "cluster", "cluster_size", 7),
         ("F5", "return", "days_since_delivery", 6),
-        ("F6", "policy", "return_window_days", 14),
     ]
     assert {f["nature"] for f in facts} == {"synthetic"}
     assert facts[0]["period"] == "as of 2026-10-14"
     assert facts[1]["period"] == "12 months to 2026-10-14"
     assert facts[4]["period"] == "2026-10-08/2026-10-14"
+
+
+@pytest.mark.parametrize("name", sorted(SCENARIOS))
+def test_levers_are_never_facts(name: str) -> None:
+    """Round 3, finding T7: operator statements do not talk about levers, so no lever (the return
+    window of the former policy fact included) is a fact, and the schema has no policy entity."""
+    case = make(name).case
+    lever_ids = {lever["id"] for lever in case["levers"]}
+    assert not lever_ids & {f["metric"] for f in case["facts"]}
+    assert {f["entity"] for f in case["facts"]} <= set(ENTITIES)
+    entity = SCHEMA["properties"]["facts"]["items"]["properties"]["entity"]
+    assert entity["enum"] == list(ENTITIES) and "policy" not in ENTITIES
 
 
 def test_a_factor_named_like_a_fixed_fact_appears_once() -> None:

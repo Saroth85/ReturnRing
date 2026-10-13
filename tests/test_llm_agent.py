@@ -311,6 +311,10 @@ WRITE_REQUESTS = [
     "Undo the dispute on L-102",
     "Dismiss link L-102",
     "Notify the customer",
+    # Round 3, finding T12: Italian infinitives stay verbs after a preposition
+    "Riesci a disattivare i coupon?",
+    "Ricordati di spegnere i coupon.",
+    "Puoi approvarlo?",
 ]
 READ_QUESTIONS = [
     "Which evidence supports the link?",
@@ -332,6 +336,17 @@ READ_QUESTIONS = [
     "Which link was accepted by the operator? Why?",
     "Perché blocchiamo i coupon del cluster?",
     "What is this case? Which terms applied?",
+    # Round 3, findings T12 and T16: what the clause split, the clitics, the formal imperatives
+    # and the noun rule must leave alone
+    "I coupon sono attivi?",
+    "Quali sono i limiti?",
+    "Spiegami il blocco dei coupon.",
+    "Mostrami le condizioni e le leve attive.",
+    "Lo stato del rimborso?",
+    "Refund deadline?",
+    "Why was the case set to Q4?",
+    "Which coupons were removed and when?",
+    "Il segnale più forte?",
 ]
 
 
@@ -505,6 +520,7 @@ def test_unknown_or_write_tools_are_refused_and_counted() -> None:
         # Adversarial review of 13 Oct, finding 7
         ("The cluster R-MARCO has twelve linked accounts.", "fallback"),
         ("The cluster R-MARCO has seven linked accounts.", "fallback"),  # words are never read
+        ("The cluster R-MARCO has VII linked accounts.", "fallback"),  # round 3, finding T10
         ("The accounts in R-MARCO belong to the same customer.", "fallback"),
         ("One customer controls R-MARCO.", "fallback"),
         ("You should reject this return and disable coupons.", "fallback"),
@@ -544,6 +560,15 @@ def test_vllm_answers_are_checked(final: str, source: str) -> None:
         "Cluster R-MARCO has 7 linked accounts; link L-102 has 2 shared events.",
         "Link L-101 has 4 shared events, and the cluster has 7 linked accounts.",
         "The refund deadline is set by the rules engine, not by me.",
+        # Round 3, findings T6, T13 and T14: plain answers the new checks must leave alone
+        "The 7 linked accounts were created within 9 days.",
+        "The linked accounts belong to cluster R-MARCO.",
+        "Link L-102 has weight 0.6; it is disputed by an operator.",
+        "Cluster R-MARCO: 7 linked accounts, 2 distinct cards, return rate 0.92.",
+        "Link L-102 has weight 0.6. It has 2 shared events.",
+        "Between C-MARCO-1 and C-MARCO-3 there are 2 shared events.",
+        "The disputed link has weight 0.6 and 2 shared events.",
+        "I checked the cluster: the coupons were disabled for R-MARCO.",
     ],
 )
 def test_vllm_answers_about_state_keep_the_model_path(final: str) -> None:
@@ -565,13 +590,25 @@ def test_vllm_answers_about_state_keep_the_model_path(final: str) -> None:
         ("Go ahead and refund.", ["refund"]),
         ("For R-MARCO, disable the coupons.", ["disable"]),
         ("You can disable the coupons in the case view.", ["can disable"]),
-        ("I have disabled the coupons.", ["have disabled"]),
+        ("I have disabled the coupons.", ["i have disabled"]),
         ("Ho disattivato i coupon.", ["ho disattivato"]),
         ("Coupons must be disabled.", ["must"]),
         ("È meglio togliere i coupon.", ["meglio"]),
         ("Done: coupons for R-MARCO are now off.", ["done", "now off"]),
         ("Coupons were disabled for the cluster.", []),
         ("The coupons of R-MARCO are off.", []),
+        # Round 3, findings T13 and T15
+        ("I went ahead and froze the R-MARCO accounts.", ["i ... froze", "went ahead"]),
+        ("Coupons for R-MARCO are to be disabled.", ["to be disabled"]),
+        ("Si disattivino i coupon di R-MARCO.", ["disattivino"]),
+        ("I coupon di R-MARCO sono da disattivare.", ["da disattivare"]),
+        ("The coupons for R-MARCO have now been disabled.", ["now disabled"]),
+        ("Disattivali per R-MARCO.", ["disattivali"]),
+        ("Dis.able coupons for R-MARCO.", ["disable"]),
+        ("Approvi il reso.", ["approvi"]),
+        ("Refund deadline: 2026-10-28.", []),  # a noun before the noun it qualifies
+        ("I checked the cluster: the coupons were disabled.", []),
+        ("We see that the coupons were disabled.", []),
     ],
 )
 def test_answer_actions(text: str, cues: list[str]) -> None:
@@ -587,6 +624,26 @@ def test_grounding_follows_the_record_a_clause_names() -> None:
     assert grounded_in("The cluster has 7 accounts. Link L-101 has 4 events.", results, "RET-1")
     assert not grounded_in("Cluster R-MARCO has 4 linked accounts.", results, "RET-1")
     assert grounded_in("4 shared events and 7 linked accounts.", results, "RET-1")  # no record
+    # Round 3, finding T14: field words, records named by their accounts, pronouns
+    assert grounded_in("Its weight is 0.98. It has 4 shared events.", results, "RET-1")
+    assert not grounded_in("Link L-101 has 4 shared events. It has weight 0.6.", results, "RET-1")
+    assert grounded_in(
+        "The order ORD-1 has a return window of 30 days.", [*results, to_json(ORDERS[1])], "RET-1"
+    )
+    assert not grounded_in("The cluster has 2 linked accounts.", results, "RET-1")
+    assert grounded_in("The cluster has 2 distinct cards.", results, "RET-1")
+
+
+def test_a_field_word_binds_a_number_only_to_fields_the_results_have() -> None:
+    """Round 3, finding T14: "7 linked accounts" copied from a score factor phrase, with no
+    cluster read, is grounded by the factor value; a kind word with no record of that kind read
+    does not empty the scope."""
+    results = [to_json(CASE), to_json(list(FakeReader().factors["RET-1"]))]
+    text = "Score factor cluster_welcome_coupons = 7: 7 linked accounts each used the coupon."
+    assert grounded_in(text, results, "RET-1")
+    assert not grounded_in("9 linked accounts each used the welcome coupon.", results, "RET-1")
+    assert grounded_in("The cluster R-MARCO has 7 linked accounts.", [to_json(MARCO)], "RET-1")
+    assert not grounded_in("The cluster R-MARCO has 2 linked accounts.", [to_json(MARCO)], "RET-1")
 
 
 def test_vllm_unavailable_falls_back() -> None:

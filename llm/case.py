@@ -3,7 +3,9 @@ ADR-14, docs/spec.md 8.7 and 19.B).
 
 The case is already decided: path, quadrant and levers come from the engine through the one
 serializer of llm/decision.py. Every number the operator explanation may use is a code-built fact
-{id, entity, metric, value, period, nature}. Scores never reach a guarantee case (rule 4) or a case
+{id, entity, metric, value, period, nature} about the customer, the return, the order or the
+cluster; the levers are not facts, because a statement does not talk about them (ADR-14, round 3).
+Scores never reach a guarantee case (rule 4) or a case
 with insufficient evidence (US-307: neither safe nor suspicious). The customer's free text is data:
 it travels between <customer_text> delimiters, escaped so it cannot close them.
 """
@@ -24,9 +26,11 @@ from llm.text import LANGS, Lang
 from policy.types import CaseScores, Decision, EvidenceQuality, Path, ReturnRequest, ReturnTerms
 
 Nature = Literal["real", "synthetic", "simulated"]
-Entity = Literal["customer", "return", "order", "cluster", "policy"]
+# No "policy" entity: operator statements do not talk about levers or terms, so the levers are not
+# facts (round 3, finding T7; ADR-14).
+Entity = Literal["customer", "return", "order", "cluster"]
 NATURES: tuple[Nature, ...] = ("real", "synthetic", "simulated")
-ENTITIES: tuple[Entity, ...] = ("customer", "return", "order", "cluster", "policy")
+ENTITIES: tuple[Entity, ...] = ("customer", "return", "order", "cluster")
 
 MAX_FACTORS = 3
 MAX_MISSING_EVIDENCE = 10
@@ -191,9 +195,6 @@ def build_case(
             facts.add("cluster", "cluster_size", cluster.size, f"as of {day}")
     days = (request.notice_on - request.delivered_on).days
     facts.add("return", "days_since_delivery", days, f"{request.delivered_on}/{request.notice_on}")
-    for lever in levers:
-        if lever["id"] == "return_window_days":
-            facts.add("policy", "return_window_days", lever["value"], f"orders from {day}")
     if scored and scores is not None:
         case["risk"] = {
             "score": _number(scores.risk),

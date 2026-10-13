@@ -203,9 +203,12 @@ The catalogue also sets these rules:
 - **`size_advice:false` is now a visible difference.** It is standard on, and no quadrant turns it
   off today.
 
-The lever object schema in `llm_case.schema.json` and `decision_request.schema.json` is generated
-from the catalogue, and a test keeps the files equal to it. It rejects unknown ids, wrong scopes,
-wrong value types and windows below 14 days. `llm_case` also gains these rules:
+The lever object schema in `llm_case.schema.json` and in
+`contracts/json/api/decision_request.schema.json` is generated from the catalogue, and a test keeps
+the files equal to it. Since ADR-15 the decision request schema is exported by
+`scripts/export_api_schemas.py`, its lever array from `contracts.levers.lever_list_json_schema()`;
+the hand-written `contracts/json/decision_request.schema.json` is gone. It rejects unknown ids,
+wrong scopes, wrong value types and windows below 14 days. `llm_case` also gains these rules:
 
 - `missing_evidence` (US-307), a list of strings, is required and non-empty when evidence is
   insufficient;

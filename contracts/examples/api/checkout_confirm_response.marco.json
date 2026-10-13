@@ -1,0 +1,28 @@
+{
+  "order_id": "ORD-CHK-000002",
+  "terms_snapshot": {
+    "terms_snapshot_id": "TS-CHK-000982",
+    "order_id": "ORD-CHK-000002",
+    "customer_id": "C-MARCO-1",
+    "source": "DEC-000102-1",
+    "quadrant_at_purchase": "Q4",
+    "terms": {
+      "return_window_days": 14,
+      "free_return_shipping": false,
+      "instant_refund": false,
+      "free_size_exchange": true,
+      "coupons_enabled": false
+    },
+    "base_terms": {
+      "return_window_days": 30,
+      "free_return_shipping": true,
+      "instant_refund": true,
+      "free_size_exchange": true,
+      "coupons_enabled": true
+    },
+    "review_at": "2026-12-27",
+    "shown_at": "2026-09-30T18:35:00Z",
+    "confirmed_at": "2026-09-30T18:37:00Z"
+  },
+  "coupon_applied": false
+}

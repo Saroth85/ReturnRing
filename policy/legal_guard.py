@@ -113,8 +113,15 @@ def check(decision: Decision, request: ReturnRequest, base: ReturnTerms) -> list
         rule = decision.coupon_rule
         if rule is None or _blank(rule.rule_version):
             v.append(Violation("COUPON_RULE_MISSING", "Cluster coupon block without a rule"))
-        elif decision.state is DecisionState.APPROVED and _blank(rule.confirmed_by):
-            v.append(Violation("COUPON_CONFIRMATION_MISSING", "Rule applied without confirmation"))
+        else:
+            if _blank(rule.cluster_id):
+                v.append(
+                    Violation("COUPON_CLUSTER_MISSING", "Cluster coupon block without a cluster")
+                )
+            if decision.state is DecisionState.APPROVED and _blank(rule.confirmed_by):
+                v.append(
+                    Violation("COUPON_CONFIRMATION_MISSING", "Rule applied without confirmation")
+                )
 
     claim = decision.diminished_value_claim
     if claim is not None:

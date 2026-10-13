@@ -121,7 +121,9 @@
         "C-MARCO-6",
         "C-MARCO-7"
       ],
-      "confirmed_by": "sara"
+      "confirmed_by": "sara",
+      "state": "confirmed",
+      "in_force": true
     },
     "diminished_value_claim": null,
     "inputs": {

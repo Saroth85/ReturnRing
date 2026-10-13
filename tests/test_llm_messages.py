@@ -12,6 +12,7 @@ from typing import Any
 import pytest
 
 from contracts.levers import LEVERS, LeverObject
+from llm.case import ScoreFactor, build_case
 from llm.legal_clause import (
     CLAUSES,
     LegalClauseError,
@@ -25,6 +26,8 @@ from llm.messages import (
     available_placeholders,
     format_amount,
     format_date,
+    format_deadline,
+    has_deduction,
     render,
     template_fields,
     term_phrases,
@@ -134,16 +137,16 @@ def test_assert_clause_raises_on_a_code_bug(text: str, kind: Any) -> None:
 def test_llm10_rendered_values_are_identical_to_the_template_fields(lang: Lang) -> None:
     built = make("Q4_cluster", refund_eur=Decimal("59.9"))
     fields = template_fields(built.decision, BASE, lang, Decimal("59.9"))
-    text = "Rimborso {amount}, previsto per il {deadline}. Prossimi ordini: {terms}."
+    text = "Rimborso {amount}, previsto per {deadline}. Prossimi ordini: {terms}."
     final = render(text, built.decision, BASE, lang, Decimal("59.9"))
     body = final.split("\n\n")[0]
     assert body == (
-        f"Rimborso {fields['amount']}, previsto per il {fields['deadline']}. "
+        f"Rimborso {fields['amount']}, previsto per {fields['deadline']}. "
         f"Prossimi ordini: {fields['terms']}."
     )
     assert final.endswith(clause("withdrawal", lang))
     expected_amount = {"it": "59,90 €", "en": "€59.90"}[lang]
-    expected_deadline = {"it": "28 ottobre 2026", "en": "28 October 2026"}[lang]
+    expected_deadline = {"it": "il 28 ottobre 2026", "en": "28 October 2026"}[lang]
     assert fields["amount"] == expected_amount
     assert fields["deadline"] == expected_deadline
     assert built.decision.refund_due_by == date(2026, 10, 28)
@@ -176,7 +179,7 @@ def test_guarantee_fields_and_clause() -> None:
 
 def test_q2_renders_without_a_clause() -> None:
     built = make("Q2")
-    final = render("Ciao, il rimborso è previsto per il {deadline}.", built.decision, BASE, "it")
+    final = render("Ciao, il rimborso è previsto per {deadline}.", built.decision, BASE, "it")
     assert final == "Ciao, il rimborso è previsto per il 28 ottobre 2026."
 
 
@@ -208,6 +211,52 @@ def test_amount_and_date_formats() -> None:
             format_amount(bad, "en")
     assert format_date(date(2026, 1, 5), "it") == "5 gennaio 2026"
     assert format_date(date(2026, 12, 31), "en") == "31 December 2026"
+
+
+# How each day of the month is read aloud in Italian: the article follows the sound, "l'"
+# before a vowel (uno, otto, undici), "il" otherwise (round 4 of the API review, finding E22).
+IT_DAY_WORDS = [
+    *("uno", "due", "tre", "quattro", "cinque", "sei", "sette", "otto", "nove", "dieci"),
+    *("undici", "dodici", "tredici", "quattordici", "quindici", "sedici", "diciassette"),
+    *("diciotto", "diciannove", "venti", "ventuno", "ventidue", "ventitre", "ventiquattro"),
+    *("venticinque", "ventisei", "ventisette", "ventotto", "ventinove", "trenta", "trentuno"),
+]
+
+
+@pytest.mark.parametrize("day", range(1, 32))
+def test_the_italian_deadline_has_the_right_article_on_every_day(day: int) -> None:
+    """E22: "previsto per il 11 ottobre" is not Italian; the field carries its article."""
+    when = date(2026, 10, day)
+    article = "l'" if IT_DAY_WORDS[day - 1][0] in "aeiou" else "il "
+    assert format_deadline(when, "it") == f"{article}{day} ottobre 2026"
+    assert format_deadline(when, "en") == format_date(when, "en") == f"{day} October 2026"
+    built = make("Q2")
+    decision = replace(built.decision, refund_due_by=when)
+    final = render("Il rimborso è previsto per {deadline}.", decision, BASE, "it")
+    assert final == f"Il rimborso è previsto per {article}{day} ottobre 2026."
+
+
+def test_the_deduction_field_exists_exactly_with_a_claim_on_the_withdrawal_path() -> None:
+    """E17: the amount withheld for a diminished value is a template field written by code."""
+    plain = make("Q2", refund_eur=Decimal("71.92"))
+    assert not has_deduction(plain.decision) and not plain.expected.deduction
+    assert "deduction" not in template_fields(plain.decision, BASE, "it", Decimal("71.92"))
+    claimed = make("Q2", refund_eur=Decimal("71.92"), claim_eur=Decimal("17.98"))
+    assert has_deduction(claimed.decision) and claimed.expected.deduction
+    fields = template_fields(claimed.decision, BASE, "it", Decimal("71.92"))
+    assert fields["deduction"] == "17,98 €" and fields["amount"] == "71,92 €"
+    en = template_fields(claimed.decision, BASE, "en", Decimal("71.92"))
+    assert en["deduction"] == "€17.98"
+    # the llm_case never offers {deduction}: the model does not write the message
+    assert set(claimed.case["placeholders"]["available"]) == claimed.expected.placeholders
+    assert "deduction" not in claimed.expected.placeholders
+    final = render("Trattenuti {deduction}.", claimed.decision, BASE, "it", Decimal("71.92"))
+    assert final == "Trattenuti 17,98 €."
+    with pytest.raises(MessageError):
+        render("Trattenuti {deduction}.", plain.decision, BASE, "it", Decimal("71.92"))
+    guarantee = make("guarantee", claim_eur=Decimal("17.98"))
+    assert not has_deduction(guarantee.decision)
+    assert template_fields(guarantee.decision, BASE, "it") == {}
 
 
 def test_every_catalogue_lever_has_a_phrase_or_is_not_a_term() -> None:
@@ -289,6 +338,24 @@ def test_mock_output_from_the_case_equals_the_template(name: str) -> None:
 def test_templates_with_a_known_refund_still_validate() -> None:
     built = make("Q1", refund_eur=Decimal("80"))
     assert validate(template_output(built.case, built.expected), built.expected, built.case).ok
+
+
+def test_the_template_states_the_cluster_only_when_the_case_has_one() -> None:
+    """E3: an account without linked accounts has its cluster features computed on itself; the
+    template states the size of a cluster only for a case with a cluster, this customer
+    included."""
+    alone = ScoreFactor("cluster_size", 1, "No linked accounts")
+    s = SCENARIOS["Q2"]
+    req = replace(s.request, return_id="RET-1")
+    decision = decide(req, s.scores, BASE, THRESHOLDS, TODAY)
+    case = build_case(decision, req, BASE, policy_text="", scores=s.scores, factors=[alone])
+    texts = [x["text"] for x in output_from_case(case)["operator_explanation"]]
+    assert not any("in the cluster" in text for text in texts), texts
+    assert "Contribution to the score: cluster_size is 1." in texts
+    clustered = make("Q4_cluster")
+    texts = [x["text"] for x in output_from_case(clustered.case)["operator_explanation"]]
+    assert "Accounts in the cluster of linked accounts, this customer included: 7." in texts
+    assert validate(output_from_case(clustered.case), clustered.expected, clustered.case).ok
 
 
 def test_format_value() -> None:

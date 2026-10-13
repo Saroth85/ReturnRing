@@ -93,6 +93,15 @@ def standard_levers(base: ReturnTerms) -> Levers:
     return Levers.standard(base)
 
 
+def with_all_orders_levers(order_terms: ReturnTerms, levers: Levers) -> ReturnTerms:
+    """Terms of the order being returned under `levers`. The snapshot shown at purchase is never
+    restricted (LEG-04), but a lever whose scope is all_orders reaches it: a free size exchange
+    the decision grants holds for the current order too, even if its snapshot lacked it."""
+    if levers.future_terms.free_size_exchange and not order_terms.free_size_exchange:
+        return replace(order_terms, free_size_exchange=True)
+    return order_terms
+
+
 def levers_for(quadrant: Quadrant, base: ReturnTerms, has_cluster: bool) -> Levers:
     """Lever table of docs/spec.md section 8.6. Size exchange stays free in every quadrant."""
     if quadrant is Quadrant.Q1:
@@ -143,17 +152,21 @@ def decide(
     refund_due_by = request.notice_on + timedelta(days=LEGAL_REFUND_DAYS)
 
     if path is Path.GUARANTEE or scores.evidence_quality is EvidenceQuality.INSUFFICIENT:
+        standard = standard_levers(base)
         decision = Decision(
             return_id=request.return_id,
             decided_on=decided_on,
             path=path,
             evidence_quality=scores.evidence_quality,
             quadrant=None,
-            levers=standard_levers(base),
-            current_return_terms=(
-                guarantee_terms(request.order_terms, base)
-                if path is Path.GUARANTEE
-                else request.order_terms
+            levers=standard,
+            current_return_terms=with_all_orders_levers(
+                (
+                    guarantee_terms(request.order_terms, base)
+                    if path is Path.GUARANTEE
+                    else request.order_terms
+                ),
+                standard,
             ),
             refund_due_by=refund_due_by,
             requires_approval=False,
@@ -169,7 +182,7 @@ def decide(
             evidence_quality=scores.evidence_quality,
             quadrant=quadrant,
             levers=levers,
-            current_return_terms=request.order_terms,
+            current_return_terms=with_all_orders_levers(request.order_terms, levers),
             refund_due_by=refund_due_by,
             requires_approval=needs_approval,
             review_on=decided_on + timedelta(days=REVIEW_DAYS) if needs_approval else None,

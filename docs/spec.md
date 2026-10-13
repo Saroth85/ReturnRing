@@ -215,11 +215,11 @@ Definition of Done valida per ogni storia: test verdi in modalità CPU e mock, c
 
 | ID | Storia | Criteri di accettazione | Priorità | Stato |
 | --- | --- | --- | --- | --- |
-| US-101 | Come data scientist voglio scaricare e profilare ASOS GraphReturns, per calibrare e fare benchmark su dati reali | Script con checksum; report di schema e statistiche; licenza annotata; dati esclusi da git | Must | Da fare |
-| US-102 | Come data scientist voglio generare il negozio sintetico calibrato su ASOS | Seed fisso; 20.000 clienti e 12 mesi; tassi di reso entro ±10% relativo; punti di ritiro e indirizzi collettivi; varianti con difetto di vestibilità; ogni record con istante dell'evento e istante di disponibilità | Must | Da fare |
-| US-103 | Come data scientist voglio una ground truth separata per tipo di comportamento | Tipi: normale, taglia, wardrober, ring promozioni, condiviso benigno, variante difettosa; i servizi in esecuzione non la leggono (test) | Must | Da fare |
-| US-104 | Come presentatore voglio i quattro casi d'oro sempre presenti | Giulia, ring di Marco (7 account), famiglia Rossi anche nella variante con carta condivisa, Elena con la giacca difettosa; ID fissi; test golden in CI | Must | Da fare |
-| US-105 | Come giudice voglio sapere come si comporta il modello fuori dagli schemi del generatore | Uno scenario fuori distribuzione (intensità diversa, identificatori mancanti, famiglia difficile) mai usato in addestramento; risultati riportati anche se peggiori | Should | Da fare |
+| US-101 | Come data scientist voglio scaricare e profilare ASOS GraphReturns, per calibrare e fare benchmark su dati reali | Script con checksum; report di schema e statistiche; licenza annotata; dati esclusi da git | Must | Fatto |
+| US-102 | Come data scientist voglio generare il negozio sintetico calibrato su ASOS | Seed fisso; 20.000 clienti e 12 mesi; tassi di reso entro ±10% relativo; punti di ritiro e indirizzi collettivi; varianti con difetto di vestibilità; ogni record con istante dell'evento e istante di disponibilità | Must | Fatto |
+| US-103 | Come data scientist voglio una ground truth separata per tipo di comportamento | Tipi: normale, taglia, wardrober, ring promozioni, condiviso benigno, variante difettosa; i servizi in esecuzione non la leggono (test) | Must | Fatto |
+| US-104 | Come presentatore voglio i quattro casi d'oro sempre presenti | Giulia, ring di Marco (7 account), famiglia Rossi anche nella variante con carta condivisa, Elena con la giacca difettosa; ID fissi; test golden in CI | Must | Fatto |
+| US-105 | Come giudice voglio sapere come si comporta il modello fuori dagli schemi del generatore | Uno scenario fuori distribuzione (intensità diversa, identificatori mancanti, famiglia difficile) mai usato in addestramento; risultati riportati anche se peggiori | Should | Fatto |
 
 ### E2 — Modelli
 
@@ -392,7 +392,7 @@ Contratti versione 2 (ADR-13), in `contracts/`. Ogni file Parquet porta nei meta
 | decisions, audit\_log, outbox (PostgreSQL) | API | UI, export | decision\_id, return\_id, path, evidence\_quality, alternatives, levers, requires\_approval, approver, review\_at, rules\_version, model\_versions, llm\_output, created\_at |
 | features/product\_anomalies.parquet | anomalies | API, attività di catalogo | variant\_id, reason, week, observed, expected, z, n, status (open, task\_opened, resolved) |
 
-Le leve viaggiano come oggetti {id, value, scope} del catalogo `contracts/levers.py` e, quando serve un identificatore unico, come stringa "id:value" del motore (per esempio instant\_refund:false); il welcome\_coupon dell'appendice 19.B è coupons\_enabled.
+Le leve viaggiano come oggetti {id, value, scope} del catalogo `contracts/levers.py` e, quando serve un identificatore unico, come stringa "id:value" del motore (per esempio instant\_refund:false); il welcome\_coupon:false con ambito cluster della prima versione dell'appendice 19.B è cluster\_coupons\_disabled:true, mentre i coupon del singolo cliente sugli ordini futuri sono coupons\_enabled (ADR-13).
 
 Regola di separazione: i servizi in esecuzione (api, ui, demo) non montano la cartella truth/; solo i job offline di addestramento e valutazione la leggono. Un test lo verifica (US-103), così la valutazione non può contaminare il prodotto.
 
@@ -725,7 +725,7 @@ Cinquantanove test in tredici famiglie, con una soglia di superamento ciascuno. 
 
 | Livello | Dove | Quando | Strumenti |
 | --- | --- | --- | --- |
-| Unit, dati, legali, licenze, sicurezza statica | CPU, GitHub Actions | Ogni commit | pytest, Hypothesis, pandera, ruff, mypy, pip-licenses, gitleaks |
+| Unit, dati, legali, licenze, sicurezza statica | CPU, GitHub Actions | Ogni commit | pytest, Hypothesis, contracts/io.validate\_table (ADR-13), ruff, mypy, pip-licenses, gitleaks |
 | Modelli, LLM, prestazioni, benchmark | MI300X | Ogni sessione GPU | pytest con marcatore gpu, script di benchmark, k6 |
 | End-to-end | CPU con mock e MI300X | Ogni sera e prima del pitch | Playwright |
 | Prova del pitch e consegna | Manuale | Sabato e domenica mattina | Cronometro, checklist |
@@ -742,7 +742,7 @@ Quattro casi d'oro sempre presenti (Giulia, il ring di Marco, la famiglia Rossi 
 | UNIT-02 | Formula del residuo (sezione 8.2) | Uguale al calcolo a mano su 5 clienti | CPU |
 | UNIT-03 | Formula del valore (sezione 8.5) | Riconcilia con gli ordini al centesimo | CPU |
 | UNIT-04 | Motore di policy: quadrante → leve | Tabella 8.6 riprodotta esattamente | CPU |
-| DATA-01 | Contratti dati tra moduli | Schemi pandera validi su ogni file | CPU |
+| DATA-01 | Contratti dati tra moduli | contracts/io.validate\_table (ADR-13) senza errori su ogni file | CPU |
 | DATA-02 | Calibrazione del generatore | Tassi di reso entro ±10% relativo di ASOS | CPU |
 | DATA-03 | Separazione della ground truth | Nessun servizio in esecuzione monta truth/ | CPU |
 | DATA-04 | Determinismo | Stesso seed, file identici byte per byte | CPU |
@@ -1148,7 +1148,7 @@ DEVICE=cpu|gpu · LLM_MODE=mock|vllm · DEMO_MODE=live|cached · SEED=42
 
 ### B. Schemi delle interfacce
 
-Caso inviato a Gemma (esempio, campi già decisi a monte):
+Caso inviato a Gemma (esempio, campi già decisi a monte; è `contracts/examples/llm_case.json`, cioè le sei leve che `policy.engine.decide` produce in Q4 con un cluster sulla base Navigli, ADR-13):
 
 ```json
 {
@@ -1156,8 +1156,12 @@ Caso inviato a Gemma (esempio, campi già decisi a monte):
   "languages": ["it", "en"],
   "path": "withdrawal", "evidence_quality": "sufficient", "quadrant": "Q4",
   "levers": [
+    {"id": "return_window_days", "value": 14, "scope": "future_orders"},
+    {"id": "free_return_shipping", "value": false, "scope": "future_orders"},
     {"id": "instant_refund", "value": false, "scope": "future_orders"},
-    {"id": "welcome_coupon", "value": false, "scope": "future_orders_cluster"}
+    {"id": "coupons_enabled", "value": false, "scope": "future_orders"},
+    {"id": "cluster_coupons_disabled", "value": true, "scope": "future_orders_cluster"},
+    {"id": "transparency_notice", "value": true, "scope": "communication"}
   ],
   "risk": {
     "score": 0.87,

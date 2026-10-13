@@ -15,6 +15,7 @@ import jsonschema
 import numpy as np
 import pytest
 
+from pipeline.generator.__main__ import main
 from pipeline.generator.calibration import (
     GBP_TO_EUR,
     CalibrationError,
@@ -23,6 +24,7 @@ from pipeline.generator.calibration import (
     parse_calibration,
     type_return_targets,
 )
+from pipeline.generator.core import generate
 
 ROOT = Path(__file__).resolve().parents[1]
 EXAMPLE = ROOT / "contracts" / "examples" / "calibration.json"
@@ -117,18 +119,45 @@ def test_semantic_errors_are_rejected() -> None:
     assert any("reason_shares" in e for e in err.value.errors)
 
 
-def test_any_valid_file_is_accepted() -> None:
-    """Other type names, a single type, extreme but valid values."""
+def _single_type(name: str) -> dict[str, Any]:
     doc = example()
     only = doc["product_types"]["Jeans"]
     only.update(variant_share=1.0, sales_share=1.0)
     only["return_rate_quantiles"] = {"p10": 0.0, "p25": 0.0, "p50": 0.5, "p75": 1.0, "p90": 1.0}
     only["price_quantiles_gbp"] = {"p10": 0.0, "p25": 1.0, "p50": 1.0, "p75": 2.0, "p90": 900.0}
-    doc["product_types"] = {"Dresses & Jumpsuits": only}
+    doc["product_types"] = {name: only}
     doc["overall"]["n_events"] = 1.0  # an integral number is an integer for JSON Schema
+    return doc
+
+
+@pytest.mark.parametrize("scenario", ["main", "ood"])
+def test_any_valid_file_is_accepted(tmp_path: Path, scenario: str) -> None:
+    """Other type names, a single type, extreme but valid values: parsed, then generated."""
+    doc = _single_type("Dresses & Jumpsuits")
     jsonschema.validate(doc, SCHEMA)
     cal = parse_calibration(doc)
     assert [t.name for t in cal.product_types] == ["Dresses & Jumpsuits"]
+    summary = generate(cal, tmp_path, seed=11, scale=0.005, scenario=scenario)
+    assert summary["rows"]["store/order_lines"] > 0
+    assert summary["defective_variants"] >= 1
+
+
+@pytest.mark.parametrize("name", ["Bags", "Accessories", "Jewellery & Watches"])
+def test_a_one_size_only_calibration_is_refused_clearly(tmp_path: Path, name: str) -> None:
+    """G3: valid against the schema, but no product type has sizes, so neither the size
+    behaviour (12% of customers) nor the golden cases can exist: a CalibrationError that says
+    so, never an IndexError."""
+    doc = _single_type(name)
+    jsonschema.validate(doc, SCHEMA)
+    cal = parse_calibration(doc)
+    for scenario in ("main", "ood"):
+        with pytest.raises(CalibrationError, match="size"):
+            generate(cal, tmp_path, seed=1, scale=0.005, scenario=scenario)
+    assert not list(tmp_path.rglob("*.parquet"))
+    path = tmp_path / "one_size.json"
+    path.write_text(json.dumps(doc))
+    assert main(["--calibration", str(path), "--out", str(tmp_path / "out")]) == 1
+    assert not (tmp_path / "out").exists()
 
 
 def test_load_rejects_a_file_that_is_not_json(tmp_path: Path) -> None:

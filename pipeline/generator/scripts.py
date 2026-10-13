@@ -4,10 +4,15 @@ Dates, outcomes and sharing patterns are fixed, so the signatures in pipeline/ge
 hold at any --scale and seed; only the catalogue variants they buy are drawn. Each golden case also
 has one pending return in the last week of the period (requested, nothing else yet), the case the
 demo opens in the operator's queue.
+
+An order is written as a list of line specs (Keep, Back, Pair, Fixed) that Picker.order resolves
+in turn. The items of one order are distinct: an item appears twice only as a bracketing Pair (two
+adjacent sizes), so no signature depends on the luck of the draw.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import numpy as np
@@ -15,6 +20,7 @@ import numpy.typing as npt
 
 from pipeline.generator import golden
 from pipeline.generator.accounts import Address, IdentityFactory, Plan
+from pipeline.generator.calibration import CalibrationError
 from pipeline.generator.catalogue import Catalogue, SizeKind, size_codes
 from pipeline.generator.config import START_US, US_PER_DAY, to_us
 from pipeline.generator.orders import KEEP, RETURN, ScriptedLine, ScriptedOrder
@@ -27,6 +33,47 @@ def at(year: int, month: int, day: int, hour: int = 20, minute: int = 0) -> int:
     return to_us(datetime(year, month, day, hour, minute, tzinfo=UTC))
 
 
+# ---- Line specs --------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Keep:
+    """An item from `pool` that the customer keeps."""
+
+    pool: str = "any"
+
+
+@dataclass(frozen=True)
+class Back:
+    """An item from `pool` returned for `reason`, `days` after delivery."""
+
+    reason: str
+    days: int
+    pool: str = "any"
+    pending: bool = False  # requested, nothing else yet (the demo queue)
+
+
+@dataclass(frozen=True)
+class Pair:
+    """Two adjacent sizes of one sized item: the first goes back for size, the second is kept."""
+
+    days: int
+    pending: bool = False
+
+
+@dataclass(frozen=True)
+class Fixed:
+    """A line decided by the script itself (the defective jacket)."""
+
+    line: ScriptedLine
+
+
+Spec = Keep | Back | Pair | Fixed
+
+# When a pool has no item left that is not already in the order, the next pool is tried.
+_FALLBACK = {"dear": ("dear", "sized", "any"), "sized": ("sized", "any"), "any": ("any",)}
+
+
 class Picker:
     """Variants for scripted orders: listed before the period, not defective, popular."""
 
@@ -37,21 +84,35 @@ class Picker:
         for vid in (golden.DEFECTIVE_JACKET, golden.JACKET_SIBLING):
             if vid in cat.variant_id:
                 safe[cat.index_of(vid)] = False
+        safe &= cat.popularity > 0
         sized = safe & (cat.size_kind != int(SizeKind.ONE))
+        if not sized.any():
+            raise CalibrationError(
+                [
+                    "the golden cases need a sized item listed before the period (Giulia "
+                    "brackets two sizes) and this catalogue has none: use a larger --scale or "
+                    "a calibration with more sized product types"
+                ]
+            )
         price = cat.price_cents
-        median = float(np.median(price[sized])) if sized.any() else 0.0
+        median = float(np.median(price[sized]))
         self.pools = {
             "any": np.flatnonzero(safe),
             "sized": np.flatnonzero(sized),
             "dear": np.flatnonzero(sized & (price >= median)),
         }
 
-    def variant(self, pool: str = "any") -> int:
-        candidates = self.pools[pool]
-        if len(candidates) == 0:
-            candidates = self.pools["any"]
-        weights = self.cat.popularity[candidates]
-        return int(self.rng.choice(candidates, p=weights / weights.sum()))
+    def variant(self, pool: str, taken: set[int], sized: bool = False) -> int:
+        """A popular item of `pool` that is not in `taken` (the order so far)."""
+        for name in _FALLBACK[pool]:
+            if sized and name == "any":
+                break
+            candidates = self.pools[name]
+            candidates = candidates[~np.isin(candidates, np.fromiter(taken, np.int64))]
+            if len(candidates):
+                weights = self.cat.popularity[candidates]
+                return int(self.rng.choice(candidates, p=weights / weights.sum()))
+        raise CalibrationError([f"no distinct {pool} item left for a golden order: scale too low"])
 
     def size(self, variant: int) -> int:
         kind = SizeKind(int(self.cat.size_kind[variant]))
@@ -60,26 +121,33 @@ class Picker:
         codes, weights = size_codes(kind)
         return int(self.rng.choice(codes, p=np.asarray(weights) / sum(weights)))
 
-    def keep(self, pool: str = "any") -> ScriptedLine:
-        v = self.variant(pool)
-        return ScriptedLine(v, self.size(v), KEEP)
+    def lines(self, spec: Spec, taken: set[int]) -> tuple[ScriptedLine, ...]:
+        if isinstance(spec, Fixed):
+            return (spec.line,)
+        if isinstance(spec, Pair):
+            v = self.variant("dear", taken, sized=True)
+            codes, _ = size_codes(SizeKind(int(self.cat.size_kind[v])))
+            i = int(self.rng.integers(1, len(codes) - 2)) if len(codes) > 3 else 0
+            return (
+                ScriptedLine(v, codes[i], RETURN, "size", spec.days, spec.pending),
+                ScriptedLine(v, codes[i + 1], KEEP),
+            )
+        v = self.variant(spec.pool, taken)
+        if isinstance(spec, Keep):
+            return (ScriptedLine(v, self.size(v), KEEP),)
+        return (ScriptedLine(v, self.size(v), RETURN, spec.reason, spec.days, spec.pending),)
 
-    def give_back(
-        self, reason: str, days: int, pool: str = "any", pending: bool = False
-    ) -> ScriptedLine:
-        v = self.variant(pool)
-        return ScriptedLine(v, self.size(v), RETURN, reason, days, pending)
-
-    def pair(self, returned_days: int, pending: bool = False) -> tuple[ScriptedLine, ScriptedLine]:
-        """Two adjacent sizes of one item: the first goes back for size, the second is kept."""
-        v = self.variant("dear")
-        codes, _ = size_codes(SizeKind(int(self.cat.size_kind[v])))
-        i = int(self.rng.integers(1, len(codes) - 2)) if len(codes) > 3 else 0
-        first, second = codes[i], codes[i + 1]
-        return (
-            ScriptedLine(v, first, RETURN, "size", returned_days, pending),
-            ScriptedLine(v, second, KEEP),
-        )
+    def order(
+        self, customer: int, placed_at: int, delivery_days: int, *specs: Spec, welcome: bool = False
+    ) -> ScriptedOrder:
+        """A scripted order whose lines follow `specs`, each item at most once (pairs aside)."""
+        taken: set[int] = set()
+        lines: list[ScriptedLine] = []
+        for spec in specs:
+            drawn = self.lines(spec, taken)
+            taken.update(line.variant for line in drawn)
+            lines.extend(drawn)
+        return ScriptedOrder(customer, placed_at, delivery_days, tuple(lines), welcome)
 
 
 def script_golden(
@@ -117,18 +185,16 @@ def _giulia(
     _own(ids, factory, g, "Giulia.Bianchi@gmail.com", factory.address())
     ids.add(g, "device", factory.token("dev"), at(2026, 1, 10, 12, 40))  # a new laptop
     ids.add(g, "ip_prefix", factory.mobile_ip(), at(2026, 5, 9, 13, 10))
-    first, second, third = pick.pair(3), pick.pair(2), pick.pair(3, pending=True)
+    o = pick.order
     return [
-        ScriptedOrder(g, at(2025, 10, 18, 20, 15), 2, (*first, pick.keep("dear"))),
-        ScriptedOrder(g, at(2025, 11, 28, 21, 5), 3, (pick.keep("dear"), pick.keep())),
-        ScriptedOrder(g, at(2026, 1, 10, 12, 40), 2, (*second, pick.keep("dear"))),
-        ScriptedOrder(
-            g, at(2026, 3, 21, 19, 30), 2, (pick.keep("dear"), pick.give_back("size", 4))
-        ),
-        ScriptedOrder(g, at(2026, 5, 9, 13, 10), 2, (pick.keep("dear"), pick.keep())),
-        ScriptedOrder(g, at(2026, 7, 4, 10, 45), 3, (pick.keep("dear"),)),
+        o(g, at(2025, 10, 18, 20, 15), 2, Pair(3), Keep("dear")),
+        o(g, at(2025, 11, 28, 21, 5), 3, Keep("dear"), Keep()),
+        o(g, at(2026, 1, 10, 12, 40), 2, Pair(2), Keep("dear")),
+        o(g, at(2026, 3, 21, 19, 30), 2, Keep("dear"), Back("size", 4)),
+        o(g, at(2026, 5, 9, 13, 10), 2, Keep("dear"), Keep()),
+        o(g, at(2026, 7, 4, 10, 45), 3, Keep("dear")),
         # Monday 21 September, delivered Wednesday, size return requested Saturday: pending.
-        ScriptedOrder(g, at(2026, 9, 21, 20, 30), 2, (*third, pick.keep())),
+        o(g, at(2026, 9, 21, 20, 30), 2, Pair(3, pending=True), Keep()),
     ]
 
 
@@ -182,15 +248,15 @@ def _marco(
     orders: list[ScriptedOrder] = []
     for k, c in enumerate(m):
         created = to_us(golden.ACCOUNTS[golden.MARCO_ACCOUNTS[k]][0])
-        lines = tuple(pick.give_back(_RING_REASONS[(k + j) % 3], 2 + (k + j) % 4) for j in range(3))
-        orders.append(ScriptedOrder(c, created + 22 * 3600 * 10**6, 2, lines, welcome=True))
+        backs = [Back(_RING_REASONS[(k + j) % 3], 2 + (k + j) % 4) for j in range(3)]
+        orders.append(pick.order(c, created + 22 * 3600 * 10**6, 2, *backs, welcome=True))
         if k % 2 == 0:  # accounts 1, 3, 5 and 7 order again five weeks later
-            second = pick.keep() if k in (0, 4) else pick.give_back("not_as_expected", 4)
-            again = (pick.give_back("changed_mind", 3), second)
-            orders.append(ScriptedOrder(c, created + 35 * US_PER_DAY, 2, again))
+            second: Spec = Keep() if k in (0, 4) else Back("not_as_expected", 4)
+            again = (Back("changed_mind", 3), second)
+            orders.append(pick.order(c, created + 35 * US_PER_DAY, 2, *again))
     # Account 7, Tuesday 22 September: a return requested on Sunday 27, pending.
-    late = (pick.give_back("changed_mind", 3, pending=True), pick.keep())
-    orders.append(ScriptedOrder(m[6], at(2026, 9, 22, 20, 10), 2, late))
+    late = (Back("changed_mind", 3, pending=True), Keep())
+    orders.append(pick.order(m[6], at(2026, 9, 22, 20, 10), 2, *late))
     return orders
 
 
@@ -232,27 +298,27 @@ def _rossi(
     rc = [pop.index(c) for c in golden.ROSSI_CARD_ACCOUNTS]
     _family(factory, ids, r, ROSSI_EMAILS, shared_card=False)
     _family(factory, ids, rc, ROSSI_CARD_EMAILS, shared_card=True)
-    k, b = pick.keep, pick.give_back
+    o, k, b = pick.order, Keep(), Back
     return [
-        ScriptedOrder(r[0], at(2025, 10, 25, 18, 30), 2, (k(), k())),
-        ScriptedOrder(r[0], at(2026, 1, 17, 11, 0), 3, (k(), b("changed_mind", 5))),
-        ScriptedOrder(r[0], at(2026, 4, 18, 16, 20), 2, (k(), k())),
-        ScriptedOrder(r[0], at(2026, 9, 22, 19, 0), 2, (b("size", 3, pending=True), k())),
-        ScriptedOrder(r[1], at(2025, 12, 6, 10, 30), 2, (k(),)),
-        ScriptedOrder(r[1], at(2026, 3, 7, 15, 45), 2, (k(), b("size", 4))),
-        ScriptedOrder(r[1], at(2026, 6, 13, 12, 0), 3, (k(), k())),
-        ScriptedOrder(r[2], at(2025, 11, 15, 21, 10), 2, (k(), b("not_as_expected", 6))),
-        ScriptedOrder(r[2], at(2026, 2, 21, 17, 30), 2, (k(),)),
-        ScriptedOrder(r[2], at(2026, 8, 29, 20, 0), 2, (k(), k())),
-        ScriptedOrder(rc[0], at(2025, 10, 11, 10, 0), 2, (k(), k())),
-        ScriptedOrder(rc[0], at(2026, 2, 7, 18, 0), 2, (k(), b("size", 4))),
-        ScriptedOrder(rc[0], at(2026, 5, 23, 11, 30), 2, (k(),)),
-        ScriptedOrder(rc[1], at(2025, 12, 13, 20, 0), 2, (k(), b("changed_mind", 6))),
-        ScriptedOrder(rc[1], at(2026, 4, 11, 13, 0), 3, (k(), k())),
-        ScriptedOrder(rc[1], at(2026, 9, 23, 21, 0), 2, (b("size", 2, pending=True), k())),
-        ScriptedOrder(rc[2], at(2025, 10, 30, 19, 0), 2, (k(),)),
-        ScriptedOrder(rc[2], at(2026, 1, 24, 15, 0), 2, (k(), k())),
-        ScriptedOrder(rc[2], at(2026, 7, 11, 10, 0), 3, (k(), b("not_as_expected", 5))),
+        o(r[0], at(2025, 10, 25, 18, 30), 2, k, k),
+        o(r[0], at(2026, 1, 17, 11, 0), 3, k, b("changed_mind", 5)),
+        o(r[0], at(2026, 4, 18, 16, 20), 2, k, k),
+        o(r[0], at(2026, 9, 22, 19, 0), 2, b("size", 3, pending=True), k),
+        o(r[1], at(2025, 12, 6, 10, 30), 2, k),
+        o(r[1], at(2026, 3, 7, 15, 45), 2, k, b("size", 4)),
+        o(r[1], at(2026, 6, 13, 12, 0), 3, k, k),
+        o(r[2], at(2025, 11, 15, 21, 10), 2, k, b("not_as_expected", 6)),
+        o(r[2], at(2026, 2, 21, 17, 30), 2, k),
+        o(r[2], at(2026, 8, 29, 20, 0), 2, k, k),
+        o(rc[0], at(2025, 10, 11, 10, 0), 2, k, k),
+        o(rc[0], at(2026, 2, 7, 18, 0), 2, k, b("size", 4)),
+        o(rc[0], at(2026, 5, 23, 11, 30), 2, k),
+        o(rc[1], at(2025, 12, 13, 20, 0), 2, k, b("changed_mind", 6)),
+        o(rc[1], at(2026, 4, 11, 13, 0), 3, k, k),
+        o(rc[1], at(2026, 9, 23, 21, 0), 2, b("size", 2, pending=True), k),
+        o(rc[2], at(2025, 10, 30, 19, 0), 2, k),
+        o(rc[2], at(2026, 1, 24, 15, 0), 2, k, k),
+        o(rc[2], at(2026, 7, 11, 10, 0), 3, k, b("not_as_expected", 5)),
     ]
 
 
@@ -262,15 +328,22 @@ def _elena(
     e = pop.index(golden.ELENA)
     _own(ids, factory, e, "elena.conti@libero.it", factory.address())
     jacket = cat.index_of(golden.DEFECTIVE_JACKET)
-    medium = size_codes(SizeKind.APPAREL)[0][2]
+    sizes = jacket_sizes(cat)
+    medium = sizes[len(sizes) // 2]  # M for an apparel jacket
     fit = ScriptedLine(jacket, medium, RETURN, golden.JACKET_DEFECT_REASON, 3, pending=True)
     return [
-        ScriptedOrder(e, at(2025, 11, 20, 19, 0), 2, (pick.keep(), pick.keep())),
-        ScriptedOrder(e, at(2026, 3, 5, 12, 30), 2, (pick.keep(), pick.give_back("size", 5))),
+        pick.order(e, at(2025, 11, 20, 19, 0), 2, Keep(), Keep()),
+        pick.order(e, at(2026, 3, 5, 12, 30), 2, Keep(), Back("size", 5)),
         # Monday 21 September, in the jacket's defect window: delivered Wednesday, returned for
         # the fit defect on Saturday (pending).
-        ScriptedOrder(e, at(2026, 9, 21, 19, 42), 2, (fit, pick.keep())),
+        pick.order(e, at(2026, 9, 21, 19, 42), 2, Fixed(fit), Keep()),
     ]
+
+
+def jacket_sizes(cat: Catalogue) -> list[int]:
+    """Size codes of the golden jacket: those of its category (catalogue.jacket_type)."""
+    kind = SizeKind(int(cat.size_kind[cat.index_of(golden.DEFECTIVE_JACKET)]))
+    return size_codes(kind)[0]
 
 
 def _jacket_returners(
@@ -288,17 +361,17 @@ def _jacket_returners(
     )
     k = golden.INDEPENDENT_JACKET_RETURNERS
     chosen = np.sort(rng.choice(eligible, size=min(k, len(eligible)), replace=False))
-    sizes = size_codes(SizeKind.APPAREL)[0]
+    sizes = jacket_sizes(cat)
     orders = []
     for j, c in enumerate(chosen):
         placed = window_start + (1 + 5 * j) * US_PER_DAY + int(rng.integers(17, 22)) * 3600 * 10**6
         fit = ScriptedLine(
             jacket,
-            sizes[int(rng.integers(1, 4))],
+            sizes[int(rng.integers(1, len(sizes) - 1))],  # S, M or L for an apparel jacket
             RETURN,
             golden.JACKET_DEFECT_REASON,
             int(rng.integers(2, 9)),
         )
-        lines = (fit, pick.keep()) if rng.random() < 0.5 else (fit,)
-        orders.append(ScriptedOrder(int(c), placed, int(rng.integers(2, 4)), lines))
+        specs: tuple[Spec, ...] = (Fixed(fit), Keep()) if rng.random() < 0.5 else (Fixed(fit),)
+        orders.append(pick.order(int(c), placed, int(rng.integers(2, 4)), *specs))
     return orders

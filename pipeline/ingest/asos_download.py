@@ -145,11 +145,21 @@ def verify(dest: Path, expected: Mapping[str, Pinned] | None = None) -> dict[str
     return problems
 
 
+# A temporary file is always created anew and never through a symlink planted at its name.
+_NEW_FILE = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+
+
+def _create(path: Path) -> int:
+    """A file descriptor of a new file at `path`, after removing whatever was there."""
+    path.unlink(missing_ok=True)
+    return os.open(path, _NEW_FILE, 0o644)
+
+
 def _stream_into(stream: BinaryIO, tmp: Path, pin: Pinned, origin: str) -> None:
     """Copy `stream` to `tmp` chunk by chunk while hashing; fail closed on size or hash."""
     digest = hashlib.sha256()
     size = 0
-    with tmp.open("wb") as out:
+    with os.fdopen(_create(tmp), "wb") as out:
         while chunk := stream.read(CHUNK):
             size += len(chunk)
             if size > pin.size:
@@ -197,8 +207,12 @@ def _write_log(dest: Path, files: Mapping[str, Pinned], actions: Mapping[str, st
         },
     }
     tmp = dest / f".{MANIFEST}.part"
-    tmp.write_text(json.dumps(log, indent=2, sort_keys=True) + "\n")
-    os.replace(tmp, dest / MANIFEST)
+    try:
+        with os.fdopen(_create(tmp), "w", encoding="utf-8") as out:
+            out.write(json.dumps(log, indent=2, sort_keys=True) + "\n")
+        os.replace(tmp, dest / MANIFEST)
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 def download(

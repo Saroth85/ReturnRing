@@ -65,12 +65,32 @@ MAX_LINES_PER_ORDER: Final = 8
 NEW_ACCOUNT_SHARE: Final = 0.35  # accounts created during the period
 OLD_ACCOUNT_YEARS: Final = 4  # older accounts are created up to 4 years before the period
 
+
+def customers_at(scale: float) -> int:
+    """Number of customers of a store at `scale`."""
+    return max(MIN_CUSTOMERS, round(CUSTOMERS_AT_SCALE_1 * scale))
+
+
+def expected_weekly_lines(scale: float) -> float:
+    """Average order lines a week of the whole store at `scale` (before seasonality)."""
+    return LINES_PER_CUSTOMER_YEAR * customers_at(scale) / 52.0
+
+
 # ---- Behaviours (spec section 7 table; ground truth in truth/labels) ----------------------------
 
 BEHAVIOUR_SHARES: Final = MappingProxyType(
     {"size": 0.12, "wardrober": 0.03, "promo_ring": 0.015, "shared_benign": 0.035}
 )  # normal: the rest, 80%
 DEFECTIVE_VARIANT_SHARE: Final = 0.02
+# A defective batch sells strongly in the first weeks of its window (review G6): about this many
+# sales a week, so that the weekly detector of spec 8.9 (at least 20 sales a week, z > 3) can see
+# it. Lines of the same product type switch to the variant, so type sales shares do not move.
+DEFECT_WEEKLY_SALES: Final = 28
+DEFECT_BOOST_WEEKS: Final = 4
+# At most this share of a type's lines in a week switch to one defective variant; so a variant is
+# eligible for a defect only if its type sells DEFECT_WEEKLY_SALES / DEFECT_MAX_TYPE_SHARE lines a
+# week on average (all types at scale 1.0 with the real calibration; fewer at small scales).
+DEFECT_MAX_TYPE_SHARE: Final = 0.5
 
 # Return probability of a line for a non-abusive customer: k_type x base_return_rate x propensity,
 # with the propensity drawn from Gamma(shape, 1/shape) (mean 1) and k fitted per product type so
@@ -78,6 +98,10 @@ DEFECTIVE_VARIANT_SHARE: Final = 0.02
 PROPENSITY_SHAPE: Final = 6.0
 MAX_LINE_RETURN_PROBABILITY: Final = 0.95
 WARDROBE_RETURN_PROBABILITY: Final = 0.80  # high-value lines of a wardrober
+# A tendency, not a rule (review G2): this share of wardrober orders moves to the Tuesday,
+# Wednesday or Thursday of its week, so the items are in hand for the weekend; the other orders
+# keep their calendar day, and every order has the shop's delivery lag.
+WARDROBE_MIDWEEK_SHARE: Final = 0.55
 BRACKETING_ORDER_SHARE: Final = 0.5  # orders of a size customer with two sizes of one item
 LOST_PARCEL_SHARE: Final = 0.003  # orders never delivered
 

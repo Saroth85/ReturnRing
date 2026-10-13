@@ -434,3 +434,19 @@ def test_verify_only_with_an_escaping_symlink_fails_cleanly(
     code, _, err = run(["--dest", str(dest), "--verify-only"], capsys)
     assert code == 1
     assert "resolves outside" in err
+
+
+def test_i2_a_planted_symlink_at_the_log_part_file_is_not_followed(tmp_path: Path) -> None:
+    """The log is written through a temporary name in dest: a symlink planted there must not
+    redirect the write to a file outside dest (review I2)."""
+    outside = tmp_path / "outside.txt"
+    outside.write_text("keep me")
+    dest = tmp_path / "dest"
+    dest.mkdir()
+    (dest / f".{dl.MANIFEST}.part").symlink_to(outside)
+    dl.download(dest, opener=Server(), expected=FAKE)
+    assert outside.read_text() == "keep me"
+    assert not (dest / f".{dl.MANIFEST}.part").exists()
+    assert not (dest / f".{dl.MANIFEST}.part").is_symlink()
+    log = json.loads((dest / dl.MANIFEST).read_text())
+    assert set(log["files"]) == set(CONTENT)

@@ -2,8 +2,8 @@
 [--scale 1.0] [--scenario main|ood]
 
 Writes the Navigli Fashion store (synthetic, calibrated on ASOS aggregates) and prints a JSON
-summary on stdout; the elapsed time goes to stderr. Exit codes: 0 done, 1 invalid calibration,
-2 usage.
+summary on stdout; the elapsed time goes to stderr. Exit codes: 0 done, 1 invalid calibration (or a
+valid one no store can be built from, such as one-size types only), 2 usage.
 """
 
 from __future__ import annotations
@@ -62,7 +62,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     started = time.perf_counter()  # elapsed time for the log only, never written to a file
-    summary = generate(cal, args.out, args.seed, args.scale, args.scenario)
+    try:
+        summary = generate(cal, args.out, args.seed, args.scale, args.scenario)
+    except CalibrationError as exc:  # valid file, but no store can be built from it (G3)
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
     print(json.dumps(summary, indent=2, sort_keys=True))
     print(f"generated in {time.perf_counter() - started:.1f} s", file=sys.stderr)
     return 0

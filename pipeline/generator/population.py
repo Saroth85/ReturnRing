@@ -20,9 +20,7 @@ from pipeline.generator.config import (
     BEHAVIOUR_SHARES,
     COLLECTIVE_ADDRESSES_AT_SCALE_1,
     COLLECTIVE_SIZE,
-    CUSTOMERS_AT_SCALE_1,
     END_US,
-    MIN_CUSTOMERS,
     NEW_ACCOUNT_SHARE,
     OLD_ACCOUNT_YEARS,
     PICKUP_MIN_SIZE,
@@ -32,6 +30,7 @@ from pipeline.generator.config import (
     START_US,
     US_PER_DAY,
     ScenarioConfig,
+    customers_at,
     to_us,
 )
 from pipeline.generator.timeline import uniform_us
@@ -153,7 +152,7 @@ def _created(rng: np.random.Generator, n: int, new_share: float) -> I64:
 
 
 def build_population(scale: float, cfg: ScenarioConfig, rng: np.random.Generator) -> Population:
-    n = max(MIN_CUSTOMERS, round(CUSTOMERS_AT_SCALE_1 * scale))
+    n = customers_at(scale)
     n_rings = max(1, round(cfg.rings_at_scale_1 * scale))
     ring_sizes = _ring_sizes(n, n_rings, cfg, rng)
 

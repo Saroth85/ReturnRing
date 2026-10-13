@@ -5,5 +5,6 @@ python -m pipeline.generator --calibration <json> --out data --seed 42 [--scale 
 
 Deterministic (DATA-04): the same seed and calibration give byte-identical files. The store goes to
 <out>/store, the ground truth to <out>/truth (rule 12: running services never read it), and the
-out-of-distribution scenario to <out>/ood (never used in training, US-105).
+out-of-distribution scenario to <out>/ood/store and <out>/truth/ood (never used in training,
+US-105).
 """

@@ -16,7 +16,7 @@ import pytest
 from jsonschema import Draft202012Validator
 
 from contracts.calibration import QUANTILE_KEYS, check_calibration
-from contracts.levers import LEVER_SCOPES, LEVERS, lever_json_schema
+from contracts.levers import LEVER_SCOPES, LEVERS, lever_json_schema, lever_list_json_schema
 from contracts.parquet import (
     ANOMALY_STATUSES,
     AS_OF_TABLES,
@@ -83,6 +83,57 @@ def test_lever_schema_in_json_contracts_is_generated_from_the_catalogue() -> Non
     expected = lever_json_schema()
     assert schema_of("llm_case")["properties"]["levers"]["items"] == expected
     assert schema_of("decision_request")["properties"]["levers"]["items"] == expected
+
+
+def test_lever_arrays_in_json_contracts_are_generated_from_the_catalogue() -> None:
+    expected = lever_list_json_schema()
+    assert expected["uniqueItems"] is True
+    assert schema_of("llm_case")["properties"]["levers"] == expected
+    assert schema_of("decision_request")["properties"]["levers"] == expected
+
+
+ALL_ORDERS = [lever.id for lever in LEVERS if lever.scope == "all_orders"]
+
+
+@pytest.mark.parametrize("lever_id", ALL_ORDERS)
+def test_all_orders_levers_only_carry_true(lever_id: str) -> None:
+    """C5: a lever that also holds for orders already placed can only be an upgrade."""
+    assert ALL_ORDERS == ["free_size_exchange", "priority_size_exchange"]
+    upgrade = {"id": lever_id, "value": True, "scope": "all_orders"}
+    restriction = {"id": lever_id, "value": False, "scope": "all_orders"}
+    for name in ("llm_case", "decision_request"):
+        doc = example_of(name)
+        doc["levers"] = [upgrade]
+        assert errors(name, doc) == []
+        doc["levers"] = [restriction]
+        assert errors(name, doc), name
+
+
+@pytest.mark.parametrize(
+    "levers",
+    [
+        [  # the same lever twice with opposite values
+            {"id": "instant_refund", "value": False, "scope": "future_orders"},
+            {"id": "instant_refund", "value": True, "scope": "future_orders"},
+        ],
+        [  # the same object twice
+            {"id": "transparency_notice", "value": True, "scope": "communication"},
+            {"id": "transparency_notice", "value": True, "scope": "communication"},
+        ],
+        [
+            {"id": "return_window_days", "value": 14, "scope": "future_orders"},
+            {"id": "return_window_days", "value": 60, "scope": "future_orders"},
+        ],
+    ],
+)
+def test_lever_arrays_reject_duplicate_ids(levers: list[dict[str, Any]]) -> None:
+    """C6: one value per lever in a decision."""
+    for name in ("llm_case", "decision_request"):
+        doc = example_of(name)
+        doc["levers"] = levers
+        assert errors(name, doc), name
+        doc["levers"] = levers[:1]
+        assert errors(name, doc) == [], name
 
 
 def test_lever_scopes_are_the_contract_scopes() -> None:
@@ -458,6 +509,24 @@ def test_every_real_asos_protected_or_identifier_column_is_forbidden() -> None:
         "phone",
         "ip_prefix",
         "device_id",
+        # Raw identifiers and country proxies (review finding C4).
+        "email_normalized",
+        "normalized_email",
+        "address_normalized",
+        "ip_prefix_24",
+        "device",
+        "customer_email",
+        "shipping_address",
+        "billing_address",
+        "customer_ip",
+        "device_fingerprint",
+        "phone_e164",
+        "postcode",
+        "zip_code",
+        "nationality",
+        "customer_nationality",
+        "shippingAddress",
+        "customerEmail",
     ],
 )
 def test_forbidden_feature_patterns(name: str) -> None:
@@ -485,6 +554,17 @@ def test_forbidden_feature_patterns(name: str) -> None:
         "max_sharers",
         "message_length",
         "anomaly_z",
+        # Aggregates over identifiers are allowed (C4): n_*, *_count, shared_*, *_share.
+        "n_shared_devices",
+        "n_distinct_emails",
+        "device_count",
+        "address_count",
+        "shared_addresses",
+        "shared_device",
+        "email_share",
+        "ip_prefix_share",
+        "shipping_cost",
+        "zipper_defect_rate",
     ],
 )
 def test_allowed_feature_names(name: str) -> None:

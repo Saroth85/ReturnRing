@@ -4,7 +4,8 @@
 #   demo: -f infra/docker-compose.yml -f infra/compose.demo.yml  (DEMO_MODE=cached)
 #   GPU spikes add -f infra/compose.spike.yml (infra/spikes/README.md). Use the Makefile targets.
 # Images are pinned by tag@digest in .env.example (VLLM_IMAGE, DGL_IMAGE, ROCM_BASE_IMAGE).
-# Never mount data/truth/ into a running service (CLAUDE.md rule 12).
+# Rule 12 (as rewritten in ADR-13): running services (api, ui, proxy, demo) never mount data/ or
+# data/truth/; only offline jobs read it: the generator writes data/, the trainers read it (ro).
 name: returnring
 
 x-gpu: &gpu
@@ -68,7 +69,17 @@ services:
       context: ..
       dockerfile: apps/api/Dockerfile
     profiles: [dev, gpu]
-    command: ["python", "-c", "print('pipeline image ready: see docs/spec.md section 15')"]
+    # Job container: the Navigli Fashion store (US-102..US-105) from the committed real
+    # calibration, main then OOD scenario (docs/synthetic-store.md). It writes data/store,
+    # data/truth, data/ood/store and data/truth/ood.
+    command:
+      - sh
+      - -c
+      - >-
+        python -m pipeline.generator --calibration pipeline/calibration/asos_calibration.json
+        --out data --seed ${SEED:-42} --scenario main &&
+        python -m pipeline.generator --calibration pipeline/calibration/asos_calibration.json
+        --out data --seed ${SEED:-42} --scenario ood
     volumes:
       - ../data:/app/data
       - ../artifacts:/app/artifacts
@@ -125,9 +136,10 @@ services:
     profiles: [gpu]
     environment:
       SEED: ${SEED:-42}
-    # Job container (ADR-02). ML stories add read-only mounts of the data they need, never
-    # data/truth/ (rule 12).
+    # Job container (ADR-02): an offline training job, so it may read the synthetic labels in
+    # data/truth (rule 12, ADR-13), read-only. Running services never mount data/.
     volumes:
+      - ../data:/app/data:ro
       - ../artifacts:/app/artifacts
 
   trainer-gnn:
@@ -144,7 +156,9 @@ services:
       - python
       - -c
       - "import dgl, torch; print('dgl', dgl.__version__, 'torch', torch.__version__, 'hip', torch.version.hip, 'gpu', torch.cuda.is_available()); raise SystemExit(0 if torch.cuda.is_available() else 1)"
+    # Offline training job: reads data/ (truth included, rule 12 and ADR-13) read-only.
     volumes:
+      - ../data:/app/data:ro
       - ../artifacts:/app/artifacts
 
   telemetry:

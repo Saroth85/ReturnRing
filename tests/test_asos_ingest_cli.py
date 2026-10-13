@@ -125,3 +125,30 @@ def test_an_escaping_symlink_stops_the_run(
     (dest / "event_table_training.p").symlink_to(tmp_path / "outside.p")
     assert cli.main(args(tmp_path, "--skip-download")) == 1
     assert "[verify] failed" in capsys.readouterr().err
+
+
+def test_i3_a_calibration_path_that_cannot_be_written_exits_1(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An OSError in convert or profile is a clean exit 1 with a message, and no .tmp is left
+    (review I3). Here the calibration path is an existing directory."""
+    pins = write_replica(tmp_path / "data/raw/asos")
+    monkeypatch.setattr(dl, "EXPECTED", pins)
+    (tmp_path / "calibration.json").mkdir()
+    assert cli.main(args(tmp_path, "--skip-download")) == 1
+    err = capsys.readouterr().err
+    assert "[convert/profile] failed" in err and "calibration.json" in err
+    assert not list(tmp_path.glob("*.tmp"))
+
+
+def test_i3_a_data_root_that_is_a_file_exits_1(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    pins = write_replica(tmp_path / "data/raw/asos")
+    monkeypatch.setattr(dl, "EXPECTED", pins)
+    root = tmp_path / "not-a-folder"
+    root.write_text("a file")
+    argv = args(tmp_path, "--skip-download")
+    argv[argv.index("--data-root") + 1] = str(root)
+    assert cli.main(argv) == 1
+    assert "[convert/profile] failed" in capsys.readouterr().err

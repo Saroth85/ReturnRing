@@ -5,23 +5,32 @@ every table through contracts.io.write_table (nature "synthetic") and returns a 
 wrote. Determinism (DATA-04, NFR-10): only numpy Generator(PCG64) streams derived from the seed, no
 wall clock, sorted outputs; the same seed and calibration give byte-identical files.
 
-Layout: <out>/store/*.parquet and <out>/truth/*.parquet for the main scenario; the out-of-
-distribution scenario (US-105) goes to <out>/ood/store and <out>/ood/truth and is never used in
-training (MOD-12): it is read only by the evaluation that reports it on a separate row.
+Layout (scenario_roots): <out>/store/*.parquet and <out>/truth/*.parquet for the main scenario.
+The out-of-distribution scenario (US-105) writes its store to <out>/ood/store and its truth under
+<out>/truth/ood (files <out>/truth/ood/truth/*.parquet), so one folder, <out>/truth, holds every
+ground truth (rule 12). It is never used in training (MOD-12): only the evaluation reads it, and
+reports it on a separate row.
+
+Provenance (rule 11): nature synthetic; the origin names the calibration and the store period
+(October 2025 to September 2026); the period of each file covers its rows, so store/customers and
+store/variants start with the oldest account and the oldest listing.
 """
 
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import date
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import numpy.typing as npt
 import pyarrow as pa
+import pyarrow.compute as pc
 
 from contracts.io import Provenance, write_table
+from contracts.parquet import EVENT_TABLES
 from pipeline.generator import golden, tables
 from pipeline.generator.accounts import (
     COLLECTIVE_NAMES,
@@ -35,6 +44,7 @@ from pipeline.generator.calibration import Calibration, implied_overall_rate, ty
 from pipeline.generator.catalogue import Catalogue, build_catalogue
 from pipeline.generator.config import (
     BASE_ORIGIN,
+    DEFECT_BOOST_WEEKS,
     END_US,
     MATURITY_DAYS,
     PERIOD_FIRST_DAY,
@@ -50,6 +60,7 @@ from pipeline.generator.orders import (
     Deliveries,
     OrderPlan,
     add_scripted,
+    boost_defect_windows,
     orders_by_customer,
     plan_coupons,
     plan_deliveries,
@@ -92,12 +103,18 @@ STREAMS = (
     "states",
     "terms",
     "salt",
+    "defects",  # appended last: the other streams keep their spawn keys
 )
+DETECTOR_MIN_WEEKLY_SALES = 20  # spec 8.9: a variant is assessed only with 20 sales in the week
 
 
-def scenario_root(out: Path | str, scenario: str) -> Path:
-    """Where a scenario's store and truth go: <out> for main, <out>/ood for ood."""
-    return Path(out) if scenario == "main" else Path(out) / scenario
+def scenario_roots(out: Path | str, scenario: str) -> tuple[Path, Path]:
+    """The contracts.io roots of a scenario: (store root, truth root). Main: <out> for both, so
+    <out>/store and <out>/truth. OOD: <out>/ood/store and <out>/truth/ood/truth, so every ground
+    truth lives under <out>/truth (rule 12)."""
+    if scenario == "main":
+        return Path(out), Path(out)
+    return Path(out) / scenario, Path(out) / "truth" / scenario
 
 
 def stream(seed: int, cfg: ScenarioConfig, name: str) -> np.random.Generator:
@@ -140,6 +157,7 @@ def build_store(cal: Calibration, seed: int, scale: float, cfg: ScenarioConfig) 
     plan_generic_identifiers(pop, cfg, factory, ids, pickups, collectives)
 
     plan = plan_generic_orders(pop, cat, cal, cfg, stream(seed, cfg, "orders"), Calendar())
+    boost_defect_windows(plan, cat, stream(seed, cfg, "defects"))
     add_scripted(plan, scripted)
     coupons, order_coupon = plan_coupons(plan, pop, cat, cfg, stream(seed, cfg, "coupons"))
     deliveries = plan_deliveries(plan, stream(seed, cfg, "deliveries"))
@@ -196,10 +214,11 @@ def to_tables(store: Store, seed: int) -> dict[str, pa.Table]:
 
 def provenance(cal: Calibration, seed: int, scale: float, cfg: ScenarioConfig) -> Provenance:
     """Origin names the calibration it was built from, so an illustrative calibration is never
-    mistaken for ASOS measurements (rule 11)."""
+    mistaken for ASOS measurements (rule 11). The period is the store period."""
     origin = (
         f"{BASE_ORIGIN} (calibration: {cal.origin}; calibration nature {cal.nature}; "
-        f"sha256 {cal.sha256[:12] or 'n/a'}; seed {seed}, scale {scale:g}, scenario {cfg.name})"
+        f"sha256 {cal.sha256[:12] or 'n/a'}; seed {seed}, scale {scale:g}, scenario {cfg.name}; "
+        f"store period {PERIOD_FIRST_DAY.isoformat()}..{PERIOD_LAST_DAY.isoformat()})"
     )
     return Provenance(
         origin=origin,
@@ -207,6 +226,15 @@ def provenance(cal: Calibration, seed: int, scale: float, cfg: ScenarioConfig) -
         period_end=PERIOD_LAST_DAY,
         nature="synthetic",
     )
+
+
+def table_provenance(prov: Provenance, name: str, table: pa.Table) -> Provenance:
+    """The provenance of one file: its period starts with its oldest event, at the latest on
+    the first day of the store (accounts and listings older than the store, rule 11)."""
+    if name not in EVENT_TABLES or table.num_rows == 0:
+        return prov
+    first: date = pc.min(table.column("event_at").cast(pa.date32())).as_py()
+    return replace(prov, period_start=min(first, prov.period_start))
 
 
 def generate(
@@ -222,11 +250,12 @@ def generate(
     cfg = SCENARIOS[scenario]
     store = build_store(cal, seed, scale, cfg)
     built = to_tables(store, seed)
-    root = scenario_root(out, scenario)
+    store_root, truth_root = scenario_roots(out, scenario)
     prov = provenance(cal, seed, scale, cfg)
     for name in (*STORE_TABLES, *TRUTH_TABLES):
-        write_table(name, built[name], root, prov)
-    return summarize(store, built, cal, seed, scale, prov, root)
+        root = truth_root if name in TRUTH_TABLES else store_root
+        write_table(name, built[name], root, table_provenance(prov, name, built[name]))
+    return summarize(store, built, cal, seed, scale, prov, store_root, truth_root)
 
 
 # ---- Summary ----------------------------------------------------------------------------------
@@ -234,6 +263,40 @@ def generate(
 
 def _rate(returned: npt.NDArray[np.bool_]) -> float | None:
     return round(float(returned.mean()), 4) if len(returned) else None
+
+
+def defect_detectability(store: Store) -> dict[str, Any]:
+    """Weekly sales of each defective variant in the full Monday-to-Sunday weeks of its window,
+    against the spec 8.9 minimum of 20 sales a week (US-208 can evaluate only those weeks)."""
+    cat, plan = store.cat, store.plan
+    week = 7 * US_PER_DAY
+    placed = plan.placed_at[plan.line_order]
+    reaching = 0
+    weeks_total = weeks_ok = boosted_total = boosted_ok = 0
+    defective = np.flatnonzero(cat.defective)
+    for v in defective:
+        start = int(cat.defect_start[v])
+        end = END_US if cat.defect_end[v] < 0 else int(cat.defect_end[v])
+        mine = placed[plan.line_variant == v]
+        sales = [
+            int(np.count_nonzero((mine >= lo) & (mine < lo + week)))
+            for lo in range(start, end - week + 1, week)
+        ]
+        ok = [n >= DETECTOR_MIN_WEEKLY_SALES for n in sales]
+        reaching += any(ok)
+        weeks_total, weeks_ok = weeks_total + len(ok), weeks_ok + sum(ok)
+        first = ok[:DEFECT_BOOST_WEEKS]
+        boosted_total, boosted_ok = boosted_total + len(first), boosted_ok + sum(first)
+    return {
+        "measured_on": "order lines of each full week (Monday to Sunday) of the defect window",
+        "min_weekly_sales": DETECTOR_MIN_WEEKLY_SALES,
+        "defective_variants": len(defective),
+        "variants_reaching_the_minimum": reaching,
+        "window_weeks": weeks_total,
+        "window_weeks_reaching_the_minimum": weeks_ok,
+        "boosted_weeks": boosted_total,
+        "boosted_weeks_reaching_the_minimum": boosted_ok,
+    }
 
 
 def summarize(
@@ -244,6 +307,7 @@ def summarize(
     scale: float,
     prov: Provenance,
     root: Path,
+    truth_root: Path,
 ) -> dict[str, Any]:
     """What was written, with the measured return rates against the calibration (synthetic
     numbers measured on the generated store)."""
@@ -282,6 +346,7 @@ def summarize(
         "seed": seed,
         "scale": scale,
         "root": str(root),
+        "truth_root": str(truth_root),
         "calibration": {
             "origin": cal.origin,
             "nature": cal.nature,
@@ -299,6 +364,7 @@ def summarize(
         "pickup_customers_max": int(pickup_sizes.max()) if len(pickup_sizes) else 0,
         "collective_addresses": pop.n_collective,
         "defective_variants": int(cat.defective.sum()),
+        "defect_detectability": defect_detectability(s),
         "return_rate": {
             "measured_on": f"delivered lines ordered at least {MATURITY_DAYS} days before the end",
             "mature_lines": int(mature.sum()),

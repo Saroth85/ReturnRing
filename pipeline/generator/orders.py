@@ -8,11 +8,16 @@ Behaviour signatures in the orders:
 
 - size customers bracket: in about half of their orders they buy two adjacent sizes of one item
   (MODE_PAIR lines), and later return one of the two for size;
-- wardrobers buy high-value items (popularity x price^2), order on Tuesday or Wednesday and receive
-  on Thursday or Friday, before the weekend;
+- wardrobers buy high-value items (popularity x price^2) and lean to Tuesday-Thursday orders, so the
+  items are in hand for the weekend: a tendency (WARDROBE_MIDWEEK_SHARE of their orders), not a
+  rule, so the calendar alone never gives the label away;
 - ring accounts place their first order within two days of opening, with the welcome coupon.
 
-Every order is delivered 1 to 5 days later (no Sunday deliveries), except 0.3% of lost parcels.
+Defective variants sell about DEFECT_WEEKLY_SALES a week in the first DEFECT_BOOST_WEEKS weeks of
+their defect window (boost_defect_windows), so the spec 8.9 detector can evaluate them.
+
+Every order is delivered 1 to 5 days later (no Sunday deliveries), with the same lag distribution
+for every customer, except 0.3% of lost parcels.
 """
 
 from __future__ import annotations
@@ -28,6 +33,9 @@ from pipeline.generator.config import (
     BLACK_FRIDAY_CODES_AT,
     BLACK_FRIDAY_DAYS,
     BRACKETING_ORDER_SHARE,
+    DEFECT_BOOST_WEEKS,
+    DEFECT_MAX_TYPE_SHARE,
+    DEFECT_WEEKLY_SALES,
     END_US,
     EXTRA_LINES_MEAN,
     FIXED_COUPON_CENTS,
@@ -41,6 +49,7 @@ from pipeline.generator.config import (
     US_PER_HOUR,
     US_PER_MINUTE,
     US_PER_SECOND,
+    WARDROBE_MIDWEEK_SHARE,
     WELCOME_PERCENT,
     WELCOME_REDEEM_PROBABILITY,
     ScenarioConfig,
@@ -255,7 +264,7 @@ def plan_generic_orders(
     plan = OrderPlan(
         customer=cust,
         placed_at=placed,
-        delivery_days=np.where(wardrobe, 2, -1).astype(np.int64),
+        delivery_days=np.full(n, -1, dtype=np.int64),  # drawn for everyone
         scripted=np.zeros(n, dtype=np.bool_),
         welcome=np.zeros(n, dtype=np.bool_),
         line_order=line_order,
@@ -296,14 +305,59 @@ def _distinct_in_order(
 
 
 def _wardrobe_days(rng: np.random.Generator, placed: I64, earliest: I64, wardrobe: B) -> I64:
-    """Wardrober orders move to the Tuesday or Wednesday of their week: two-day delivery puts the
-    items in hand on Thursday or Friday, before the weekend."""
-    target = np.where(rng.random(len(placed)) < 0.5, 1, 2)
+    """WARDROBE_MIDWEEK_SHARE of the wardrober orders move to the Tuesday, Wednesday or Thursday
+    of their week, so the items tend to arrive before the weekend; the others stay as drawn."""
+    n = len(placed)
+    target = rng.integers(1, 4, n)  # Tuesday, Wednesday or Thursday
+    move = wardrobe & (rng.random(n) < WARDROBE_MIDWEEK_SHARE)
     shift = ((weekday(placed) - target) % 7) * US_PER_DAY
     moved = placed - shift
     moved = np.where(moved < earliest, moved + 7 * US_PER_DAY, moved)
     moved = np.where(moved >= END_US - 3 * US_PER_DAY, moved - 7 * US_PER_DAY, moved)
-    return np.where(wardrobe, moved, placed)
+    return np.where(move & (moved >= earliest), moved, placed)
+
+
+def boost_defect_windows(plan: OrderPlan, cat: Catalogue, rng: np.random.Generator) -> int:
+    """A defective batch sells strongly at first: in each of the first DEFECT_BOOST_WEEKS weeks of
+    its defect window, ordinary lines of the same product type switch to the defective variant
+    until it sells about DEFECT_WEEKLY_SALES that week. Type sales shares stay as calibrated.
+
+    Only plain lines move (normal and size modes, no bracketing pair, no scripted line), never a
+    line of another defective variant, at most DEFECT_MAX_TYPE_SHARE of the type's lines of the
+    week, and at most one line per order, never into an order that already holds the variant.
+    Returns the number of lines switched."""
+    week = 7 * US_PER_DAY
+    placed = plan.placed_at[plan.line_order]
+    movable = (
+        np.isin(plan.line_mode, (MODE_NORMAL, MODE_SIZE))
+        & (plan.line_pair < 0)
+        & ~cat.defective[plan.line_variant]
+    )
+    line_type = cat.type_index[plan.line_variant]
+    switched = 0
+    for v in np.flatnonzero(cat.defective):
+        start = int(cat.defect_start[v])
+        end = END_US if cat.defect_end[v] < 0 else int(cat.defect_end[v])
+        holding = np.unique(plan.line_order[plan.line_variant == v])
+        free = movable & (line_type == cat.type_index[v]) & ~np.isin(plan.line_order, holding)
+        for w in range(DEFECT_BOOST_WEEKS):
+            lo, hi = start + w * week, min(start + (w + 1) * week, end)
+            if lo >= hi:
+                break
+            in_week = (placed >= lo) & (placed < hi)
+            sold = int(np.count_nonzero(in_week & (plan.line_variant == v)))
+            want = DEFECT_WEEKLY_SALES * (hi - lo) / week - sold
+            candidates = np.flatnonzero(free & in_week)
+            if want <= 0 or len(candidates) == 0:
+                continue
+            share = min(DEFECT_MAX_TYPE_SHARE, want / len(candidates))
+            chosen = candidates[rng.random(len(candidates)) < share]
+            _, first = np.unique(plan.line_order[chosen], return_index=True)
+            chosen = chosen[np.sort(first)]
+            plan.line_variant[chosen] = v  # same type, so the same sizes
+            free[np.isin(plan.line_order, plan.line_order[chosen])] = False
+            switched += len(chosen)
+    return switched
 
 
 def _bracket(plan: OrderPlan, cat: Catalogue, rng: np.random.Generator) -> None:

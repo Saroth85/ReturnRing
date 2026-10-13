@@ -10,6 +10,7 @@ from contracts.levers import (
     LEVERS,
     LEVERS_BY_ID,
     LeverError,
+    check_lever_objects,
     format_lever_id,
     lever_from_id,
     parse_lever_id,
@@ -145,3 +146,68 @@ def test_parse_rejects_unknown_ids_and_bad_values(text: str) -> None:
 def test_format_rejects_unknown_ids_and_bad_values(lever_id: str, value: int | bool) -> None:
     with pytest.raises(LeverError):
         format_lever_id(lever_id, value)
+
+
+# ---- Review findings C5 and C6 -----------------------------------------------------------------
+
+
+@pytest.mark.parametrize("lever_id", ["free_size_exchange", "priority_size_exchange"])
+def test_all_orders_levers_are_upgrades_only(lever_id: str) -> None:
+    """C5: scope all_orders reaches orders already placed, so only true is a valid value."""
+    assert LEVERS_BY_ID[lever_id].scope == "all_orders"
+    assert format_lever_id(lever_id, True) == f"{lever_id}:true"
+    with pytest.raises(LeverError, match="all_orders"):
+        format_lever_id(lever_id, False)
+    with pytest.raises(LeverError, match="all_orders"):
+        parse_lever_id(f"{lever_id}:false")
+
+
+def test_to_contract_refuses_a_size_exchange_restriction() -> None:
+    q4 = levers_for(Quadrant.Q4, BASE, has_cluster=True)
+    no_exchange = replace(q4, future_terms=replace(q4.future_terms, free_size_exchange=False))
+    with pytest.raises(LeverError, match="all_orders"):
+        no_exchange.to_contract(BASE)
+    with pytest.raises(LeverError, match="all_orders"):
+        no_exchange.lever_ids(BASE)
+
+
+def test_check_lever_objects_accepts_the_engine_output() -> None:
+    q4 = levers_for(Quadrant.Q4, BASE, has_cluster=True).to_contract(BASE)
+    assert check_lever_objects(q4) == q4
+    assert check_lever_objects([]) == []
+
+
+@pytest.mark.parametrize(
+    "objects",
+    [
+        [
+            {"id": "instant_refund", "value": False, "scope": "future_orders"},
+            {"id": "instant_refund", "value": True, "scope": "future_orders"},
+        ],
+        [
+            {"id": "size_advice", "value": False, "scope": "current_order"},
+            {"id": "size_advice", "value": False, "scope": "current_order"},
+        ],
+    ],
+)
+def test_check_lever_objects_rejects_duplicate_ids(objects: list[dict[str, object]]) -> None:
+    """C6: two values for one lever are never a decision."""
+    with pytest.raises(LeverError, match="more than once"):
+        check_lever_objects(objects)
+
+
+@pytest.mark.parametrize(
+    "lever",
+    [
+        {"id": "welcome_coupon", "value": False, "scope": "future_orders_cluster"},
+        {"id": "instant_refund", "value": False, "scope": "current_order"},
+        {"id": "instant_refund", "value": 0, "scope": "future_orders"},
+        {"id": "free_size_exchange", "value": False, "scope": "all_orders"},
+        {"id": "size_advice", "value": False},
+        {"id": "size_advice", "value": False, "scope": "current_order", "extra": 1},
+        "size_advice:false",
+    ],
+)
+def test_check_lever_objects_rejects_malformed_objects(lever: object) -> None:
+    with pytest.raises(LeverError):
+        check_lever_objects([lever])  # type: ignore[list-item]

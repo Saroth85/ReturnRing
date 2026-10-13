@@ -30,7 +30,11 @@
   2, finding R4; round 3, findings T6, T9 and T12 to T16; round 4, findings U13 to U19. Since
   round 5 (findings V12, V13, V18; ADR-14 decision 11) correct answers on the golden cases must
   keep the model path: a factor is named by its feature, "7 vs 3" binds the first number to the
-  record of the clause and the second to the other one, "weight (0.98)" is a label's value.
+  record of the clause and the second to the other one, "weight (0.98)" is a label's value. Round
+  6 (findings W1 and W4): every "a vs b" pair of a clause (also "instead of", "invece di") binds to
+  the records the clause compares, "(F-ROSSI: 3)" binds 3 to F-ROSSI and leaves the scope as it
+  was, ordinals second to fifth rank the factors or links named after them in tool order, and the
+  integer of an "id:value" lever of get_case is a field of the case.
 """
 
 from __future__ import annotations
@@ -67,6 +71,16 @@ from policy.types import ReturnTerms
 MAX_TOOL_CALLS = 5
 # Number words an answer may use: pronoun "one", and "first" of the tool field first_shared_on.
 ANSWER_SKIPPED_NUMBER_WORDS = PRONOUN_NUMBERS | {"first"}
+# Ordinals an answer may use to rank the factors of the score or the links of a cluster in the
+# order the tools list them ("the second is days_since_delivery", "il secondo legame L-102"):
+# each one must stand before the record it ranks, in its sentence (round 6, finding W4).
+RANK_ORDINALS: Mapping[str, int] = {
+    **dict.fromkeys(("second", "secondo", "seconda"), 2),
+    **dict.fromkeys(("third", "terzo", "terza"), 3),
+    **dict.fromkeys(("fourth", "quarto", "quarta"), 4),
+    **dict.fromkeys(("fifth", "quinto", "quinta"), 5),
+}
+_RANKED_KINDS = ("factor", "link")
 TOOL_NAMES = ("get_case", "get_orders", "get_cluster", "get_score_factors", "get_policy_text")
 DEFAULT_REFERENCES: Mapping[str, str] = {"rossi": "F-ROSSI"}  # spec 7: the Rossi family
 Nature = Literal["real", "synthetic", "simulated"]
@@ -1272,6 +1286,7 @@ _CUES: tuple[tuple[tuple[str, ...], str], ...] = tuple(
                 ("weight", ("weight", "peso")),
                 ("_days", ("days", "day", "giorni", "giorno")),
                 ("return_rate", ("return rate", "tasso di reso")),
+                ("return_window_days", ("return window", "finestra di reso")),
             )
             for cue in cues
         ],
@@ -1298,9 +1313,22 @@ _SUBCLAUSE_RE = re.compile(
     r"|rispetto a)\b",
     re.IGNORECASE,
 )
-# Two numbers compared ("7 vs 3 linked accounts"): under a header that names two records in order
-# ("R-MARCO vs F-ROSSI:"), the first is a value of the first record, the second of the second.
-_VERSUS_RE = re.compile(r"^\s*(?:vs\.?|versus|against|contro|compared (?:with|to))\s*$")
+# Two numbers compared ("7 vs 3 linked accounts", "7 linked accounts instead of 3", "2 carte
+# distinte contro 3"): the first is a value of the first record of the comparison, the second of
+# the second (round 5, finding V12; round 6, finding W1). Up to three field words may stand
+# between the first number and the comparison word.
+_VERSUS_WORDS = (
+    r"vs\.?|versus|against|contro|compared (?:with|to)|instead of|rather than|invece (?:di|che)"
+    r"|anziche"
+)
+_VERSUS_RE = re.compile(rf"^\s*(?:(?!qz)[^\W\d_]+\s+){{0,3}}(?:{_VERSUS_WORDS})\s*$")
+# A record named right after one of these is the reference of a comparison, the second record of
+# its pair ("compared with the Rossi family this case's cluster has 7 vs 3 linked accounts").
+_COMPARED_RE = re.compile(
+    r"(?:\bcompared (?:with|to)|\bthan|\bunlike|\bversus|\bvs|\bagainst|\bdiffer(?:s|ent)? from"
+    r"|\brispetto (?:a|al|alla|allo|ai|agli)|\bcontro|\binvece di|\bdivers[oa] da)"
+    r"(?: (?:the|il|la|lo|l|family|famiglia|cluster))*\s*$"
+)
 # A sentence that opens with a pronoun or a demonstrative goes on about the record of the
 # sentence before ("It has", "This link has", "The same link", "Questo legame").
 _PRONOUN_RE = re.compile(
@@ -1323,6 +1351,7 @@ _BIND_PREPOSITIONS = frozenset(
 )
 _BIND_FILLERS = frozenset(["the", "cluster", "link", "order", "il", "la", "lo", "l", "reference"])
 _FLAG_WORDS = {"disputed": ("disputed", True), "undisputed": ("disputed", False)}
+_LEVER_NUMBER_RE = re.compile(r"[0-9]+(?:\.[0-9]+)?")
 
 
 def strip_list_markers(text: str) -> str:
@@ -1346,8 +1375,16 @@ class _Record:
         return tuple(value for _, value in self.fields)
 
     def values(self, field: str) -> list[Decimal]:
-        """The values of a field; a field starting with "_" matches any field ending with it."""
-        return [v for name, v in self.fields if name == field or name.endswith(field)]
+        """The values of a field, also of a field ending with it ("return_rate":
+        cluster_return_rate); a field starting with "_" also matches a field with that word in its
+        name ("_days": days_since_delivery, the field of a factor of that feature: round 6,
+        finding W4)."""
+        word = field[1:] if field.startswith("_") else None
+        return [
+            v
+            for name, v in self.fields
+            if name == field or name.endswith(field) or word in name.split("_")
+        ]
 
 
 def _record_kind(value: Any) -> str | None:
@@ -1371,12 +1408,28 @@ def _own_fields(
         fields.append((key, Decimal(str(value))))
 
 
+def lever_values(value: Any) -> list[tuple[str, Decimal]]:
+    """The numbers of the "id:value" lever strings of a case record ("return_window_days:14" is
+    the field return_window_days, 14): round 6, finding W4."""
+    found: list[tuple[str, Decimal]] = []
+    levers = value.get("lever_ids") if isinstance(value, dict) else None
+    for lever in levers if isinstance(levers, list) else []:
+        name, _, number = str(lever).partition(":")
+        if _LEVER_NUMBER_RE.fullmatch(number):
+            found.append((name, Decimal(number)))
+    return found
+
+
 def _records(value: Any, found: list[_Record], references: Mapping[str, str]) -> None:
     kind = _record_kind(value)
     if kind is not None:
         key = next(iter(value))
         fields: list[tuple[str, Decimal]] = []
         _own_fields(value, key, fields)
+        if kind == "case":
+            fields += lever_values(value)
+        if kind == "factor":  # its value is also the field of its feature ("6 days" of x_days)
+            fields += [(str(value[key]), number) for name, number in fields if name == "value"]
         accounts = (value.get("account_a"), value.get("account_b")) if kind == "link" else ()
         # A factor is named by its feature ("cluster_welcome_coupons = 7"): round 5, V13.
         record_id = str(value[key]) if key.endswith("_id") or kind == "factor" else None
@@ -1442,6 +1495,8 @@ class _Evidence:
     numbers: tuple[Decimal, ...]
     ids: tuple[str, ...]
     records: tuple[_Record, ...]
+    # the place of a factor or link among those of its tool result, by "kind:id" ("factor:x": 2)
+    ranks: Mapping[str, int] = dataclasses.field(default_factory=dict)
 
     def case_record(self, kind: str) -> _Record | None:
         """The record of a kind the case names (its cluster, its order), if it was read."""
@@ -1455,10 +1510,17 @@ def _evidence(
     numbers: list[Decimal] = []
     ids: list[str] = [case_id]
     records: list[_Record] = []
+    ranks: dict[str, int] = {}
     for result in results:
         _collect(result, numbers, ids)
+        numbers += [value for _, value in lever_values(result)]
+        start = len(records)
         _records(result, records, references or {})
-    return _Evidence(tuple(numbers), tuple(ids), tuple(records))
+        for kind in _RANKED_KINDS:
+            mine = [r for r in records[start:] if r.kind == kind]
+            for place, record in enumerate(mine, start=1):
+                ranks.setdefault(f"{kind}:{record.id}", place)
+    return _Evidence(tuple(numbers), tuple(ids), tuple(records), ranks)
 
 
 def _letters(index: int) -> str:
@@ -1506,9 +1568,14 @@ class _Marked:
             if own is not None and phrase is not None:
                 at.append((phrase.start(), own))
         self.named: list[_Record] = []
-        for _, record in sorted(at, key=lambda item: item[0]):
+        compared: list[_Record] = []
+        for start, record in sorted(at, key=lambda item: item[0]):
             if record not in self.named:
                 self.named.append(record)
+                if _COMPARED_RE.search(letters[:start]):
+                    compared.append(record)
+        # The reference of a comparison comes after the other records (round 6, finding W1).
+        self.named = [r for r in self.named if r not in compared] + compared
 
     def record_token(self, word: str, evidence: _Evidence) -> _Record | None:
         match = re.fullmatch(r"qzr([a-z]+)", word)
@@ -1535,6 +1602,21 @@ class _Scope:
         )
         self.candidates: dict[str, set[int]] = {}
         self.ambiguous: set[str] = set()
+
+    def copy(self) -> _Scope:
+        new = _Scope()
+        new.records = None if self.records is None else list(self.records)
+        new.order, new.single = list(self.order), set(self.single)
+        new.candidates = {kind: set(ids) for kind, ids in self.candidates.items()}
+        new.ambiguous = set(self.ambiguous)
+        return new
+
+    def restore(self, saved: _Scope) -> None:
+        """The scope of `saved`: a parenthesis that names a record ("(F-ROSSI: 3)") does not
+        change the scope of the sentence around it (round 6, finding W1)."""
+        copy = saved.copy()
+        self.records, self.order, self.single = copy.records, copy.order, copy.single
+        self.candidates, self.ambiguous = copy.candidates, copy.ambiguous
 
     def update(self, marked: _Marked, evidence: _Evidence, keep: bool) -> None:
         """A clause that names records, or kinds of record the results have, sets the scope;
@@ -1631,10 +1713,18 @@ def _bound(marked: _Marked, end: int, evidence: _Evidence) -> _Record | None:
     return None
 
 
-def _versus_pair(marked: _Marked, numbers: Sequence[tuple[Decimal, int, int]]) -> bool:
-    """Two numbers with a "vs" word between them ("7 vs 3 linked accounts")."""
-    between = marked.plain[numbers[0][2] : numbers[1][1]] if len(numbers) == 2 else ""
-    return _VERSUS_RE.match(between) is not None
+def _versus_pairs(marked: _Marked, numbers: Sequence[tuple[Decimal, int, int]]) -> list[int]:
+    """The indices of the first numbers of the pairs compared in a clause ("7 vs 3 linked
+    accounts and 2 vs 3 distinct cards": 0 and 2)."""
+    pairs: list[int] = []
+    index = 0
+    while index + 1 < len(numbers):
+        between = marked.plain[numbers[index][2] : numbers[index + 1][1]]
+        if _VERSUS_RE.match(between):
+            pairs.append(index)
+            index += 1
+        index += 1
+    return pairs
 
 
 def _other_record(record: _Record, seen: Sequence[_Record], evidence: _Evidence) -> _Record | None:
@@ -1648,6 +1738,22 @@ def _other_record(record: _Record, seen: Sequence[_Record], evidence: _Evidence)
     return None
 
 
+def _pair_records(
+    candidates: Sequence[_Record], field: str | None, seen: Sequence[_Record], evidence: _Evidence
+) -> tuple[_Record, _Record] | None:
+    """The two records of a compared pair: the two records of one kind named, in order (the
+    reference of a comparison last), or the one record named and the other record of its kind
+    (round 5, finding V12; round 6, finding W1). The records named in the clause come first,
+    then those of the scope. None when it is not clear."""
+    pool = [r for r in candidates if field is None or r.values(field)] or list(candidates)
+    if len(pool) == 2 and pool[0].kind == pool[1].kind:
+        return pool[0], pool[1]
+    if len(pool) == 1:
+        other = _other_record(pool[0], seen, evidence)
+        return (pool[0], other) if other is not None else None
+    return None
+
+
 def _clause_grounded(
     marked: _Marked,
     before: str,
@@ -1656,21 +1762,27 @@ def _clause_grounded(
     seen: Sequence[_Record] = (),
 ) -> bool:
     numbers = signed_numbers(marked.plain)
-    if _versus_pair(marked, numbers) and not marked.named:
-        (first, start, _), (second, _, end) = numbers
-        field = _cue_after(marked.plain[end:]) or _cue_before(before + marked.plain[:start])
-        pair: tuple[_Record, _Record] | None = None
-        if len(scope.order) == 2:
-            pair = (scope.order[0], scope.order[1])
-        elif len(scope.order) == 1:
-            other = _other_record(scope.order[0], seen, evidence)
-            pair = (scope.order[0], other) if other is not None else None
-        if pair is not None:
-            return scope.grounds(first, field, evidence, pair[0]) and scope.grounds(
+    paired: set[int] = set()
+    for index in _versus_pairs(marked, numbers):
+        (first, start, first_end), (second, second_start, end) = numbers[index : index + 2]
+        field = (
+            _cue_after(marked.plain[end:])
+            or _cue_before(before + marked.plain[:start])
+            or _cue_after(marked.plain[first_end:second_start])
+        )
+        pair = _pair_records(marked.named or scope.order, field, seen, evidence)
+        if pair is None:
+            ok = scope.grounds(first, field, evidence) and scope.grounds(second, field, evidence)
+        else:
+            ok = scope.grounds(first, field, evidence, pair[0]) and scope.grounds(
                 second, field, evidence, pair[1]
             )
-        return scope.grounds(first, field, evidence) and scope.grounds(second, field, evidence)
-    for value, start, end in numbers:
+        if not ok:
+            return False
+        paired |= {index, index + 1}
+    for index, (value, start, end) in enumerate(numbers):
+        if index in paired:
+            continue
         field = _cue_after(marked.plain[end:]) or _cue_before(before + marked.plain[:start])
         if not scope.grounds(value, field, evidence, _bound(marked, end, evidence)):
             return False
@@ -1712,9 +1824,8 @@ def grounded_in(
     evidence = _evidence(results, case_id, references)
     text = strip_tokens(strip_list_markers(answer), evidence.ids)
     labelled = strip_tokens(strip_list_markers(answer), evidence.ids, " qzid ")
-    if number_modifiers(text, labelled) or number_words(
-        text, "en", skip=ANSWER_SKIPPED_NUMBER_WORDS
-    ):
+    skipped = ANSWER_SKIPPED_NUMBER_WORDS | ranked_ordinals(answer, evidence)
+    if number_modifiers(text, labelled) or number_words(text, "en", skip=skipped):
         return False
     if roman_numerals(text):
         return False
@@ -1741,26 +1852,66 @@ def _sentence_grounded(
     sentence: str, scope: _Scope, evidence: _Evidence, keep: bool, listed: bool
 ) -> bool:
     """The clauses of a sentence, in order; `keep` goes on with the scope of the sentence before
-    (a pronoun), `listed` with the scope of the header for every clause (a list line)."""
+    (a pronoun), `listed` with the scope of the header for every clause (a list line). A clause
+    that names two records of one kind is split at and, while, vs... when it has numbers that are
+    not compared in pairs ("F-ROSSI has 3 linked accounts while R-MARCO has 7"); otherwise its
+    records are the scope, in order ("R-MARCO vs F-ROSSI: 7 vs 3 linked accounts"). A parenthesis
+    that names a record after a clause that named one ("R-MARCO has 7 linked accounts (F-ROSSI:
+    3)") binds its numbers to that record and leaves the scope of the sentence as it was; after a
+    kind word it names the record of the clause ("the cluster (R-MARCO)"): round 6, finding W1."""
     before = ""
     seen: list[_Record] = []  # the records named so far in the sentence, in order
+    saved: _Scope | None = None  # the scope before an open parenthesis
+    named_inside = False
     parts = _GROUNDING_CLAUSE_RE.split(sentence)
     for clause, separator in zip(parts[::2], [*parts[1::2], ""], strict=True):
         marked = _Marked(clause, evidence)
         kinds = [r.kind for r in marked.named]
         pieces = [clause]
-        if any(kinds.count(kind) > 1 for kind in kinds):
+        numbers = signed_numbers(marked.plain)
+        if any(kinds.count(kind) > 1 for kind in kinds) and (
+            numbers and not _versus_pairs(marked, numbers)
+        ):
             pieces = _SUBCLAUSE_RE.split(clause)
         for piece in pieces:
             marked = _Marked(piece, evidence) if len(pieces) > 1 else marked
             scope.update(marked, evidence, keep or listed)
             keep = False
+            named_inside = named_inside or bool(marked.named)
             seen += [r for r in marked.named if r not in seen]
             if not _clause_grounded(marked, before, scope, evidence, seen):
                 return False
             before += marked.plain + " "
         before += separator
+        if separator == "(":
+            saved, named_inside = scope.copy(), False
+        elif separator == ")" and saved is not None:
+            # "(F-ROSSI: 3)" after a clause about R-MARCO is an aside; "the cluster (R-MARCO)"
+            # names the record of the clause.
+            if named_inside and saved.order:
+                scope.restore(saved)
+            saved = None
     return True
+
+
+def ranked_ordinals(answer: str, evidence: _Evidence) -> set[str]:
+    """The ordinals of RANK_ORDINALS that rank a record in every place they stand: the first
+    factor or link named after the ordinal in its sentence is that one in the order of its tool
+    result ("The first factor is x = 7, the second days_since_delivery = 6"). Any other ordinal
+    stays a number in words (round 6, finding W4)."""
+    good: set[str] = set()
+    bad: set[str] = set()
+    for sentence in _ANSWER_SENTENCE_SPLIT_RE.split(strip_list_markers(answer)):
+        marked = _Marked(sentence, evidence)
+        for index, word in enumerate(marked.words):
+            rank = RANK_ORDINALS.get(word)
+            if rank is None:
+                continue
+            records = (marked.record_token(w, evidence) for w in marked.words[index + 1 :])
+            ranked = next((r for r in records if r is not None and r.kind in _RANKED_KINDS), None)
+            place = evidence.ranks.get(f"{ranked.kind}:{ranked.id}") if ranked else None
+            (good if place == rank else bad).add(word)
+    return good - bad
 
 
 class VllmAgent:

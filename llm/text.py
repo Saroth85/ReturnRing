@@ -361,8 +361,9 @@ _SENTENCE_RE = re.compile(r"[.!?;:\n]+")
 #   ("registered to the customer", "opened by the household"), their predicate ("the linked
 #   accounts are the customer's"), a role of them ("the owner of the linked accounts"), a
 #   possessive before them ("the customer's other linked accounts", "his linked accounts", "i suoi
-#   account"), "in the customer's name", "belongs to" anything but a cluster or group, "traces back
-#   to", "behind the accounts", aliases, alter egos and sock puppets.
+#   account"), "in the customer's name", "belongs to" anything but a cluster or group (named in at
+#   most three words: "the Rossi family cluster", round 6, finding W6), "traces back to", "behind
+#   the accounts", aliases, alter egos and sock puppets.
 # Intransitive uses pass ("the linked accounts operate from a shared address", "orders from the
 # linked accounts ran in rapid succession"), and so do "its own", "their own", "differ in name" and
 # Italian possessives of a cluster ("il cluster R-MARCO ... i suoi legami").
@@ -466,7 +467,8 @@ _OWNERSHIP_RE = re.compile(
     r"|\ba (?:suo|loro) nome\b|\ba nome (?:del|della|di)\b|\bproprieta\b|\bproprietari\w*"
     r"|\bproprietors?\b"
     r"|\bbelong(?:s|ed|ing)? to\b(?! ?$| (?:(?:the|a|an|this|that|these|those|same|one"
-    rf"|different|another|other|separate) )*(?:{_GROUPS})\b)"
+    rf"|different|another|other|separate) )*(?:(?!(?:{_FUNCTION_WORDS})\b)[a-z]+ ){{0,3}}"
+    rf"(?:{_GROUPS})\b)"
     r"|\b(?:trace[sd]?|tracing|leads?|led|leading) back\b|\btraceable to\b|\btraced to\b"
     rf"|\baccounts? (?:[a-z]+ )?of (?:the|this|that|a|one) (?:{_PERSON_NOUNS})\b"
     rf"|\bbehind (?:(?:{_DETERMINERS}) )*(?:(?:{_ACCOUNT_ADJECTIVES}) )?(?:accounts?|profil\w*"
@@ -718,16 +720,63 @@ OPERATOR_TOPIC_STEMS: tuple[str, ...] = (
 OPERATOR_TOPIC_WORDS = TERMS_WORDS | word_set(
     "terms termini leva leve policy policies limit limits lose loses charged money payer"
 )
-# Decisions and verdicts an operator statement never states (round 5, finding V15): flag,
-# monitor, scrutiny, caution, "no further action", "can be closed", "warrants a review".
+# Decisions and verdicts an operator statement never states (round 5, finding V15): monitor,
+# scrutiny, "no further action", "can be closed", "warrants a review", "a red flag".
 STATEMENT_DECISION_WORDS = word_set(
-    "flag flags flagged flagging monitor monitors monitored monitoring scrutiny scrutinise "
-    "scrutinize scrutinised scrutinized scrutinising scrutinizing caution cautions cautioned"
+    "monitor monitors monitored monitoring scrutiny scrutinise scrutinize scrutinised "
+    "scrutinized scrutinising scrutinizing"
 )
 _STATEMENT_DECISION_RE = re.compile(
     r"\bno (?:further )?action\b|\bcan be closed\b|\bwarrant(?:s|ed|ing)? (?:a |an )?(?:[a-z]+ )?"
-    r"(?:review|check|look)\b"
+    r"(?:review|check|look)\b|\bred flags?\b"
 )
+# Flag and caution are decisions only about a person or the case (round 6, finding W5): "flag
+# this customer", "flag it for review", "the case was flagged", "treat this customer with
+# caution", "proceed with caution". The model flags a factor ("the model flags
+# cluster_welcome_coupons (7) as the main contribution") and a score is read with caution ("read
+# the risk score with caution"): those are observations about the score.
+_FLAGGED = (
+    r"customers?|clients?|users?|buyers?|shoppers?|persons?|people|cases?|returns?|orders?"
+    r"|accounts?|clusters?|refunds?"
+)
+_FLAG_RE = re.compile(
+    r"\bflag(?:s|ged|ging)? (?:(?:the|this|that|these|those|a|an|its|their|his|her|all|both|each"
+    rf"|every|linked|other|same|whole) )*(?:{_FLAGGED}|it|them|him|her|for)\b"
+    rf"|\b(?:{_FLAGGED})\b(?: (?:is|are|was|were|be|been|being|has|have|had|should|must|may"
+    r"|might|could|would|will|can|now|already|also|not|then|therefore|thus|so))+ flagged\b"
+)
+# A subject that makes "flags" a description of the score ("the model flags").
+_MODEL_SUBJECT_RE = re.compile(
+    r"\b(?:model|models|score|scores|algorithm)(?: (?:also|clearly|strongly|mainly|only))? $"
+)
+_CAUTION_RE = re.compile(r"\bcaution(?:s|ed|ing|ary)?\b|\bcautious(?:ly)?\b")
+_CAUTION_OBJECTS_RE = re.compile(rf"\b(?:{_FLAGGED}|proceed\w*)\b")
+# Words of reading the score or the evidence: caution about them is a hedge, not a decision.
+_READING_RE = re.compile(
+    r"\b(?:scores?|estimates?|models?|read\w*|interpret\w*|figures?|values?|signals?|results?"
+    r"|data|evidence|factors?|contributions?|outputs?|predictions?)\b"
+)
+_STATEMENT_CLAUSE_RE = re.compile(r"[,;:.!?\n]+")
+
+
+def _flags_and_cautions(text: str) -> list[str]:
+    """Flag and caution about a person or the case, clause by clause (round 6, finding W5)."""
+    found: list[str] = []
+    for clause in _STATEMENT_CLAUSE_RE.split(fold(text, " ")):
+        for form in forms(clause, leet=True):
+            _add(
+                found,
+                (
+                    m.group()
+                    for m in _FLAG_RE.finditer(form)
+                    if not _MODEL_SUBJECT_RE.search(form[: m.start()])
+                ),
+            )
+            if _CAUTION_OBJECTS_RE.search(form) and not _READING_RE.search(form):
+                _add(found, (m.group() for m in _CAUTION_RE.finditer(form)))
+    return found
+
+
 # Observed phrases that share a stem with a lever word: the welcome coupons of a cluster are
 # data, not the coupons lever (round 3, finding T7); a free-text reason, a shipping address,
 # orders shipped to an address, coupons and codes used, an order with a coupon, an expensive
@@ -746,7 +795,7 @@ _OPERATOR_ALLOWED_PHRASES = re.compile(
     r"|\borders? (?:with|using) (?:a |an )?(?:coupons?|codes?|vouchers?)\b"
     r"|\b(?:in)?expensive(?:ly)?\b|\bclosed return windows?\b"
     r"|\breturn windows? (?:has |have |had )?(?:closed|ended|expired)\b"
-    r"|\bwithdrawal path\b|\bright of withdrawal\b|\bwithdrawal rights?\b"
+    r"|\bwithdrawal path\b|\bright of withdrawal\b|\bwithdrawal rights?\b|\bwithdrawal periods?\b"
 )
 _OPERATOR_PHRASES = re.compile(
     r"\b(?:size|sizing|fit) (?:advice|guidance|help|tips?|recommendations?)\b"
@@ -803,7 +852,13 @@ def unlabelled_quadrants(text: str, *, none_assigned: bool = False) -> list[str]
     return [m.group() for m in _QUADRANT_NOUN_RE.finditer(folded)]
 
 
-def operator_topics(text: str, *, no_quadrant: bool = False) -> list[str]:
+# A count of coupons in digits ("7 coupons"), read as the welcome coupons of a cited fact.
+_COUPON_COUNT_RE = re.compile(r"(?<![\w.,])[0-9]+\s+(?:welcome\s+)?coupons?\b", re.IGNORECASE)
+
+
+def operator_topics(
+    text: str, *, no_quadrant: bool = False, coupon_count: bool = False
+) -> list[str]:
     """Words of a topic an operator statement never talks about: levers and return terms (the
     stems of the customer gate, refunds, promotions, "terms", "policy"), restrictions, the state
     and scope of a lever (enabled, future orders; available, kept or no longer next to a lever
@@ -812,8 +867,13 @@ def operator_topics(text: str, *, no_quadrant: bool = False) -> list[str]:
     The interface shows the engine decision and its levers from code, so the statement has
     nothing to say about them (round 3, finding T7; round 4, findings U5 and U6). Metric names
     are removed by the caller; the observed phrase "welcome coupon(s)" is removed here, after
-    the phrases that withhold it ("no welcome coupon")."""
-    found: list[str] = []
+    the phrases that withhold it ("no welcome coupon"). With `coupon_count` (a welcome-coupon fact
+    is cited), a count of coupons in digits is that fact ("7 coupons across 7 linked accounts":
+    round 6, finding W6). Flag and caution count only about a person or the case (finding
+    W5)."""
+    if coupon_count:
+        text = _COUPON_COUNT_RE.sub(" welcome coupons ", text)
+    found = _flags_and_cautions(text)
     for form in forms(text, leet=True):
         _add(found, (m.group() for m in _OPERATOR_PHRASES.finditer(form)))
         _add(found, (m.group() for m in _LEVER_STATE_RE.finditer(form)))
@@ -822,7 +882,7 @@ def operator_topics(text: str, *, no_quadrant: bool = False) -> list[str]:
         form = _OPERATOR_ALLOWED_PHRASES.sub(" ", form)
         _add(found, _terms_hits(form, OPERATOR_TOPIC_STEMS, OPERATOR_TOPIC_WORDS))
         _add(found, _decision_hits(form))
-    levels = [f"{axis} {level}" for kind, axis, level in quadrant_levels(text) if kind == "axis"]
+    levels = [f"{axis} {named}" for kind, axis, _, named in level_mentions(text) if kind == "axis"]
     found = _add(_add(found, levels), quadrant_positions(text))
     return _add(found, unlabelled_quadrants(text, none_assigned=no_quadrant))
 
@@ -1217,10 +1277,16 @@ _SIGNED_RE = re.compile(
 # less to the score": round 5, finding V17); in an agent answer, which may be Italian, so is
 # "meno" ("meno 3", not "meno carte distinte": finding V12).
 _SIGN_BEFORE_RE = re.compile(r"\b(?:less|meno)\s*[0-9]")
+# "Short" is a sign next to a number only ("42.1 EUR short", "short by 42.1", "short 42.1"), not
+# anywhere ("redeemed within a short time", "short sleeves": round 6, finding W6).
+_SHORT_RE = re.compile(
+    r"[0-9]\s*(?:(?:eur|euros?|€|days?|giorni|accounts?|items?|orders?|returns?)\s+)?short\b"
+    r"|\bshort\s+(?:(?:by|of)\s+)?[0-9]"
+)
 _SIGN_WORDS_RE = re.compile(
     r"\b(?:minus|meno|negativ[eoai]|loss|losses|lossmaking|perdit[ae]|deficit|disavanz[oi]"
     r"|in the red|in rosso|owed|owes|owing|debit(?! cards?\b)|debits|debts?|debit[oi]"
-    r"|shortfall|lost|unprofitable|lose|loses|losing|cost|costs|costing|short|arrears"
+    r"|shortfall|lost|unprofitable|lose|loses|losing|cost|costs|costing|arrears"
     r"|passiv[oaie]|rimessa|deduct\w*|written off|writes? off|writeoffs?)\b"
 )
 
@@ -1243,7 +1309,7 @@ def number_modifiers(text: str, labelled: str | None = None) -> list[str]:
         for form in forms(text):
             words_ = (m.group() for m in _SIGN_WORDS_RE.finditer(form))
             _add(found, (word for word in words_ if word != "meno"))
-    return found
+    return _add(found, _short_signs(text))
 
 
 def other_numeric_characters(text: str) -> list[str]:
@@ -1251,12 +1317,17 @@ def other_numeric_characters(text: str) -> list[str]:
     return [ch for ch in numeric_characters(text) if ch not in "0123456789"]
 
 
+def _short_signs(text: str) -> list[str]:
+    return ["short"] if _SHORT_RE.search(fold(text, " ")) else []
+
+
 def sign_words(text: str) -> list[str]:
-    """Words that give a number a sign ("minus", "a loss of", "owed", "in arrears")."""
+    """Words that give a number a sign ("minus", "a loss of", "owed", "in arrears", "short" next
+    to a number)."""
     found: list[str] = []
     for form in forms(text):
         _add(found, (m.group() for m in _SIGN_WORDS_RE.finditer(form)))
-    return found
+    return _add(found, _short_signs(text))
 
 
 # ---- The context of a grounded number (round 3, finding T11) ----------------------------------
@@ -1299,8 +1370,13 @@ IDENTIFIER_PLACEHOLDER = "metric"
 _FUNCTION_AFTER = word_set(
     "and or but in on at of for from to with over across during since as is are was were be "
     "been has have had the this that these those which who while so because after before later "
-    "earlier ago out e o ma di del della nel nella con da che su"
+    "earlier ago out e o ma di del della nel nella con da che su "
+    # conjunctions and modal verbs (round 6, findings W5 and W6): "low (0.22) despite the shared
+    # address", "the risk score of 0.18 should be read with caution"
+    "despite although though whereas unlike yet should may might can could would will must"
 )
+# "Even" is a conjunction only before these ("(0.22) even though"); "42.1 EUR even" is exact.
+_EVEN_CONJUNCTIONS = word_set("though if when")
 # Verbs a closed parenthesis around the number may be followed by: "returns_90d (4) contributes
 # to the score", "Recent returns (4) push the score up" (round 5, finding V16), and so may a
 # number right after a metric name ("returns_90d = 4 raises the score"). An allowlist, so an
@@ -1310,7 +1386,13 @@ _CONTRIBUTION_AFTER = word_set(
     "push pushes pushed raise raises raised weigh weighs weighed explain explains explained "
     "dominate dominates dominated lead leads led lift lifts lifted lower lowers lowered increase "
     "increases increased reduce reduces reduced affect affects affected shape shapes shaped "
-    "count counts counted matter matters mattered"
+    "count counts counted matter matters mattered "
+    # round 6, findings W2 and W6: "(6) plays a minor role", "(7) outweighs", "(6) makes the risk
+    # score slightly lower", "(6) pulls the risk score lower"
+    "play plays played playing outweigh outweighs outweighed outranks outrank make makes made "
+    "pull pulls pulled move moves moved nudge nudges nudged tip tips tipped bring brings brought "
+    "carry carries carried tops ranks stands influence influences "
+    "influenced decrease decreases decreased boost boosts boosted"
 )
 # Participles a count may follow with "by" ("the welcome coupons used by 7 linked accounts"):
 # round 5, finding V17. Elsewhere "by" is a comparator ("short by 7").
@@ -1485,6 +1567,9 @@ def _end_ok(tokens: Sequence[_Token], index: int, opened: bool, verbs: bool = Fa
         return _end_ok(tokens, index + 1, opened, verbs or opened)
     if token.word:
         if verbs and token.text in _CONTRIBUTION_AFTER:
+            return True
+        following = tokens[index + 1].text if index + 1 < len(tokens) else ""
+        if token.text == "even" and following in _EVEN_CONJUNCTIONS:
             return True
         return token.text in _FUNCTION_AFTER and not _comparing(tokens, index)
     return token.text in _CLOSERS or (token.dash and token.start > tokens[index - 1].end)
@@ -1663,19 +1748,49 @@ _LEVEL_MID = word_set(
 _NEGATIONS = word_set(
     "not never non hardly barely scarcely neither nor cannot mai nemmeno neanche mica"
 )
+# Negations that reach a level word from anywhere before it in the clause ("far from the
+# high-risk range", "nowhere near high"): round 6, finding W3.
+_FAR_FROM = frozenset({("far", "from"), ("nowhere", "near"), ("lontano", "da")})
+# A clause is read in stretches that end at a comma, a colon, a parenthesis or a dash: a negation
+# counts before the level word in its stretch ("not in the high range", "does not push the risk
+# score into the high range"), never after it ("high (0.87): an estimate, not a cause").
+_STRETCH_RE = re.compile(r"[,:()\[\]–—]")
 # How large a contribution to the score is, not the level of the score (round 5, finding V11): a
 # level word followed within two words by one of these nouns ("a significant contributor", "a
-# small effect", "a substantial part"), or right after one of these verbs ("contributes little").
+# small effect", "a substantial part", "a small change"), or right after one of these verbs
+# ("contributes little").
 _CONTRIBUTION_NOUNS = word_set(
     "contribution contributions contributor contributors factor factors driver drivers weight "
     "weights effect effects impact impacts part parts share shares influence influences signal "
-    "signals role number count amount proportion fraction portion contributo contributi fattore "
-    "fattori peso effetto parte quota"
+    "signals role roles number count amount proportion fraction portion difference differences "
+    "change changes step steps shift shifts contributo contributi fattore fattori peso effetto "
+    "parte quota"
 )
 _CONTRIBUTION_VERBS = word_set(
     "contributes contribute contributed adds add added weighs weigh weighed counts count matters "
     "matter contribuisce contribuiscono pesa pesano"
 )
+# A comparative says a direction, not a level ("pushes the risk score higher", "the risk score
+# is higher because of the shared card", "a higher risk score"), unless it compares with a
+# threshold ("higher than the threshold", "lower than average") or qualifies an axis of the
+# quadrant ("a higher-risk customer"): round 6, finding W2.
+_COMPARATIVES = word_set("higher lower maggiore minore")
+# Verbs that move the score: after one of them in the clause, a word that sizes the move is not
+# a level ("lowers the risk score a little", "raises it by a considerable step"), while a level
+# word still is ("pushes the risk score into the high range"). "A little" is a quantity anywhere.
+# Round 6, finding W2.
+_DIRECTION_VERBS = word_set(
+    "push pushes pushed pushing pull pulls pulled pulling make makes made making drive drives "
+    "drove driven driving move moves moved moving raise raises raised raising lift lifts lifted "
+    "lifting lower lowers lowered lowering increase increases increased increasing reduce "
+    "reduces reduced reducing bring brings brought bringing nudge nudges nudged nudging tip tips "
+    "tipped tipping shift shifts shifted shifting"
+)
+_QUANTITY_WORDS = word_set(
+    "little small minor modest slight negligible minimal significant considerable substantial big"
+)
+# "By a small margin", "by a wide margin": a quantity, not the customer's margin (round 6).
+_BY_A_MARGIN_RE = re.compile(r"\bby an? (?:[^\W\d_]+ )?margins?\b")
 _SCORES = word_set("score scores punteggio punteggi")
 # "The value of the order", "a high-value item": the value of something else than the customer.
 _ORDER_WORDS = word_set(
@@ -1692,18 +1807,36 @@ _CARRY_SEPARATORS = frozenset({"and", "e"})
 _PERIOD_WORDS = word_set("period year months weeks days time")
 
 
-def _negated_at(tokens: Sequence[str], index: int) -> bool:
-    """A negation that governs the word at `index`: not, never, non, hardly, "n't" or "far from"
-    within the two words before it ("not high", "not very high", "isn't high", "far from high").
-    A negation elsewhere in the clause ("high (0.87): an estimate, not a cause") does not count
-    (round 5, finding V5)."""
-    before = list(tokens[max(0, index - 2) : index])
-    pairs = list(zip(before, before[1:], strict=False))
-    return (
-        any(t in _NEGATIONS for t in before)
-        or ("far", "from") in pairs
-        or any(second == "t" and first.endswith("n") for first, second in pairs)
-    )
+def _clause_tokens(clause: str) -> tuple[list[str], list[int]]:
+    """The words of a clause and, for each, the number of its stretch (`_STRETCH_RE`)."""
+    tokens: list[str] = []
+    stretches: list[int] = []
+    for number, stretch in enumerate(_STRETCH_RE.split(clause)):
+        found = _letters_only(fold(stretch, " ")).split()
+        tokens += found
+        stretches += [number] * len(found)
+    return tokens, stretches
+
+
+def _negation_at(tokens: Sequence[str], stretches: Sequence[int], index: int) -> str | None:
+    """The negation that governs the word at `index`, as written, or None: not, never, non,
+    hardly, "n't"... before it in its stretch of the clause ("not high", "is not in the high
+    range", "isn't high"), or "far from", "nowhere near" anywhere before it in the clause ("far
+    from a high value"). A negation after the word does not count ("high (0.87): an estimate, not
+    a cause": round 5, finding V5; round 6, finding W3)."""
+    for first, second in zip(tokens[:index], tokens[1:index], strict=False):
+        if (first, second) in _FAR_FROM:
+            return f"{first} {second}"
+    start = index
+    while start > 0 and stretches[start - 1] == stretches[index]:
+        start -= 1
+    for position in range(start, index):
+        token = tokens[position]
+        if token in _NEGATIONS:
+            return token
+        if token == "t" and position > start and tokens[position - 1].endswith("n"):
+            return f"{tokens[position - 1]} t"
+    return None
 
 
 def _describes_contribution(tokens: Sequence[str], index: int) -> bool:
@@ -1711,6 +1844,19 @@ def _describes_contribution(tokens: Sequence[str], index: int) -> bool:
     after = tokens[index + 1 : index + 3]
     before = tokens[index - 1] if index > 0 else ""
     return any(t in _CONTRIBUTION_NOUNS for t in after) or before in _CONTRIBUTION_VERBS
+
+
+def _not_a_level(tokens: Sequence[str], index: int, threshold: bool, moved: bool) -> bool:
+    """A level word used for something else: the size of a contribution, a comparative that does
+    not compare with a threshold, "a little", a quantity after a verb that moves the score."""
+    token = tokens[index]
+    if token in _COMPARATIVES:
+        following = tokens[index + 1 : index + 3]
+        axis = following[:1] in (["risk"], ["value"]) and not set(following[1:]) & _SCORES
+        return not (axis or (threshold and following[:1] == ["than"]))
+    if token == "little" and index > 0 and tokens[index - 1] == "a":
+        return True
+    return (moved and token in _QUANTITY_WORDS) or _describes_contribution(tokens, index)
 
 
 def _above(tokens: Sequence[str], index: int) -> bool:
@@ -1725,28 +1871,38 @@ def _above(tokens: Sequence[str], index: int) -> bool:
     return tokens[index] in _ABOVE and not period
 
 
-def _level(tokens: Sequence[str]) -> str | None:
-    """The level a clause names: high, low, "?" (a threshold without a side, both levels, a
-    middle level or a negated level) or None (no level). Words that size a contribution are
-    left out ("a significant contributor to the risk score")."""
-    threshold = any(t in _THRESHOLDS for t in tokens)
-    words_: dict[str, list[int]] = {"high": [], "low": [], "mid": []}
+def _level(tokens: Sequence[str], stretches: Sequence[int]) -> tuple[str, str] | None:
+    """The level a clause names, with the words that name it: high, low, "?" (a threshold without
+    a side, both levels, a middle level or a negated level) or None (no level). Words that size a
+    contribution or a move, and comparatives, are left out ("a significant contributor to the
+    risk score", "pushes the risk score higher", "lowers it a little")."""
+    threshold = [t for t in tokens if t in _THRESHOLDS]
+    found: dict[str, list[int]] = {"high": [], "low": [], "mid": []}
+    moved = False
     for index, token in enumerate(tokens):
-        if _describes_contribution(tokens, index):
-            continue
-        if token in _LEVEL_HIGH or (threshold and _above(tokens, index)):
-            words_["high"].append(index)
+        if _not_a_level(tokens, index, bool(threshold), moved):
+            pass
+        elif token in _LEVEL_HIGH or (threshold and _above(tokens, index)):
+            found["high"].append(index)
         elif token in _LEVEL_LOW or (threshold and token in _BELOW):
-            words_["low"].append(index)
+            found["low"].append(index)
         elif token in _LEVEL_MID:
-            words_["mid"].append(index)
-    high, low = bool(words_["high"]), bool(words_["low"])
-    if not (high or low or words_["mid"] or threshold):
+            found["mid"].append(index)
+        moved = moved or token in _DIRECTION_VERBS
+    high, low, mid = found["high"], found["low"], found["mid"]
+    if not (high or low or mid or threshold):
         return None
-    negated = any(_negated_at(tokens, i) for i in words_["high"] + words_["low"])
-    if words_["mid"] or high == low or negated:
-        return "?"
-    return "high" if high else "low"
+    negations = {i: _negation_at(tokens, stretches, i) for i in high + low}
+    named = [f"{negations[i]} {tokens[i]}" if negations.get(i) else tokens[i] for i in high + low]
+    named += [tokens[i] for i in mid] if named or mid else threshold
+    level = "high" if high else "low"
+    if mid or bool(high) == bool(low) or any(negations.values()):
+        level = "?"
+    return level, " ".join(_add([], named))
+
+
+# A level named in a text: (kind, axis, level, the words that name it).
+Mention = tuple[str, str, str, str]
 
 
 # Nouns of the evidence a word like "reliable" may qualify without naming a level of the customer
@@ -1758,11 +1914,11 @@ _EVIDENCE_NOUNS = word_set(
 )
 
 
-def _implied_levels(tokens: Sequence[str]) -> list[tuple[str, str, str]]:
+def _implied_levels(tokens: Sequence[str], stretches: Sequence[int]) -> list[Mention]:
     """Levels a word implies: "risky" (high risk), "safe" (low risk), "profitable" (high value);
     of unknown side when a negation governs the word ("not safe"); none when the word qualifies
     the evidence ("a reliable estimate")."""
-    found: list[tuple[str, str, str]] = []
+    found: list[Mention] = []
     for words_, kind, axis, level in (
         (_RISKY, "axis", "risk", "high"),
         (_SAFE, "axis", "risk", "low"),
@@ -1775,8 +1931,11 @@ def _implied_levels(tokens: Sequence[str]) -> list[tuple[str, str, str]]:
             if t in words_ and not set(tokens[i + 1 : i + 2]) & _EVIDENCE_NOUNS
         ]
         if hits:
-            negated = any(_negated_at(tokens, i) for i in hits)
-            _add(found, [(kind, axis, "?" if negated else level)])
+            negation = next(
+                (n for n in (_negation_at(tokens, stretches, i) for i in hits) if n), None
+            )
+            named = f"{negation} {tokens[hits[0]]}" if negation else tokens[hits[0]]
+            _add(found, [(kind, axis, "?" if negation else level, named)])
     return found
 
 
@@ -1806,30 +1965,40 @@ def _clause_axes(tokens: Sequence[str]) -> list[tuple[str, str]]:
     return found
 
 
-def quadrant_levels(text: str) -> list[tuple[str, str, str]]:
-    """Risk and value levels named in the text, as (kind, axis, level): kind "score" for a level
-    of the risk score ("the risk score is high") or of the customer value in other words ("the
-    net margin is low", "highly profitable"), "axis" for a level of the quadrant axes ("risk
-    level is low", "high-risk", "il rischio è molto basso", "below the threshold", "risky",
-    "safe"). The value of an order or item, or of the score, and the risk of a damage or an error
-    are not quadrant levels. A negated or middle level is "?" ("not high", "moderate"). An axis
-    without a level carries over "and" to the next clause ("the risk score and the margin are
-    both low"). Numbers are replaced by a word before clauses are split (round 4, finding U5)."""
+def level_mentions(text: str) -> list[Mention]:
+    """Risk and value levels named in the text, as (kind, axis, level, words): kind "score" for
+    a level of the risk score ("the risk score is high") or of the customer value in other words
+    ("the net margin is low", "highly profitable"), "axis" for a level of the quadrant axes
+    ("risk level is low", "high-risk", "il rischio è molto basso", "below the threshold",
+    "risky", "safe"); `words` are the words of the text that name the level ("high", "not high",
+    "far from high"), for the retry feedback. The value of an order or item, or of the score,
+    and the risk of a damage or an error are not quadrant levels. A negated or middle level is
+    "?" ("not high", "moderate"). A comparative, a word that sizes a contribution or a move, and
+    "by a small margin" name no level. An axis without a level carries over "and" to the next
+    clause ("the risk score and the margin are both low"). Numbers are replaced by a word before
+    clauses are split (round 4, finding U5; round 6, findings W2 and W3)."""
     normal = _NUMBER_RE.sub(" num ", unicodedata.normalize("NFKC", text).casefold())
+    normal = _BY_A_MARGIN_RE.sub(" by quantity ", normal)
     parts = _LEVEL_CLAUSE_RE.split(normal)
-    found: list[tuple[str, str, str]] = []
+    found: list[Mention] = []
     carried: list[tuple[str, str]] = []
     for clause, separator in zip(parts[::2], [*parts[1::2], ""], strict=True):
-        tokens = _letters_only(fold(clause, " ")).split()
-        _add(found, _implied_levels(tokens))
+        tokens, stretches = _clause_tokens(clause)
+        _add(found, _implied_levels(tokens, stretches))
         axes = _clause_axes(tokens)
-        level = _level(tokens)
-        if level is None:
+        named = _level(tokens, stretches)
+        if named is None:
             carried = [*carried, *axes] if separator in _CARRY_SEPARATORS else []
             continue
-        _add(found, [(kind, axis, level) for kind, axis in [*carried, *axes]])
+        level, words_ = named
+        _add(found, [(kind, axis, level, words_) for kind, axis in [*carried, *axes]])
         carried = []
     return found
+
+
+def quadrant_levels(text: str) -> list[tuple[str, str, str]]:
+    """The (kind, axis, level) of `level_mentions`, without repeats."""
+    return _add([], ((kind, axis, level) for kind, axis, level, _ in level_mentions(text)))
 
 
 _POSITION_RE = re.compile(

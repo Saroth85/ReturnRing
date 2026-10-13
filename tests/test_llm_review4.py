@@ -1043,11 +1043,14 @@ def test_u19_a_split_word_in_an_answer_falls_back(final: str) -> None:
 
 # ---- Variants of the probes, beyond the review (same fixes, other words) ----------------------
 
+# A level that is not the engine's, read from the words, is TERMS_TOPIC since round 6 (findings
+# W2 and W3: regenerated with the words in the feedback, never the template at once); it was
+# DECISION_ECHO before.
 VARIANT_STATEMENTS: list[tuple[str, str, tuple[str, ...], str]] = [
-    ("Q4_cluster", "The risk score, 0.87, is low.", ("risk_score",), "DECISION_ECHO"),
-    ("Q4_cluster", "The risk score is lowish.", (), "DECISION_ECHO"),
+    ("Q4_cluster", "The risk score, 0.87, is low.", ("risk_score",), "TERMS_TOPIC"),
+    ("Q4_cluster", "The risk score is lowish.", (), "TERMS_TOPIC"),
     ("Q4_cluster", "The risk score is not that high.", (), "TERMS_TOPIC"),
-    ("Q4", "Customer margin is substantial.", (), "DECISION_ECHO"),
+    ("Q4", "Customer margin is substantial.", (), "TERMS_TOPIC"),
     ("Q4_cluster", "The customer looks harmless.", (), "TERMS_TOPIC"),
     ("Q1", "Coupons stay on for this customer.", (), "TERMS_TOPIC"),
     ("guarantee", "Upcoming purchases carry stricter conditions.", (), "TERMS_TOPIC"),

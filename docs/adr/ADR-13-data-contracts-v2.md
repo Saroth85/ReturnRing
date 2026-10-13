@@ -355,3 +355,19 @@ The contract version stays `2.0.0`: no `features/` file had been written. Defini
 The checks add ranges, `n_observations <= n_delivered_lines <= n_lines`, `n_returns <= n_lines`,
 `n_observations <= n_observations_linked`, the EvidenceQuality enum and the identifier kinds. No
 new column is a forbidden feature (`tenure_days`, not "account age": the word age is forbidden).
+
+## Amendment 4 (13 Oct 2026): scores of the risk model (US-204)
+
+The contract version stays `2.0.0`: no `scores/` file had been written. Code: `ml/risk/` and
+`ml/scoring/`; method in `docs/risk-model.md`.
+
+| Table | Change |
+| --- | --- |
+| scores/scores | Unchanged columns. Two checks: `quadrant` is null unless `evidence_quality` is sufficient (an insufficient case has no quadrant, as in `llm_case`), and `model_version` is not blank. `shap_top3` holds a JSON list of three {feature, value, contribution, direction, phrase_en, phrase_it}: contributions to the score, not causes |
+| scores/request_scores | New. One row per return request scored at its own decision time: return_id, customer_id, decided_at (when the request became known), path (`policy.types.Path`), context_as_of (the customer snapshot used, the last one strictly before decided_at; null when the account had none), risk, evidence_quality and value_eur (at context_as_of), quadrant, shap_top3, model_version, as_of |
+
+Checks of `scores/request_scores`: unique (return_id, as_of); risk and shap_top3 present exactly on
+the withdrawal path, so a defect or non-conformity request is listed and never scored (rule 4);
+risk in [0, 1]; quadrant null on the guarantee path and without sufficient evidence;
+`context_as_of < decided_at` (MOD-08: a snapshot taken at the request instant already counts the
+request); every timestamp `<= as_of`, as in every as-of table.

@@ -105,7 +105,6 @@ def generation(generation_id: str) -> Row:
         "model_calls": 1,
         "prompt_version": "prompt-0.1.0",
         "input_digest": "0" * 64,
-        "tone": "warm",
         "llm_case": {"case_id": "RET-000102", "facts": []},
         "output": {"decision_echo": {"path": "withdrawal"}},
         "validator_codes": [],
@@ -247,6 +246,7 @@ STANDARD_Q2: Row = {
     "future_terms": BASE_TERMS,
 }
 UNBOUND_SNAPSHOT: Row = {"order_id": None, "confirmed_at": None}  # shown, not confirmed yet
+REVIEW_ACT: Row = {"approved_at": T0 - timedelta(days=2)}  # a review version: the act creates it
 BASE_SNAPSHOT: Row = {
     "source": "base",
     "source_decision_id": None,
@@ -586,13 +586,56 @@ VIOLATIONS: list[tuple[str, dict[str, Any], str]] = [
         {"quadrant": "Q2", "proposed_levers": [], "levers": [], "requires_approval": False},
         "review_only_restriction",
     ),
-    ("decisions", {"review_at": DAY - timedelta(days=1)}, "review_after_decision"),
+    (
+        "decisions",
+        {
+            "review_at": DAY - timedelta(days=1),
+            "state": "proposed",
+            "approver": None,
+            "approved_at": None,
+        },
+        "review_after_decision",
+    ),  # fmt: skip
     # D1: the decision day is the day of the act, so the review rules count from it
     ("decisions", {"decided_on": DAY + timedelta(days=1)}, "decided_by_creation"),
     (
         "decisions",
-        {**SECOND_VERSION, "revision_trigger": "review", "decided_on": DAY - timedelta(days=1)},
-        "review_decided_on_creation",
+        {
+            **SECOND_VERSION,
+            "revision_trigger": "review",
+            "decided_on": DAY - timedelta(days=1),
+            "approved_at": T0 - timedelta(days=2),  # the person's act creates a review version
+        },
+        "new_version_decided_on_creation",
+    ),
+    # round 4, E4: a recompute version too is decided on the day it is created
+    (
+        "decisions",
+        {
+            **SECOND_VERSION,
+            "revision_trigger": "evidence_added",
+            "decided_on": date(2026, 9, 1),
+        },
+        "new_version_decided_on_creation",
+    ),
+    # E4: a person acts on a version after it exists, a review version is created by the act,
+    # and a restriction is approved only before its review date (a stale proposal is recomputed)
+    ("decisions", {"approved_at": T0 - timedelta(days=3)}, "approved_after_creation"),
+    (
+        "decisions",
+        {**SECOND_VERSION, "revision_trigger": "review"},
+        "review_approved_at_creation",
+    ),
+    ("decisions", {"approved_at": datetime(2027, 1, 6, tzinfo=UTC)}, "approved_before_review"),
+    # E2: a cluster coupon application names the cluster of the decision
+    (
+        "decisions",
+        {
+            "coupon_rule_version": "coupon-rule-v1",
+            "coupon_application_id": "CRA-000099",
+            "cluster_id": None,
+        },
+        "coupon_application_has_cluster",
     ),
     ("decisions", {"review_at": DAY + timedelta(days=181)}, "review_within_max"),
     ("decisions", {"approver": None}, "acted_has_approver"),
@@ -637,7 +680,7 @@ VIOLATIONS: list[tuple[str, dict[str, Any], str]] = [
     ("decisions", {**SECOND_VERSION, "revision_trigger": "manual"}, "revision_trigger"),
     (
         "decisions",
-        {**SECOND_VERSION, "revision_trigger": "review", **STANDARD_Q2},
+        {**SECOND_VERSION, "revision_trigger": "review", **STANDARD_Q2, **REVIEW_ACT},
         "review_outcome",
     ),  # a review version that neither lifts nor renews: approved without a restriction
     (
@@ -646,6 +689,7 @@ VIOLATIONS: list[tuple[str, dict[str, Any], str]] = [
             **SECOND_VERSION,
             "revision_trigger": "review",
             **STANDARD_Q2,
+            **REVIEW_ACT,
             "state": "rejected",
             "override_reason": "not justified",
             "override_category": "other",
@@ -767,6 +811,22 @@ VIOLATIONS: list[tuple[str, dict[str, Any], str]] = [
         },
         "review_within_max",
     ),  # fmt: skip
+    # E4: an application is confirmed before its review date, which is after its proposal
+    (
+        "coupon_rule_applications",
+        {"confirmed_at": datetime(2027, 1, 6, tzinfo=UTC)},
+        "confirmed_before_review",
+    ),
+    (
+        "coupon_rule_applications",
+        {
+            "state": "proposed",
+            "confirmed_by": None,
+            "confirmed_at": None,
+            "review_at": (T0 - timedelta(days=2)).date(),
+        },
+        "review_after_proposed",
+    ),
     ("coupon_rule_applications", {"state": "reversed"}, "reversal_fields"),
     (
         "coupon_rule_applications",
@@ -805,7 +865,6 @@ VIOLATIONS: list[tuple[str, dict[str, Any], str]] = [
     ("llm_generations", {"kind": "chat"}, "kind"),
     ("llm_generations", {"llm_mode": "openai"}, "llm_mode"),
     ("llm_generations", {"served_from": "edge", "llm_mode": "vllm"}, "served_from"),
-    ("llm_generations", {"tone": "angry"}, "tone"),
     # return requests
     ("return_requests", {"notice_on": DAY - timedelta(days=30)}, "notice_after_delivery"),
     ("return_requests", {"reason": "bored"}, "reason"),
@@ -958,6 +1017,13 @@ def test_foreign_keys_and_unique_keys_are_enforced(database_url: str) -> None:
         await insert(engine, "link_disputes", rows["link_disputes"])
         with pytest.raises(DBAPIError):  # a link is disputed once
             await insert(engine, "link_disputes", {**rows["link_disputes"], "dispute_id": "LD-2"})
+        with pytest.raises(DBAPIError):  # E2: an application names the cluster of its decision
+            await insert(
+                engine,
+                "coupon_rule_applications",
+                {**rows["coupon_rule_applications"], "cluster_id": "CL-999999"},
+            )
+        await insert(engine, "coupon_rule_applications", rows["coupon_rule_applications"])
         with pytest.raises(DBAPIError):  # an assumption version supersedes an existing one
             await insert(
                 engine,

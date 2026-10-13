@@ -8,7 +8,7 @@
     "superseded_by": null,
     "created_at": "2026-09-30T18:30:00Z",
     "as_of": "2026-09-30T20:00:00Z",
-    "decided_on": "2026-09-26",
+    "decided_on": "2026-09-30",
     "state": "proposed",
     "path": "withdrawal",
     "evidence_quality": "sufficient",
@@ -72,7 +72,7 @@
       "provenance": {
         "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
         "period_start": "2025-10-01",
-        "period_end": "2026-09-26",
+        "period_end": "2026-09-30",
         "nature": "synthetic"
       }
     },

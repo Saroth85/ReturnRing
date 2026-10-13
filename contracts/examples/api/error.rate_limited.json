@@ -1,0 +1,6 @@
+{
+  "code": "rate_limited",
+  "message": "Too many questions to the agent: try again in a minute",
+  "violations": [],
+  "request_id": "req-000128"
+}

@@ -94,13 +94,16 @@ def explanation_from_case(case: Mapping[str, Any]) -> list[dict[str, Any]]:
                 f"Customer net margin over the period: {format_value(value['value'])} EUR.",
             )
         )
-        if "cluster_size" in by_metric:
+        if case.get("cluster") and "cluster_size" in by_metric:
+            # only a case with a cluster has one (an account alone has its cluster features
+            # computed on itself); the size counts this customer too (round 4, finding E3)
             size = by_metric["cluster_size"]
             statements.append(
                 _statement(
                     "OBSERVED",
                     size,
-                    f"Linked accounts in the cluster: {format_value(size['value'])}.",
+                    "Accounts in the cluster of linked accounts, this customer included: "
+                    f"{format_value(size['value'])}.",
                 )
             )
         statements.append(

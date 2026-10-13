@@ -87,8 +87,6 @@ ServedFrom = Literal["live", "cached"]  # DEMO_MODE: cached = precomputed on the
 SERVED_FROM: tuple[ServedFrom, ...] = get_args(ServedFrom)
 GenerationKind = Literal["case_draft", "regenerate", "agent_answer", "inspection_checklist"]
 GENERATION_KINDS: tuple[GenerationKind, ...] = get_args(GenerationKind)
-Tone = Literal["neutral", "warm", "formal"]
-TONES: tuple[Tone, ...] = get_args(Tone)
 
 # ---- Outbox (spec 4: simulated email, visible) --------------------------------------------------
 

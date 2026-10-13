@@ -26,6 +26,29 @@
     "type": "tool_call",
     "seq": 2,
     "step": 2,
+    "tool": "get_cluster",
+    "arguments": {
+      "customer_id": "C-ROSSI-2"
+    }
+  },
+  {
+    "type": "tool_result",
+    "seq": 3,
+    "step": 2,
+    "tool": "get_cluster",
+    "ok": true,
+    "summary": "Cluster CL-000233: 3 accounts created more than a year apart, 3 distinct cards, 1 welcome coupon used",
+    "refs": [
+      {
+        "kind": "cluster",
+        "id": "CL-000233"
+      }
+    ]
+  },
+  {
+    "type": "tool_call",
+    "seq": 4,
+    "step": 3,
     "tool": "get_score_factors",
     "arguments": {
       "return_id": "RET-000102"
@@ -33,8 +56,8 @@
   },
   {
     "type": "tool_result",
-    "seq": 3,
-    "step": 2,
+    "seq": 5,
+    "step": 3,
     "tool": "get_score_factors",
     "ok": true,
     "summary": "Top contributions: welcome coupons per account, creation spread, change of mind",
@@ -47,37 +70,41 @@
   },
   {
     "type": "token",
-    "seq": 4,
-    "text": "The Rossi family shares an address and a device, but its 3 "
-  },
-  {
-    "type": "token",
-    "seq": 5,
-    "text": "accounts were created more than a year apart, use 3 distinct cards "
-  },
-  {
-    "type": "token",
     "seq": 6,
-    "text": "and only 1 used a welcome coupon. The 7 linked accounts of "
+    "text": "The Rossi family (cluster CL-000233) shares an address and a device, but its "
   },
   {
     "type": "token",
     "seq": 7,
-    "text": "this case were created within 9 days and each used a welcome "
+    "text": "3 accounts were created more than a year apart, use 3 distinct cards "
   },
   {
     "type": "token",
     "seq": 8,
+    "text": "and only 1 used a welcome coupon. The 7 linked accounts of this "
+  },
+  {
+    "type": "token",
+    "seq": 9,
+    "text": "case (cluster CL-000417) were created within 9 days and each used a welcome "
+  },
+  {
+    "type": "token",
+    "seq": 10,
     "text": "coupon."
   },
   {
     "type": "answer",
-    "seq": 9,
-    "text": "The Rossi family shares an address and a device, but its 3 accounts were created more than a year apart, use 3 distinct cards and only 1 used a welcome coupon. The 7 linked accounts of this case were created within 9 days and each used a welcome coupon.",
+    "seq": 11,
+    "text": "The Rossi family (cluster CL-000233) shares an address and a device, but its 3 accounts were created more than a year apart, use 3 distinct cards and only 1 used a welcome coupon. The 7 linked accounts of this case (cluster CL-000417) were created within 9 days and each used a welcome coupon.",
     "evidence_consulted": [
       {
         "kind": "cluster",
         "id": "CL-000417"
+      },
+      {
+        "kind": "cluster",
+        "id": "CL-000233"
       },
       {
         "kind": "return",
@@ -91,6 +118,10 @@
         "id": "CL-000417"
       },
       {
+        "kind": "cluster",
+        "id": "CL-000233"
+      },
+      {
         "kind": "return",
         "id": "RET-000102"
       }
@@ -98,8 +129,8 @@
   },
   {
     "type": "done",
-    "seq": 10,
-    "steps_used": 2,
+    "seq": 12,
+    "steps_used": 3,
     "generation": {
       "generation_id": "GEN-AGENT-000002",
       "generation_path": "model",

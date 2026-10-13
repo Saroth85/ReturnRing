@@ -634,7 +634,7 @@ F7 — Revisione del caso: Sara aggiunge un'evidenza favorevole o contesta un le
 | GET /api/returns/{id} | Scheda caso: punteggi, fattori, cluster, ordini, bozza di Gemma |
 | POST /api/returns/{id}/decision | Approvazione, modifica o rifiuto con motivazione; revoca di una restrizione (US-607) |
 | GET /api/decisions/{id} | Una versione della decisione, anche precedente: input, alternative, esito (US-604) |
-| POST /api/returns/{id}/regenerate | Nuova bozza in un'altra lingua o tono |
+| POST /api/returns/{id}/regenerate | Nuova bozza in un'altra lingua |
 | POST /api/checkout/evaluate | Probabilità per riga, consiglio di taglia, condizioni dell'ordine |
 | POST /api/inspections | Foto in ingresso, checklist in uscita |
 | POST /api/inspections/{id}/confirm | Conferma dell'indennizzo |
@@ -1246,7 +1246,7 @@ Corpo di POST /api/returns/{id}/decision:
 }
 ```
 
-Forma vincolante: `contracts/json/api/decision_request.schema.json` (ADR-15), che aggiunge `decision_id`, `override_category` e le azioni `lift` e `renew`; motivazione e categoria obbligatorie per override, rifiuto e revoca. Il messaggio sceglie id del frasario (`message.sentence_ids`, ADR-14), mai testo libero, e manca per revoca e rinnovo.
+Forma vincolante: `contracts/json/api/decision_request.schema.json` (ADR-15), che aggiunge `decision_id`, `override_category` e le azioni `lift` e `renew`; motivazione e categoria obbligatorie per override, rifiuto e revoca. Il messaggio sceglie id del frasario (`message.sentence_ids`, ADR-14), mai testo libero. Revoca e rinnovo non inviano messaggi al cliente: è una decisione presa il 13 ottobre 2026 (ADR-15, sezione 12), perché il cliente vede le condizioni dei nuovi ordini al checkout, prima di ogni acquisto (US-403).
 
 ### C. Clausola legale fissa (bozza da validare con un legale)
 
@@ -1336,6 +1336,7 @@ Rules for every text:
 
 | Data | Modifica | Dove |
 | --- | --- | --- |
+| 13 ott 2026 | Contratto API e persistenza, versione 1.4.0: nessun messaggio annuncia una restrizione non approvata; il blocco dei coupon è legato al cluster del caso; la bozza conserva tutti i fatti del caso; il messaggio dopo una trattenuta ne dice il motivo; revoca e rinnovo senza messaggio (decisione); niente tono nella rigenerazione | 9, 19.B, ADR-14, ADR-15 |
 | 13 ott 2026 | Contratti LLM v2: fatti costruiti dal codice e citati dalla spiegazione, segnaposto disponibili e richiesti, nessun punteggio nei casi di garanzia o con dati insufficienti; clausola di garanzia proposta (art. 13 della direttiva 2019/771); prompt adattato | 8.7, 19.B, 19.C, 19.D, ADR-14 |
 | 13 ott 2026 | Feature cliente al momento della decisione, riferimento di prodotto e coorte, residuo, valore e qualità dell'evidenza; tabelle customer\_value ed evidence\_quality | 7, ADR-13 (emendamento 3), docs/customer-features.md |
 | 13 ott 2026 | Contratti dati v2: consegne e stati del reso come eventi separati, catalogo varianti, legami, ground truth delle varianti e scenario, contratti ASOS e di calibrazione, catalogo delle leve, metadati di provenienza; regola 12 precisata | 7, 19.A, ADR-13 |

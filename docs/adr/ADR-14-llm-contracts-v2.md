@@ -1,7 +1,8 @@
 # ADR-14: LLM contracts v2
 
 Status: accepted, 13 Oct 2026; amended the same day after the second round of the adversarial
-review (decision 8, the customer phrasebook). Changes `contracts/json/llm_case.schema.json`,
+review (decision 8, the customer phrasebook) and after round 4 of the API contract review
+(decision 9: reviewed texts written by code). Changes `contracts/json/llm_case.schema.json`,
 `contracts/json/llm_output.schema.json`, their examples, `llm/` and spec sections 8.7, 19.B, 19.C
 and 19.D. Resolves review findings LLM-1 to LLM-14 of 12 Oct (US-304, US-305) and findings R1 to
 R8 of the second adversarial review of 13 Oct.
@@ -189,6 +190,46 @@ investigator agent (`llm/agent.py`). Both keep the text checks, hardened in the 
   "shortfall") make a number ungrounded.
 - R8: `check_local_url` drops fc00::/7, because the compose network is IPv4 only; this refuses
   the EC2 IPv6 metadata endpoint fd00:ec2::254.
+
+### 9. Reviewed texts written by code (amendment, round 4 of the API review, ADR-15 section 12)
+
+Decision 8 says that a new sentence needs review and that the gate tests run the text checks on
+it. This amendment records the texts added or changed, each with its tests in
+`tests/test_llm_phrasebook.py`, `tests/test_llm_messages.py` and `tests/test_llm_case.py`.
+
+- **The deduction (finding E17).** Spec 9 F3 and the persona of Ahmed (spec 3) ask the
+  message after a diminished-value claim to give the reason of the deduction. The mandatory
+  body gains, right after the registration and only when the decision carries a claim on the
+  withdrawal path, a sentence with a new template field written by code, {deduction}, the
+  amount withheld (`format_amount` of the claim):
+  - IT: "Abbiamo trattenuto {deduction} per la diminuzione di valore rilevata al controllo."
+  - EN: "We have withheld {deduction} for the loss of value found at our check."
+
+  {deduction} joins the placeholder grammar of `llm/messages.py` (`has_deduction`,
+  `template_fields`) but never the llm_case: the model writes no customer text, so
+  `ExpectedDecision.placeholders` and the schema of `placeholders` are unchanged, and the flag
+  `ExpectedDecision.deduction` carries it to the body (`context_of`). With a deduction the
+  size sentence HELP_SIZE is not offered (the item came back damaged; `Sentence.excludes`),
+  and a selection has at most two extras (`max_extras`): every allowed selection then stays
+  within the 120 words of spec 8.7 before the clause (at most 118). The sentence passes every
+  check of the gate, alone and next to every part it can stand beside.
+- **The Italian deadline (E22).** "previsto per il {deadline}" was wrong on the 1st, the 8th
+  and the 11th ("per il 11 ottobre"). The {deadline} field now carries its article in Italian
+  (`format_deadline`: "il 12 ottobre 2026", "l'11 ottobre 2026"; English unchanged), and the
+  two registration sentences say "è previsto per {deadline}". A test reads every day of a
+  month aloud and checks the article.
+- **The cluster in the template (E3).** An account without linked accounts has its cluster
+  features computed on itself (`ml/risk/explain.py`). `llm.case.CLUSTER_FEATURES` (equal to
+  those of `pipeline.graph.clusters`) and `factor_entity` make such a score factor a fact of
+  the customer, and `build_case` refuses a fact of the cluster in a case without one. The
+  template states the size of a cluster only for a case with a cluster: "Accounts in the
+  cluster of linked accounts, this customer included: N."
+- **Other customer texts (E13, E25).** The subject of a message ("Il tuo reso {return_id}",
+  "Your return {return_id}", `subject`) and the fixed checkout texts (`COUPON_BLOCK_TEXT`, with
+  the wording of the transparency notice and no mention of linked accounts or clusters;
+  `SIZE_ADVICE_TEXTS` and `size_advice_text`) live in `llm/phrasebook.py`, in both languages,
+  and pass the same checks (the coupon text names discount codes, so it is checked for
+  language, digits, banned terms and legal wording, not for terms wording).
 
 ## Consequences
 

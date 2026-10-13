@@ -173,6 +173,7 @@ class DiminishedValueClaim:
 class CouponRuleApplication:
     rule_version: str | None  # general rule approved and versioned by the manager
     confirmed_by: str | None  # operator who confirmed this specific application
+    cluster_id: str | None = None  # the cluster whose linked accounts the block applies to
 
 
 @dataclass(frozen=True)

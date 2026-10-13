@@ -53,8 +53,8 @@
           "nature": "synthetic"
         }
       },
-      "status": "task_opened",
-      "catalog_task_id": "CT-000012",
+      "status": "open",
+      "catalog_task_id": null,
       "return_ids": [
         "RET-000097",
         "RET-000099",

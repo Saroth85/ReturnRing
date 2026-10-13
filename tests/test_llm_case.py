@@ -15,11 +15,13 @@ from jsonschema import Draft202012Validator
 
 from contracts.levers import format_lever_id
 from llm.case import (
+    CLUSTER_FEATURES,
     MAX_CUSTOMER_CHARS,
     CaseError,
     ClusterSummary,
     ScoreFactor,
     build_case,
+    factor_entity,
     wrap_customer_text,
 )
 from llm.decision import serialize_decision
@@ -210,6 +212,8 @@ def _kwargs(**overrides: Any) -> dict[str, Any]:
         {"missing_evidence": ["x" * 201]},
         {"factors": [ScoreFactor("returns_90d", 1, "")]},
         {"cluster": replace(MARCO, size=1)},
+        # E3: a fact of the cluster needs the cluster; an account alone has customer facts
+        {"cluster": None},
     ],
 )
 def test_build_case_rejects_inputs_that_cannot_form_a_valid_case(overrides: dict[str, Any]) -> None:
@@ -258,3 +262,30 @@ def test_cluster_summary_without_scores_cluster_is_rejected() -> None:
         cluster=summary,
     )
     assert case["cluster"]["shared"] == []
+
+
+# ---- Facts of the cluster (round 4 of the API review, findings E3 and E10) ---------------------
+
+
+def test_cluster_features_are_the_features_of_the_account_graph() -> None:
+    from pipeline.graph.clusters import CLUSTER_FEATURES as GRAPH_FEATURES
+
+    assert frozenset(GRAPH_FEATURES) == CLUSTER_FEATURES
+
+
+def test_a_score_factor_of_the_cluster_is_a_fact_of_the_cluster_only_in_a_cluster() -> None:
+    """An account without linked accounts has its cluster features computed on itself: their
+    facts are about the customer, never about a cluster it is not in (rule 11)."""
+    assert factor_entity("cluster_size", clustered=True) == "cluster"
+    assert factor_entity("cluster_size", clustered=False) == "customer"
+    assert factor_entity("creation_spread_days", clustered=True) == "cluster"
+    assert factor_entity("size_share", clustered=True) == "customer"
+    s = SCENARIOS["Q2"]
+    req = replace(s.request, return_id="RET-1")
+    decision = decide(req, s.scores, BASE, THRESHOLDS, TODAY)
+    entity = factor_entity("cluster_size", clustered=False)
+    alone = ScoreFactor("cluster_size", 1, "No linked accounts", entity)
+    case = build_case(decision, req, BASE, policy_text="", scores=s.scores, factors=[alone])
+    fact = next(f for f in case["facts"] if f["metric"] == "cluster_size")
+    assert (fact["entity"], fact["value"]) == ("customer", 1)
+    assert "cluster" not in case

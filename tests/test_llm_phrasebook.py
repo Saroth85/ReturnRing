@@ -28,12 +28,14 @@ from llm.messages import (
 )
 from llm.phrasebook import (
     ALL_KINDS,
+    COUPON_BLOCK_TEXT,
     MAX_EXTRAS,
     MAX_SENTENCES,
     MIN_SENTENCES,
     PHRASEBOOK,
     SENTENCE_IDS,
     SENTENCES,
+    SIZE_ADVICE_TEXTS,
     SLOTS,
     MessageContext,
     allowed,
@@ -42,17 +44,29 @@ from llm.phrasebook import (
     context_of,
     context_of_case,
     mandatory_body,
+    max_extras,
     phrase_problems,
     render_selection,
     selection_problems,
+    size_advice_text,
+    subject,
 )
 from llm.templates import DEFAULT_SELECTION, default_selection
-from llm.text import LANGS, Lang, language_of, numeric_characters, word_count
+from llm.text import (
+    LANGS,
+    Lang,
+    banned_terms,
+    language_of,
+    legal_wording,
+    numeric_characters,
+    word_count,
+)
 from tests.factories import BASE
 from tests.llm_factories import SCENARIOS, Built, make
 
 MAX_CUSTOMER_WORDS = 120  # spec 8.7, before the fixed legal clause
 REFUND = Decimal("59.9")
+CLAIM = Decimal("12.5")  # a diminished-value claim, other than the refund it leaves
 
 
 def selections(ctx: MessageContext, *, ordered: bool = True) -> Iterator[list[str]]:
@@ -62,16 +76,21 @@ def selections(ctx: MessageContext, *, ordered: bool = True) -> Iterator[list[st
     by_slot = {slot: [s.id for s in allowed_now if s.slot == slot] for slot in SLOTS}
     choose = itertools.permutations if ordered else itertools.combinations
     for opening in by_slot["opening"]:
-        for count in range(MAX_EXTRAS + 1):
+        for count in range(max_extras(ctx) + 1):
             for extras in choose(by_slot["extra"], count):
                 for closing in by_slot["closing"]:
                     yield [opening, *extras, closing]
 
 
 def built_cases() -> Iterator[tuple[str, Built, Decimal | None]]:
+    """Every scenario, with and without a known refund, and on the withdrawal path also with a
+    diminished-value claim (the refund is then known, and the {deduction} sentence is written)."""
     for name in sorted(SCENARIOS):
         yield name, make(name), None
         yield f"{name}+refund", make(name, refund_eur=REFUND), REFUND
+        claimed = make(name, refund_eur=REFUND, claim_eur=CLAIM)
+        if claimed.expected.deduction:
+            yield f"{name}+claim", claimed, REFUND
 
 
 # ---- The sentences --------------------------------------------------------------------------
@@ -312,3 +331,89 @@ def test_render_selection_appends_the_clause_once() -> None:
     final = render_selection(["OPEN_THANKS", "CLOSE_REGARDS"], built.decision, BASE, "it")
     assert final.endswith("\n\n" + CLAUSES["withdrawal"]["it"])
     assert final.count(CLAUSES["withdrawal"]["it"]) == 1
+
+
+# ---- Round 4 of the API review (E17, E22, E13, E25): reviewed sentences written by code ------
+
+
+def test_a_deduction_is_stated_with_its_reason() -> None:
+    """E17 (spec 9 F3, spec 3 Ahmed: "motivazione della trattenuta"): after a diminished-value
+    claim the message states the refund left and the amount withheld, with its reason; both
+    amounts are template fields."""
+    refund, claim = Decimal("71.92"), Decimal("17.98")
+    built = make("Q2", refund_eur=refund, claim_eur=claim)
+    ctx = context_of(built.expected)
+    assert "deduction" in ctx.placeholders
+    body = mandatory_body(ctx, "it")
+    assert body == [
+        "Abbiamo registrato la tua richiesta di reso e il rimborso di {amount} è previsto per "
+        "{deadline}.",
+        "Abbiamo trattenuto {deduction} per la diminuzione di valore rilevata al controllo.",
+    ]
+    ids = default_selection(ctx)
+    it = render_selection(ids, built.decision, BASE, "it", refund)
+    assert "il rimborso di 71,92 € è previsto per il 28 ottobre 2026." in it
+    assert "Abbiamo trattenuto 17,98 € per la diminuzione di valore rilevata al controllo." in it
+    en = render_selection(ids, built.decision, BASE, "en", refund)
+    assert "your refund of €71.92 is due by 28 October 2026." in en
+    assert "We have withheld €17.98 for the loss of value found at our check." in en
+    without = context_of(make("Q2", refund_eur=refund).expected)
+    assert "deduction" not in without.placeholders
+    assert not any("{deduction}" in part for part in mandatory_body(without, "en"))
+
+
+def test_no_size_exchange_is_offered_after_a_deduction() -> None:
+    """E17: the item came back damaged, so the message does not offer another size."""
+    plain = context_of(make("Q2").expected)
+    claimed = context_of(make("Q2", refund_eur=REFUND, claim_eur=CLAIM).expected)
+    assert allowed(PHRASEBOOK["HELP_SIZE"], plain)
+    assert not allowed(PHRASEBOOK["HELP_SIZE"], claimed)
+    assert default_selection(claimed) == ["OPEN_THANKS", "CLOSE_REGARDS"]
+    problems = selection_problems(["OPEN_THANKS", "HELP_SIZE", "CLOSE_REGARDS"], claimed)
+    assert problems == ["HELP_SIZE: not allowed for this decision"]
+
+
+def test_a_deduction_leaves_room_for_two_extras() -> None:
+    """E17: the deduction sentence lengthens the body; two extras at most keep the message
+    within the 120 words of spec 8.7 (test_every_allowed_selection_... checks every one)."""
+    claimed = context_of(make("Q4", refund_eur=REFUND, claim_eur=CLAIM).expected)
+    assert max_extras(claimed) == 2 and max_extras(context_of(make("Q4").expected)) == 3
+    three = ["OPEN_THANKS", "CONTACT_REPLY", "CONTACT_TEAM", "THANKS_FEEDBACK", "CLOSE_REGARDS"]
+    assert selection_problems(three, claimed) == ["5 ids, expected 2 to 4"]
+    assert selection_problems(three[:3] + three[4:], claimed) == []
+
+
+@pytest.mark.parametrize("lang", LANGS)
+def test_the_subject_is_a_fixed_template_with_the_return_id(lang: Lang) -> None:
+    """E13: the subject reaches the customer too, so llm/ writes it."""
+    text = subject("RET-000102", lang)
+    assert text == {"it": "Il tuo reso RET-000102", "en": "Your return RET-000102"}[lang]
+    assert phrase_problems(text.removesuffix(" RET-000102"), lang) == []
+    with pytest.raises(ValueError):
+        subject("RET 102", lang)
+
+
+@pytest.mark.parametrize("lang", LANGS)
+def test_the_checkout_texts_are_fixed_reviewed_texts(lang: Lang) -> None:
+    """E25: the checkout texts reach the customer: fixed, reviewed, in Italian and English; the
+    coupon block uses the neutral wording of the transparency notice, never the linked accounts
+    or the cluster (rule 11)."""
+    block = COUPON_BLOCK_TEXT[lang]
+    assert language_of(block) == lang
+    assert numeric_characters(block) == [] and banned_terms(block) == []
+    assert legal_wording(block) == []
+    assert "cluster" not in block.lower() and "collegat" not in block and "linked" not in block
+    assert block.endswith(mandatory_body(context_of(make("Q4").expected), lang)[-1])
+    for kind in SIZE_ADVICE_TEXTS:
+        size = "M" if kind == "specific" else None
+        text = size_advice_text(kind, lang, size)
+        assert language_of(text) == lang, (kind, lang)
+        assert phrase_problems(text, lang) == [], (kind, text)
+        assert "{" not in text
+    assert " M " in size_advice_text("specific", lang, "M")
+    with pytest.raises(ValueError):
+        size_advice_text("specific", lang, None)
+    with pytest.raises(ValueError):
+        size_advice_text("measurement_guide", lang, "M")
+    with pytest.raises(ValueError):
+        size_advice_text("specific", lang, "{terms}")

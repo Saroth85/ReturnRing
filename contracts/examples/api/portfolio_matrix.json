@@ -127,7 +127,7 @@
     {
       "quadrant": "Q4",
       "customers": {
-        "value": 7,
+        "value": 10,
         "unit": "count",
         "provenance": {
           "origin": "Contract example: risk model risk-xgb-0.1.0 on decision-time features of the synthetic shop",
@@ -137,7 +137,7 @@
         }
       },
       "value_eur": {
-        "value": 271.6,
+        "value": 344.85,
         "unit": "eur",
         "provenance": {
           "origin": "Contract example: customer value, 12-month net margin (spec 8.5) of the synthetic shop",
@@ -147,7 +147,7 @@
         }
       },
       "returns_12m": {
-        "value": 21,
+        "value": 27,
         "unit": "count",
         "provenance": {
           "origin": "Contract example: Navigli Fashion synthetic shop, generator seed 42",
@@ -313,6 +313,17 @@
       "welcome_coupons": 1
     },
     {
+      "customer_id": "C-12007",
+      "display_name": "Nicola Serra",
+      "risk": 0.82,
+      "value_eur": 19.75,
+      "evidence_quality": "sufficient",
+      "quadrant": "Q4",
+      "cluster_id": "CL-000655",
+      "returns_12m": 3,
+      "welcome_coupons": 1
+    },
+    {
       "customer_id": "C-MARCO-2",
       "display_name": "M. Bianchi",
       "risk": 0.83,
@@ -376,6 +387,28 @@
       "quadrant": "Q4",
       "cluster_id": "CL-000417",
       "returns_12m": 3,
+      "welcome_coupons": 1
+    },
+    {
+      "customer_id": "C-12930",
+      "display_name": "Irene Galli",
+      "risk": 0.79,
+      "value_eur": 31.5,
+      "evidence_quality": "sufficient",
+      "quadrant": "Q4",
+      "cluster_id": "CL-000655",
+      "returns_12m": 1,
+      "welcome_coupons": 1
+    },
+    {
+      "customer_id": "C-15561",
+      "display_name": "Paolo Riva",
+      "risk": 0.84,
+      "value_eur": 22.0,
+      "evidence_quality": "sufficient",
+      "quadrant": "Q4",
+      "cluster_id": "CL-000655",
+      "returns_12m": 2,
       "welcome_coupons": 1
     },
     {

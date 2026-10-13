@@ -973,12 +973,69 @@
       "created_at": "2026-09-26T11:04:00Z",
       "latency_ms": 14
     },
-    "tone": "warm",
     "decision_echo": {
       "path": "withdrawal",
       "quadrant": "Q2",
       "lever_ids": []
     },
+    "case_facts": [
+      {
+        "id": "F1",
+        "entity": "customer",
+        "metric": "risk_score",
+        "value": 0.34,
+        "period": "as of 2026-09-26",
+        "nature": "synthetic"
+      },
+      {
+        "id": "F2",
+        "entity": "customer",
+        "metric": "value_eur_12m",
+        "value": 127.15,
+        "period": "12 months to 2026-09-26",
+        "nature": "synthetic"
+      },
+      {
+        "id": "F3",
+        "entity": "cluster",
+        "metric": "strong_id_share",
+        "value": 0.5,
+        "period": "as of 2026-09-26",
+        "nature": "synthetic"
+      },
+      {
+        "id": "F4",
+        "entity": "cluster",
+        "metric": "welcome_coupons_per_account",
+        "value": 0.33,
+        "period": "as of 2026-09-26",
+        "nature": "synthetic"
+      },
+      {
+        "id": "F5",
+        "entity": "cluster",
+        "metric": "creation_spread_days",
+        "value": 557,
+        "period": "as of 2026-09-26",
+        "nature": "synthetic"
+      },
+      {
+        "id": "F6",
+        "entity": "cluster",
+        "metric": "cluster_size",
+        "value": 3,
+        "period": "as of 2026-09-26",
+        "nature": "synthetic"
+      },
+      {
+        "id": "F7",
+        "entity": "return",
+        "metric": "days_since_delivery",
+        "value": 6,
+        "period": "2026-09-20/2026-09-26",
+        "nature": "synthetic"
+      }
+    ],
     "explanation": [
       {
         "label": "SCORE",
@@ -1070,7 +1127,7 @@
         "fact_ids": [
           "F6"
         ],
-        "text": "Linked accounts in the cluster: 3.",
+        "text": "Accounts in the cluster of linked accounts, this customer included: 3.",
         "facts": [
           {
             "id": "F6",
@@ -1119,7 +1176,8 @@
           "fields": {
             "terms": null,
             "amount": null,
-            "deadline": "10 ottobre 2026"
+            "deadline": "il 10 ottobre 2026",
+            "deduction": null
           },
           "text": "Ciao, grazie per averci scritto. Abbiamo registrato la tua richiesta di reso e il rimborso è previsto per il 10 ottobre 2026. Se ti serve un'altra taglia, rispondi pure a questo messaggio. Un caro saluto dal nostro team."
         },
@@ -1128,7 +1186,8 @@
           "fields": {
             "terms": null,
             "amount": null,
-            "deadline": "10 October 2026"
+            "deadline": "10 October 2026",
+            "deduction": null
           },
           "text": "Hello, thank you for writing to us. We have registered your return request and your refund is due by 10 October 2026. If you need a different size, just reply to this message. Warm regards from our team."
         }

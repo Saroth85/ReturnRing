@@ -679,7 +679,7 @@ REJECTED: list[tuple[str, str, Path_, Any]] = [
      {"state": "approved"}),
     ("decision_result.marco_approved.json", "decision_result", ("audit_entry", "after", "state"),
      "rejected"),
-    ("audit_page.json", "audit_page", ("items", 0, "entity_type"), "outbox_message"),
+    ("audit_page.json", "audit_page", ("items", 2, "entity_type"), "outbox_message"),
     # template fields and outbox (rule 10)
     ("decision_result.marco_approved.json", "decision_result", ("outbox_message", "body"),
      "Ciao."),
@@ -814,11 +814,15 @@ def test_decision_view_runs_the_legal_guard() -> None:
 def test_a_restriction_lapses_at_its_review_date() -> None:
     """US-607: no permanent label. On its review date an approved restriction stops applying."""
     doc = load("decision_result.marco_approved.json")["decision"]
-    assert doc["in_force"] and doc["review_at"]
+    assert doc["in_force"] and doc["review_at"] and doc["coupon_rule"]["in_force"]
     lapsed = {**doc, "as_of": f"{doc['review_at']}T08:00:00Z", "in_force": False}
+    lapsed["coupon_rule"] = {**doc["coupon_rule"], "in_force": False}  # the block lapses too
     s.DecisionView.model_validate(lapsed)
     with pytest.raises(ValidationError, match="in_force"):
         s.DecisionView.model_validate({**lapsed, "in_force": True})
+    still = {**lapsed, "coupon_rule": doc["coupon_rule"]}
+    with pytest.raises(ValidationError, match="coupon application is in force"):
+        s.DecisionView.model_validate(still)
 
 
 def test_lift_takes_a_reason_and_no_levers() -> None:

@@ -1,0 +1,16 @@
+{
+  "action": "approve",
+  "levers": [
+    {
+      "id": "instant_refund",
+      "value": false,
+      "scope": "future_orders"
+    }
+  ],
+  "message": {
+    "lang": "it",
+    "text": "..."
+  },
+  "override_reason": null,
+  "approver": "sara"
+}

@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Gemma output, enforced by vLLM guided decoding",
+  "type": "object",
+  "required": [
+    "decision_echo",
+    "operator_explanation",
+    "customer_message"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "decision_echo": {
+      "type": "object",
+      "required": [
+        "path",
+        "quadrant",
+        "lever_ids"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "enum": [
+            "withdrawal",
+            "guarantee"
+          ]
+        },
+        "quadrant": {
+          "enum": [
+            "Q1",
+            "Q2",
+            "Q3",
+            "Q4",
+            null
+          ]
+        },
+        "lever_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "operator_explanation": {
+      "type": "string",
+      "maxLength": 900
+    },
+    "customer_message": {
+      "type": "object",
+      "required": [
+        "it",
+        "en"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "it": {
+          "type": "string",
+          "maxLength": 900
+        },
+        "en": {
+          "type": "string",
+          "maxLength": 900
+        }
+      }
+    }
+  }
+}

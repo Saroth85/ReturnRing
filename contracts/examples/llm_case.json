@@ -1,0 +1,44 @@
+{
+  "case_id": "RET-000123",
+  "languages": [
+    "it",
+    "en"
+  ],
+  "path": "withdrawal",
+  "evidence_quality": "sufficient",
+  "quadrant": "Q4",
+  "levers": [
+    {
+      "id": "instant_refund",
+      "value": false,
+      "scope": "future_orders"
+    },
+    {
+      "id": "cluster_coupons_disabled",
+      "value": true,
+      "scope": "future_orders_cluster"
+    }
+  ],
+  "risk": {
+    "score": 0.87,
+    "top_factors": [
+      {
+        "feature": "cluster_welcome_coupons",
+        "value": 7,
+        "phrase": "7 linked accounts each used the welcome coupon"
+      }
+    ]
+  },
+  "value_eur": 42.1,
+  "cluster": {
+    "id": "R-MARCO",
+    "size": 7,
+    "shared": [
+      "device",
+      "address",
+      "card"
+    ]
+  },
+  "policy_text": "Navigli Fashion return policy (demo).",
+  "customer_text": "<customer_text>Non mi sta bene.</customer_text>"
+}

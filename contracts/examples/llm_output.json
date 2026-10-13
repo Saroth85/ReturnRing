@@ -1,0 +1,14 @@
+{
+  "decision_echo": {
+    "path": "withdrawal",
+    "quadrant": "Q4",
+    "lever_ids": [
+      "instant_refund:false"
+    ]
+  },
+  "operator_explanation": "OBSERVED: 7 linked accounts used the welcome coupon. SCORE: risk 0.87.",
+  "customer_message": {
+    "it": "Ciao, per i prossimi ordini valgono queste condizioni: {terms}.",
+    "en": "Hello, these terms apply to your next orders: {terms}."
+  }
+}

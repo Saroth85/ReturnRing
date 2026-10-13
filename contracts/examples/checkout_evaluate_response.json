@@ -1,0 +1,20 @@
+{
+  "customer_id": "C-GIULIA",
+  "quadrant": "Q1",
+  "lines": [
+    {
+      "variant_id": "V-88213",
+      "size": "M",
+      "p_return": 0.41,
+      "size_advice": null
+    }
+  ],
+  "terms": {
+    "return_window_days": 60,
+    "free_return_shipping": true,
+    "instant_refund": true,
+    "free_size_exchange": true
+  },
+  "coupon_eligible": true,
+  "terms_snapshot_id": "TS-000981"
+}

@@ -19,36 +19,9 @@ export const PLATFORM = {
     demo: 'Demo path',
     about: 'About the data',
   },
-  shop: {
-    presets: { giulia: 'Giulia C-GIULIA', marco: 'Account C-MARCO-1 of cluster CL-000417' } as Record<string, string>,
-    snapshot: 'Terms snapshot stored before the answer',
-    couponEligible: { yes: 'Welcome coupons available', no: "Welcome coupons aren't available on this account" },
-  },
-  inspection: {
-    start: 'Start inspection',
-    startAction: 'start an inspection',
-    open: 'Inspect',
-    note: 'A photo cannot establish the origin or time of damage. Suggestions are candidate observations that you confirm.',
-  },
   coupons: {
     approvedBy: 'Approved by',
     note: 'The general rule is approved and versioned by the manager; each application to a cluster is a proposal an operator confirms. Always reversible.',
-  },
-  system: {
-    readiness: 'Readiness',
-    benchmarks: 'Benchmarks',
-    telemetry: 'Telemetry',
-    contract: 'contract',
-    rules: 'rules',
-    assumptions: 'assumptions',
-    status: { measured: 'Measured', pending: 'Pending', illustrative: 'Illustrative, not measured' } as Record<string, string>,
-    checkStatus: { ok: 'ok', disabled: 'disabled', unavailable: 'unavailable' } as Record<string, string>,
-  },
-  gpu: {
-    title: 'GPU',
-    utilisation: 'GPU utilisation',
-    close: 'Close the GPU dock',
-    hint: 'Toggle with T',
   },
   demo: {
     preflight: 'Preflight',

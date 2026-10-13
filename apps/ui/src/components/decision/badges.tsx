@@ -71,7 +71,7 @@ export function OutcomeBadge({
 export function ApprovalFlag({ requiresApproval, state }: { requiresApproval: boolean; state: DecisionState }) {
   if (!requiresApproval || state !== 'proposed') return null;
   return (
-    <span data-approval-flag className={clsx(CHIP, 'hatch-attn border border-attn-border font-medium')}>
+    <span data-approval-flag className={clsx(CHIP, 'hatch-attn border border-attn-border font-medium whitespace-nowrap')}>
       <UserCheck aria-hidden="true" size={14} />
       {DECISION.needsApproval}
     </span>

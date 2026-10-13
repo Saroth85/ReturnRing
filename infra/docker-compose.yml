@@ -72,6 +72,10 @@ services:
     # Job container: the Navigli Fashion store (US-102..US-105) from the committed real
     # calibration, main then OOD scenario (docs/synthetic-store.md). It writes data/store,
     # data/truth, data/ood/store and data/truth/ood.
+    # It runs as the owner of the checkout, not as the image's user app (uid 1000), so it can
+    # write data/ in a root-owned clone (the droplet) and leaves files the host user owns
+    # (review P5). The Makefile exports HOST_UID and HOST_GID from `id -u` and `id -g`.
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     command:
       - sh
       - -c

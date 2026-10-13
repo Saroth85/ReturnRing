@@ -19,7 +19,6 @@ that occurs in the data.
 from __future__ import annotations
 
 import json
-import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -30,6 +29,7 @@ import numpy.typing as npt
 import polars as pl
 
 from contracts.calibration import check_calibration
+from contracts.files import atomic_write
 from contracts.io import Provenance, read_table
 from contracts.parquet import ASOS_REASON_CODES, ASOS_SPLITS, CONTRACT_VERSION, SCHEMAS
 from pipeline.ingest.asos_convert import SPLIT_PERIODS
@@ -243,13 +243,8 @@ def write_calibration(doc: Mapping[str, Any], path: Path) -> Path:
     if errors:
         raise ProfileError("calibration is inconsistent: " + "; ".join(errors))
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    try:
-        tmp.write_text(dumps(doc))
-        os.replace(tmp, path)
-    finally:
-        tmp.unlink(missing_ok=True)  # nothing left behind when the write or the rename fails
-    return path
+    text = dumps(doc).encode("utf-8")
+    return atomic_write(path, lambda out: out.write(text))  # never through a planted symlink
 
 
 # ---- Report -------------------------------------------------------------------------------------
@@ -465,5 +460,6 @@ def profile(
     text = report(raw, doc, calibration_out)
     if report_out is not None:
         report_out.parent.mkdir(parents=True, exist_ok=True)
-        report_out.write_text(text)
+        encoded = text.encode("utf-8")
+        atomic_write(report_out, lambda out: out.write(encoded))
     return doc, text

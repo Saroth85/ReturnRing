@@ -51,6 +51,7 @@ from pipeline.generator.config import (
     PERIOD_LAST_DAY,
     SCENARIO_NAMES,
     SCENARIOS,
+    START_US,
     US_PER_DAY,
     ScenarioConfig,
 )
@@ -60,7 +61,7 @@ from pipeline.generator.orders import (
     Deliveries,
     OrderPlan,
     add_scripted,
-    boost_defect_windows,
+    boost_surges,
     orders_by_customer,
     plan_coupons,
     plan_deliveries,
@@ -76,7 +77,7 @@ from pipeline.generator.returns import (
     schedule_returns,
 )
 from pipeline.generator.scripts import script_golden
-from pipeline.generator.timeline import Calendar
+from pipeline.generator.timeline import Calendar, midnight, weekday
 
 STORE_TABLES = (
     "store/customers",
@@ -106,6 +107,10 @@ STREAMS = (
     "defects",  # appended last: the other streams keep their spawn keys
 )
 DETECTOR_MIN_WEEKLY_SALES = 20  # spec 8.9: a variant is assessed only with 20 sales in the week
+# The review's label-free surge rule (P1), reported in the summary: a sales surge must not
+# identify a defect.
+SURGE_RULE_MIN_SALES = 15
+SURGE_RULE_RATIO = 4
 
 
 def scenario_roots(out: Path | str, scenario: str) -> tuple[Path, Path]:
@@ -136,6 +141,7 @@ class Store:
     rows: ReturnRows
     identifier_rows: tuple[list[int], list[str], list[str], list[int]]
     targets: npt.NDArray[np.float64]
+    surge_lines: int  # generic order lines switched to a surging best seller
 
 
 def build_store(cal: Calibration, seed: int, scale: float, cfg: ScenarioConfig) -> Store:
@@ -157,7 +163,7 @@ def build_store(cal: Calibration, seed: int, scale: float, cfg: ScenarioConfig) 
     plan_generic_identifiers(pop, cfg, factory, ids, pickups, collectives)
 
     plan = plan_generic_orders(pop, cat, cal, cfg, stream(seed, cfg, "orders"), Calendar())
-    boost_defect_windows(plan, cat, stream(seed, cfg, "defects"))
+    surge_lines = boost_surges(plan, cat, stream(seed, cfg, "defects"))
     add_scripted(plan, scripted)
     coupons, order_coupon = plan_coupons(plan, pop, cat, cfg, stream(seed, cfg, "coupons"))
     deliveries = plan_deliveries(plan, stream(seed, cfg, "deliveries"))
@@ -187,6 +193,7 @@ def build_store(cal: Calibration, seed: int, scale: float, cfg: ScenarioConfig) 
         rows,
         identifier_rows,
         targets,
+        surge_lines,
     )
 
 
@@ -267,7 +274,8 @@ def _rate(returned: npt.NDArray[np.bool_]) -> float | None:
 
 def defect_detectability(store: Store) -> dict[str, Any]:
     """Weekly sales of each defective variant in the full Monday-to-Sunday weeks of its window,
-    against the spec 8.9 minimum of 20 sales a week (US-208 can evaluate only those weeks)."""
+    against the spec 8.9 minimum of 20 sales a week (US-208 can evaluate only those weeks); and
+    the same in the surge weeks of the matched controls (review P1), which must reach it alike."""
     cat, plan = store.cat, store.plan
     week = 7 * US_PER_DAY
     placed = plan.placed_at[plan.line_order]
@@ -287,6 +295,18 @@ def defect_detectability(store: Store) -> dict[str, Any]:
         weeks_total, weeks_ok = weeks_total + len(ok), weeks_ok + sum(ok)
         first = ok[:DEFECT_BOOST_WEEKS]
         boosted_total, boosted_ok = boosted_total + len(first), boosted_ok + sum(first)
+    controls = np.flatnonzero((cat.surge_start >= 0) & ~cat.defective)
+    control_ok: list[bool] = []
+    control_reaching = 0
+    for v in controls:
+        mine = placed[plan.line_variant == v]
+        starts = int(cat.surge_start[v]) + week * np.arange(DEFECT_BOOST_WEEKS)
+        ok = [
+            int(np.count_nonzero((mine >= lo) & (mine < lo + week))) >= DETECTOR_MIN_WEEKLY_SALES
+            for lo in starts.tolist()
+        ]
+        control_ok.extend(ok)
+        control_reaching += any(ok)
     return {
         "measured_on": "order lines of each full week (Monday to Sunday) of the defect window",
         "min_weekly_sales": DETECTOR_MIN_WEEKLY_SALES,
@@ -296,6 +316,60 @@ def defect_detectability(store: Store) -> dict[str, Any]:
         "window_weeks_reaching_the_minimum": weeks_ok,
         "boosted_weeks": boosted_total,
         "boosted_weeks_reaching_the_minimum": boosted_ok,
+        "surge_controls": len(controls),
+        "lines_switched_to_surges": store.surge_lines,
+        "controls_reaching_the_minimum": control_reaching,
+        "control_surge_weeks": len(control_ok),
+        "control_surge_weeks_reaching_the_minimum": sum(control_ok),
+    }
+
+
+def weekly_variant_sales(store: Store) -> npt.NDArray[np.float64]:
+    """Sales of every variant (rows) in every Monday-to-Sunday week of the period (columns), from
+    the week it is listed on (NaN before): what the spec 8.9 detector counts."""
+    cat, plan = store.cat, store.plan
+    week = 7 * US_PER_DAY
+    start = np.asarray([START_US], dtype=np.int64)
+    first_monday = int(midnight(start)[0] - weekday(start)[0] * US_PER_DAY)
+    n_weeks = (END_US - 1 - first_monday) // week + 1
+    column = (plan.placed_at[plan.line_order] - first_monday) // week
+    counts = np.zeros((cat.n, n_weeks), dtype=np.float64)
+    np.add.at(counts, (plan.line_variant, column), 1.0)
+    listed = (np.maximum(cat.listed_at, START_US) - first_monday) // week
+    counts[np.arange(n_weeks)[None, :] < listed[:, None]] = np.nan
+    return counts
+
+
+def sales_gate(store: Store) -> dict[str, Any]:
+    """Does sales volume alone identify a defect (review P1)? Measured without returns or
+    labels: the variants that ever reach the spec 8.9 minimum in a week, and the label-free
+    surge rule "best week >= SURGE_RULE_MIN_SALES sales and >= SURGE_RULE_RATIO times the median
+    week"; then the share of defects among them, from the ground truth."""
+    weekly = weekly_variant_sales(store)
+    defective = store.cat.defective
+    best = np.nanmax(weekly, axis=1)
+    median = np.nanmedian(weekly, axis=1)
+    reach = best >= DETECTOR_MIN_WEEKLY_SALES
+    assessable = np.nan_to_num(weekly, nan=0.0) >= DETECTOR_MIN_WEEKLY_SALES
+    flagged = (best >= SURGE_RULE_MIN_SALES) & (best >= SURGE_RULE_RATIO * median)
+
+    def share(part: int, whole: int) -> float | None:
+        return round(part / whole, 4) if whole else None
+
+    n_weeks, n_defective_weeks = int(assessable.sum()), int(assessable[defective].sum())
+    return {
+        "measured_on": "order lines of every Monday-to-Sunday week of the period, from the "
+        "variant's listing; no return and no label is read",
+        "variants_reaching_the_minimum": int(reach.sum()),
+        "defective_among_them": int((reach & defective).sum()),
+        "defective_share": share(int((reach & defective).sum()), int(reach.sum())),
+        "assessable_variant_weeks": n_weeks,
+        "defective_share_of_assessable_weeks": share(n_defective_weeks, n_weeks),
+        "surge_rule": f"best week >= {SURGE_RULE_MIN_SALES} sales and >= {SURGE_RULE_RATIO} "
+        "times the median week",
+        "surge_rule_flagged": int(flagged.sum()),
+        "surge_rule_precision": share(int((flagged & defective).sum()), int(flagged.sum())),
+        "surge_rule_recall": share(int((flagged & defective).sum()), int(defective.sum())),
     }
 
 
@@ -365,6 +439,7 @@ def summarize(
         "collective_addresses": pop.n_collective,
         "defective_variants": int(cat.defective.sum()),
         "defect_detectability": defect_detectability(s),
+        "sales_gate": sales_gate(s),
         "return_rate": {
             "measured_on": f"delivered lines ordered at least {MATURITY_DAYS} days before the end",
             "mature_lines": int(mature.sum()),

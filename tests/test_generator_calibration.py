@@ -9,6 +9,7 @@ from __future__ import annotations
 import copy
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import jsonschema
@@ -24,7 +25,9 @@ from pipeline.generator.calibration import (
     parse_calibration,
     type_return_targets,
 )
+from pipeline.generator.config import START_US, US_PER_DAY
 from pipeline.generator.core import generate
+from pipeline.generator.orders import VariantSampler
 
 ROOT = Path(__file__).resolve().parents[1]
 EXAMPLE = ROOT / "contracts" / "examples" / "calibration.json"
@@ -158,6 +161,90 @@ def test_a_one_size_only_calibration_is_refused_clearly(tmp_path: Path, name: st
     path.write_text(json.dumps(doc))
     assert main(["--calibration", str(path), "--out", str(tmp_path / "out")]) == 1
     assert not (tmp_path / "out").exists()
+
+
+def _few_sized_variants(sized: str, share: float) -> dict[str, Any]:
+    """Review P2: one sized type with a tiny share next to a one-size type, both built from the
+    example's Jeans entry. Valid, but at scale 0.005 the catalogue has at most a sized variant
+    or two, listed after the period starts."""
+    doc = example()
+    jeans = doc["product_types"]["Jeans"]
+    doc["product_types"] = {
+        sized: {**copy.deepcopy(jeans), "variant_share": share, "sales_share": share},
+        "Bags": {**copy.deepcopy(jeans), "variant_share": 1 - share, "sales_share": 1 - share},
+    }
+    return doc
+
+
+@pytest.mark.parametrize(("sized", "share"), [("Dresses", 0.02), ("Jeans", 0.001)])
+def test_p2_too_few_sized_variants_is_a_calibration_error(
+    tmp_path: Path, sized: str, share: float
+) -> None:
+    """Before the fix the OOD scenario crashed with "ValueError: -1 is not in list": its only
+    sized variant was listed after the period started, so a bracketing pair fell back to a
+    one-size variant. A catalogue without a sized variant that sells from the first day is now a
+    CalibrationError in every scenario (exit 1, no traceback); with one, the store is built."""
+    doc = _few_sized_variants(sized, share)
+    jsonschema.validate(doc, SCHEMA)
+    cal = parse_calibration(doc)
+    path = tmp_path / "few_sizes.json"
+    path.write_text(json.dumps(doc))
+    argv = ["--calibration", str(path), "--seed", "2", "--scale", "0.005"]
+    with pytest.raises(CalibrationError, match="size"):
+        generate(cal, tmp_path / "ood", seed=2, scale=0.005, scenario="ood")
+    assert not list((tmp_path / "ood").rglob("*.parquet"))
+    assert main([*argv, "--out", str(tmp_path / "cli-ood"), "--scenario", "ood"]) == 1
+    # Main, same seed: its catalogue has a sized variant listed before the period, so it builds.
+    summary = generate(cal, tmp_path / "main", seed=2, scale=0.005, scenario="main")
+    assert summary["customers_by_behaviour"]["size"] > 0
+    assert main([*argv, "--out", str(tmp_path / "cli-main"), "--scenario", "main"]) == 0
+
+
+@pytest.mark.parametrize("seed", range(1, 9))
+@pytest.mark.parametrize("scenario", ["main", "ood"])
+def test_p2_few_sized_variants_never_crash(tmp_path: Path, seed: int, scenario: str) -> None:
+    """Over seeds: the store is built, or the calibration is refused with a CalibrationError."""
+    cal = parse_calibration(_few_sized_variants("Dresses", 0.02))
+    try:
+        generate(cal, tmp_path, seed=seed, scale=0.005, scenario=scenario)
+    except CalibrationError as exc:
+        assert "size" in str(exc)
+
+
+def test_p2_the_variant_sampler_never_draws_a_zero_weight_variant() -> None:
+    """The fallback draws among variants listed before the period. With no such variant of
+    positive weight it raises, instead of returning the last (zero-weight) variant."""
+    listed = np.asarray([START_US + US_PER_DAY, START_US - US_PER_DAY], dtype=np.int64)
+    cat = SimpleNamespace(listed_at=listed)
+    placed = np.full(50, START_US, dtype=np.int64)
+    rng = np.random.default_rng(0)
+    sampler = VariantSampler(cat, np.asarray([1.0, 0.0]))  # type: ignore[arg-type]
+    with pytest.raises(CalibrationError, match="listed before the period"):
+        sampler.draw(rng, placed)
+    fine = VariantSampler(cat, np.asarray([1.0, 0.5]))  # type: ignore[arg-type]
+    assert set(fine.draw(rng, placed).tolist()) == {1}
+    nothing = VariantSampler(cat, np.zeros(2))  # type: ignore[arg-type]
+    with pytest.raises(CalibrationError, match="positive weight"):
+        nothing.draw(rng, placed)
+    late = np.full(50, START_US + 2 * US_PER_DAY, dtype=np.int64)
+    weights = np.asarray([1.0, 0.0, 0.0])
+    tail = VariantSampler(  # type: ignore[arg-type]
+        SimpleNamespace(listed_at=np.asarray([START_US - US_PER_DAY] * 3, dtype=np.int64)),
+        weights,
+    )
+    assert set(tail.draw(rng, late).tolist()) == {0}
+
+
+def test_generator_cli_exits_1_when_the_output_cannot_be_written(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Review P5: a data/ folder the job cannot write (here a file in the way) is a clean exit 1
+    with a message, never a traceback."""
+    out = tmp_path / "data"
+    out.write_text("a file, not a folder")
+    argv = ["--calibration", str(EXAMPLE), "--out", str(out), "--scale", "0.005"]
+    assert main(argv) == 1
+    assert "cannot write" in capsys.readouterr().err
 
 
 def test_load_rejects_a_file_that_is_not_json(tmp_path: Path) -> None:

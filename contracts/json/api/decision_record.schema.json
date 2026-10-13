@@ -532,7 +532,7 @@
     },
     "ClaimView": {
       "additionalProperties": false,
-      "description": "A diminished-value claim (art. 14(2)): only from confirmed observations and a rule.",
+      "description": "A diminished-value claim (art. 14(2)): only from confirmed observations and a rule. The\nrefund the customer gets is the price of the returned line less the claim (round 4, E12).",
       "properties": {
         "inspection_id": {
           "maxLength": 96,
@@ -542,6 +542,9 @@
           "type": "string"
         },
         "amount": {
+          "$ref": "#/$defs/Metric"
+        },
+        "line_price": {
           "$ref": "#/$defs/Metric"
         },
         "photo_evidence_ids": {
@@ -574,6 +577,7 @@
       "required": [
         "inspection_id",
         "amount",
+        "line_price",
         "photo_evidence_ids",
         "confirmed_by",
         "rule_id"
@@ -583,7 +587,7 @@
     },
     "CouponRuleRef": {
       "additionalProperties": false,
-      "description": "A proposed or confirmed application of the general coupon rule to a cluster (US-402).",
+      "description": "The application of the general coupon rule to the cluster of the decision (US-402): the\ncluster given to the engine and its linked accounts, the case customer among them. state and\nin_force are those of the application when the decision is served (round 4, E26): proposed\nwith a proposed decision; confirmed by the person who acted, or reversed afterwards; in force\nwhile confirmed, before the review date and while the decision is in force.",
       "properties": {
         "rule_version": {
           "maxLength": 64,
@@ -630,6 +634,19 @@
             }
           ],
           "title": "Confirmed By"
+        },
+        "state": {
+          "enum": [
+            "proposed",
+            "confirmed",
+            "reversed"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "in_force": {
+          "title": "In Force",
+          "type": "boolean"
         }
       },
       "required": [
@@ -637,7 +654,9 @@
         "application_id",
         "cluster_id",
         "affected_customer_ids",
-        "confirmed_by"
+        "confirmed_by",
+        "state",
+        "in_force"
       ],
       "title": "CouponRuleRef",
       "type": "object"
@@ -768,7 +787,7 @@
     },
     "DecisionView": {
       "additionalProperties": false,
-      "description": "A decision version: the engine's proposal and the human outcome (spec 8.6, US-303/306).\n\nlevers are the levers of the current state: the proposal while proposed or approved, the\noperator's levers when overridden, none when rejected. requires_approval and review_at refer\nto them: a restriction needs a person and has a review date, and nothing else has one.\n\nin_force says whether the levers apply to future orders at as_of (the time the view was\nserved): approved, overridden, or proposed without a need for approval; never once a later\nversion supersedes this one; never from the review date on, counted in UTC days (US-607: a\nrestriction lapses unless a person renews it).\n\nA version created by a review (trigger review) is policy.engine.decide() on the latest\nscores at the day of the review (inputs, decided_on, quadrant, proposed_levers), with the\nperson's outcome: action lift overrides it to the standard levers; action renew approves the\nfresh restriction, with a new review date.\n\nEvery view passes policy.legal_guard under to_policy_decision (ADR-15 section 8).",
+      "description": "A decision version: the engine's proposal and the human outcome (spec 8.6, US-303/306).\n\nlevers are the levers of the current state: the proposal while proposed or approved, the\noperator's levers when overridden, none when rejected. requires_approval and review_at refer\nto them: a restriction needs a person and has a review date, and nothing else has one.\n\nin_force says whether the levers apply to future orders at as_of (the time the view was\nserved): approved, overridden, or proposed without a need for approval; never once a later\nversion supersedes this one; never from the review date on, counted in UTC days (US-607: a\nrestriction lapses unless a person renews it).\n\nA version created by a review (trigger review) is policy.engine.decide() on the latest\nscores at the day of the review (inputs, decided_on, quadrant, proposed_levers), with the\nperson's outcome: action lift overrides it to the standard levers; action renew approves the\nfresh restriction, with a new review date. Every later version (a review or a recompute) is\ndecided on the UTC day it is created, and a restriction is approved only before its review\ndate: a stale proposal is recomputed (409, round 4, E4).\n\nA cluster coupon block applies to the cluster given to the engine, and its linked accounts\ninclude the case customer (LEG-09, round 4, E2).\n\nEvery view passes policy.legal_guard under to_policy_decision (ADR-15 section 8).",
       "properties": {
         "decision_id": {
           "maxLength": 96,

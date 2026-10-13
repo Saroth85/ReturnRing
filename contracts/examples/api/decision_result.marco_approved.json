@@ -121,7 +121,9 @@
         "C-MARCO-6",
         "C-MARCO-7"
       ],
-      "confirmed_by": "sara"
+      "confirmed_by": "sara",
+      "state": "confirmed",
+      "in_force": true
     },
     "diminished_value_claim": null,
     "inputs": {
@@ -170,8 +172,9 @@
     "assumptions_version": "assumptions-v1",
     "generation_id": "GEN-000102-1"
   },
+  "superseded": null,
   "audit_entry": {
-    "entry_id": 3,
+    "entry_id": 38,
     "at": "2026-09-30T18:20:00Z",
     "actor": "sara",
     "actor_role": "operator",
@@ -248,7 +251,7 @@
       "value": "value-0.1.0"
     },
     "assumptions_version": "assumptions-v1",
-    "request_id": "req-000003"
+    "request_id": "req-000001"
   },
   "outbox_message": {
     "message_id": "MSG-000102-1",
@@ -265,7 +268,8 @@
     "fields": {
       "terms": "reso entro 14 giorni dalla consegna; spedizione del reso a tuo carico; rimborso nei tempi di legge, non istantaneo; codici sconto non utilizzabili",
       "amount": null,
-      "deadline": "12 ottobre 2026"
+      "deadline": "il 12 ottobre 2026",
+      "deduction": null
     },
     "refund": null,
     "body": "Ciao, grazie per averci scritto. Abbiamo registrato la tua richiesta di reso e il rimborso è previsto per il 12 ottobre 2026. I tuoi prossimi ordini avranno nuove condizioni di reso, mostrate prima di ogni acquisto: reso entro 14 giorni dalla consegna; spedizione del reso a tuo carico; rimborso nei tempi di legge, non istantaneo; codici sconto non utilizzabili. Queste condizioni tengono conto dei resi dei tuoi ordini precedenti. Per domande su queste condizioni, rispondi pure a questo messaggio. Un caro saluto dal nostro team.\n\nTi ricordiamo che puoi sempre esercitare il diritto di recesso entro 14 giorni dalla consegna, senza indicarne il motivo. Ti rimborseremo entro 14 giorni dalla tua comunicazione, al ricevimento dei prodotti o della prova della loro spedizione.",

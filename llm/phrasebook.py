@@ -13,9 +13,13 @@ the message in Italian and in English:
   deadline, term, legal wording or decision word: those come from code. The tests run every
   text check of llm/text.py on each sentence, in both languages (`phrase_problems`).
 - The mandatory body is built by code from the engine decision and is never chosen by the
-  model: the return registration with {deadline} (and {amount} when known), the {terms}
-  sentence when the terms of future orders change, the unchanged-terms sentence for
-  insufficient evidence, the transparency notice (Q3, Q4) and the guarantee registration.
+  model: the return registration with {deadline} (and {amount} when known), the amount withheld
+  for a diminished-value claim with its reason ({deduction}), the {terms} sentence when the
+  terms of future orders change, the unchanged-terms sentence for insufficient evidence, the
+  transparency notice (Q3, Q4) and the guarantee registration.
+- Other customer texts written by code live here too, reviewed like the sentences: the subject
+  of a message and the fixed checkout texts (coupon block, size advice), in both languages
+  (round 4 of the API review, findings E13 and E25).
 - `selection_problems` lists why a selection is refused: an unknown or repeated id, an id in the
   wrong slot, or an id not allowed for the decision. The validator reports them as SENTENCE_ID.
 - `render_selection` composes the message and fills it through llm/messages.render, which
@@ -24,12 +28,14 @@ the message in Italian and in English:
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, Literal
 
 from contracts.levers import format_lever_id
+from contracts.vocab import SizeAdviceKind
 from llm.decision import ExpectedDecision, serialize_decision, template_key
 from llm.messages import MessageError, render, strip_placeholders
 from llm.text import (
@@ -49,6 +55,9 @@ SLOTS: tuple[Slot, ...] = ("opening", "extra", "closing")
 MIN_SENTENCES = 2  # one opening and one closing
 MAX_EXTRAS = 3
 MAX_SENTENCES = MIN_SENTENCES + MAX_EXTRAS
+# The deduction sentence makes the body longer: with it, at most two extras keep every message
+# within the 120 words of spec 8.7 before the legal clause (round 4, finding E17).
+MAX_EXTRAS_WITH_DEDUCTION = 2
 
 WITHDRAWAL_KINDS = frozenset({"insufficient", "Q1", "Q2", "Q3", "Q4"})
 GUARANTEE_KINDS = frozenset({"guarantee"})
@@ -64,6 +73,7 @@ class Sentence:
     kinds: frozenset[str] = ALL_KINDS
     unless_levers: frozenset[str] = frozenset()  # lever ids that rule the sentence out
     needs: frozenset[str] = frozenset()  # placeholders the decision must have
+    excludes: frozenset[str] = frozenset()  # placeholders that rule the sentence out
 
     def text(self, lang: Lang) -> str:
         return self.it if lang == "it" else self.en
@@ -78,8 +88,18 @@ def _sentence(
     *,
     unless: str = "",
     needs: str = "",
+    excludes: str = "",
 ) -> Sentence:
-    return Sentence(id, slot, it, en, kinds, frozenset(unless.split()), frozenset(needs.split()))
+    return Sentence(
+        id,
+        slot,
+        it,
+        en,
+        kinds,
+        frozenset(unless.split()),
+        frozenset(needs.split()),
+        frozenset(excludes.split()),
+    )
 
 
 SENTENCES: tuple[Sentence, ...] = (
@@ -125,6 +145,7 @@ SENTENCES: tuple[Sentence, ...] = (
         "If you need a different size, just reply to this message.",
         WITHDRAWAL_KINDS,
         unless="free_size_exchange:false",
+        excludes="deduction",  # the item came back damaged: no other size is offered
     ),
     _sentence(
         "HELP_ADVICE",
@@ -206,18 +227,26 @@ SENTENCE_IDS: tuple[str, ...] = tuple(PHRASEBOOK)
 
 # ---- The mandatory body, written by code from the engine decision ------------------------------
 
+# {deadline} carries its article in Italian ("il 12 ottobre 2026", "l'11 ottobre 2026"): see
+# llm/messages.format_deadline (round 4, finding E22).
 _REGISTERED: dict[Lang, str] = {
-    "it": "Abbiamo registrato la tua richiesta di reso e il rimborso è previsto per il {deadline}.",
+    "it": "Abbiamo registrato la tua richiesta di reso e il rimborso è previsto per {deadline}.",
     "en": "We have registered your return request and your refund is due by {deadline}.",
 }
 _REGISTERED_AMOUNT: dict[Lang, str] = {
     "it": (
-        "Abbiamo registrato la tua richiesta di reso e il rimborso di {amount} è previsto per il "
+        "Abbiamo registrato la tua richiesta di reso e il rimborso di {amount} è previsto per "
         "{deadline}."
     ),
     "en": (
         "We have registered your return request and your refund of {amount} is due by {deadline}."
     ),
+}
+# The reason of a diminished-value deduction (art. 14(2) of Directive 2011/83/EU; spec 9 F3, spec
+# 3: "motivazione della trattenuta"); the amount is the {deduction} field (round 4, finding E17).
+_DEDUCTION: dict[Lang, str] = {
+    "it": "Abbiamo trattenuto {deduction} per la diminuzione di valore rilevata al controllo.",
+    "en": "We have withheld {deduction} for the loss of value found at our check.",
 }
 _GUARANTEE_REGISTERED: dict[Lang, str] = {
     "it": "Abbiamo registrato la tua segnalazione e ti scriveremo presto con i prossimi passi.",
@@ -263,10 +292,13 @@ class MessageContext:
 
 
 def context_of(expected: ExpectedDecision) -> MessageContext:
+    """The context of the engine decision; its placeholders are those of the llm_case plus
+    {deduction}, which only the body written by code uses."""
+    deduction = {"deduction"} if expected.deduction else set()
     return MessageContext(
         expected.template_key,
         frozenset(expected.lever_ids),
-        frozenset(expected.placeholders),
+        frozenset(expected.placeholders) | deduction,
         expected.requires_terms,
     )
 
@@ -287,12 +319,18 @@ def allowed(sentence: Sentence, ctx: MessageContext) -> bool:
         ctx.kind in sentence.kinds
         and not sentence.unless_levers & ctx.lever_ids
         and sentence.needs <= ctx.placeholders
+        and not sentence.excludes & ctx.placeholders
     )
 
 
 def allowed_sentences(ctx: MessageContext) -> list[Sentence]:
     """The sentences the model may choose for this decision, in phrasebook order."""
     return [s for s in SENTENCES if allowed(s, ctx)]
+
+
+def max_extras(ctx: MessageContext) -> int:
+    """The extras a selection may hold for the decision."""
+    return MAX_EXTRAS_WITH_DEDUCTION if "deduction" in ctx.placeholders else MAX_EXTRAS
 
 
 def _slot_at(index: int, count: int) -> Slot:
@@ -304,8 +342,9 @@ def _slot_at(index: int, count: int) -> Slot:
 def selection_problems(ids: Sequence[str], ctx: MessageContext) -> list[str]:
     """Why a selection of sentence ids cannot be used; empty when it can."""
     problems: list[str] = []
-    if not MIN_SENTENCES <= len(ids) <= MAX_SENTENCES:
-        problems.append(f"{len(ids)} ids, expected {MIN_SENTENCES} to {MAX_SENTENCES}")
+    most = MIN_SENTENCES + max_extras(ctx)
+    if not MIN_SENTENCES <= len(ids) <= most:
+        problems.append(f"{len(ids)} ids, expected {MIN_SENTENCES} to {most}")
     for index, sentence_id in enumerate(ids):
         sentence = PHRASEBOOK.get(sentence_id)
         if sentence is None:
@@ -328,6 +367,8 @@ def mandatory_body(ctx: MessageContext, lang: Lang) -> list[str]:
         return [_GUARANTEE_REGISTERED[lang]]
     registered = _REGISTERED_AMOUNT if "amount" in ctx.placeholders else _REGISTERED
     body = [registered[lang]]
+    if "deduction" in ctx.placeholders:
+        body.append(_DEDUCTION[lang])
     if "terms" in ctx.placeholders:
         style = "restrictive" if ctx.requires_terms else "Q1" if ctx.kind == "Q1" else "other"
         body.append(_TERMS[style][lang])
@@ -359,6 +400,52 @@ def render_selection(
     and the legal clause the decision requires (llm/messages.render)."""
     _, expected = serialize_decision(decision, base, refund_eur)
     return render(compose(ids, context_of(expected), lang), decision, base, lang, refund_eur)
+
+
+# ---- Other customer texts written by code (round 4 of the API review, E13 and E25) -------------
+
+_SUBJECT: dict[Lang, str] = {"it": "Il tuo reso {return_id}", "en": "Your return {return_id}"}
+_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:~-]{0,95}")
+
+
+def subject(return_id: str, lang: Lang) -> str:
+    """The subject of a message to the customer: a fixed text with the return id."""
+    if _ID_RE.fullmatch(return_id) is None:
+        raise ValueError(f"not a return id: {return_id!r}")
+    return _SUBJECT[lang].format(return_id=return_id)
+
+
+# The coupon block shown at checkout (US-402): neutral, with the wording of the transparency
+# notice; it never names the linked accounts or the cluster to the customer (rule 11).
+COUPON_BLOCK_TEXT: dict[Lang, str] = {
+    "it": f"Su questo ordine i codici sconto non sono utilizzabili. {_NOTICE['it']}",
+    "en": f"Discount codes cannot be used on this order. {_NOTICE['en']}",
+}
+# The size advice of a checkout line (US-401): a size only with measurement and exchange data.
+SIZE_ADVICE_TEXTS: dict[SizeAdviceKind, dict[Lang, str]] = {
+    "specific": {
+        "it": "Chi ha le tue misure ha tenuto la taglia {size} di questo capo.",
+        "en": "Customers with your measurements kept size {size} of this item.",
+    },
+    "measurement_guide": {
+        "it": "Prima di scegliere la taglia, guarda la guida alle misure di questo capo.",
+        "en": "Before choosing your size, look at the size guide of this item.",
+    },
+    "no_reliable_recommendation": {
+        "it": "Per questo capo non abbiamo un consiglio di taglia affidabile.",
+        "en": "We have no reliable size advice for this item.",
+    },
+}
+_SIZE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ./-]{0,15}")
+
+
+def size_advice_text(kind: SizeAdviceKind, lang: Lang, size: str | None = None) -> str:
+    """The fixed text of a size advice; a specific advice states the suggested size."""
+    if (kind == "specific") != (size is not None):
+        raise ValueError("a specific advice, and only it, states a size")
+    if size is not None and _SIZE_RE.fullmatch(size) is None:
+        raise ValueError(f"not a size: {size!r}")
+    return SIZE_ADVICE_TEXTS[kind][lang].replace("{size}", size or "")
 
 
 # ---- The review gate: every text check of llm/text.py ------------------------------------------

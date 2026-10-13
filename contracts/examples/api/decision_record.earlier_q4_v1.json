@@ -117,7 +117,9 @@
         "C-12930",
         "C-15561"
       ],
-      "confirmed_by": "sara"
+      "confirmed_by": "sara",
+      "state": "reversed",
+      "in_force": false
     },
     "diminished_value_claim": null,
     "inputs": {
@@ -141,7 +143,7 @@
         "coupons_enabled": true
       },
       "risk": 0.82,
-      "value_eur": 40.0,
+      "value_eur": 19.75,
       "evidence_quality": "sufficient",
       "cluster_id": "CL-000655",
       "thresholds": {
@@ -164,7 +166,7 @@
       "value": "value-0.1.0"
     },
     "assumptions_version": "assumptions-v1",
-    "generation_id": null
+    "generation_id": "GEN-000077-1"
   },
   "alternatives": [
     {

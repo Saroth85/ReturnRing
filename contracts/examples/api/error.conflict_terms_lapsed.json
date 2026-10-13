@@ -1,0 +1,6 @@
+{
+  "code": "conflict",
+  "message": "TS-CHK-000982 can no longer be confirmed: its terms come from DEC-000102-1, which is no longer in force; evaluate the cart again",
+  "violations": [],
+  "request_id": "req-000127"
+}

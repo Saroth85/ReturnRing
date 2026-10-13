@@ -13,9 +13,9 @@
       "value": 0.34,
       "unit": "probability",
       "provenance": {
-        "origin": "Contract example: risk model risk-xgb-0.1.0 on decision-time features of the synthetic shop",
+        "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
         "period_start": "2025-10-01",
-        "period_end": "2026-09-30",
+        "period_end": "2026-09-26",
         "nature": "synthetic"
       }
     },
@@ -60,7 +60,7 @@
       "value": 0.21,
       "unit": "probability",
       "provenance": {
-        "origin": "Contract example: risk model risk-xgb-0.1.0 on decision-time features of the synthetic shop",
+        "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
         "period_start": "2025-10-01",
         "period_end": "2026-09-30",
         "nature": "synthetic"
@@ -106,7 +106,7 @@
     "superseded_by": null,
     "created_at": "2026-09-30T18:30:00Z",
     "as_of": "2026-09-30T18:30:00Z",
-    "decided_on": "2026-09-26",
+    "decided_on": "2026-09-30",
     "state": "proposed",
     "path": "withdrawal",
     "evidence_quality": "sufficient",
@@ -170,7 +170,7 @@
       "provenance": {
         "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
         "period_start": "2025-10-01",
-        "period_end": "2026-09-26",
+        "period_end": "2026-09-30",
         "nature": "synthetic"
       }
     },
@@ -198,12 +198,69 @@
       "created_at": "2026-09-30T18:30:40Z",
       "latency_ms": 14
     },
-    "tone": "warm",
     "decision_echo": {
       "path": "withdrawal",
       "quadrant": "Q2",
       "lever_ids": []
     },
+    "case_facts": [
+      {
+        "id": "F1",
+        "entity": "customer",
+        "metric": "risk_score",
+        "value": 0.21,
+        "period": "as of 2026-09-30",
+        "nature": "synthetic"
+      },
+      {
+        "id": "F2",
+        "entity": "customer",
+        "metric": "value_eur_12m",
+        "value": 127.15,
+        "period": "12 months to 2026-09-30",
+        "nature": "synthetic"
+      },
+      {
+        "id": "F3",
+        "entity": "cluster",
+        "metric": "welcome_coupons_per_account",
+        "value": 0.33,
+        "period": "as of 2026-09-30",
+        "nature": "synthetic"
+      },
+      {
+        "id": "F4",
+        "entity": "cluster",
+        "metric": "creation_spread_days",
+        "value": 557,
+        "period": "as of 2026-09-30",
+        "nature": "synthetic"
+      },
+      {
+        "id": "F5",
+        "entity": "cluster",
+        "metric": "strong_id_share",
+        "value": 0,
+        "period": "as of 2026-09-30",
+        "nature": "synthetic"
+      },
+      {
+        "id": "F6",
+        "entity": "cluster",
+        "metric": "cluster_size",
+        "value": 3,
+        "period": "as of 2026-09-30",
+        "nature": "synthetic"
+      },
+      {
+        "id": "F7",
+        "entity": "return",
+        "metric": "days_since_delivery",
+        "value": 6,
+        "period": "2026-09-20/2026-09-26",
+        "nature": "synthetic"
+      }
+    ],
     "explanation": [
       {
         "label": "SCORE",
@@ -217,7 +274,7 @@
             "entity": "customer",
             "metric": "risk_score",
             "value": 0.21,
-            "period": "as of 2026-09-26",
+            "period": "as of 2026-09-30",
             "nature": "synthetic"
           }
         ]
@@ -234,7 +291,7 @@
             "entity": "cluster",
             "metric": "welcome_coupons_per_account",
             "value": 0.33,
-            "period": "as of 2026-09-26",
+            "period": "as of 2026-09-30",
             "nature": "synthetic"
           }
         ]
@@ -251,7 +308,7 @@
             "entity": "cluster",
             "metric": "creation_spread_days",
             "value": 557,
-            "period": "as of 2026-09-26",
+            "period": "as of 2026-09-30",
             "nature": "synthetic"
           }
         ]
@@ -268,7 +325,7 @@
             "entity": "cluster",
             "metric": "strong_id_share",
             "value": 0,
-            "period": "as of 2026-09-26",
+            "period": "as of 2026-09-30",
             "nature": "synthetic"
           }
         ]
@@ -285,7 +342,7 @@
             "entity": "customer",
             "metric": "value_eur_12m",
             "value": 127.15,
-            "period": "12 months to 2026-09-26",
+            "period": "12 months to 2026-09-30",
             "nature": "synthetic"
           }
         ]
@@ -295,14 +352,14 @@
         "fact_ids": [
           "F6"
         ],
-        "text": "Linked accounts in the cluster: 3.",
+        "text": "Accounts in the cluster of linked accounts, this customer included: 3.",
         "facts": [
           {
             "id": "F6",
             "entity": "cluster",
             "metric": "cluster_size",
             "value": 3,
-            "period": "as of 2026-09-26",
+            "period": "as of 2026-09-30",
             "nature": "synthetic"
           }
         ]
@@ -344,7 +401,8 @@
           "fields": {
             "terms": null,
             "amount": null,
-            "deadline": "10 ottobre 2026"
+            "deadline": "il 10 ottobre 2026",
+            "deduction": null
           },
           "text": "Ciao, grazie per averci scritto. Abbiamo registrato la tua richiesta di reso e il rimborso è previsto per il 10 ottobre 2026. Se ti serve un'altra taglia, rispondi pure a questo messaggio. Un caro saluto dal nostro team."
         },
@@ -353,7 +411,8 @@
           "fields": {
             "terms": null,
             "amount": null,
-            "deadline": "10 October 2026"
+            "deadline": "10 October 2026",
+            "deduction": null
           },
           "text": "Hello, thank you for writing to us. We have registered your return request and your refund is due by 10 October 2026. If you need a different size, just reply to this message. Warm regards from our team."
         }
@@ -362,14 +421,15 @@
     "provenance": {
       "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
       "period_start": "2025-10-01",
-      "period_end": "2026-09-26",
+      "period_end": "2026-09-30",
       "nature": "synthetic"
     }
   },
   "coupon_application": null,
   "audit_entry_ids": [
-    5,
-    6
+    40,
+    41,
+    43
   ],
   "provenance": {
     "origin": "Contract example: risk model risk-xgb-0.1.0 on decision-time features of the synthetic shop",

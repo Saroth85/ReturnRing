@@ -94,6 +94,16 @@
         "nature": "synthetic"
       }
     },
+    "line_price": {
+      "value": 89.9,
+      "unit": "eur",
+      "provenance": {
+        "origin": "Contract example: Navigli Fashion synthetic shop, generator seed 42",
+        "period_start": "2025-10-01",
+        "period_end": "2026-09-30",
+        "nature": "synthetic"
+      }
+    },
     "photo_evidence_ids": [
       "PH-000014"
     ],
@@ -148,6 +158,16 @@
         "unit": "eur",
         "provenance": {
           "origin": "Contract example: diminished-value rule DV-RULE-1 applied to a synthetic return",
+          "period_start": "2025-10-01",
+          "period_end": "2026-09-30",
+          "nature": "synthetic"
+        }
+      },
+      "line_price": {
+        "value": 89.9,
+        "unit": "eur",
+        "provenance": {
+          "origin": "Contract example: Navigli Fashion synthetic shop, generator seed 42",
           "period_start": "2025-10-01",
           "period_end": "2026-09-30",
           "nature": "synthetic"
@@ -214,13 +234,13 @@
     "subject": "Il tuo reso RET-000110",
     "sentence_ids": [
       "OPEN_THANKS",
-      "HELP_SIZE",
       "CLOSE_REGARDS"
     ],
     "fields": {
       "terms": null,
       "amount": "71,92 €",
-      "deadline": "10 ottobre 2026"
+      "deadline": "il 10 ottobre 2026",
+      "deduction": "17,98 €"
     },
     "refund": {
       "value": 71.92,
@@ -232,7 +252,7 @@
         "nature": "synthetic"
       }
     },
-    "body": "Ciao, grazie per averci scritto. Abbiamo registrato la tua richiesta di reso e il rimborso di 71,92 € è previsto per il 10 ottobre 2026. Se ti serve un'altra taglia, rispondi pure a questo messaggio. Un caro saluto dal nostro team.",
+    "body": "Ciao, grazie per averci scritto. Abbiamo registrato la tua richiesta di reso e il rimborso di 71,92 € è previsto per il 10 ottobre 2026. Abbiamo trattenuto 17,98 € per la diminuzione di valore rilevata al controllo. Un caro saluto dal nostro team.",
     "legal_clause_kind": null,
     "generation_id": null,
     "status": "sent_simulated",

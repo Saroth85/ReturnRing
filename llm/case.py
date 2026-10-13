@@ -43,6 +43,30 @@ class CaseError(ValueError):
     """Inputs that cannot form a valid llm_case: a bug in the caller."""
 
 
+# Score features measured on the cluster of linked accounts (pipeline.graph.clusters; a test keeps
+# them equal). An account without linked accounts has them computed on itself (cluster_size 1):
+# their facts are then about the customer, never about a cluster (rule 11, round 4 of the API
+# review, finding E3).
+CLUSTER_FEATURES: frozenset[str] = frozenset(
+    {
+        "cluster_size",
+        "shared_strong_ids",
+        "welcome_coupons",
+        "n_distinct_cards",
+        "creation_spread_days",
+        "welcome_coupons_per_account",
+        "cluster_return_rate",
+        "strong_id_share",
+    }
+)
+
+
+def factor_entity(feature: str, clustered: bool) -> Entity:
+    """The entity of the fact of a score factor: the cluster for a cluster feature of a customer
+    in a cluster, the customer otherwise."""
+    return "cluster" if clustered and feature in CLUSTER_FEATURES else "customer"
+
+
 @dataclass(frozen=True)
 class ScoreFactor:
     """One of the top-3 contributions to the risk score (SHAP, spec 8.4): feature, its value and
@@ -182,6 +206,11 @@ def build_case(
         for factor in factors:
             if is_forbidden_feature(factor.feature):
                 raise CaseError(f"Forbidden feature {factor.feature!r} (rule 6)")
+            if factor.entity == "cluster" and cluster is None:
+                raise CaseError(
+                    f"{factor.feature} is a fact of a cluster, and the case has none: an account "
+                    "without linked accounts has customer facts"
+                )
             facts.add(factor.entity, factor.feature, factor.value, f"as of {day}")
         if cluster is not None:
             if cluster.id != scores.cluster_id:

@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from contracts.levers import LeverObject, format_lever_id
-from llm.messages import Placeholder, available_placeholders, requires_terms
+from llm.messages import Placeholder, available_placeholders, has_deduction, requires_terms
 from policy.legal_guard import is_restrictive
 from policy.types import Decision, ReturnTerms
 
@@ -38,6 +38,9 @@ class ExpectedDecision:
     placeholders: frozenset[Placeholder]
     requires_terms: bool
     restrictive: bool  # Q3 and Q4: the levers restrict future orders (policy/legal_guard.py)
+    # A diminished-value claim withholds part of the refund: the body states it with {deduction}
+    # (llm/phrasebook.py). Never in the llm_case: the model writes no customer text.
+    deduction: bool = False
 
     @property
     def template_key(self) -> TemplateKey:
@@ -56,5 +59,6 @@ def serialize_decision(
         placeholders=available_placeholders(decision.path.value, levers, refund_eur is not None),
         requires_terms=requires_terms(decision, base),
         restrictive=is_restrictive(decision.levers, base),
+        deduction=has_deduction(decision),
     )
     return levers, expected

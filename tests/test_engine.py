@@ -114,6 +114,7 @@ def test_marco_restriction_needs_approval_and_review() -> None:
     assert d.quadrant is Quadrant.Q4 and d.requires_approval
     assert d.review_on == TODAY + timedelta(days=REVIEW_DAYS)
     assert d.coupon_rule is not None and d.coupon_rule.confirmed_by is None
+    assert d.coupon_rule.cluster_id == "R-MARCO"  # the block names the cluster (LEG-09)
     assert d.current_return_terms == BASE  # never restricted retroactively
 
 

@@ -187,7 +187,11 @@ def decide(
             requires_approval=needs_approval,
             review_on=decided_on + timedelta(days=REVIEW_DAYS) if needs_approval else None,
             coupon_rule=(
-                CouponRuleApplication(rule_version=coupon_rule_version, confirmed_by=None)
+                CouponRuleApplication(
+                    rule_version=coupon_rule_version,
+                    confirmed_by=None,
+                    cluster_id=scores.cluster_id,
+                )
                 if levers.cluster_coupons_disabled
                 else None
             ),

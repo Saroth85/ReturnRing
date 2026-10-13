@@ -1,7 +1,7 @@
 # ADR-15: API and persistence contract
 
-Status: accepted, 13 Oct 2026; amended the same day after three reviews (sections 9 to 11). API
-contract version `1.3.0`. Covers spec section 9 (API table, flows F1 to F7), the stories of E3,
+Status: accepted, 13 Oct 2026; amended the same day after four reviews (sections 9 to 12). API
+contract version `1.4.0`. Covers spec section 9 (API table, flows F1 to F7), the stories of E3,
 E4, E5, E6, E7 and E9, NFR-16 and CLAUDE.md rules 1, 3, 4, 5, 9, 10, 11 and 12. Changes
 `contracts/` (new `contracts/vocab.py`, `contracts/sql.py`, `contracts/json/api/`,
 `contracts/examples/api/`), removes two v1 API schemas, and adds `apps/api/schemas.py` and two
@@ -124,7 +124,7 @@ Rules on these files:
   | 422 | `invalid_request` | The body, path or query is invalid; pydantic errors become `violations` |
   | 422 | `legal_guard` | `policy.legal_guard` refused the decision; `violations` carries its codes |
   | 404 | `not_found` | |
-  | 409 | `conflict` | Already decided, already confirmed, "approve" sent with levers different from the proposal, "lift" or "renew" on a version that is not a restriction, "renew" before the review date or when the fresh proposal is not a restriction |
+  | 409 | `conflict` | Already decided, already confirmed, "approve" sent with levers different from the proposal, "lift" or "renew" on a version that is not a restriction, "renew" before the review date or when the fresh proposal is not a restriction, a restriction approved on or after its review date (a stale proposal: the case is recomputed), `/checkout/confirm` of terms whose decision is no longer in force |
   | 409 | `stale_decision` | The `decision_id` sent is not the latest version of the case |
   | 403 | `forbidden_role` | The actor's role is not among the endpoint's `roles` (section 5) |
   | 429 | `rate_limited` | Agent endpoint only |
@@ -230,10 +230,22 @@ The intake function, and only it, triggers the decision:
 - **States.** `proposed`, `approved`, `overridden`, `rejected`. The last three are the policy
   `DecisionState` values plus `overridden`.
 - **The decision day is the day of the act.** `decided_on` is no later than the UTC day of
-  `created_at`; a version created by a review is decided on that day, and the person's act
-  creates it (`approved_at` equals `created_at`). The review date, the no-early-renewal rule
-  and the 180-day maximum all count from `decided_on`, so moving it cannot stretch a
-  restriction (section 11, D1).
+  `created_at`; every later version (a review or a recompute) is decided on that day, and the
+  person's act creates a review version (`approved_at` equals `created_at`). The review date,
+  the no-early-renewal rule and the 180-day maximum all count from `decided_on`, so moving it
+  cannot stretch a restriction (section 11, D1; section 12, E4).
+- **A restriction is approved before its review date** (UTC days). A proposal still waiting on
+  its review day is stale: the API answers 409 `conflict` and the case is recomputed. A cluster
+  coupon application is likewise confirmed before its review date, which is after the day it is
+  proposed (section 12, E4).
+- **The cluster coupon block** (`coupon_rule`) applies to the cluster given to the engine
+  (`inputs.cluster_id`), and its linked accounts include the case customer; on the case card
+  they are linked accounts shown in `linked_accounts`. The policy `CouponRuleApplication` names
+  the cluster too, and `policy.legal_guard` refuses a block without one
+  (`COUPON_CLUSTER_MISSING`). The block carries the `state` and `in_force` of its application
+  when the decision is served: proposed with a proposed decision, confirmed by the person who
+  acted or reversed afterwards, in force while confirmed, before the review date and while the
+  decision is in force (section 12, E2 and E26).
 - **`levers` are the levers of the current state.** They are the proposal while proposed or
   approved, the operator's choice when overridden, and none when rejected. `requires_approval`,
   `review_at` and `future_terms` refer to them: `requires_approval` is exactly "restrictive
@@ -285,14 +297,21 @@ The intake function, and only it, triggers the decision:
     application the act changed: the decision's own, confirmed by approve, override or renew of
     levers that block the cluster's coupons, or the restriction's, reversed by a lift; otherwise
     null.
+  - A lift or a renewal result carries `superseded`: the restriction it supersedes, as served
+    after the act (superseded, not in force, its coupon application reversed by a lift). The
+    `before` of its audit entry is that version, so the early-renewal rule rests on a verified
+    review date (section 12, E5).
   - approve, override and reject also send one outbox message to the customer, at the time of
     the act, in the chosen language (`message.lang`). `message.sentence_ids` optionally chooses
     other phrasebook sentences (ADR-14 decision 8): never free text. Without them the API uses
     the draft's selection when it is allowed for the decision acted on, otherwise the fallback
     selection of `llm.templates` (`default_selection_for`). The API composes the message with
     `llm.phrasebook.render_selection` for the decision as it stands, and refuses a selection
-    that is not allowed for it (422). lift and renew send no message (`message` null; section
-    11).
+    that is not allowed for it (422). When the decision carries a diminished-value claim, the
+    message states the refund it leaves and the deduction (below, Inspection).
+  - **lift and renew send no customer message** (`message` null). Decided on 13 Oct 2026
+    (section 12, E27; spec 19.B): the customer sees the terms of future orders at checkout,
+    before each purchase (US-403), so a lift or a renewal reaches the customer there.
   - The clause is the guarantee clause on the guarantee path, the withdrawal clause when the levers
     are restrictive, and none otherwise (`llm.legal_clause.required_clause`).
   - An override never becomes training data: training uses the synthetic labels (spec 8.4).
@@ -313,28 +332,42 @@ The intake function, and only it, triggers the decision:
   the model (or the template) answers, `llm.validator` accepts the answer, and
   `DraftView.build` stores it:
   - the echo of the decision (rule 1);
+  - `case_facts`: every fact of the llm_case `{id, entity, metric, value, period, nature}` as
+    stored at generation time (section 12, E10 and E11);
   - the operator statements, each `{label, fact_ids, text, facts}`: `facts` are the cited
-    facts of the llm_case `{id, entity, metric, value, period, nature}` as stored at
-    generation time, so entity, metric, value and period come from code, never from the text;
+    facts, equal to those of `case_facts`, so entity, metric, value and period come from code,
+    never from the text;
   - the customer message `{sentence_ids, legal_clause_kind, texts}`: the phrasebook ids the
     model chose, the fixed clause appended (or none), and per language the template fields and
     the text `llm.phrasebook.render_selection` composed;
   - `provenance`: the provenance of the engine inputs the facts were built from.
 
-  `_check_draft` runs `llm.validator.validate` on the stored output against the cited facts
-  (echo, labels, every number grounded on a cited value, banned terms, script, phrasebook ids)
-  and renders the messages again. It also checks that the facts of the risk, the value and the
-  days since delivery are the values given to the engine, that a case that is not scored cites
-  no score fact and has no `SCORE` statement (rule 4, US-307), and that the facts have the
-  nature of the inputs.
+  `_check_draft` checks that `case_facts` are the facts `llm.case.build_case` writes for the
+  version: ids in order, one fact per metric, the nature of the inputs, and each metric with
+  the entity, period and value build_case gives it (risk and value "as of" and "12 months to"
+  the decision day, the days since delivery over the delivery and notice days, the window of
+  the proposal "orders from" the decision day, the cluster only for a customer in a cluster,
+  score factors that may be shown and are never customer value, at most three). Where the
+  response shows the score factors and the cluster size (the case card, a recompute), the facts
+  must equal a rebuild with `llm.case.build_case` (`expected_case_facts`). It then runs
+  `llm.validator.validate` on the stored output against exactly the case `llm.generate`
+  validated (all its facts, the case and cluster ids, the decision), so the stored draft and
+  the generation get one verdict, and renders the messages again. A case that is not scored
+  has only the days since delivery and no `SCORE` statement (rule 4, US-307). A score factor
+  of the cluster is a fact of the cluster only for a customer in a cluster
+  (`llm.case.factor_entity`): an account alone has its cluster features computed on itself.
 - **Messages and template fields (rule 10, ADR-08).** There is one renderer, in `llm/`: the
   fields are `llm.messages.template_fields` of the decision ({terms} when the levers change
   the terms of future orders, {deadline} on the withdrawal path, {amount} when the refund is
   known; null otherwise), the text is `llm.phrasebook.render_selection` and the clause
   `llm.legal_clause.required_clause`. `check_rendering` compares a stored message with them;
-  the API has no renderer of its own. An outbox message carries its sentence ids, the fields
-  of its language, the refund the {amount} field states (a `Metric`, after a
-  diminished-value claim) and the body.
+  the API has no renderer of its own. {deadline} carries its article in Italian ("il 12
+  ottobre 2026", "l'11 ottobre 2026", section 12, E22). An outbox message carries its subject
+  (`llm.phrasebook.subject`, a fixed text with the return id), its sentence ids, the fields of
+  its language, the refund the {amount} field states (a `Metric`) and the body. It states a
+  refund exactly when the decision carries a diminished-value claim: the price of the line less
+  the claim, with the provenance of the claim, and {deduction} with its reason (section 12,
+  E12, E13 and E17).
 - **`GenerationInfo`** gives the path of `llm.generate`: `model`, `regenerated` or `template`,
   the fallback reason of a template (`unavailable`, `decision_echo`, `invalid_twice`), the model
   calls and the `llm.validator` codes found on the way. It also gives `llm_mode` (vllm or mock)
@@ -342,7 +375,8 @@ The intake function, and only it, triggers the decision:
   `draft_regenerated`, entity type `llm_generation`) records the same in a typed
   `GenerationAuditState`, and `llm_generations` stores the llm_case sent with its facts.
 - **Regeneration** returns plain JSON, not a stream: the validator checks the whole output before
-  the UI sees it. It takes no free-text instruction (NFR-11). `RegenerateResponse` holds the
+  the UI sees it. It takes no free-text instruction (NFR-11) and no tone: `llm/` has none to
+  apply (section 12, E14). `RegenerateResponse` holds the
   latest decision version with the draft, and the model checks the draft against it as on the
   case card: the echo, the legal clause and the template fields.
 
@@ -361,7 +395,12 @@ mock routes serve every version a version chain of the examples points to.
   A dispute sent from a case card names the case and the `decision_id` shown.
 - The response holds the before and after `CaseSnapshot` (with their state), the new decision
   version (version + 1, trigger `evidence_added` or `link_disputed`, superseding the one
-  before), its regenerated draft and `coupon_application`: the cluster coupon application of
+  before, decided on the day of the recompute), its regenerated draft and
+  `coupon_application`. `after` shows the figures of the new version: the risk given to the
+  engine with the provenance of its inputs, the approval flag, the evidence quality and a
+  cluster size exactly when the engine had a cluster; a dispute removes an active link and
+  evidence never adds one (section 12, E6). The draft's facts are rebuilt from `after`. The
+  coupon application is the cluster coupon application of
   the version superseded, reversed, when that version blocked the cluster's coupons with a
   person's confirmation (approved or overridden); otherwise null.
 - Earlier versions keep their state for the audit. Only the latest is actionable, and the
@@ -374,7 +413,11 @@ mock routes serve every version a version chain of the examples points to.
     `no_reliable_recommendation`. It is present exactly when `p_return >= p_return_threshold`;
   - the terms carry `coupons_enabled`;
   - it adds `base_terms`, `terms_source` (base or a decision id), `review_at`, `coupon_block`,
-    `shown_at`, `model_version` and one `provenance` for its numbers.
+    `shown_at`, `model_version` and one `provenance` for its numbers;
+  - the customer texts (the size advice, the coupon block) are `{it, en}` pairs of fixed,
+    reviewed texts of `llm/phrasebook.py`; the coupon block uses the neutral wording of the
+    transparency notice and never names the linked accounts or the cluster (rule 11, section
+    12, E25).
 - **Terms and their source.** `terms_source: base` shows exactly the base terms, with no review
   date and no quadrant. Terms less generous than the base come from a decision in force and carry
   its review date. A restriction lapses at its review date, so its terms are shown only before
@@ -387,7 +430,11 @@ mock routes serve every version a version chain of the examples points to.
   `/confirm` binds that row to the new order, so the terms shown are the terms stored. A
   restriction lapses at its review date also between evaluate and confirm: `/confirm` on or
   after the UTC review day answers 409 `conflict` and the client evaluates again
-  (`ck_terms_snapshots_review_after_confirmed`).
+  (`ck_terms_snapshots_review_after_confirmed`). `/confirm` also answers 409 `conflict` when
+  the decision the terms come from (`terms_snapshots.source_decision_id`) is no longer the
+  version in force for the customer: superseded by a lift (possibly the rectification the
+  customer asked for) or by a recompute between evaluate and confirm. The API checks it in the
+  confirm transaction (section 12, E8).
 
 **Inspection (US-501..503).**
 
@@ -398,8 +445,16 @@ mock routes serve every version a version chain of the examples points to.
 - A compensation proposal holds only if Ahmed confirms the observations it rests on.
 - `/confirm` recomputes the claim from the confirmed observations and an approved rule. A claim
   needs confirmed visible damage, never vision alone.
-- The claim is attached to the decision (`diminished_value_claim`, checked by the legal guard) and
-  sent with its motivation; the message's `amount` field is the claim amount.
+- The claim is attached to the decision (`diminished_value_claim`, checked by the legal guard),
+  on the price of the returned line (`line_price`). The message to the customer states the
+  refund left after the claim ({amount}: the price of the line less the claim) and the amount
+  withheld with its reason ({deduction}: "Abbiamo trattenuto {deduction} per la diminuzione di
+  valore rilevata al controllo."; section 12, E9, E12 and E17). It offers no other size.
+- **No unapproved restriction reaches the customer (rule 5).** The confirmation sends its
+  message exactly when a claim applies and the decision does not await a person's approval.
+  While a Q3 or Q4 proposal waits for Sara, the message would state its restrictive terms, so
+  there is none: the refund and the deduction are stated by the message of the approval, the
+  override or the rejection, which carries the claim (section 12, E1).
 
 **Matrix and simulator (US-601, US-602, ADR-04).**
 
@@ -441,15 +496,23 @@ mock routes serve every version a version chain of the examples points to.
 - The entries about a draft generation (`draft_generated`, `draft_regenerated`) have
   `entity_type: llm_generation` and a typed `after` (`GenerationAuditState`): the path of
   `llm.generate`, the fallback reason, the model calls and the validator codes.
+- A decision state is a state a version can have: a person acted exactly when it is not
+  proposed, a category exactly for an override or a rejection, no lever after a rejection. A
+  human act is by the approver of its `after`, approve, override and reject keep the version
+  number, a review date is within the maximum of the day of the entry, and a lift ends the
+  restriction (section 12, E5).
 - Any other `before` and `after` is a free JSON object whose numbers are `Metric`s (an
-  inspection's compensation in euros, for example): a plain number is refused (rule 11).
+  inspection's compensation in euros, for example): a plain number, a `Decimal` or a number
+  written as text is refused (rule 11, section 12, E7).
 - CSV export uses `AUDIT_CSV_COLUMNS`, with JSON cells for `before`, `after` and `model_versions`.
 
 **Agent (US-701, US-702, spec 8.8).**
 
 - `POST /api/agent/ask` streams server-sent events. Each event is written as `event: <type>`,
   `id: <seq>` and `data: <event JSON>`, followed by a blank line (`sse_frame`). The UI reads the
-  stream with fetch, because EventSource only does GET.
+  stream with fetch, because EventSource only does GET. The examples hold each stream twice:
+  `agent_stream.<name>.json`, the events for the model, and `agent_stream.<name>.sse`, the
+  bytes on the wire, which the mock routes serve.
 - **Order.**
   1. `tool_call` and `tool_result` pairs for steps 1..n, with n <= 5 and the five read-only tools
      `get_case`, `get_orders`, `get_cluster`, `get_score_factors` and `get_policy_text`.
@@ -498,7 +561,7 @@ Tables:
 - `simulator_assumptions` and `coupon_rules`: versioned, with a `seq` chain;
 - `coupon_rule_applications`;
 - `llm_generations`: the llm_case sent (with its code-built facts), the output, the path of
-  `llm.generate`, the fallback reason, the model calls and the validator codes.
+  `llm.generate`, the fallback reason, the model calls and the validator codes (no tone).
 
 Column types:
 
@@ -523,13 +586,15 @@ is refused with its CHECK, and accepted once that one CHECK is removed.
 | Insufficient evidence has no quadrant (US-307) | `ck_decisions_insufficient_no_quadrant` |
 | Q3 and Q4 need approval (rule 5) | `ck_decisions_q3_q4_need_approval` |
 | A restriction, and only a restriction, has a review date after the decision, within 180 days (US-607) | `ck_decisions_restriction_has_review`, `ck_decisions_review_only_restriction`, `ck_decisions_review_after_decision`, `ck_decisions_review_within_max` |
-| The decision day is no later than the UTC day of the version's creation; a review version is decided on that day (D1) | `ck_decisions_decided_by_creation`, `ck_decisions_review_decided_on_creation` |
+| The decision day is no later than the UTC day of the version's creation; every later version is decided on that day (D1, E4) | `ck_decisions_decided_by_creation`, `ck_decisions_new_version_decided_on_creation` |
+| A person acts on a version after it exists; the act creates a review version; a restriction is approved before its review date (E4) | `ck_decisions_approved_after_creation`, `ck_decisions_review_approved_at_creation`, `ck_decisions_approved_before_review` |
 | A person acted exactly when the state is not proposed; with the review rules, an approved or overridden restriction has a person as approver and a review date (rule 5) | `ck_decisions_acted_has_approver` |
 | An override or rejection has a reason and a category, an approval none | `ck_decisions_override_has_reason` |
 | A version created by a review lifts the restriction (overridden, not restrictive) or renews it (approved restriction) (US-607) | `ck_decisions_review_outcome` |
 | Version 1 is initial; later versions supersede another | `ck_decisions_version_chain` |
 | Applying the coupon rule to a cluster needs a person's confirmation and stays reversible (LEG-09) | `ck_coupon_rule_applications_confirmed_by_person`, `ck_coupon_rule_applications_always_reversible` |
-| A coupon application's review date is at most 180 days after it is confirmed, or proposed (D2) | `ck_coupon_rule_applications_review_within_max` |
+| A coupon block names the cluster of its decision, and an application blocks that cluster only (LEG-09, E2) | `ck_decisions_coupon_application_has_cluster`; the composite foreign key `(decision_id, cluster_id)` of `coupon_rule_applications` to `decisions` (unique key `uq_decisions_decision_id`) |
+| A coupon application's review date is at most 180 days after it is confirmed, or proposed (D2), after the day it is proposed, and it is confirmed before it (E4) | `ck_coupon_rule_applications_review_within_max`, `ck_coupon_rule_applications_review_after_proposed`, `ck_coupon_rule_applications_confirmed_before_review` |
 | The general coupon rule is approved by a person | `ck_coupon_rules_approved_by_person` |
 | Compensation needs a photo, a confirmation and a rule (LEG-05) | `ck_inspections_compensation_evidence` |
 | No proposal when unsure (US-503) | `ck_inspections_unsure_no_proposal` |
@@ -573,8 +638,11 @@ is refused with its CHECK, and accepted once that one CHECK is removed.
 - **A card for every other queued return.** `case_card.insufficient` (US-307), `chiara` (Q3
   through a card shared once; disputed), `andrea` (Q1; rejected), `martina` (Q3; overridden),
   `valentina` (Q2; inspected with a claim), `simone` (Q2; manual review), `francesca` (wrong
-  item: guarantee) and `lorenzo` (a Q3 restriction approved in June, past its review date:
-  lapsed and due for review; lifted in `decision_result.lift`).
+  item: guarantee), `lorenzo` (a Q3 restriction approved in June, past its review date:
+  lapsed and due for review; lifted in `decision_result.lift`, renewed in the scenario
+  `renewed`) and `earlier` (RET-000077, DEC-000077-1: a Q4 of cluster CL-000655 approved on 29
+  September, whose coupon block Luca reversed on request: the decision is in force, its block
+  is not).
 - **The other demo examples.** The override, the rejection, the lift, the legal-guard refusal,
   the evidence and dispute recomputes, the six versions of the three version chains (Rossi card,
   Chiara, Lorenzo) and every decision the audit log and the coupon applications name (Marco
@@ -582,10 +650,24 @@ is refused with its CHECK, and accepted once that one CHECK is removed.
   earlier Q4 of cluster CL-000655 whose coupon block was reversed on request) served by
   `GET /api/decisions/{decision_id}`, the queue filtered for approval
   and for review, both checkouts, the inspections and the agent streams (the three questions of
-  US-702 and a refused write). Two review outcomes are built by `review_result` in the tests and
-  not served by the mock: a renewal of Lorenzo (the other outcome of the review the lift already
-  shows, with the same next version id) and a lift of Marco's Q4 restriction with its coupon
-  application (in the demo story Marco's restriction stays in force, as the checkout shows).
+  US-702 and a refused write). Every version a card, a request, a terms source or an audit
+  entry names is served by `GET /api/decisions/{decision_id}`. The renewal of Lorenzo (the
+  other outcome of the review the lift shows, with the same next version id) is served under
+  the scenario `renewed`: the request, the result and the record of DEC-000088-2. A lift of
+  Marco's Q4 restriction with its coupon application is built by `review_result` in the tests
+  and not served (in the demo story Marco's restriction stays in force, as the checkout shows).
+- **Errors.** An `ErrorResponse` example for every error code, and a mock route for every
+  error status the endpoints declare: 403 (Ahmed posting a decision), 404, 409 (approving
+  DEC-000102-1 again under `conflict`, renewing it before its review date, confirming Marco's
+  checkout under `conflict` once its terms no longer apply, a stale decision under
+  `stale_decision`), 422 (`invalid_request`, `legal_guard`), 429 (the agent under
+  `rate_limited`) and 503 (regeneration and the agent under `cached`).
+- **The log and the outbox are whole.** `audit_page` is every act the examples show, in time
+  order (the intake and the draft of every case, approvals, overrides, rejections, the lift,
+  recomputes, the regeneration, messages, checkouts, inspections, catalogue tasks, coupon rules
+  and the reversal, the assumption update); `outbox` holds every message sent.
+- **The anomaly of Elena** is open at the demo clock; the scenario `task_opened` serves the
+  list once Luca has opened CT-000012 from it.
 - **How they are built.** By code from `policy.engine`, `policy.simulator` and `llm/`. Every
   draft goes through `llm/` as the API makes it: `llm.case.build_case` of the engine decision,
   `llm.generate.generate` with the mock model (`MockClient`, given a scripted answer before its
@@ -599,8 +681,10 @@ is refused with its CHECK, and accepted once that one CHECK is removed.
   with a card is that card.
 - **`index.json`** maps each request to its example for a mock server: method, concrete path,
   query example, request example and `scenario`. The scenario is `default` unless the request
-  names another one in the `X-Mock-Scenario` header (for example `stale_decision`, `cached`). Drafts
-  in examples are `llm_mode: mock`: outputs of the mock model, not Gemma output.
+  names another one in the `X-Mock-Scenario` header (for example `stale_decision`, `cached`). A route's
+  `media_type` is the type of its response: an error is `application/json`, an agent answer
+  the `.sse` file. Drafts in examples are `llm_mode: mock`: outputs of the mock model, not
+  Gemma output.
 
 ### 8. Changes to earlier contracts
 
@@ -683,7 +767,8 @@ Other changes of the merge: every lever array of the API schemas is
 `contracts.levers.lever_list_json_schema()` (ADR-13, ADR-14), and the models check it with
 `check_lever_objects`.
 
-Known limits, reported as they are:
+Known limits, reported as they are (section 12 decides the first, E27, and resolves the second,
+E12 and E17, and the third, E10 and E11):
 
 - **Lift and renew send no customer message.** The phrasebook has no reviewed sentence about a
   review, and its mandatory body starts with the return registration, whose refund deadline
@@ -704,6 +789,81 @@ Known limits, reported as they are:
 - **Lever arrays in the JSON Schemas carry a pydantic `title`** next to the catalogue schema;
   the tests compare them without it.
 
+### 12. Round 4 (13 Oct 2026, contract 1.4.0)
+
+The third re-review found no blocker and 27 findings (E1 to E27). Every major is fixed and so
+are the minors, except E15, left open (below). Each probe of the review is a test that must be
+refused (`tests/test_api_round4.py`, plus rows of `tests/test_sql_contract.py`,
+`tests/test_legal_guard.py` and the `llm/` tests).
+
+| Finding | Change |
+| --- | --- |
+| E1 (major): an inspection could announce an unapproved Q3 or Q4 to the customer (rule 5) | `InspectionConfirmResponse` sends a message exactly when a claim applies and the decision does not await a person's approval; the message of the approval, override or rejection then states the refund and the deduction (section 4, Inspection) |
+| E2 (major): a coupon block was not tied to the case cluster | `DecisionView`: the block is on `inputs.cluster_id` and its accounts include the case customer; `CaseCard`: they are linked accounts shown; `policy.types.CouponRuleApplication.cluster_id`, set by `policy.engine.decide`, and the legal-guard code `COUPON_CLUSTER_MISSING`; SQL `ck_decisions_coupon_application_has_cluster` and the composite foreign key `(decision_id, cluster_id)` of `coupon_rule_applications` |
+| E3: a cluster of one was stated as linked accounts; cluster facts unchecked | `llm.case.CLUSTER_FEATURES` and `factor_entity` (a cluster feature of an account alone is a fact of the customer); `build_case` refuses a cluster fact without a cluster; the template states a cluster only for a case with one, "this customer included"; the facts are checked as below (E10) |
+| E4: approvals and confirmations after the review date; recompute versions on any day | A restriction is approved, and an application confirmed, before its review date (409 for a stale proposal); an application's review date is after the day it is proposed; every later version is decided on the day it is created. CHECKs `ck_decisions_approved_after_creation`, `ck_decisions_review_approved_at_creation`, `ck_decisions_approved_before_review`, `ck_decisions_new_version_decided_on_creation` (it replaces `ck_decisions_review_decided_on_creation`), `ck_coupon_rule_applications_confirmed_before_review`, `ck_coupon_rule_applications_review_after_proposed` |
+| E5: audit states a view refuses; the `before` of a lift or a renewal unverified | `DecisionAuditState`: approver exactly when acted, category exactly for an override or a rejection, no lever after a rejection; `AuditEntry`: a human act by the approver of its `after`, approve, override and reject keep the version, a review date within the maximum of the entry's day, a lift not restrictive; `DecisionResult.superseded` (the restriction a lift or a renewal supersedes, as served) and `before` equal to it |
+| E6: the recompute `after` was free beyond levers, state and quadrant | `after` has the risk given to the engine with its provenance, the approval flag, the evidence quality and a cluster size exactly with a cluster; a dispute removes an active link, evidence adds none |
+| E7: `Decimal` and numeric strings in untyped payloads | Refused like plain numbers |
+| E8: a snapshot shown before a lift could be confirmed after it | `/confirm` answers 409 when the terms' decision is no longer in force (section 4, Checkout; Consequences); a mock scenario `conflict` |
+| E9: stale documentation | Section 4 (Inspection) and `InspectionConfirmResponse` say what the message states; ADR-13 points to `contracts/json/api/decision_request.schema.json` |
+| E10 (major) and E11: draft facts not tied to code-built facts; two verdicts | `DraftView.case_facts`: every fact of the llm_case; `_check_draft` checks them against the version (entity, period, values, forbidden and value features, the cluster) and, on the case card and the recompute, equal to `llm.case.build_case` rebuilt from the factors and the cluster shown (`expected_case_facts`); `llm.validator` runs on exactly the case `llm.generate` validated, so the known limit and the template fallback of section 11 are gone |
+| E12: the refund stated was not tied to the claim | A refund exactly with a claim, the price of the line less the claim (`ClaimView.line_price`), with the claim's provenance |
+| E13: the subject was free text | `llm.phrasebook.subject(return_id, lang)`; `OutboxMessage` requires it and `compose` writes it |
+| E14: a tone nothing applied | Removed from `RegenerateRequest`, `DraftView`, `llm_generations`, `contracts/vocab.py` and spec 9 |
+| E15: generation records allow paths `llm.generate` cannot take | **Open**: not part of this round. `check_generation_path`, the `llm_generations` CHECKs and the link of a generation to its decision stay as in section 11 |
+| E16 (major): no 403, 409 conflict, 429 or 503 scenario, no renew outcome | Error examples for every code and routes for every declared status (section 7, Errors); the scenario `renewed`; a test requires a route for every declared error status |
+| E17 (major): the deduction was not explained | A reviewed sentence written by code with the field {deduction} ("Abbiamo trattenuto {deduction} per la diminuzione di valore rilevata al controllo." / "We have withheld {deduction} for the loss of value found at our check."), no size sentence, at most two extras (ADR-14 section 9) |
+| E18: decision and return ids not served | A record for every version the examples name, a card for RET-000077; the test resolves every `DEC-` id of the examples and the return of every record |
+| E19: CL-000655 missing from the matrix | Its three accounts are Q4 points; a test checks every customer of a decision in force |
+| E20: the audit page left out acts | The whole log of the examples, numbered in time order; results and recomputes name its ids |
+| E21: agent routes served JSON arrays | `agent_stream.<name>.sse` for every stream, routed; `media_type` is the type of the response |
+| E22: "per il 11 ottobre" | {deadline} carries its Italian article; tested on every day of a month |
+| E23: Elena's anomaly showed a task created later | Open at 18:00; the scenario `task_opened` after 18:45 |
+| E24: the Rossi answer stated facts it never consulted | A `get_cluster` step for C-ROSSI-2; CL-000233 in the refs and the evidence consulted; a test that an answer cites every record it names |
+| E25: English-only checkout texts | `{it, en}` fixed texts of `llm/phrasebook.py` (`CustomerText`), the coupon block neutral |
+| E26: a record could not show a reversed block | `CouponRuleRef.state` and `in_force` |
+| E27: lift and renew messages | **Decided** by the maintainers: lift and renew send no customer message; the customer sees the terms at checkout (section 4; spec 19.B) |
+
+Examples whose shape changed (a key added or removed):
+
+- `case_facts` added and `tone` removed in every draft: the 13 earlier case cards,
+  `regenerate_response`, `recompute_response.rossi_card` and `link_dispute_response`; their
+  rendered texts gain `fields.deduction`;
+- `fields.deduction` in every message: `outbox`, `decision_result.marco_approved`,
+  `decision_result.override`, `decision_result.reject` and `inspection_confirm_response`;
+- `coupon_rule.state` and `coupon_rule.in_force`: `case_card.marco`,
+  `decision_result.marco_approved`, `decision_record.marco_v1` and
+  `decision_record.earlier_q4_v1`;
+- `superseded`: every `decision_result` (a full view in `decision_result.lift`, null in the
+  others);
+- `diminished_value_claim.line_price`: `inspection_confirm_response` and
+  `decision_record.valentina_v1`;
+- `size_advice.text` and `coupon_block.text` become `{it, en}`:
+  `checkout_evaluate_response.giulia` and `checkout_evaluate_response.marco`;
+- `tone` removed: `regenerate_request`;
+- `audit_page`: new untyped payloads (checkouts, catalogue tasks, coupon rules).
+
+`index.json` keeps its shape, with new routes and `media_type` set to `application/json` on
+every error route. New files: `case_card.earlier`,
+`decision_record.{giulia,rossi,elena,insufficient,simone,francesca}_v1`,
+`decision_record.lorenzo_v2_renewed`, `decision_request.{renew,renew_early,forbidden_role}`,
+`decision_result.renew`, `checkout_confirm_{request,response}.marco`,
+`product_anomalies.task_opened`, `error.{forbidden_role,conflict,conflict_early_renewal,
+conflict_terms_lapsed,rate_limited,llm_unavailable,internal}` and
+`agent_stream.{marco_rossi,marco_terms,write_refused}.sse`.
+
+Known limits, reported as they are:
+
+- **E15 is open**: a generation record can still claim a path `llm.generate` cannot take, and
+  nothing ties `decisions.generation_path` to `llm_generations`.
+- **A regenerated draft** is checked against its version but not rebuilt: the response does not
+  show the score factors and the cluster size, so their values are checked on the card that
+  shows the draft.
+- **Lift and renew send no message**: decided (E27), not a limit. The phrasebook still has no
+  reviewed sentence about a review.
+
+
 ## Consequences
 
 - **Phase 4 (API).**
@@ -712,12 +872,18 @@ Known limits, reported as they are:
     and check the role of the actor against `roles`.
   - Use `contracts/sql.py` for the state and `to_policy_decision` before writing a decision.
     Store `inputs.provenance` with each decision version.
-  - Make drafts with `llm/` only: `llm.case.build_case` of `proposal_decision(view)`,
-    `llm.generate.generate`, `GenerationInfo.from_generation` and `DraftView.build`; validate
-    the draft with the models before storing it (fall back to the template when the stored
-    form fails), and store the llm_case in `llm_generations`. Compose every outbox message with
-    `OutboxMessage.compose` (phrasebook ids from `MessageChoice` or `default_selection_for`).
-  - `/confirm` answers 409 when the review date of the shown terms has been reached.
+  - Make drafts with `llm/` only: `llm.case.build_case` of `proposal_decision(view)` (score
+    factors with `llm.case.factor_entity`, the cluster of the engine inputs),
+    `llm.generate.generate`, `GenerationInfo.from_generation` and `DraftView.build`, which
+    stores every fact of the case; validate the draft with the models before storing it (the
+    same verdict as `llm.generate`), and store the llm_case in `llm_generations`. Compose every
+    outbox message with `OutboxMessage.compose` (phrasebook ids from `MessageChoice` or
+    `default_selection_for`).
+  - `/confirm` answers 409 when the review date of the shown terms has been reached, or when
+    their decision is no longer the version in force (superseded or lifted).
+  - Answer 409 to an approval of a restriction on or after its review date, and recompute.
+  - Send no inspection message while the decision awaits a person's approval; the message of
+    the act then states the refund and the deduction.
   - Implement `lift` and `renew` by running `policy.engine.decide()` on the latest scores, and
     reverse the cluster coupon application of a version that a lift or a recompute supersedes,
     in the same transaction. Compute `in_force` of decisions and coupon applications when

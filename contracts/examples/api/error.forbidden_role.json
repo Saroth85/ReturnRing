@@ -1,0 +1,6 @@
+{
+  "code": "forbidden_role",
+  "message": "ahmed (warehouse) cannot act on a decision: operator or manager only",
+  "violations": [],
+  "request_id": "req-000124"
+}

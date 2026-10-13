@@ -47,6 +47,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     MetaData,
@@ -98,7 +99,6 @@ from contracts.vocab import (
     ROLES,
     SERVED_FROM,
     SYSTEM_ACTOR,
-    TONES,
 )
 from policy.legal_guard import LEGAL_WITHDRAWAL_DAYS, MAX_REVIEW_DAYS
 from policy.types import EvidenceQuality, Path, Quadrant, ReturnReason
@@ -259,7 +259,6 @@ llm_generations = Table(
     Column("model_calls", Integer, nullable=False),
     Column("prompt_version", String(64), nullable=False),
     Column("input_digest", String(64), nullable=False),  # sha256 of the case sent to the model
-    Column("tone", String(16)),
     # the llm_case sent (with its code-built facts) and the validated or template output
     Column("llm_case", JSONDoc, nullable=False),
     Column("output", JSONDoc, nullable=False),
@@ -274,7 +273,6 @@ llm_generations = Table(
     _check(one_of("served_from", SERVED_FROM), "served_from"),
     _check(one_of("generation_path", GENERATION_PATHS), "generation_path"),
     _check(one_of("fallback_reason", FALLBACK_REASONS, nullable=True), "fallback_reason"),
-    _check(one_of("tone", TONES, nullable=True), "tone"),
     _check("model_calls >= 0 AND model_calls <= 2", "calls_range"),
     # spec 8.7, llm.generate: model is validated on the first call, regenerated on the second
     _check(
@@ -429,6 +427,8 @@ decisions = Table(
     Column("generation_path", String(16)),
     Column("created_at", TS, nullable=False),
     UniqueConstraint("return_id", "version", name="uq_decisions_return_version"),
+    # the key of the composite foreign key of coupon_rule_applications (round 4, E2)
+    UniqueConstraint("decision_id", "cluster_id"),
     _check("version >= 1", "version_positive"),
     _check(
         "(version <> 1 OR (supersedes_decision_id IS NULL AND revision_trigger = 'initial'))"
@@ -475,12 +475,28 @@ decisions = Table(
         column("decided_on", Date) <= utc_date(column("created_at")),
         name="decided_by_creation",
     ),
+    # round 4, E4: every later version (a review or a recompute) is decided on the day it is
+    # created, so the review rules count from the day of the act
     CheckConstraint(
         or_(
-            column("revision_trigger") != "review",
+            column("revision_trigger") == "initial",
             column("decided_on", Date) == utc_date(column("created_at")),
         ),
-        name="review_decided_on_creation",
+        name="new_version_decided_on_creation",
+    ),
+    # E4: a person acts on a version that exists; the act of a review creates its version
+    _check("approved_at IS NULL OR approved_at >= created_at", "approved_after_creation"),
+    _check(
+        "revision_trigger <> 'review' OR approved_at = created_at", "review_approved_at_creation"
+    ),
+    # E4: a restriction is approved only before its review date; a stale proposal is recomputed
+    CheckConstraint(
+        or_(
+            column("review_at").is_(None),
+            column("approved_at").is_(None),
+            utc_date(column("approved_at")) < column("review_at", Date),
+        ),
+        name="approved_before_review",
     ),
     # rule 5: a person acted exactly when the state is not proposed. With the two review CHECKs
     # above, an approved or overridden restriction has a person as approver and a review date.
@@ -511,6 +527,11 @@ decisions = Table(
         "coupon_application_id IS NULL OR coupon_rule_version IS NOT NULL",
         "coupon_application_has_rule",
     ),
+    # LEG-09, E2: a cluster coupon block is about the cluster given to the engine
+    _check(
+        "coupon_application_id IS NULL OR cluster_id IS NOT NULL",
+        "coupon_application_has_cluster",
+    ),
     _check(
         "(generation_id IS NULL AND generation_path IS NULL)"
         " OR (generation_id IS NOT NULL AND generation_path IS NOT NULL)",
@@ -526,7 +547,7 @@ coupon_rule_applications = Table(
     Column("application_id", Id, primary_key=True),
     Column("rule_version", String(64), ForeignKey("coupon_rules.rule_version"), nullable=False),
     Column("cluster_id", Id, nullable=False),
-    Column("decision_id", Id, ForeignKey("decisions.decision_id"), nullable=False),
+    Column("decision_id", Id, nullable=False),
     Column("affected_customer_ids", JSONDoc, nullable=False),  # excluded accounts, visible
     Column("state", String(16), nullable=False),
     Column("proposed_at", TS, nullable=False),
@@ -537,6 +558,10 @@ coupon_rule_applications = Table(
     Column("reversed_by", ActorColumn),
     Column("reversed_at", TS),
     Column("reversal_reason", Text),
+    # E2: the application blocks the cluster of the decision that applied it, never another
+    ForeignKeyConstraint(
+        ["decision_id", "cluster_id"], ["decisions.decision_id", "decisions.cluster_id"]
+    ),
     _check(one_of("state", COUPON_APPLICATION_STATES), "state"),
     _check("reversible", "always_reversible"),  # no permanent label (US-607)
     # D2: the review date is at most MAX_REVIEW_DAYS after the application is confirmed (or
@@ -548,6 +573,19 @@ coupon_rule_applications = Table(
             MAX_REVIEW_DAYS,
         ),
         name="review_within_max",
+    ),
+    # E4: confirmed before its review date (a lapsed block is never confirmed), and the review
+    # date is after the day of the proposal
+    CheckConstraint(
+        or_(
+            column("confirmed_at").is_(None),
+            utc_date(column("confirmed_at")) < column("review_at", Date),
+        ),
+        name="confirmed_before_review",
+    ),
+    CheckConstraint(
+        column("review_at", Date) > utc_date(column("proposed_at")),
+        name="review_after_proposed",
     ),
     # US-402, LEG-09: an application is a proposal an operator confirms
     _check(

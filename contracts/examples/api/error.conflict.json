@@ -1,0 +1,6 @@
+{
+  "code": "conflict",
+  "message": "DEC-000102-1 is already approved: only a proposed version can be approved, overridden or rejected",
+  "violations": [],
+  "request_id": "req-000125"
+}

@@ -3,3 +3,8 @@ fastapi==0.143.0
 uvicorn==0.54.0
 pydantic==2.14.1
 pyarrow==26.0.0
+# Data pipeline (phase 1). numpy declares "BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0":
+# all permissive (rule 15). pandas reads the ASOS pickles once, at ingest.
+numpy==2.5.4
+pandas==3.0.6
+polars==2.0.0

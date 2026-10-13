@@ -1,0 +1,6 @@
+{
+  "code": "stale_decision",
+  "message": "DEC-000104-1 is not the latest version of RET-000104: DEC-000104-2 is",
+  "violations": [],
+  "request_id": "req-000122"
+}

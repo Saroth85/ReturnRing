@@ -1,0 +1,577 @@
+{
+  "items": [
+    {
+      "return_id": "RET-000102",
+      "order_id": "ORD-005230",
+      "customer_id": "C-MARCO-1",
+      "display_name": "Marco Bianchi",
+      "requested_at": "2026-09-28T09:12:00Z",
+      "reason": "changed_mind",
+      "path": "withdrawal",
+      "evidence_quality": "sufficient",
+      "quadrant": "Q4",
+      "decision_id": "DEC-000102-1",
+      "state": "proposed",
+      "requires_approval": true,
+      "lever_ids": [
+        "return_window_days:14",
+        "free_return_shipping:false",
+        "instant_refund:false",
+        "coupons_enabled:false",
+        "cluster_coupons_disabled:true",
+        "transparency_notice:true"
+      ],
+      "risk": {
+        "value": 0.87,
+        "unit": "probability",
+        "provenance": {
+          "origin": "Contract example: risk model risk-xgb-0.1.0 on decision-time features of the synthetic shop",
+          "period_start": "2025-10-01",
+          "period_end": "2026-09-30",
+          "nature": "synthetic"
+        }
+      },
+      "value": {
+        "value": 42.1,
+        "unit": "eur",
+        "provenance": {
+          "origin": "Contract example: customer value, 12-month net margin (spec 8.5) of the synthetic shop",
+          "period_start": "2025-10-01",
+          "period_end": "2026-09-30",
+          "nature": "synthetic"
+        }
+      },
+      "expected_net_benefit": {
+        "value": 123.5,
+        "unit": "eur",
+        "provenance": {
+          "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+          "period_start": "2026-10-01",
+          "period_end": "2027-09-30",
+          "nature": "simulated"
+        }
+      },
+      "linked_account_count": 6,
+      "variant_anomaly": false,
+      "draft_status": "ready"
+    },
+    {
+      "return_id": "RET-000105",
+      "order_id": "ORD-005512",
+      "customer_id": "C-ELENA",
+      "display_name": "Elena Marchetti",
+      "requested_at": "2026-09-26T15:12:00Z",
+      "reason": "defective",
+      "path": "guarantee",
+      "evidence_quality": "sufficient",
+      "quadrant": null,
+      "decision_id": "DEC-000105-1",
+      "state": "proposed",
+      "requires_approval": false,
+      "lever_ids": [],
+      "risk": null,
+      "value": {
+        "value": 68.05,
+        "unit": "eur",
+        "provenance": {
+          "origin": "Contract example: customer value, 12-month net margin (spec 8.5) of the synthetic shop",
+          "period_start": "2025-10-01",
+          "period_end": "2026-09-30",
+          "nature": "synthetic"
+        }
+      },
+      "expected_net_benefit": {
+        "value": 77.33,
+        "unit": "eur",
+        "provenance": {
+          "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+          "period_start": "2026-10-01",
+          "period_end": "2027-09-30",
+          "nature": "simulated"
+        }
+      },
+      "linked_account_count": 0,
+      "variant_anomaly": true,
+      "draft_status": "ready"
+    },
+    {
+      "return_id": "RET-000101",
+      "order_id": "ORD-004811",
+      "customer_id": "C-GIULIA",
+      "display_name": "Giulia Conti",
+      "requested_at": "2026-09-27T10:12:00Z",
+      "reason": "size",
+      "path": "withdrawal",
+      "evidence_quality": "sufficient",
+      "quadrant": "Q1",
+      "decision_id": "DEC-000101-1",
+      "state": "proposed",
+      "requires_approval": false,
+      "lever_ids": [
+        "return_window_days:60",
+        "priority_size_exchange:true"
+      ],
+      "risk": {
+        "value": 0.12,
+        "unit": "probability",
+        "provenance": {
+          "origin": "Contract example: risk model risk-xgb-0.1.0 on decision-time features of the synthetic shop",
+          "period_start": "2025-10-01",
+          "period_end": "2026-09-30",
+          "nature": "synthetic"
+        }
+      },
+      "value": {
+        "value": 211.85,
+        "unit": "eur",
+        "provenance": {
+          "origin": "Contract example: customer value, 12-month net margin (spec 8.5) of the synthetic shop",
+          "period_start": "2025-10-01",
+          "period_end": "2026-09-30",
+          "nature": "synthetic"
+        }
+      },
+      "expected_net_benefit": {
+        "value": 25.5,
+        "unit": "eur",
+        "provenance": {
+          "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+          "period_start": "2026-10-01",
+          "period_end": "2027-09-30",
+          "nature": "simulated"
+        }
+      },
+      "linked_account_count": 0,
+      "variant_anomaly": false,
+      "draft_status": "ready"
+    },
+    {
+      "return_id": "RET-000107",
+      "order_id": "ORD-005507",
+      "customer_id": "C-11872",
+      "display_name": "Andrea Ferri",
+      "requested_at": "2026-09-28T13:00:00Z",
+      "reason": "size",
+      "path": "withdrawal",
+      "evidence_quality": "sufficient",
+      "quadrant": "Q1",
+      "decision_id": "DEC-000107-1",
+      "state": "proposed",
+      "requires_approval": false,
+      "lever_ids": [
+        "return_window_days:60",
+        "priority_size_exchange:true"
+      ],
+      "risk": {
+        "value": 0.22,
+        "unit": "probability",
+        "provenance": {
+          "origin": "Contract example: risk model risk-xgb-0.1.0 on decision-time features of the synthetic shop",
+          "period_start": "2025-10-01",
+          "period_end": "2026-09-30",
+          "nature": "synthetic"
+        }
+      },
+      "value": {
+        "value": 264.1,
+        "unit": "eur",
+        "provenance": {
+          "origin": "Contract example: customer value, 12-month net margin (spec 8.5) of the synthetic shop",
+          "period_start": "2025-10-01",
+          "period_end": "2026-09-30",
+          "nature": "synthetic"
+        }
+      },
+      "expected_net_benefit": {
+        "value": 13.5,
+        "unit": "eur",
+        "provenance": {
+          "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+          "period_start": "2026-10-01",
+          "period_end": "2027-09-30",
+          "nature": "simulated"
+        }
+      },
+      "linked_account_count": 0,
+      "variant_anomaly": false,
+      "draft_status": "ready"
+    },
+    {
+      "return_id": "RET-000108",
+      "order_id": "ORD-005508",
+      "customer_id": "C-17305",
+      "display_name": "Martina Gallo",
+      "requested_at": "2026-09-29T13:00:00Z",
+      "reason": "changed_mind",
+      "path": "withdrawal",
+      "evidence_quality": "sufficient",
+      "quadrant": "Q3",
+      "decision_id": "DEC-000108-1",
+      "state": "proposed",
+      "requires_approval": true,
+      "lever_ids": [
+        "instant_refund:false",
+        "transparency_notice:true"
+      ],
+      "risk": {
+        "value": 0.71,
+        "unit": "probability",
+        "provenance": {
+          "origin": "Contract example: risk model risk-xgb-0.1.0 on decision-time features of the synthetic shop",
+          "period_start": "2025-10-01",
+          "period_end": "2026-09-30",
+          "nature": "synthetic"
+        }
+      },
+      "value": {
+        "value": 342.8,
+        "unit": "eur",
+        "provenance": {
+          "origin": "Contract example: customer value, 12-month net margin (spec 8.5) of the synthetic shop",
+          "period_start": "2025-10-01",
+          "period_end": "2026-09-30",
+          "nature": "synthetic"
+        }
+      },
+      "expected_net_benefit": {
+        "value": 12.5,
+        "unit": "eur",
+        "provenance": {
+          "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+          "period_start": "2026-10-01",
+          "period_end": "2027-09-30",
+          "nature": "simulated"
+        }
+      },
+      "linked_account_count": 0,
+      "variant_anomaly": false,
+      "draft_status": "ready"
+    },
+    {
+      "return_id": "RET-000106",
+      "order_id": "ORD-005402",
+      "customer_id": "C-10233",
+      "display_name": "Chiara Esposito",
+      "requested_at": "2026-09-29T12:00:00Z",
+      "reason": "changed_mind",
+      "path": "withdrawal",
+      "evidence_quality": "sufficient",
+      "quadrant": "Q3",
+      "decision_id": "DEC-000106-1",
+      "state": "proposed",
+      "requires_approval": true,
+      "lever_ids": [
+        "instant_refund:false",
+        "transparency_notice:true"
+      ],
+      "risk": {
+        "value": 0.66,
+        "unit": "probability",
+        "provenance": {
+          "origin": "Contract example: risk model risk-xgb-0.1.0 on decision-time features of the synthetic shop",
+          "period_start": "2025-10-01",
+          "period_end": "2026-09-30",
+          "nature": "synthetic"
+        }
+      },
+      "value": {
+        "value": 433.75,
+        "unit": "eur",
+        "provenance": {
+          "origin": "Contract example: customer value, 12-month net margin (spec 8.5) of the synthetic shop",
+          "period_start": "2025-10-01",
+          "period_end": "2026-09-30",
+          "nature": "synthetic"
+        }
+      },
+      "expected_net_benefit": {
+        "value": 9.5,
+        "unit": "eur",
+        "provenance": {
+          "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+          "period_start": "2026-10-01",
+          "period_end": "2027-09-30",
+          "nature": "simulated"
+        }
+      },
+      "linked_account_count": 2,
+      "variant_anomaly": false,
+      "draft_status": "ready"
+    },
+    {
+      "return_id": "RET-000103",
+      "order_id": "ORD-005301",
+      "customer_id": "C-ROSSI-2",
+      "display_name": "Paola Rossi",
+      "requested_at": "2026-09-25T11:12:00Z",
+      "reason": "not_as_expected",
+      "path": "withdrawal",
+      "evidence_quality": "sufficient",
+      "quadrant": "Q2",
+      "decision_id": "DEC-000103-1",
+      "state": "proposed",
+      "requires_approval": false,
+      "lever_ids": [],
+      "risk": {
+        "value": 0.18,
+        "unit": "probability",
+        "provenance": {
+          "origin": "Contract example: risk model risk-xgb-0.1.0 on decision-time features of the synthetic shop",
+          "period_start": "2025-10-01",
+          "period_end": "2026-09-30",
+          "nature": "synthetic"
+        }
+      },
+      "value": {
+        "value": 82.9,
+        "unit": "eur",
+        "provenance": {
+          "origin": "Contract example: customer value, 12-month net margin (spec 8.5) of the synthetic shop",
+          "period_start": "2025-10-01",
+          "period_end": "2026-09-30",
+          "nature": "synthetic"
+        }
+      },
+      "expected_net_benefit": {
+        "value": 0.0,
+        "unit": "eur",
+        "provenance": {
+          "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+          "period_start": "2026-10-01",
+          "period_end": "2027-09-30",
+          "nature": "simulated"
+        }
+      },
+      "linked_account_count": 2,
+      "variant_anomaly": false,
+      "draft_status": "ready"
+    },
+    {
+      "return_id": "RET-000104",
+      "order_id": "ORD-005344",
+      "customer_id": "C-ROSSI-CARD-2",
+      "display_name": "Paola Rossi",
+      "requested_at": "2026-09-26T11:12:00Z",
+      "reason": "size",
+      "path": "withdrawal",
+      "evidence_quality": "sufficient",
+      "quadrant": "Q2",
+      "decision_id": "DEC-000104-1",
+      "state": "proposed",
+      "requires_approval": false,
+      "lever_ids": [],
+      "risk": {
+        "value": 0.34,
+        "unit": "probability",
+        "provenance": {
+          "origin": "Contract example: risk model risk-xgb-0.1.0 on decision-time features of the synthetic shop",
+          "period_start": "2025-10-01",
+          "period_end": "2026-09-30",
+          "nature": "synthetic"
+        }
+      },
+      "value": {
+        "value": 127.15,
+        "unit": "eur",
+        "provenance": {
+          "origin": "Contract example: customer value, 12-month net margin (spec 8.5) of the synthetic shop",
+          "period_start": "2025-10-01",
+          "period_end": "2026-09-30",
+          "nature": "synthetic"
+        }
+      },
+      "expected_net_benefit": {
+        "value": 0.0,
+        "unit": "eur",
+        "provenance": {
+          "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+          "period_start": "2026-10-01",
+          "period_end": "2027-09-30",
+          "nature": "simulated"
+        }
+      },
+      "linked_account_count": 2,
+      "variant_anomaly": false,
+      "draft_status": "ready"
+    },
+    {
+      "return_id": "RET-000109",
+      "order_id": "ORD-005509",
+      "customer_id": "C-19921",
+      "display_name": "Davide Costa",
+      "requested_at": "2026-09-29T12:12:00Z",
+      "reason": "not_as_expected",
+      "path": "withdrawal",
+      "evidence_quality": "insufficient",
+      "quadrant": null,
+      "decision_id": "DEC-000109-1",
+      "state": "proposed",
+      "requires_approval": false,
+      "lever_ids": [],
+      "risk": null,
+      "value": {
+        "value": 18.95,
+        "unit": "eur",
+        "provenance": {
+          "origin": "Contract example: customer value, 12-month net margin (spec 8.5) of the synthetic shop",
+          "period_start": "2025-10-01",
+          "period_end": "2026-09-30",
+          "nature": "synthetic"
+        }
+      },
+      "expected_net_benefit": {
+        "value": 0.0,
+        "unit": "eur",
+        "provenance": {
+          "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+          "period_start": "2026-10-01",
+          "period_end": "2027-09-30",
+          "nature": "simulated"
+        }
+      },
+      "linked_account_count": 0,
+      "variant_anomaly": false,
+      "draft_status": "ready"
+    },
+    {
+      "return_id": "RET-000110",
+      "order_id": "ORD-005510",
+      "customer_id": "C-14502",
+      "display_name": "Valentina Greco",
+      "requested_at": "2026-09-26T13:00:00Z",
+      "reason": "changed_mind",
+      "path": "withdrawal",
+      "evidence_quality": "sufficient",
+      "quadrant": "Q2",
+      "decision_id": "DEC-000110-1",
+      "state": "proposed",
+      "requires_approval": false,
+      "lever_ids": [],
+      "risk": {
+        "value": 0.31,
+        "unit": "probability",
+        "provenance": {
+          "origin": "Contract example: risk model risk-xgb-0.1.0 on decision-time features of the synthetic shop",
+          "period_start": "2025-10-01",
+          "period_end": "2026-09-30",
+          "nature": "synthetic"
+        }
+      },
+      "value": {
+        "value": 88.2,
+        "unit": "eur",
+        "provenance": {
+          "origin": "Contract example: customer value, 12-month net margin (spec 8.5) of the synthetic shop",
+          "period_start": "2025-10-01",
+          "period_end": "2026-09-30",
+          "nature": "synthetic"
+        }
+      },
+      "expected_net_benefit": {
+        "value": 0.0,
+        "unit": "eur",
+        "provenance": {
+          "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+          "period_start": "2026-10-01",
+          "period_end": "2027-09-30",
+          "nature": "simulated"
+        }
+      },
+      "linked_account_count": 0,
+      "variant_anomaly": false,
+      "draft_status": "ready"
+    },
+    {
+      "return_id": "RET-000111",
+      "order_id": "ORD-005511",
+      "customer_id": "C-16634",
+      "display_name": "Simone Rizzo",
+      "requested_at": "2026-09-27T13:00:00Z",
+      "reason": "changed_mind",
+      "path": "withdrawal",
+      "evidence_quality": "sufficient",
+      "quadrant": "Q2",
+      "decision_id": "DEC-000111-1",
+      "state": "proposed",
+      "requires_approval": false,
+      "lever_ids": [],
+      "risk": {
+        "value": 0.28,
+        "unit": "probability",
+        "provenance": {
+          "origin": "Contract example: risk model risk-xgb-0.1.0 on decision-time features of the synthetic shop",
+          "period_start": "2025-10-01",
+          "period_end": "2026-09-30",
+          "nature": "synthetic"
+        }
+      },
+      "value": {
+        "value": 120.5,
+        "unit": "eur",
+        "provenance": {
+          "origin": "Contract example: customer value, 12-month net margin (spec 8.5) of the synthetic shop",
+          "period_start": "2025-10-01",
+          "period_end": "2026-09-30",
+          "nature": "synthetic"
+        }
+      },
+      "expected_net_benefit": {
+        "value": 0.0,
+        "unit": "eur",
+        "provenance": {
+          "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+          "period_start": "2026-10-01",
+          "period_end": "2027-09-30",
+          "nature": "simulated"
+        }
+      },
+      "linked_account_count": 0,
+      "variant_anomaly": false,
+      "draft_status": "ready"
+    },
+    {
+      "return_id": "RET-000112",
+      "order_id": "ORD-005512",
+      "customer_id": "C-18120",
+      "display_name": "Francesca Moretti",
+      "requested_at": "2026-09-30T13:00:00Z",
+      "reason": "wrong_item",
+      "path": "guarantee",
+      "evidence_quality": "sufficient",
+      "quadrant": null,
+      "decision_id": "DEC-000112-1",
+      "state": "proposed",
+      "requires_approval": false,
+      "lever_ids": [],
+      "risk": null,
+      "value": {
+        "value": 77.6,
+        "unit": "eur",
+        "provenance": {
+          "origin": "Contract example: customer value, 12-month net margin (spec 8.5) of the synthetic shop",
+          "period_start": "2025-10-01",
+          "period_end": "2026-09-30",
+          "nature": "synthetic"
+        }
+      },
+      "expected_net_benefit": {
+        "value": 0.0,
+        "unit": "eur",
+        "provenance": {
+          "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+          "period_start": "2026-10-01",
+          "period_end": "2027-09-30",
+          "nature": "simulated"
+        }
+      },
+      "linked_account_count": 0,
+      "variant_anomaly": false,
+      "draft_status": "ready"
+    }
+  ],
+  "total": 12,
+  "page": 1,
+  "page_size": 25,
+  "sort": "-expected_net_benefit",
+  "as_of": "2026-09-30T18:00:00Z"
+}

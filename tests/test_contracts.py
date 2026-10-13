@@ -39,7 +39,11 @@ from policy.types import Quadrant, ReturnReason
 from tests.factories import THRESHOLDS, TODAY, request, scores
 
 ROOT = Path(__file__).resolve().parents[1]
-NAMES = ["llm_case", "llm_output", "checkout_evaluate_response", "decision_request", "calibration"]
+NAMES = ["llm_case", "llm_output", "calibration"]
+# The HTTP API contract (decision body, checkout response...) is generated from apps/api/schemas.py
+# into contracts/json/api/ and tested in tests/test_api_schemas.py (ADR-15).
+API_DECISION = "api/decision_request"
+API_DECISION_EXAMPLE = "api/decision_request.marco_approve"
 
 
 def schema_of(name: str) -> dict[str, Any]:
@@ -66,23 +70,13 @@ def test_json_schema_is_valid_and_example_conforms(name: str) -> None:
     Draft202012Validator(schema).validate(example_of(name))
 
 
-def test_override_requires_a_reason() -> None:
-    assert errors("decision_request", {"action": "override", "approver": "sara"})
-
-
-def test_future_window_never_below_14_in_checkout_contract() -> None:
-    example = example_of("checkout_evaluate_response")
-    example["terms"]["return_window_days"] = 7
-    assert errors("checkout_evaluate_response", example)
-
-
 # ---- Lever catalogue (POL-7, CON-05) -----------------------------------------------------------
 
 
 def test_lever_schema_in_json_contracts_is_generated_from_the_catalogue() -> None:
     expected = lever_json_schema()
     assert schema_of("llm_case")["properties"]["levers"]["items"] == expected
-    assert schema_of("decision_request")["properties"]["levers"]["items"] == expected
+    assert schema_of(API_DECISION)["$defs"]["Lever"] == expected
 
 
 def test_lever_scopes_are_the_contract_scopes() -> None:
@@ -113,9 +107,9 @@ def test_lever_contract_rejects_unknown_ids_wrong_scopes_and_values(lever: dict[
     case = example_of("llm_case")
     case["levers"] = [lever]
     assert errors("llm_case", case)
-    body = example_of("decision_request")
+    body = example_of(API_DECISION_EXAMPLE)
     body["levers"] = [lever]
-    assert errors("decision_request", body)
+    assert errors(API_DECISION, body)
 
 
 def golden_q4_decision() -> Any:

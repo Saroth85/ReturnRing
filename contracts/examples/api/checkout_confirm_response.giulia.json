@@ -1,0 +1,20 @@
+{
+  "order_id": "ORD-CHK-000001",
+  "terms_snapshot": {
+    "terms_snapshot_id": "TS-CHK-000981",
+    "order_id": "ORD-CHK-000001",
+    "customer_id": "C-GIULIA",
+    "source": "DEC-000101-1",
+    "quadrant_at_purchase": "Q1",
+    "terms": {
+      "return_window_days": 60,
+      "free_return_shipping": true,
+      "instant_refund": true,
+      "free_size_exchange": true,
+      "coupons_enabled": true
+    },
+    "shown_at": "2026-09-30T18:30:00Z",
+    "confirmed_at": "2026-09-30T18:32:00Z"
+  },
+  "coupon_applied": false
+}

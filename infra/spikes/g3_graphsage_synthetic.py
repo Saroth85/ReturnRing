@@ -15,6 +15,11 @@ Runs in the trainer-gnn container (rocm/dgl), working directory /app (make spike
     python infra/spikes/g3_graphsage_synthetic.py --hetero    # customer/product + virtual nodes
     python infra/spikes/g3_graphsage_synthetic.py --device gpu --min-seconds 300   # SPK-G4
     python infra/spikes/g3_graphsage_synthetic.py --out artifacts/spikes/g3.json
+    python infra/spikes/g3_graphsage_synthetic.py --device cpu \
+        --gpu-result artifacts/spikes/g3_gpu.json   # CPU baseline, speedup vs the GPU file
+
+The runbook times the GPU runs while the Gemma weights download and the CPU runs afterwards, alone
+on the CPU; --gpu-result computes the speedup from the GPU file, --context records the conditions.
 
 Exit codes: 0 pass, 1 training error or non-finite loss, 2 GPU requested but not visible.
 """
@@ -74,6 +79,8 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument("--seed", type=int, default=int(os.environ.get("SEED", "42")))
     p.add_argument("--out", default="", help="also write the JSON result to this path")
+    p.add_argument("--context", default="", help="recorded: what else ran at the same time")
+    p.add_argument("--gpu-result", default="", help="CPU run: GPU result file for the speedup")
     args = p.parse_args()
     if args.small:
         args.nodes, args.edges, args.epochs, args.warmup = 20_000, 200_000, 5, 1
@@ -363,6 +370,7 @@ def main() -> int:
 
     summary: dict[str, Any] = {
         "spike": "SPK-G3",
+        "context": args.context,
         "model": {
             "layer": "SAGEConv",
             "hidden": HIDDEN,
@@ -371,12 +379,24 @@ def main() -> int:
             "optimizer": "Adam",
             "lr": LR,
         },
-        "config": {k: v for k, v in vars(args).items() if k != "out"},
+        "config": {
+            k: v
+            for k, v in vars(args).items()
+            if k not in ("out", "context", "gpu_result", "device")
+        },
         "environment": env,
         "graph": data["desc"],
         "results": results,
         "pass": status == 0,
     }
+    if args.gpu_result and "cuda" not in results:
+        with open(args.gpu_result, encoding="utf-8") as fh:
+            other = json.load(fh)
+        if other.get("config") != summary["config"]:
+            print(f"FAIL: {args.gpu_result} has config {other.get('config')}", file=sys.stderr)
+            return 1
+        results["cuda"] = other["results"]["cuda"]
+        summary["gpu_result_from"] = {"file": args.gpu_result, "context": other.get("context")}
     cpu, gpu = results.get("cpu", {}), results.get("cuda", {})
     if "epoch_s_median" in cpu and "epoch_s_median" in gpu and gpu["epoch_s_median"] > 0:
         summary["speedup_median_epoch"] = round(cpu["epoch_s_median"] / gpu["epoch_s_median"], 2)

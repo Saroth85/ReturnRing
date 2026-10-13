@@ -1,6 +1,7 @@
 .PHONY: dev-up dev-down gpu-up gpu-down demo-up test test-gpu lint licenses asos pipeline bench demo-export \
 	spike-preflight spike-prep spike-weights spike-weights-wait spike-vllm spike-wait spike-g1 \
-	spike-g1-bench spike-g2 spike-g2-load spike-g3 spike-g4 spike-g5 spike-g6 spike-g7 spike-down \
+	spike-g1-bench spike-g2 spike-g2-cpu spike-g2-load spike-g3 spike-g3-cpu spike-g4 spike-g5 \
+	spike-g6 spike-g7 spike-down \
 	spike-gpu-check spike-logs
 
 ENV_FILE ?= .env
@@ -133,18 +134,34 @@ spike-gpu-check:
 spike-logs:
 	$(GPU) logs --no-color --tail 200 vllm
 
+# G2 and G3 are timed in two halves: the GPU runs while the weights download (the download uses
+# CPU, which would slow a CPU baseline), the CPU baselines after spike-weights-wait, alone on the
+# CPU and before vLLM starts compiling. The CPU file holds the speedup against the GPU file.
+CONTEXT ?= Gemma weights downloading in the background
 spike-g2:
-	$(SPIKE) run --rm -T trainer-gbm python infra/spikes/g2_xgboost_gpu.py --out $(SPIKES)/g2.json
+	$(SPIKE) run --rm -T trainer-gbm python infra/spikes/g2_xgboost_gpu.py --device gpu \
+	  --context "$(CONTEXT)" --out $(SPIKES)/g2_gpu.json
+
+spike-g2-cpu:
+	$(SPIKE) run --rm -T trainer-gbm python infra/spikes/g2_xgboost_gpu.py --device cpu \
+	  --context "alone on the CPU" --gpu-result $(SPIKES)/g2_gpu.json --out $(SPIKES)/g2_cpu.json
 
 # The GPU model loads in xgboost-cpu 3.2.0 on CPU (spec section 10). Installs from PyPI in a
 # throwaway container; the product never does this at runtime.
 spike-g2-load:
-	$(SPIKE) run --rm -T spike-client sh -c "pip install --no-cache-dir --root-user-action=ignore --only-binary=:all: xgboost-cpu==3.2.0 numpy==2.5.4 scipy==1.18.1 && python infra/spikes/g2_load_cpu.py"
+	$(SPIKE) run --rm -T spike-client sh -c "pip install --no-cache-dir --root-user-action=ignore --only-binary=:all: xgboost-cpu==3.2.0 numpy==2.5.4 scipy==1.18.1 && python infra/spikes/g2_load_cpu.py --check $(SPIKES)/g2_gpu_check.json"
 
+G3 = $(SPIKE) run --rm -T trainer-gnn python infra/spikes/g3_graphsage_synthetic.py
 spike-g3:
-	$(SPIKE) run --rm -T trainer-gnn python infra/spikes/g3_graphsage_synthetic.py --small --out $(SPIKES)/g3_small.json
-	$(SPIKE) run --rm -T trainer-gnn python infra/spikes/g3_graphsage_synthetic.py --out $(SPIKES)/g3.json
-	$(SPIKE) run --rm -T trainer-gnn python infra/spikes/g3_graphsage_synthetic.py --hetero --out $(SPIKES)/g3_hetero.json
+	$(G3) --small --context "$(CONTEXT)" --out $(SPIKES)/g3_small.json
+	$(G3) --device gpu --context "$(CONTEXT)" --out $(SPIKES)/g3_gpu.json
+	$(G3) --device gpu --hetero --context "$(CONTEXT)" --out $(SPIKES)/g3_hetero_gpu.json
+
+spike-g3-cpu:
+	$(G3) --device cpu --context "alone on the CPU" --gpu-result $(SPIKES)/g3_gpu.json \
+	  --out $(SPIKES)/g3_cpu.json
+	$(G3) --device cpu --hetero --context "alone on the CPU" \
+	  --gpu-result $(SPIKES)/g3_hetero_gpu.json --out $(SPIKES)/g3_hetero_cpu.json
 
 spike-g4:
 	COMPOSE="$(SPIKE)" bash infra/spikes/g4_coexistence.sh

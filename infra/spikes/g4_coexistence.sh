@@ -35,10 +35,12 @@ else
 fi
 
 $COMPOSE run --rm -T trainer-gnn python infra/spikes/g3_graphsage_synthetic.py \
-  --device gpu --min-seconds "$DURATION" --out "$OUT/g4_dgl.json" > "$OUT/logs/g4_dgl.log" 2>&1 &
+  --device gpu --min-seconds "$DURATION" --context "SPK-G4: vLLM serving, XGBoost training" \
+  --out "$OUT/g4_dgl.json" > "$OUT/logs/g4_dgl.log" 2>&1 &
 dgl=$!
 $COMPOSE run --rm -T trainer-gbm python infra/spikes/g2_xgboost_gpu.py \
-  --device gpu --min-seconds "$DURATION" --out "$OUT/g4_xgb.json" > "$OUT/logs/g4_xgb.log" 2>&1 &
+  --device gpu --min-seconds "$DURATION" --context "SPK-G4: vLLM serving, DGL training" \
+  --out "$OUT/g4_xgb.json" > "$OUT/logs/g4_xgb.log" 2>&1 &
 xgb=$!
 
 llm_fail=0

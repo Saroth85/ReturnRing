@@ -1,11 +1,17 @@
-# Profiles: dev (laptop, CPU + mock LLM), gpu (MI300X droplet), demo (public CPU server, cached results).
+# Profiles: dev (laptop, CPU + mock LLM), gpu (MI300X droplet), demo (cached results, GPU off).
 # Profile switches live in override files, so the laptop .env cannot leak into them:
-#   gpu:  -f infra/docker-compose.yml -f infra/compose.gpu.yml   (DEVICE=gpu, LLM_MODE=vllm)
-#   demo: -f infra/docker-compose.yml -f infra/compose.demo.yml  (DEMO_MODE=cached)
+#   gpu:    -f infra/docker-compose.yml -f infra/compose.gpu.yml    (DEVICE=gpu, LLM_MODE=vllm)
+#   demo:   -f infra/docker-compose.yml -f infra/compose.demo.yml   (DEMO_MODE=cached, demo-cache/)
+#   public: add -f infra/compose.public.yml on a server reachable from the Internet (HTTPS on
+#           PUBLIC_HOST, basic auth on the admin page, the telemetry and the writes).
 #   GPU spikes add -f infra/compose.spike.yml (infra/spikes/README.md). Use the Makefile targets.
-# Images are pinned by tag@digest in .env.example (VLLM_IMAGE, DGL_IMAGE, ROCM_BASE_IMAGE).
-# Rule 12 (as rewritten in ADR-13): running services (api, ui, proxy, demo) never mount data/ or
-# data/truth/; only offline jobs read it: the generator writes data/, the trainers read it (ro).
+# Images: the GPU images are pinned by tag@digest in .env.example (VLLM_IMAGE, DGL_IMAGE,
+# ROCM_BASE_IMAGE); postgres and caddy below, with the digest of their multi-arch index read from
+# Docker Hub on 14 Oct 2026.
+# Rule 12 (as rewritten in ADR-13): running services (api, reset, ui, proxy, telemetry-sampler)
+# never mount data/, data/truth/ or artifacts/; they read the serving snapshot (ADR-16), the
+# benchmark results and the database. Only offline jobs read data/: the pipeline job writes it.
+# Start order (make dev-up): postgres healthy -> reset exits 0 -> api healthy -> ui, proxy.
 name: returnring
 
 x-gpu: &gpu
@@ -19,9 +25,38 @@ x-gpu: &gpu
     - seccomp=unconfined
   shm_size: 16g
 
+# One image for the API, the reset, the pipeline job, the MI300X batch and the telemetry sampler.
+x-api-image: &api-image
+  image: returnring-api:local
+  build:
+    context: ..
+    dockerfile: apps/api/Dockerfile
+
+# What every API-image service reads (CLAUDE.md, Environment flags; ADR-16). The snapshot and the
+# benchmark results are mounted read-only at these paths.
+x-api-env: &api-env
+  DATABASE_URL: ${DATABASE_URL}
+  DEVICE: ${DEVICE:-cpu}
+  LLM_MODE: ${LLM_MODE:-mock}
+  DEMO_MODE: ${DEMO_MODE:-live}
+  SEED: ${SEED:-42}
+  SERVING_DIR: /app/serving
+  BENCHMARKS_DIR: /app/bench/results
+  VLLM_BASE_URL: ${VLLM_BASE_URL}
+  VLLM_API_KEY: ${VLLM_API_KEY}
+  GEMMA_MODEL: ${GEMMA_MODEL}
+  # true: the API answers writes with 403 (spec 11, public read-only views; ADR-15 section 15).
+  PUBLIC_READ_ONLY: ${PUBLIC_READ_ONLY:-false}
+  # on: 'now' is the serving snapshot instant plus the time since the reset, so refund deadlines,
+  # review dates and the KPI week match the decisions the reset made (off: the wall clock).
+  DEMO_CLOCK: ${DEMO_CLOCK:-on}
+  # Model calls in flight at once and the vLLM timeout; empty: the API's defaults (32, 20 s).
+  LLM_CONCURRENCY: ${LLM_CONCURRENCY:-}
+  VLLM_TIMEOUT_S: ${VLLM_TIMEOUT_S:-}
+
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16.15-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
     profiles: [dev, gpu, demo]
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
@@ -30,63 +65,151 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       retries: 10
 
-  api:
-    build:
-      context: ..
-      dockerfile: apps/api/Dockerfile
+  # One-shot demo reset (US-903, ADR-16 section 3): drops and recreates every table, loads the
+  # assumptions and the coupon rule, then decides every open return of the snapshot, golden cases
+  # first, with its draft. The api starts only after it exits 0, so every `make dev-up` starts
+  # from the same state; `make reset` runs it again on a running stack.
+  reset:
+    <<: *api-image
     profiles: [dev, gpu, demo]
-    environment:
-      DATABASE_URL: ${DATABASE_URL}
-      DEVICE: ${DEVICE:-cpu}
-      LLM_MODE: ${LLM_MODE:-mock}
-      DEMO_MODE: ${DEMO_MODE:-live}
-      SEED: ${SEED:-42}
-      VLLM_BASE_URL: ${VLLM_BASE_URL}
-      VLLM_API_KEY: ${VLLM_API_KEY}
+    command: ["python", "-m", "apps.api.reset"]
+    environment: *api-env
     volumes:
-      - ../artifacts:/app/artifacts:ro
+      - ../serving:/app/serving:ro
     depends_on:
       postgres:
         condition: service_healthy
-    # Loopback only: the public entry point is the proxy (Caddy reaches api:8000 on the internal
-    # network). Docker-published ports bypass ufw, so 0.0.0.0 here would expose the API.
+    restart: "no"
+
+  api:
+    <<: *api-image
+    profiles: [dev, gpu, demo]
+    # One uvicorn worker (apps/api/Dockerfile): the snapshot lives in memory. On the full
+    # synthetic store the process held 1.57 GB after the warm-up and 1.81 GB at most during the
+    # demo walk, healthy 38 s after its start (4 shared vCPUs, 14 Oct 2026).
+    environment: *api-env
+    volumes:
+      - ../serving:/app/serving:ro
+      - ../bench/results:/app/bench/results:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      reset:
+        condition: service_completed_successfully
+    # Healthy when the database answers and the snapshot is loaded: /readyz says not_ready, or
+    # scores or models unavailable, otherwise. "degraded" (vLLM down, no demo cache) still serves.
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import json, sys, urllib.request;
+          r = json.load(urllib.request.urlopen('http://127.0.0.1:8000/readyz', timeout=4));
+          c = {x['component']: x['status'] for x in r['checks']};
+          sys.exit(0 if r['status'] != 'not_ready' and c.get('scores') == 'ok'
+          and c.get('models') == 'ok' else 1)
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 90s
+    # Loopback only, for make demo-walk: the public entry point is the proxy. Docker-published
+    # ports bypass ufw, so 0.0.0.0 here would expose the API.
     ports:
       - "127.0.0.1:8000:8000"
 
   ui:
     build:
       context: ../apps/ui
+      args:
+        # The public read-only demo build disables every write control (docs/ui-design.md).
+        VITE_READ_ONLY: ${PUBLIC_READ_ONLY:-false}
     profiles: [dev, gpu, demo]
+    # No published port: the proxy serves the UI and the API on one origin.
+
+  # The single entry point (spec 9 and 11): the UI, /api, /healthz and /readyz on one origin.
+  # Laptop: plain HTTP on 127.0.0.1:8080, no authentication (loopback only). On a public server
+  # compose.public.yml sets PUBLIC_HOST (HTTPS), publishes 80 and 443 and turns basic auth on.
+  proxy:
+    image: caddy:2.11.7-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f
+    profiles: [dev, gpu, demo]
+    environment:
+      SITE_ADDRESS: ":80"
+      ADMIN_AUTH: "off"
+      ADMIN_USER: ${ADMIN_USER:-admin}
+      ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:-}
+      PUBLIC_READ_ONLY: ${PUBLIC_READ_ONLY:-false}
     ports:
       - "127.0.0.1:8080:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+      ui:
+        condition: service_started
 
+  # Offline job (make demo-data), never started by `up`: the whole chain of docs/spec.md section
+  # 15, as `make pipeline` runs it on the host. The Navigli Fashion store from the committed real
+  # calibration, main then OOD scenario (docs/synthetic-store.md), the account graph, the
+  # features, the product anomalies, the risk models with their batch scores (ml.risk reads
+  # data/truth: an offline job, rule 12; --no-results leaves docs/results alone), then the
+  # serving snapshot the API reads (ADR-16), which holds no ground truth.
+  # It runs as the owner of the checkout, not as the image's user app (uid 1000), so it can
+  # write data/ in a root-owned clone (the droplet) and leaves files the host user owns
+  # (review P5). The Makefile exports HOST_UID and HOST_GID from `id -u` and `id -g`.
   pipeline:
-    build:
-      context: ..
-      dockerfile: apps/api/Dockerfile
-    profiles: [dev, gpu]
-    # Job container: the Navigli Fashion store (US-102..US-105) from the committed real
-    # calibration, main then OOD scenario (docs/synthetic-store.md). It writes data/store,
-    # data/truth, data/ood/store and data/truth/ood.
-    # It runs as the owner of the checkout, not as the image's user app (uid 1000), so it can
-    # write data/ in a root-owned clone (the droplet) and leaves files the host user owns
-    # (review P5). The Makefile exports HOST_UID and HOST_GID from `id -u` and `id -g`.
+    <<: *api-image
+    profiles: [jobs]
     user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    environment:
+      SEED: ${SEED:-42}
+      HOME: /tmp
     command:
       - sh
       - -c
       - >-
         python -m pipeline.generator --calibration pipeline/calibration/asos_calibration.json
-        --out data --seed ${SEED:-42} --scenario main &&
+        --out data --seed ${SEED:-42} --scale ${SCALE:-1.0} --scenario main &&
         python -m pipeline.generator --calibration pipeline/calibration/asos_calibration.json
-        --out data --seed ${SEED:-42} --scenario ood
+        --out data --seed ${SEED:-42} --scale ${SCALE:-1.0} --scenario ood &&
+        python -m pipeline.graph --store data &&
+        python -m pipeline.graph --store data/ood &&
+        python -m pipeline.features --store data --out data &&
+        python -m pipeline.features --store data/ood --out data/ood --source data &&
+        python -m pipeline.anomalies --store data --out data &&
+        python -m pipeline.anomalies --store data/ood --out data/ood &&
+        python -m ml.risk --data data --out artifacts --scores data --no-results &&
+        python -m pipeline.serving --data data --artifacts artifacts --out serving
     volumes:
       - ../data:/app/data
       - ../artifacts:/app/artifacts
+      - ../serving:/app/serving
+
+  # MI300X job (make batch-generate), never started by `up`: the draft of every open return
+  # through the local vLLM, written to serving/llm_cache/ for the cached demo (ADR-03, ADR-16
+  # section 4). It writes nothing else; it runs as the owner of the checkout like the pipeline.
+  batch-generate:
+    <<: *api-image
+    profiles: [gpu-jobs]
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    command: ["python", "-m", "apps.api.batch_generate"]
+    environment:
+      <<: *api-env
+      DEVICE: gpu
+      LLM_MODE: vllm
+      DEMO_MODE: live
+    volumes:
+      - ../serving:/app/serving
+    depends_on:
+      vllm:
+        condition: service_healthy
 
   vllm:
     <<: *gpu
@@ -189,6 +312,9 @@ services:
       - ../data/ood:/app/data/ood:ro
       - ../artifacts:/app/artifacts
 
+  # amd-smi every 5 s (US-905, spec 9), written atomically to a named volume that only the
+  # sampler reads: no host folder, so no running service sees artifacts/ (review F2). A failed
+  # reading removes the file, so the sampler stores an error instead of a stale reading.
   telemetry:
     build:
       context: ..
@@ -197,24 +323,45 @@ services:
         ROCM_BASE_IMAGE: ${ROCM_BASE_IMAGE}
     <<: *gpu
     profiles: [gpu]
-    command: ["sh", "-c", "while true; do amd-smi metric --json > /app/artifacts/telemetry.json; sleep 5; done"]
+    command:
+      - sh
+      - -c
+      - >-
+        while true; do
+        if amd-smi metric --json > /telemetry/amd-smi.json.tmp;
+        then mv /telemetry/amd-smi.json.tmp /telemetry/amd-smi.json;
+        else rm -f /telemetry/amd-smi.json; fi;
+        sleep 5; done
     volumes:
-      - ../artifacts:/app/artifacts
+      - telemetry:/telemetry
 
-  proxy:
-    image: caddy:2-alpine
-    profiles: [gpu, demo]
+  # Stores each amd-smi reading in telemetry_samples for GET /api/telemetry and /readyz
+  # (python -m apps.api.services.other.telemetry, ADR-15 section 13).
+  telemetry-sampler:
+    <<: *api-image
+    profiles: [gpu]
+    command:
+      - python
+      - -m
+      - apps.api.services.other.telemetry
+      - --source-file
+      - /telemetry/amd-smi.json
     environment:
-      PUBLIC_HOST: ${PUBLIC_HOST}
-    ports:
-      - "80:80"
-      - "443:443"
+      DATABASE_URL: ${DATABASE_URL}
+      DEVICE: gpu
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy-data:/data
+      - telemetry:/telemetry:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      telemetry:
+        condition: service_started
+    restart: unless-stopped
 
 volumes:
   pgdata:
   hf-cache:
   vllm-cache:
   caddy-data:
+  caddy-config:
+  telemetry:

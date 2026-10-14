@@ -206,10 +206,10 @@ Definition of Done valida per ogni storia: test verdi in modalità CPU e mock, c
 
 | ID | Storia | Criteri di accettazione | Priorità | Stato |
 | --- | --- | --- | --- | --- |
-| US-001 | Come sviluppatore voglio un repo pubblico con licenza MIT, docker-compose e CLAUDE.md, per partire con i vincoli scritti | LICENSE MIT; docker compose up avvia API e UI in modalità CPU + mock; CLAUDE.md contiene i vincoli V1–V8 | Must | Da fare |
-| US-002 | Come sviluppatore voglio un audit automatico delle licenze, per restare compatibile MIT | Report licenze nel README; la CI fallisce su GPL, AGPL o licenze sconosciute nel codice distribuito | Must | Da fare |
-| US-003 | Come sviluppatore voglio lavorare senza GPU, per risparmiare ore di droplet | Variabili DEVICE (cpu o gpu) e LLM\_MODE (mock o vllm); l'intera suite passa in cpu + mock | Must | Da fare |
-| US-004 | Come giudice voglio un repo senza segreti | gitleaks in CI con zero risultati; solo .env.example versionato | Must | Da fare |
+| US-001 | Come sviluppatore voglio un repo pubblico con licenza MIT, docker-compose e CLAUDE.md, per partire con i vincoli scritti | LICENSE MIT; docker compose up avvia API e UI in modalità CPU + mock; CLAUDE.md contiene i vincoli V1–V8 | Must | Fatto (ADR-17): LICENSE MIT; `make dev-up` avvia postgres, reset, API, UI e proxy in CPU + mock; i comandi dei servizi sono stati eseguiti sull'host il 14 ottobre (senza Docker in quella sessione); CLAUDE.md con i vincoli |
+| US-002 | Come sviluppatore voglio un audit automatico delle licenze, per restare compatibile MIT | Report licenze nel README; la CI fallisce su GPL, AGPL o licenze sconosciute nel codice distribuito | Must | Fatto: `make licenses` (Python) e `npm run check:licenses` (UI) in CI; tabella delle licenze nel README |
+| US-003 | Come sviluppatore voglio lavorare senza GPU, per risparmiare ore di droplet | Variabili DEVICE (cpu o gpu) e LLM\_MODE (mock o vllm); l'intera suite passa in cpu + mock | Must | Fatto: DEVICE e LLM_MODE; la suite gira in cpu + mock in CI |
+| US-004 | Come giudice voglio un repo senza segreti | gitleaks in CI con zero risultati; solo .env.example versionato | Must | Fatto: gitleaks in CI su tutta la storia; solo .env.example versionato |
 
 ### E1 — Dati
 
@@ -295,11 +295,11 @@ Definition of Done valida per ogni storia: test verdi in modalità CPU e mock, c
 
 | ID | Storia | Criteri di accettazione | Priorità | Stato |
 | --- | --- | --- | --- | --- |
-| US-901 | Come giudice online voglio provare l'app anche a GPU spenta | Modalità demo con risultati precalcolati sulla MI300X, etichetta visibile e sempre riconoscibile dal live | Must | Da fare |
+| US-901 | Come giudice online voglio provare l'app anche a GPU spenta | Modalità demo con risultati precalcolati sulla MI300X, etichetta visibile e sempre riconoscibile dal live | Must | In parte (ADR-17): profilo demo (DEMO_MODE=cached, container GPU spenti, viste in sola lettura), pacchetto `make demo-export` con MANIFEST e hash, provato su CPU con un vLLM finto; export sulla MI300X da fare |
 | US-902 | Come giudice voglio vedere quanto lavora AMD | Benchmark B1–B4 con versioni, dati e configurazione; tempi a freddo, training, scoring e generazione separati; costo per decisione con l'inattività inclusa | Must | In parte: harness `bench/` e `make bench` (docs/benchmarks.md); misure su CPU senza GPU (B1 ridotto, B3 a vuoto contro un server finto, B4 senza GPU); speedup solo a parità di lavoro (B1 a round fissi, B2 per epoca mediana), B3 sulla stessa lista di casi per ogni carico, B4 con il dispositivo di ogni passo, costo cost-v2 con lo snapshot; misure sulla MI300X da fare (infra/spikes/README.md, "The GPU session") |
-| US-903 | Come presentatore voglio rifare la demo identica | Script di reset dei dati e dei quattro casi d'oro in un comando | Must | Da fare |
-| US-904 | Come giudice voglio un README completo | Avvio in 3 comandi; sezione How the risk is computed; architettura; licenze; limiti dichiarati | Must | Da fare |
-| US-905 | Come giudice voglio vedere la telemetria | Latenza, token al secondo e utilizzo GPU da amd-smi in un pannello di dettaglio | Should | Da fare |
+| US-903 | Come presentatore voglio rifare la demo identica | Script di reset dei dati e dei quattro casi d'oro in un comando | Must | Fatto: `make reset` in un comando; il reset gira a ogni `make dev-up` prima dell'API |
+| US-904 | Come giudice voglio un README completo | Avvio in 3 comandi; sezione How the risk is computed; architettura; licenze; limiti dichiarati | Must | Fatto: README con avvio in 3 comandi, How the risk is computed, architettura, licenze e limiti dichiarati |
+| US-905 | Come giudice voglio vedere la telemetria | Latenza, token al secondo e utilizzo GPU da amd-smi in un pannello di dettaglio | Should | In parte: campionatore amd-smi e servizio telemetry-sampler nel profilo gpu; da verificare sulla MI300X |
 | US-906 | Come giudice voglio sapere da dove viene ogni numero | Ogni cifra in UI, slide e video indica origine, periodo e natura (reale, sintetica, simulata); i casi d'oro non sono mai presentati come accuratezza | Must | Da fare |
 
 ## 6. Requisiti non funzionali

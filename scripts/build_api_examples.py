@@ -41,6 +41,7 @@ from apps.api.services.other.inspections import (
     generation_of,
     mock_outcome,
 )
+from apps.api.services.other.telemetry import CACHED_NOTE
 from contracts.io import Nature
 from contracts.vocab import (
     DEMO_USERS,
@@ -4348,7 +4349,7 @@ def ops_examples() -> dict[str, BaseModel]:
         label=s.CACHED_LABEL,
         checks=[check_("database", "ok"), check_("scores", "ok"), check_("models", "ok"),
                 check_("vllm", "disabled", "GPU off in cached mode"), check_("demo_cache", "ok"),
-                check_("telemetry", "disabled")],
+                check_("telemetry", "disabled", CACHED_NOTE)],
         **versions,
         clock=demo_clock(AS_OF + timedelta(hours=1), frozen=True),
         public_read_only=True,

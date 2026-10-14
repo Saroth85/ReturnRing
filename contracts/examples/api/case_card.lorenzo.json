@@ -1123,7 +1123,7 @@
       {
         "label": "OBSERVED",
         "fact_ids": [],
-        "text": "The rules engine placed the case in Q3; the levers are listed with the decision.",
+        "text": "The rules engine placed the case in Q3; the case view shows the decision.",
         "facts": []
       },
       {
@@ -1160,7 +1160,7 @@
             "deadline": "il 13 luglio 2026",
             "deduction": null
           },
-          "text": "Ciao, grazie per averci scritto. Abbiamo registrato la tua richiesta di reso e il rimborso è previsto per il 13 luglio 2026. I tuoi prossimi ordini avranno nuove condizioni di reso, mostrate prima di ogni acquisto: rimborso nei tempi di legge, non istantaneo. Queste condizioni tengono conto dei resi dei tuoi ordini precedenti. Per qualsiasi domanda, rispondi pure a questo messaggio. Teniamo molto a te.\n\nTi ricordiamo che puoi sempre esercitare il diritto di recesso entro 14 giorni dalla consegna, senza indicarne il motivo. Ti rimborseremo entro 14 giorni dalla tua comunicazione, al ricevimento dei prodotti o della prova della loro spedizione."
+          "text": "Ciao, grazie per averci scritto. Abbiamo registrato la tua richiesta di reso e il rimborso è previsto al più tardi per il 13 luglio 2026. Questo reso mantiene le condizioni del tuo ordine. I tuoi prossimi ordini avranno queste condizioni di reso, mostrate prima dell'acquisto: rimborso nei tempi di legge, non istantaneo. Queste condizioni tengono conto dei tuoi resi precedenti. Per qualsiasi domanda, rispondi pure a questo messaggio. Teniamo molto a te.\n\nTi ricordiamo che puoi sempre esercitare il diritto di recesso entro 14 giorni dalla consegna, senza indicarne il motivo. Ti rimborseremo entro 14 giorni dalla tua comunicazione, al ricevimento dei prodotti o della prova della loro spedizione."
         },
         {
           "lang": "en",
@@ -1170,7 +1170,7 @@
             "deadline": "13 July 2026",
             "deduction": null
           },
-          "text": "Hello, thank you for writing to us. We have registered your return request and your refund is due by 13 July 2026. Your next orders will have new return terms, shown before each purchase: refund within the legal time limit, not instant. These terms take into account the returns on your previous orders. For any questions, just reply to this message. You matter to us.\n\nYou can always withdraw from your purchase within 14 days of delivery without giving any reason. We will refund you within 14 days of your notice, once we receive the items or proof that you have sent them back."
+          "text": "Hello, thank you for writing to us. We have registered your return request and your refund is due by 13 July 2026. This return keeps the terms of your order. Your next orders will have these return terms, shown before each purchase: refund within the legal time limit, not instant. These terms take into account your previous returns. For any questions, just reply to this message. You matter to us.\n\nYou can always withdraw from your purchase within 14 days of delivery without giving any reason. We will refund you within 14 days of your notice, once we receive the items or proof that you have sent them back."
         }
       ]
     },

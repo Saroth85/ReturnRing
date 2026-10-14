@@ -687,7 +687,7 @@
       {
         "label": "OBSERVED",
         "fact_ids": [],
-        "text": "The return reason is a defect or a non-conformity: the case follows the legal guarantee path, with no risk score and no restrictive levers.",
+        "text": "The return reason is a defect or a non-conformity: the case follows the legal guarantee path, with no risk score.",
         "facts": []
       },
       {

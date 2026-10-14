@@ -15,3 +15,4 @@ demo-cache/
 *.parquet
 .coverage
 /serving/
+bench-work/

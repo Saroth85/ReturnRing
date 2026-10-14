@@ -5,18 +5,25 @@ Every error carries a code and the action of the 8.7 table:
 - TEMPLATE: use the fixed template at once (decision echo mismatch);
 - BLOCK: a bug in the code (the case does not match the engine decision); nothing is shown.
 The model never changes the decision (CLAUDE.md rule 1). Numbers in the operator explanation are
-grounded only on code-built facts the statement cites; customer text, policy text and identifiers
-never feed grounding. A statement that names a quadrant, a lever value or a restriction other than
-the engine's is a decision echo mismatch, and a statement with a letter of another script is
-regenerated (adversarial review of 13 Oct, rounds 1 and 2). The model writes no customer prose:
-it picks phrasebook sentence ids, which must be known, unique, in their slot and allowed for the
-decision (llm/phrasebook.py, round 2, finding R1).
+grounded only on code-built facts the statement cites, with the unit of the fact or none
+around them; customer text, policy text and identifiers never feed grounding. A statement that
+names a quadrant label other than the engine's ("Q4", "QIV", "quadrant 2") is a decision echo
+mismatch. A statement that talks about levers, their state or scope (enabled, available, future
+orders), terms, refunds, restrictions, decisions or the risk and value levels of the quadrant at
+all, also negated or as a middle level, is regenerated (TERMS_TOPIC): the interface shows the
+engine decision and its levers from code, so no lever value is read from words. So is a level of
+the risk score or of the customer value (net margin, "profitable") that is not the engine's: read
+from the words, it is a heuristic, so it never sends the output to the template at once (round 6,
+findings W2 and W3). A character outside the
+allowlist is regenerated too (adversarial review of 13 Oct, rounds 1 to 4). The model writes no
+customer prose: it picks phrasebook sentence ids, which must be known, unique, in their slot,
+allowed for the decision, coherent and not too many (two extras in Q3 and Q4): llm/phrasebook.py,
+round 2, finding R1; round 3, finding T4; round 4, finding U2.
 """
 
 from __future__ import annotations
 
 import json
-import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
@@ -25,7 +32,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, StringConstraints
 
-from contracts.levers import LEVERS, LeverError, format_lever_id
+from contracts.levers import LeverError, format_lever_id
 from llm.decision import ExpectedDecision
 from llm.phrasebook import (
     MAX_SENTENCES,
@@ -35,23 +42,20 @@ from llm.phrasebook import (
     selection_problems,
 )
 from llm.text import (
+    IDENTIFIER_PLACEHOLDER,
     PRONOUN_NUMBERS,
     QUADRANT_AXES,
     banned_terms,
-    fold,
-    foreign_letters,
-    is_dash,
+    foreign_characters,
+    grounding_problems,
     language_of,
-    number_modifiers,
+    level_mentions,
     number_words,
-    numbers_in_text,
+    operator_topics,
     other_numeric_characters,
-    quadrant_axes,
     quadrant_labels,
-    quadrant_positions,
-    restriction_words,
+    roman_numerals,
     strip_tokens,
-    word_set,
 )
 
 MAX_STATEMENTS = 8
@@ -60,6 +64,9 @@ MAX_STATEMENT_CHARS = 300
 MAX_LEVER_IDS = 9
 # Facts that are model outputs: an OBSERVED statement may not cite them.
 SCORE_METRICS = frozenset({"risk_score"})
+# A fact whose metric has both words counts welcome coupons ("cluster_welcome_coupons"): with it
+# cited, "7 coupons" is that fact, not the coupons lever (round 6, finding W6).
+WELCOME_COUPON_WORDS = frozenset({"welcome", "coupons"})
 
 
 class Action(StrEnum):
@@ -75,6 +82,7 @@ class Code(StrEnum):
     SCHEMA = "SCHEMA"
     CASE_INVALID = "CASE_INVALID"
     DECISION_ECHO = "DECISION_ECHO"
+    TERMS_TOPIC = "TERMS_TOPIC"
     UNKNOWN_FACT = "UNKNOWN_FACT"
     MISSING_FACT = "MISSING_FACT"
     LABEL_MISMATCH = "LABEL_MISMATCH"
@@ -85,14 +93,15 @@ class Code(StrEnum):
     WRONG_LANGUAGE = "WRONG_LANGUAGE"
 
 
-# The 8.7 table: echo (also a quadrant, lever value or restriction named in the explanation) ->
-# template; numbers, banned terms, letters of other scripts, phrasebook ids and language ->
-# regenerate, then template; the legal clause and any mismatch between case and decision ->
-# blocking error.
+# The 8.7 table: echo (also another quadrant label named in the explanation) -> template;
+# levers, terms and levels named in the explanation, numbers, banned terms, characters
+# outside the allowlist, phrasebook ids and language -> regenerate, then template; the legal
+# clause and any mismatch between case and decision -> blocking error.
 ACTIONS: dict[Code, Action] = {
     Code.SCHEMA: Action.REGENERATE,
     Code.CASE_INVALID: Action.BLOCK,
     Code.DECISION_ECHO: Action.TEMPLATE,
+    Code.TERMS_TOPIC: Action.REGENERATE,
     Code.UNKNOWN_FACT: Action.REGENERATE,
     Code.MISSING_FACT: Action.REGENERATE,
     Code.LABEL_MISMATCH: Action.REGENERATE,
@@ -239,192 +248,6 @@ def _identifiers(case: Mapping[str, Any], expected: ExpectedDecision) -> list[st
     return ids
 
 
-# ---- Levers named in the operator explanation (adversarial review of 13 Oct, finding 3; round 2,
-# finding R2) -------------------------------------------------------------------------------------
-
-# Lever names: the catalogue id as words ("instant refund"), its camelCase form ("instantRefund")
-# and a few aliases, in English and Italian. A name followed by a value ("instant_refund:false",
-# "instant refund is off", "return window of 30 days") or preceded by one ("no instant refund",
-# "the customer keeps instant refund") is a claim about the decision. A negation inverts the value
-# ("coupons are not disabled" claims coupons_enabled:true); a value that cannot be read, or that
-# is contradicted right after ("false? No, true"), is the unknown value "?", never the engine's.
-_LEVER_ALIASES: dict[str, tuple[str, ...]] = {
-    "return_window_days": ("return window", "finestra di reso", "finestra reso"),
-    "free_return_shipping": ("return shipping", "spedizione del reso", "spedizione reso"),
-    "instant_refund": ("instant refunds", "rimborso istantaneo", "rimborsi istantanei"),
-    "free_size_exchange": ("size exchange", "size exchanges", "cambio taglia", "cambi taglia"),
-    "coupons_enabled": (
-        "coupons",
-        "coupon",
-        "discount codes",
-        "discount code",
-        "codici sconto",
-        "codice sconto",
-    ),
-    "priority_size_exchange": ("priority exchange", "cambio taglia prioritario"),
-    "transparency_notice": ("avviso di trasparenza",),
-    "size_advice": ("consiglio di taglia", "consiglio taglia"),
-}
-# Names whose values are the opposite of the lever id ("cluster coupons disabled" is true when the
-# lever cluster_coupons_disabled is true, "cluster coupons enabled" when it is false).
-_INVERTED_ALIASES: dict[str, tuple[str, ...]] = {
-    "cluster_coupons_disabled": ("cluster coupons", "coupon del cluster"),
-}
-_LEVER_NAMES: tuple[tuple[tuple[str, ...], str, bool], ...] = tuple(
-    sorted(
-        [
-            (tuple(name.split()), lever.id, False)
-            for lever in LEVERS
-            for name in (lever.id.replace("_", " "), *_LEVER_ALIASES.get(lever.id, ()))
-        ]
-        + [
-            (tuple(name.split()), lever_id, True)
-            for lever_id, names in _INVERTED_ALIASES.items()
-            for name in names
-        ],
-        key=lambda item: -len(item[0]),
-    )
-)
-_INTEGER_LEVERS = frozenset(lever.id for lever in LEVERS if lever.value_type == "integer")
-UNKNOWN = "?"
-_TRUE_WORDS = word_set(
-    "true yes on enabled enable active available allowed granted kept vero attivo attiva attivi "
-    "attive abilitato abilitata abilitati acceso accesa disponibile disponibili"
-)
-_FALSE_WORDS = word_set(
-    "false off disabled disable inactive unavailable removed blocked withdrawn revoked denied "
-    "suspended falso disattivato disattivata disattivati disabilitato disabilitata spento spenta "
-    "rimosso rimossa tolto tolta"
-)
-_NEGATIONS = word_set("not no never non")
-# Words right after a value that contradict it ("false? No, true").
-_CONTRADICTIONS = word_set("true false yes no not never vero falso")
-_TRUE_BEFORE = word_set("enabled granted keeps keep kept retains retain gets get regains")
-_FALSE_BEFORE = word_set(
-    "no without disabled removed revoked blocked withdrawn pays pay paid senza nessun nessuna"
-)
-_ARTICLES = word_set("the a an any its their for il lo la i gli le del della dello per")
-# The window changed in words ("shortened", "extended"): a claim whose value cannot be read.
-_CHANGE_WORDS = word_set(
-    "shortened reduced shorter cut extended longer lengthened increased raised decreased lowered "
-    "ridotta ridotto accorciata accorciato estesa esteso allungata allungato aumentata aumentato"
-)
-_FILLERS = word_set(
-    "is are was were be been being has have had set to now still at of the a an equal equals "
-    "changed turned switched kept stay stays remain remains lever levers code codes can could "
-    "will would shall should must may might do does did ca wo e resta restano rimane rimangono"
-)
-_KEEP_WORDS = word_set("kept")
-_FILLER_MARKS = frozenset(":=>→⇒()[]\"'`")
-_LEVER_TOKEN_RE = re.compile(r"[a-z]+|[0-9]+|[^\sa-z0-9]")
-_CAMEL_RE = re.compile(r"(?<=[a-z])(?=[A-Z])")
-_NOT_RE = re.compile(r"n['’]t\b")
-_CANNOT_RE = re.compile(r"\bcannot\b")
-
-
-def _lever_tokens(text: str) -> list[str]:
-    folded = fold(_CAMEL_RE.sub(" ", text), " ")
-    folded = _CANNOT_RE.sub("can not", _NOT_RE.sub(" not", folded))
-    folded = "".join(" " if ch == "_" or is_dash(ch) else ch for ch in folded)
-    return _LEVER_TOKEN_RE.findall(folded)
-
-
-def _name_at(tokens: Sequence[str], index: int) -> tuple[tuple[str, ...], str, bool] | None:
-    return next(
-        (item for item in _LEVER_NAMES if tuple(tokens[index : index + len(item[0])]) == item[0]),
-        None,
-    )
-
-
-def _skip_fillers(tokens: Sequence[str], index: int) -> tuple[int, bool]:
-    kept = False
-    while index < len(tokens) and (tokens[index] in _FILLERS or tokens[index] in _FILLER_MARKS):
-        kept = kept or tokens[index] in _KEEP_WORDS
-        index += 1
-    return index, kept
-
-
-def _contradicted(tokens: Sequence[str], index: int) -> bool:
-    """A yes/no word right after a value, punctuation aside, that does not start a negated lever
-    name ("off, no instant refund")."""
-    while index < len(tokens) and not tokens[index].isalnum():
-        index += 1
-    if index >= len(tokens) or tokens[index] not in _CONTRADICTIONS:
-        return False
-    return _name_at(tokens, index + 1) is None
-
-
-def _value_after(tokens: Sequence[str], start: int, lever_id: str) -> str | None:
-    index, kept = _skip_fillers(tokens, start)
-    token = tokens[index] if index < len(tokens) else ""
-    after = index + 1  # where a contradiction would start
-    if token in _NEGATIONS:
-        index, _ = _skip_fillers(tokens, after)
-        word = tokens[index] if index < len(tokens) else ""
-        if lever_id in _INTEGER_LEVERS:
-            return UNKNOWN
-        if word in _TRUE_WORDS:
-            value, after = "false", index + 1
-        elif word in _FALSE_WORDS:
-            value, after = "true", index + 1
-        elif not word.isalnum():  # "instant refund: no."
-            value, after = "false", index
-        else:
-            return UNKNOWN
-    elif lever_id in _INTEGER_LEVERS:
-        if not token.isdigit():
-            return UNKNOWN if token in _CHANGE_WORDS else None
-        value = token
-    elif token in _TRUE_WORDS:
-        value = "true"
-    elif token in _FALSE_WORDS:
-        value = "false"
-    elif kept:  # "instant refund is kept"
-        value, after = "true", index
-    else:
-        return None
-    return UNKNOWN if _contradicted(tokens, after) else value
-
-
-def _value_before(tokens: Sequence[str], start: int, lever_id: str) -> str | None:
-    index = start - 1
-    while index >= 0 and tokens[index] in _ARTICLES:
-        index -= 1
-    token = tokens[index] if index >= 0 else ""
-    if lever_id in _INTEGER_LEVERS:
-        return None
-    if token in _TRUE_BEFORE:
-        return "true"
-    return "false" if token in _FALSE_BEFORE else None
-
-
-_INVERT = {"true": "false", "false": "true"}
-
-
-def lever_claims(text: str) -> list[str]:
-    """Lever values a text states, as "id:value" strings, for example "instant_refund:false";
-    "?" when the value cannot be read. A name whose id ends in "enabled" or "disabled" states
-    the value true by itself."""
-    tokens = _lever_tokens(text)
-    claims: list[str] = []
-    index = 0
-    while index < len(tokens):
-        found = _name_at(tokens, index)
-        if found is None:
-            index += 1
-            continue
-        name, lever_id, inverted = found
-        value = _value_after(tokens, index + len(name), lever_id)
-        if value is None:
-            value = _value_before(tokens, index, lever_id)
-        if value is None and name[-1] in ("enabled", "disabled"):
-            value = "true"
-        if value is not None:
-            claims.append(f"{lever_id}:{_INVERT.get(value, value) if inverted else value}")
-        index += len(name)
-    return claims
-
-
 # ---- Checks ----------------------------------------------------------------------------------
 
 
@@ -438,21 +261,49 @@ def _check_echo(echo: DecisionEcho, expected: ExpectedDecision) -> list[Validati
     return []
 
 
-def _check_mentions(
+_MEASURES = {"risk": "risk score", "value": "customer value"}
+
+
+def _check_decision(
     where: str, text: str, entity_ids: Sequence[str], expected: ExpectedDecision
 ) -> list[ValidationIssue]:
-    """A quadrant, by label or by its risk and value levels, and a lever value named in a
-    statement must be the engine's. Without restrictive levers (guarantee, insufficient
-    evidence, Q1, Q2), a restriction or a place in the matrix may not be named either."""
+    """A quadrant named by its label ("Q1", "QIV", "quadrant 2", "the fourth quadrant") must be
+    the engine's (adversarial review of 13 Oct, finding 3). Only an explicit label is a decision
+    echo mismatch: a level read from the words is a heuristic, so it is never sent to the
+    template at once (round 6, findings W2 and W3; `_check_topics`)."""
     named = strip_tokens(text, entity_ids)
     other = [label for label in quadrant_labels(named) if label != expected.quadrant]
-    axes = QUADRANT_AXES.get(expected.quadrant or "", frozenset())
-    other += [axis for axis in quadrant_axes(named) if axis not in axes]
-    if not expected.restrictive:
-        other += restriction_words(named) + quadrant_positions(named)
-    other += [claim for claim in lever_claims(text) if claim not in expected.lever_ids]
     if other:
         return [_issue(Code.DECISION_ECHO, where, f"not the engine decision: {', '.join(other)}")]
+    return []
+
+
+def _check_topics(
+    where: str,
+    text: str,
+    identifiers: Sequence[str],
+    expected: ExpectedDecision,
+    coupon_fact: bool = False,
+) -> list[ValidationIssue]:
+    """Levers, terms, refunds, restrictions, decisions and the risk and value levels of the
+    quadrant are not topics of an operator statement, whatever their value (round 3, findings
+    T7 and T8; round 4, findings U5 and U6): metric names are removed first, a level of unknown
+    side (negated, middle) counts, and "no quadrant" is an observation only when the engine
+    assigned none. A level of the risk score or of the customer value in other words (net
+    margin, profitable) that is not the engine's is a topic too, with the words that name it
+    ("risk score: high", "risk score: not high"): read from the words, it is regenerated with
+    them in the feedback, never sent to the template at once (round 6, findings W2 and W3). With
+    a welcome-coupon fact cited, "7 coupons" is that fact (round 6, finding W6)."""
+    plain = strip_tokens(text, identifiers)
+    found = operator_topics(plain, no_quadrant=expected.quadrant is None, coupon_count=coupon_fact)
+    axes = QUADRANT_AXES.get(expected.quadrant or "", frozenset())
+    found += [
+        f"{_MEASURES[axis]}: {words}"
+        for kind, axis, level, words in level_mentions(plain)
+        if kind == "score" and f"{axis}:{level}" not in axes
+    ]
+    if found:
+        return [_issue(Code.TERMS_TOPIC, where, ", ".join(found))]
     return []
 
 
@@ -462,30 +313,36 @@ def _check_statement(
     facts: Mapping[str, _Fact],
     identifiers: Sequence[str],
     entity_ids: Sequence[str],
+    metrics: Sequence[str],
     expected: ExpectedDecision,
 ) -> list[ValidationIssue]:
     where = f"operator_explanation[{index}]"
-    errors = _check_mentions(where, statement.text, entity_ids, expected)
+    cited = [facts[fid] for fid in statement.fact_ids if fid in facts]
+    coupons = any(set(f.metric.split("_")) >= WELCOME_COUPON_WORDS for f in cited)
+    errors = _check_decision(where, statement.text, entity_ids, expected)
+    errors += _check_topics(where, statement.text, [*entity_ids, *metrics], expected, coupons)
     unknown = [fid for fid in statement.fact_ids if fid not in facts]
     if unknown:
         errors.append(_issue(Code.UNKNOWN_FACT, where, ", ".join(unknown)))
-    cited = [facts[fid] for fid in statement.fact_ids if fid in facts]
     if statement.label == "SCORE" and not cited:
         errors.append(_issue(Code.MISSING_FACT, where, "a SCORE statement cites a fact"))
     if statement.label == "OBSERVED" and any(f.metric in SCORE_METRICS for f in cited):
         errors.append(_issue(Code.LABEL_MISMATCH, where, "a model score is not an observation"))
-    allowed = {f.value for f in cited}
-    text = strip_tokens(statement.text, identifiers)
-    ungrounded = [str(n) for n in numbers_in_text(text) if n not in allowed]
+    # Case, cluster and quadrant ids are read as a space, metric names as a label word (round 5,
+    # finding V1): "Q4 (42.1)" is "(42.1)", "driven by cluster_welcome_coupons (7)" is "driven by
+    # metric (7)".
+    labelled = strip_tokens(statement.text, metrics, f" {IDENTIFIER_PLACEHOLDER} ")
+    text = strip_tokens(labelled, identifiers)
+    ungrounded = grounding_problems(text, [(f.metric, f.value) for f in cited])
     ungrounded += other_numeric_characters(text)
     ungrounded += number_words(text, "en", skip=PRONOUN_NUMBERS)
-    ungrounded += number_modifiers(text)
+    ungrounded += roman_numerals(text)
     if ungrounded:
         errors.append(_issue(Code.UNGROUNDED_NUMBER, where, ", ".join(ungrounded)))
-    banned = banned_terms(statement.text)
+    banned = banned_terms(strip_tokens(statement.text, entity_ids))
     if banned:
         errors.append(_issue(Code.BANNED_TERM, where, ", ".join(banned)))
-    foreign = foreign_letters(strip_tokens(statement.text, entity_ids))
+    foreign = foreign_characters(statement.text)
     if foreign:
         errors.append(_issue(Code.SCRIPT, where, "".join(foreign)))
     return errors
@@ -497,12 +354,36 @@ def _check_explanation(
     facts = _facts(case)
     identifiers = _identifiers(case, expected)
     entity_ids = _entity_ids(case)
+    metrics = [fact.metric for fact in facts.values()]
     errors: list[ValidationIssue] = []
     for index, statement in enumerate(statements):
-        errors.extend(_check_statement(index, statement, facts, identifiers, entity_ids, expected))
+        errors.extend(
+            _check_statement(index, statement, facts, identifiers, entity_ids, metrics, expected)
+        )
     if language_of(" ".join(s.text for s in statements)) == "it":
         errors.append(_issue(Code.WRONG_LANGUAGE, "operator_explanation", "English expected"))
     return errors
+
+
+# Retry feedback (round 5, finding V17): each code with where it was found and the words the
+# validator matched in the model's own answer ("TERMS_TOPIC in operator_explanation[2]: kept"), so
+# the second call can avoid them. The details are the model's own words (folded) or validator
+# text, never case text; a character outside the allowlist is written as its code point.
+MAX_FEEDBACK_CHARS = 120
+
+
+def retry_feedback(errors: Sequence[ValidationIssue]) -> tuple[str, ...]:
+    """The retry feedback of a rejected answer, one item per error, without repeats."""
+    items: list[str] = []
+    for error in errors:
+        detail = error.detail
+        if error.code is Code.SCRIPT:
+            detail = " ".join(f"U+{ord(ch):04X}" for ch in detail)
+        detail = " ".join(detail.split())[:MAX_FEEDBACK_CHARS]
+        item = f"{error.code.value} in {error.where}" + (f": {detail}" if detail else "")
+        if item not in items:
+            items.append(item)
+    return tuple(items)
 
 
 def _check_sentences(ids: Sequence[str], expected: ExpectedDecision) -> list[ValidationIssue]:
@@ -541,6 +422,6 @@ __all__ = [
     "ValidationIssue",
     "ValidationResult",
     "check_case",
-    "lever_claims",
+    "retry_feedback",
     "validate",
 ]

@@ -69,14 +69,11 @@ from llm.agent import (
     OrderRecord,
     PolicyRecord,
     VllmAgent,
-    advice,
-    answer_actions,
-    grounded_in,
+    answer_problems,
     to_json,
 )
 from llm.client import ChatClient, LlmUnavailable
 from llm.prompts import agent_system_prompt
-from llm.text import banned_terms, decision_wording, foreign_letters
 from pipeline.generator.golden import ROSSI_ACCOUNTS
 from policy.types import EvidenceQuality as Evidence
 from policy.types import Path as ReturnPath
@@ -372,20 +369,18 @@ class _Watched:
         return message
 
 
-def answer_codes(content: str, calls: Sequence[Call], case_id: str) -> list[ValidatorCode]:
-    """The llm.validator codes of an answer VllmAgent refused, found with the same public checks
-    of llm/ (an empty answer is off the schema)."""
+def answer_codes(
+    content: str,
+    calls: Sequence[Call],
+    case_id: str,
+    references: Mapping[str, str] | None = None,
+) -> list[ValidatorCode]:
+    """The llm.validator codes of an answer VllmAgent refused, found with the checks VllmAgent
+    runs (llm.agent.answer_problems; an empty answer is off the schema)."""
     if not content.strip():
         return ["SCHEMA"]
-    codes: list[ValidatorCode] = []
-    if banned_terms(content):
-        codes.append("BANNED_TERM")
-    if decision_wording(content) or advice(content) or answer_actions(content):
-        codes.append("DECISION_ECHO")
-    if foreign_letters(content):
-        codes.append("SCRIPT")
-    if not grounded_in(content, [to_json(c.result) for c in calls], case_id):
-        codes.append("UNGROUNDED_NUMBER")
+    results = [to_json(c.result) for c in calls]
+    codes: list[ValidatorCode] = list(answer_problems(content, results, case_id, references))
     return codes or ["SCHEMA"]
 
 
@@ -413,7 +408,7 @@ def run_vllm(client: ChatClient, model: str, data: CaseData, question: str) -> R
         if answer.source == "model":
             path: GenerationPath = "model" if attempt == 1 else "regenerated"
             return Run(answer, reader.calls, path, None, attempt, codes, "vllm", model, latency)
-        found = answer_codes(watched.last_content, reader.calls, case_id)
+        found = answer_codes(watched.last_content, reader.calls, case_id, data.references)
         codes = list(dict.fromkeys([*codes, *found]))
         if "DECISION_ECHO" in found or attempt == 2:
             reason: FallbackReason = (

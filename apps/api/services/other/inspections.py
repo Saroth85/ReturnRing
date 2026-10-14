@@ -66,7 +66,7 @@ from contracts.vocab import (
     ValidatorCode,
 )
 from llm.client import TEMPERATURE, LlmUnavailable, VllmClient
-from llm.text import banned_terms, foreign_letters
+from llm.text import banned_terms, foreign_characters
 from policy.legal_guard import check
 from policy.types import DiminishedValueClaim
 from policy.types import Path as ReturnPath
@@ -273,7 +273,7 @@ def parse_checklist(
     notes = " ".join(i.note for i in items if i.note)
     if banned_terms(notes):
         codes.append("BANNED_TERM")
-    if foreign_letters(notes):
+    if foreign_characters(notes):
         codes.append("SCRIPT")
     return (None, codes) if codes else (items, [])
 

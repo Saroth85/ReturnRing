@@ -1408,12 +1408,11 @@ def giulia() -> Case:
                 case,
                 [
                     ("SCORE", ["risk_score", "size_share"],
-                     f"Risk score {fact_value(case, 'risk_score')}; size_share at "
-                     f"{fact_value(case, 'size_share')} lowers it: a contribution to the score, "
-                     "not a cause."),
+                     f"Risk score {fact_value(case, 'risk_score')}: an estimate, not a cause. "
+                     f"size_share ({fact_value(case, 'size_share')}) lowers it."),
                     ("OBSERVED", ["value_eur_12m"],
                      f"Customer net margin over the period: {fact_value(case, 'value_eur_12m')} "
-                     "EUR, above the value threshold."),
+                     "EUR."),
                     ("OBSERVED", ["days_since_delivery"],
                      "The size return came "
                      f"{fact_value(case, 'days_since_delivery')} days after delivery."),
@@ -1544,15 +1543,16 @@ def marco() -> Case:
                 case,
                 [
                     ("SCORE", ["risk_score", "welcome_coupons_per_account"],
-                     f"Risk score {fact_value(case, 'risk_score')}; the largest contribution is "
-                     "welcome_coupons_per_account: each linked account used the welcome "
-                     "coupon."),
+                     f"Risk score {fact_value(case, 'risk_score')}: an estimate, not a cause. "
+                     "welcome_coupons_per_account "
+                     f"({fact_value(case, 'welcome_coupons_per_account')}) contributes most to "
+                     "it: each linked account used the welcome coupon."),
                     ("OBSERVED", ["cluster_size", "creation_spread_days"],
                      f"The cluster has {fact_value(case, 'cluster_size')} linked accounts, "
                      f"created within {fact_value(case, 'creation_spread_days')} days."),
                     ("HYPOTHESIS", [],
-                     "The linked accounts may be managed together: verify the shared payment "
-                     "cards before approving."),
+                     "The shared device and payment cards of the linked accounts are worth "
+                     "checking in the order log."),
                 ],
                 ["OPEN_THANKS", "INFO_TERMS", "CLOSE_REGARDS"],
             )
@@ -2160,9 +2160,11 @@ def simple_case(c: Simple) -> Case:
     return Case(c.key, card, engine, queue_item(card))
 
 
+# Number-free, as llm.case requires (ADR-14 decision 11): the counts are shown from the
+# evidence_quality columns with their provenance, not inside the sentence.
 MISSING_EVIDENCE = [
-    "Fewer than 4 order lines observed for this customer",
-    "One identifier kind on file: email only (no device, address or card)",
+    "Too few order lines with a settled outcome for this customer",
+    "Only an email on file: no device, address or card",
 ]
 ORDERS_DAVIDE = (
     Order(

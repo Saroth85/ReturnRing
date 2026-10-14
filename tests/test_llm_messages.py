@@ -1,6 +1,6 @@
 """Deterministic customer messages: rendering from the Decision (LLM-8, LLM-10), the legal clause
-(LEG-06, LLM-11), templates (LLM-12) and the prompt of spec 19.D with the phrasebook amendment of
-ADR-14."""
+(LEG-06, LLM-11), templates (LLM-12) and the prompt of spec 19.D (the phrasebook task of
+ADR-14)."""
 
 from __future__ import annotations
 
@@ -326,7 +326,8 @@ def test_llm12_every_template_validates_renders_and_stays_short(name: str) -> No
             output["customer_message"]["sentence_ids"], built.decision, BASE, lang
         )
         assert_clause(final, kind, lang)
-        assert word_count(final) <= 120, (name, lang, word_count(final))
+        message = final.split("\n\n")[0] if kind else final
+        assert word_count(message) <= 120, (name, lang, word_count(message))  # before the clause
 
 
 @pytest.mark.parametrize("name", sorted(SCENARIOS))
@@ -368,31 +369,12 @@ def test_format_value() -> None:
 # ---- Spec 19.D: the system prompt ----------------------------------------------------------------
 
 
-# The phrasebook amendment of ADR-14 (round 2, finding R1) replaced the customer-message lines of
-# the 19.D draft: the model picks sentence ids and writes no customer prose. Until 19.D is
-# updated, every other line stays identical to the spec, and the replaced lines are exactly these.
-REPLACED_19D_LINES = (
-    "3. customer_message: a short, warm message",
-    "Rules for the customer message:",
-    "- Never write numbers, in digits or in words",
-    "- Never write about withdrawal rights",
-)
-ADDED_LINES = (
-    "3. customer_message: choose sentence_ids for a short, warm message",
-    "- Use only the letters a-z and the Italian accented vowels",
-)
-
-
-def test_system_prompt_is_the_text_of_spec_19d_with_the_phrasebook_amendment() -> None:
+def test_system_prompt_is_the_text_of_spec_19d() -> None:
+    """Spec 19.D shows the prompt of the phrasebook task (ADR-14, rounds 2 and 3): the code and
+    the spec are the same text."""
     section = _section("### D. Prompt di sistema di Gemma")
-    spec = [x for x in section.split("```text\n", 1)[1].split("\n```", 1)[0].splitlines() if x]
-    prompt = [x for x in SYSTEM_PROMPT.splitlines() if x]
-    removed = [line for line in spec if line not in prompt]
-    added = [line for line in prompt if line not in spec]
-    assert len(removed) == len(REPLACED_19D_LINES)
-    assert all(line.startswith(p) for line, p in zip(removed, REPLACED_19D_LINES, strict=True))
-    assert all(line.startswith(p) for line, p in zip(added, ADDED_LINES, strict=True))
-    assert [x for x in spec if x in prompt] == [x for x in prompt if x in spec]  # same order
-    for rule in ("<customer_text>", "linked accounts", "sentence_ids", "fact_ids"):
+    block = section.split("```text\n", 1)[1].split("\n```", 1)[0]
+    assert block == SYSTEM_PROMPT.rstrip()
+    for rule in ("<customer_text>", "linked accounts", "sentence_ids", "fact_ids", "levers"):
         assert rule in SYSTEM_PROMPT
     assert "placeholders" not in SYSTEM_PROMPT  # code places them, the model never does

@@ -314,14 +314,6 @@
           "value": 4,
           "period": "2026-09-25/2026-09-29",
           "nature": "synthetic"
-        },
-        {
-          "id": "F7",
-          "entity": "policy",
-          "metric": "return_window_days",
-          "value": 60,
-          "period": "orders from 2026-09-30",
-          "nature": "synthetic"
         }
       ],
       "explanation": [
@@ -413,7 +405,7 @@
         {
           "label": "OBSERVED",
           "fact_ids": [],
-          "text": "The rules engine placed the case in Q1; the levers are listed with the decision.",
+          "text": "The rules engine placed the case in Q1; the case view shows the decision.",
           "facts": []
         },
         {
@@ -449,7 +441,7 @@
               "deadline": "il 13 ottobre 2026",
               "deduction": null
             },
-            "text": "Ciao, grazie per averci scritto. Abbiamo registrato la tua richiesta di reso e il rimborso è previsto per il 13 ottobre 2026. Per i tuoi prossimi ordini ti offriamo condizioni di reso migliori: reso entro 60 giorni dalla consegna; cambio taglia con priorità. Siamo felici di averti tra i nostri clienti."
+            "text": "Ciao, grazie per averci scritto. Abbiamo registrato la tua richiesta di reso e il rimborso è previsto al più tardi per il 13 ottobre 2026. Per i tuoi prossimi ordini ti offriamo condizioni di reso migliori: reso entro 60 giorni dalla consegna; cambio taglia con priorità. Siamo felici di averti tra i nostri clienti."
           },
           {
             "lang": "en",

@@ -694,7 +694,9 @@
         "period_start": "2025-10-01",
         "period_end": "2026-09-29",
         "nature": "synthetic"
-      }
+      },
+      "snapshot_on": "2026-09-01",
+      "scored_on": "2026-09-29"
     },
     "rules_version": "policy-2026-10-12",
     "model_versions": {
@@ -1181,7 +1183,7 @@
         "entity": "customer",
         "metric": "value_eur_12m",
         "value": 433.75,
-        "period": "12 months to 2026-09-29",
+        "period": "12 months to 2026-09-01",
         "nature": "synthetic"
       },
       {
@@ -1189,7 +1191,7 @@
         "entity": "cluster",
         "metric": "strong_id_share",
         "value": 0.5,
-        "period": "as of 2026-09-29",
+        "period": "as of 2026-09-01",
         "nature": "synthetic"
       },
       {
@@ -1197,7 +1199,7 @@
         "entity": "cluster",
         "metric": "cluster_return_rate",
         "value": 0.71,
-        "period": "as of 2026-09-29",
+        "period": "as of 2026-09-01",
         "nature": "synthetic"
       },
       {
@@ -1205,7 +1207,7 @@
         "entity": "customer",
         "metric": "residual_z",
         "value": 0.6,
-        "period": "as of 2026-09-29",
+        "period": "as of 2026-09-01",
         "nature": "synthetic"
       },
       {
@@ -1213,7 +1215,7 @@
         "entity": "cluster",
         "metric": "cluster_size",
         "value": 3,
-        "period": "as of 2026-09-29",
+        "period": "as of 2026-09-01",
         "nature": "synthetic"
       },
       {
@@ -1255,7 +1257,7 @@
             "entity": "cluster",
             "metric": "strong_id_share",
             "value": 0.5,
-            "period": "as of 2026-09-29",
+            "period": "as of 2026-09-01",
             "nature": "synthetic"
           }
         ]
@@ -1272,7 +1274,7 @@
             "entity": "cluster",
             "metric": "cluster_return_rate",
             "value": 0.71,
-            "period": "as of 2026-09-29",
+            "period": "as of 2026-09-01",
             "nature": "synthetic"
           }
         ]
@@ -1289,7 +1291,7 @@
             "entity": "customer",
             "metric": "residual_z",
             "value": 0.6,
-            "period": "as of 2026-09-29",
+            "period": "as of 2026-09-01",
             "nature": "synthetic"
           }
         ]
@@ -1306,7 +1308,7 @@
             "entity": "customer",
             "metric": "value_eur_12m",
             "value": 433.75,
-            "period": "12 months to 2026-09-29",
+            "period": "12 months to 2026-09-01",
             "nature": "synthetic"
           }
         ]
@@ -1323,7 +1325,7 @@
             "entity": "cluster",
             "metric": "cluster_size",
             "value": 3,
-            "period": "as of 2026-09-29",
+            "period": "as of 2026-09-01",
             "nature": "synthetic"
           }
         ]

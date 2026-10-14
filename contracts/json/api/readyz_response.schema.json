@@ -4,7 +4,7 @@
   "$defs": {
     "ClockView": {
       "additionalProperties": false,
-      "description": "The one clock of the API (1.5.0, ADR-15 section 15). demo (DEMO_CLOCK=on): 'now' is the\ninstant of the serving snapshot plus the time elapsed since the demo reset started the\nclock, so the deadlines of the decisions the reset made stay ahead; system: the wall clock;\nfixed: a clock that stands still (tests). Every 'now' of the API (as_of, the time of an act,\nthe period of a figure that ends now) is this clock's.",
+      "description": "The one clock of the API (1.5.0, ADR-15 section 15). demo (DEMO_CLOCK=on): 'now' is the\ninstant of the serving snapshot plus the time elapsed since the demo reset started the\nclock, so the deadlines of the decisions the reset made stay ahead; system: the wall clock;\nfixed: a clock that stands still (tests). Every 'now' of the API (as_of, the time of an act,\nthe period of a figure that ends now) is this clock's.\n\nfrozen (1.7.0, ADR-15 section 19): the demo clock of the public read-only demo stands at\nthe snapshot instant (now equals snapshot_as_of), so no refund deadline of the reset's\nproposals passes while the demo stays up; a client never advances a frozen clock. Where\nwrites are on (a cached demo with writes on included) the demo clock runs (1.8.0).",
       "properties": {
         "kind": {
           "enum": [
@@ -44,6 +44,10 @@
           ],
           "title": "Started At"
         },
+        "frozen": {
+          "title": "Frozen",
+          "type": "boolean"
+        },
         "note": {
           "maxLength": 300,
           "minLength": 1,
@@ -56,6 +60,7 @@
         "now",
         "snapshot_as_of",
         "started_at",
+        "frozen",
         "note"
       ],
       "title": "ClockView",

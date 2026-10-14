@@ -172,7 +172,9 @@
         "period_start": "2025-10-01",
         "period_end": "2026-09-30",
         "nature": "synthetic"
-      }
+      },
+      "snapshot_on": "2026-09-01",
+      "scored_on": "2026-09-26"
     },
     "rules_version": "policy-2026-10-12",
     "model_versions": {
@@ -211,7 +213,7 @@
         "entity": "customer",
         "metric": "risk_score",
         "value": 0.21,
-        "period": "as of 2026-09-30",
+        "period": "as of 2026-09-26",
         "nature": "synthetic"
       },
       {
@@ -219,7 +221,7 @@
         "entity": "customer",
         "metric": "value_eur_12m",
         "value": 127.15,
-        "period": "12 months to 2026-09-30",
+        "period": "12 months to 2026-09-01",
         "nature": "synthetic"
       },
       {
@@ -227,7 +229,7 @@
         "entity": "cluster",
         "metric": "welcome_coupons_per_account",
         "value": 0.33,
-        "period": "as of 2026-09-30",
+        "period": "as of 2026-09-01",
         "nature": "synthetic"
       },
       {
@@ -235,7 +237,7 @@
         "entity": "cluster",
         "metric": "creation_spread_days",
         "value": 557,
-        "period": "as of 2026-09-30",
+        "period": "as of 2026-09-01",
         "nature": "synthetic"
       },
       {
@@ -243,7 +245,7 @@
         "entity": "cluster",
         "metric": "strong_id_share",
         "value": 0,
-        "period": "as of 2026-09-30",
+        "period": "as of 2026-09-01",
         "nature": "synthetic"
       },
       {
@@ -251,7 +253,7 @@
         "entity": "cluster",
         "metric": "cluster_size",
         "value": 3,
-        "period": "as of 2026-09-30",
+        "period": "as of 2026-09-01",
         "nature": "synthetic"
       },
       {
@@ -276,7 +278,7 @@
             "entity": "customer",
             "metric": "risk_score",
             "value": 0.21,
-            "period": "as of 2026-09-30",
+            "period": "as of 2026-09-26",
             "nature": "synthetic"
           }
         ]
@@ -293,7 +295,7 @@
             "entity": "cluster",
             "metric": "welcome_coupons_per_account",
             "value": 0.33,
-            "period": "as of 2026-09-30",
+            "period": "as of 2026-09-01",
             "nature": "synthetic"
           }
         ]
@@ -310,7 +312,7 @@
             "entity": "cluster",
             "metric": "creation_spread_days",
             "value": 557,
-            "period": "as of 2026-09-30",
+            "period": "as of 2026-09-01",
             "nature": "synthetic"
           }
         ]
@@ -327,7 +329,7 @@
             "entity": "cluster",
             "metric": "strong_id_share",
             "value": 0,
-            "period": "as of 2026-09-30",
+            "period": "as of 2026-09-01",
             "nature": "synthetic"
           }
         ]
@@ -344,7 +346,7 @@
             "entity": "customer",
             "metric": "value_eur_12m",
             "value": 127.15,
-            "period": "12 months to 2026-09-30",
+            "period": "12 months to 2026-09-01",
             "nature": "synthetic"
           }
         ]
@@ -361,7 +363,7 @@
             "entity": "cluster",
             "metric": "cluster_size",
             "value": 3,
-            "period": "as of 2026-09-30",
+            "period": "as of 2026-09-01",
             "nature": "synthetic"
           }
         ]

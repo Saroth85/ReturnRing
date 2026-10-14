@@ -12,7 +12,9 @@ the README" and "Security of the public deployment"; spec 11; rules 11 and 13).
 - the access log cannot be forged by an encoded newline in the path;
 - no VLLM_BASE_URL reaches a public body;
 - the portfolio matrix is built and encoded off the event loop;
-- the reset waits for a database that is still starting.
+- the reset waits for a database that is still starting;
+- on the read-only cached demo the label stands beside the frozen demo clock (ADR-15 sections 19
+  and 20), as the cached readyz example shows.
 """
 
 from __future__ import annotations
@@ -28,10 +30,12 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from fastapi.testclient import TestClient
 from starlette.requests import Request
 
 from apps.api import batch_generate
 from apps.api import schemas as s
+from apps.api.app import create_app
 from apps.api.batch_generate import batch
 from apps.api.ratelimit import RateLimiter
 from apps.api.reset import wait_for_database
@@ -43,6 +47,7 @@ from pipeline.generator.golden import GIULIA
 from scripts import demo_export
 from tests.api_harness import Api, golden_return, open_api, settings_for, validate_body
 
+EXAMPLES = Path(__file__).resolve().parents[1] / "contracts" / "examples" / "api"
 GPU = "AMD Instinct MI300X (AMD Developer Cloud)"
 GEMMA = "google/gemma-4-31B-it"
 PLAN_B = "google/gemma-4-26B-A4B-it"  # the plan-B model of .env.example
@@ -173,6 +178,53 @@ def test_a_broken_manifest_or_entry_is_a_rehearsal(
     (package / "llm_cache" / "x.json").write_text("{not json", encoding="utf-8")
     body = _readyz(serving, package, tmp_path)
     assert body["label"] == s.REHEARSAL_LABEL
+
+
+@pytest.mark.parametrize("verified", [True, False], ids=["mi300x", "rehearsal"])
+def test_the_read_only_cached_demo_shows_its_label_on_a_frozen_clock(
+    serving: Serving,
+    serving_dir: Path,
+    seeded_db: tuple[Path, dict[str, Any]],
+    tmp_path: Path,
+    verified: bool,
+) -> None:
+    """The cached demo as infra/compose.demo.yml starts it (PUBLIC_READ_ONLY on, after a reset):
+    the label the package earns and the telemetry note that names no hardware (ADR-15 sections
+    16 and 17) stand beside the demo clock frozen at the snapshot instant (sections 19 and 20),
+    the demo cases (section 18) are served at that instant, and the cached readyz example shows
+    the same label, clock and read-only flag."""
+    manifest = (
+        MI300X_MANIFEST if verified else {**MI300X_MANIFEST, "llm_cache": {"rehearsal": True}}
+    )
+    package = _package(serving_dir, tmp_path, models=(GEMMA,), manifest=manifest)
+    database = tmp_path / "demo.sqlite"
+    shutil.copyfile(seeded_db[0], database)
+    settings = settings_for(package, database, demo_mode="cached", public_read_only=True)
+    assert settings.frozen_clock
+    with TestClient(create_app(settings, serving=serving)) as client:  # the DemoClock
+        body = client.get("/readyz").json()
+        validate_body("readyz_response", body)
+        note = client.get("/api/telemetry").json()["note"]
+        cases = client.get("/api/demo/cases")
+    assert cases.status_code == 200, cases.text
+    demo = s.DemoCasesResponse.model_validate(cases.json())  # served on the frozen clock
+    assert demo.as_of == demo.snapshot_as_of == serving.as_of
+    assert body["label"] == (s.CACHED_LABEL if verified else s.REHEARSAL_LABEL)
+    assert body["public_read_only"] is True and body["mode"] == "cached"
+    telemetry = next(c for c in body["checks"] if c["component"] == "telemetry")
+    assert telemetry["status"] == "disabled"
+    assert "MI300X" not in (telemetry["detail"] or "") and "MI300X" not in note
+    clock = body["clock"]
+    assert clock["kind"] == "demo" and clock["frozen"] is True
+    assert clock["note"] == s.FROZEN_CLOCK_NOTE
+    assert clock["now"] == clock["snapshot_as_of"]
+    assert s.ClockView.model_validate(clock).now == serving.as_of
+    example = json.loads((EXAMPLES / "readyz_response.cached.json").read_text(encoding="utf-8"))
+    assert example["label"] == s.CACHED_LABEL and example["public_read_only"] is True
+    assert {k: example["clock"][k] for k in ("kind", "frozen", "note")} == {
+        k: clock[k] for k in ("kind", "frozen", "note")
+    }
+    assert example["clock"]["now"] == example["clock"]["snapshot_as_of"]
 
 
 # ---- The MI300X batch: where the drafts come from ------------------------------------------------

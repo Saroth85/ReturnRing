@@ -17,6 +17,7 @@ from apps.api import schemas as s
 from apps.api.db import ping
 from apps.api.routes.stubs import add_stubs, responses
 from apps.api.runtime import Runtime, runtime
+from apps.api.services.other.telemetry import CACHED_NOTE, component_check
 from apps.api.services.seeds import ASSUMPTIONS_V1, current_assumptions
 from llm.client import check_local_url
 from policy.types import Decision
@@ -48,6 +49,19 @@ def probe_vllm(base_url: str | None, api_key: str | None) -> str | None:
     except (OSError, ValueError, urllib.error.URLError) as exc:
         return f"vLLM unreachable: {type(exc).__name__}"
     return None
+
+
+async def telemetry_check(rt: Runtime, *, database_ok: bool) -> s.ComponentCheck:
+    """The amd-smi samples of the telemetry sampler (US-905): ok when one is fresh, disabled in
+    cached mode and on a CPU without samples, unavailable on a GPU whose sampler is silent."""
+    settings = rt.settings
+    if settings.cached:
+        return _check("telemetry", "disabled", CACHED_NOTE)
+    if rt.engine is None or not database_ok:
+        status = "unavailable" if settings.device == "gpu" else "disabled"
+        return _check("telemetry", status, "no database: the samples are stored there")
+    async with rt.engine.connect() as conn:
+        return await component_check(conn, settings, rt.now())
 
 
 async def readiness(rt: Runtime) -> s.ReadyzResponse:
@@ -92,7 +106,7 @@ async def readiness(rt: Runtime) -> s.ReadyzResponse:
         )
     else:
         checks.append(_check("demo_cache", "disabled"))
-    checks.append(_check("telemetry", "disabled", "not collected by the API core"))
+    checks.append(await telemetry_check(rt, database_ok=checks[0].status == "ok"))
     statuses = {c.component: c.status for c in checks}
     status: Literal["ready", "degraded", "not_ready"] = (
         "not_ready"

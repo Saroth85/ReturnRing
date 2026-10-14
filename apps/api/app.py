@@ -10,6 +10,7 @@ snapshot and LLM client.
 from __future__ import annotations
 
 import asyncio
+import gc
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -24,6 +25,8 @@ from apps.api.routes import health, manager, operator, other
 from apps.api.runtime import Runtime
 from apps.api.schemas import API_CONTRACT_VERSION
 from apps.api.services.generation import Generator
+from apps.api.services.manager.catalog import warm as warm_anomalies
+from apps.api.services.operator.queue import warm as warm_queue
 from apps.api.serving import Serving, ServingError
 from apps.api.settings import Settings
 from llm.client import LlmClient
@@ -46,6 +49,7 @@ def create_app(
         serving=serving,
     )
     owns_engine = engine is None
+    loads_serving = serving is None
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -56,6 +60,15 @@ def create_app(
                 rt.serving_error = f"{type(exc).__name__}: {exc}"[:200]
         if rt.serving is not None:
             await asyncio.to_thread(rt.serving.warm)
+            await asyncio.to_thread(warm_queue, rt.serving)
+            await asyncio.to_thread(warm_anomalies, rt.serving)
+            if loads_serving:
+                # The snapshot is read-only for the life of the service: move it out of the
+                # cyclic garbage collector, whose full passes over its millions of objects
+                # otherwise pause a request for about 2 s every few requests (US-301). Tests
+                # pass their own snapshot and keep the collector as it is.
+                gc.collect()
+                gc.freeze()
         if rt.engine is None:
             if config.database_url is None:
                 rt.database_error = "DATABASE_URL is not set"

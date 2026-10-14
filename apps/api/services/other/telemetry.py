@@ -11,9 +11,9 @@ samples amd-smi every 5 s and writes the metrics to the database; rule 11).
   response is empty and well formed: no GPU numbers, and a note that says why. In cached mode
   the GPU is off: no GPU or LLM numbers, and the note of the contract.
 
-telemetry_samples is defined here, outside contracts/sql.py, until a contract round adds it
-there (the sampler creates it if missing; the demo reset, which drops the contract tables,
-leaves it alone).
+telemetry_samples is a table of contracts/sql.py (ADR-16 section 9): the demo reset creates it
+with the others. The sampler creates it when it starts before the reset, and a sample it cannot
+write (the reset is recreating the tables) is reported and skipped, not fatal.
 """
 
 from __future__ import annotations
@@ -31,28 +31,14 @@ from pathlib import Path
 from typing import Any, Final, Literal
 
 import numpy as np
-from sqlalchemy import (
-    BigInteger,
-    CheckConstraint,
-    Column,
-    Float,
-    Index,
-    Integer,
-    MetaData,
-    String,
-    Table,
-    Text,
-    delete,
-    insert,
-    inspect,
-    select,
-)
+from sqlalchemy import delete, insert, inspect, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from apps.api import schemas as s
 from apps.api.services.provenance import provenance
 from apps.api.settings import Settings
-from contracts.sql import NAMING_CONVENTION, TS, llm_generations
+from contracts.sql import llm_generations, telemetry_samples
 
 INTERVAL_S: Final = 5  # spec 9 and TelemetryResponse.interval_s
 STALE_S: Final = 60  # a GPU sample older than this is not "live"
@@ -64,38 +50,6 @@ AMD_SMI: Final = ("amd-smi", "metric", "--json")
 CACHED_NOTE: Final = "GPU off: cached mode serves results precomputed on the AMD MI300X"
 _MIB: Final[dict[str, float]] = {"b": 1 / 2**20, "kb": 1 / 1024, "kib": 1 / 1024, "mb": 1.0}
 _MIB.update({"mib": 1.0, "gb": 1024.0, "gib": 1024.0})
-
-telemetry_metadata = MetaData(naming_convention=NAMING_CONVENTION)
-telemetry_samples = Table(
-    "telemetry_samples",
-    telemetry_metadata,
-    Column(
-        "sample_id",
-        BigInteger().with_variant(Integer, "sqlite"),
-        primary_key=True,
-        autoincrement=True,
-    ),
-    Column("sampled_at", TS, nullable=False),
-    Column("device", String(64), nullable=False),
-    Column("gpu_index", Integer, nullable=False),
-    Column("utilization_percent", Float),
-    Column("memory_used_gib", Float),
-    Column("memory_total_gib", Float),
-    Column("power_watts", Float),
-    Column("source", String(32), nullable=False),
-    Column("error", Text),
-    CheckConstraint(
-        "utilization_percent IS NULL OR (utilization_percent >= 0 AND utilization_percent <= 100)",
-        name="utilization_range",
-    ),
-    CheckConstraint(
-        "(memory_used_gib IS NULL OR memory_used_gib >= 0)"
-        " AND (memory_total_gib IS NULL OR memory_total_gib >= 0)"
-        " AND (power_watts IS NULL OR power_watts >= 0)",
-        name="non_negative",
-    ),
-)
-Index(None, telemetry_samples.c.sampled_at)
 
 
 # ---- Sampler ----------------------------------------------------------------------------------
@@ -173,7 +127,8 @@ def parse_amd_smi(text: str) -> list[GpuReading]:
 
 
 async def ensure_table(conn: AsyncConnection) -> None:
-    await conn.run_sync(lambda sync: telemetry_metadata.create_all(sync, checkfirst=True))
+    """Create telemetry_samples when the sampler starts before the demo reset made it."""
+    await conn.run_sync(lambda sync: telemetry_samples.create(sync, checkfirst=True))
 
 
 async def store_sample(
@@ -258,10 +213,13 @@ async def sample_loop(
         done = 0
         while count is None or done < count:
             readings, error = await asyncio.to_thread(read_source, command, source_file)
-            async with engine.begin() as conn:
-                written += await store_sample(
-                    conn, datetime.now(UTC), readings, device=device, error=error
-                )
+            try:
+                async with engine.begin() as conn:
+                    written += await store_sample(
+                        conn, datetime.now(UTC), readings, device=device, error=error
+                    )
+            except SQLAlchemyError as exc:  # the reset recreating the tables: skip one sample
+                print(f"telemetry: sample not stored: {type(exc).__name__}", file=sys.stderr)
             done += 1
             if count is None or done < count:
                 await asyncio.sleep(interval_s)

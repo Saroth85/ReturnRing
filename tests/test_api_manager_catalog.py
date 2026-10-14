@@ -218,6 +218,22 @@ def test_a_cancelled_task_reopens_the_anomaly(api: Api) -> None:
     assert listed[anomaly["anomaly_id"]]["catalog_task_id"] == second.json()["task_id"]
 
 
+def test_the_case_card_skips_a_cancelled_task(api: Api) -> None:
+    """One source for the anomaly (rule 11): Elena's card shows the task the list shows, the
+    latest one not cancelled, and none while the only task is cancelled."""
+    url = f"/api/returns/{golden_return(api.serving, ELENA)}"
+    anomaly = _elena_anomaly(api)
+    first = _create(api, anomaly["anomaly_id"]).json()["task_id"]
+    assert _patch(api, first, "cancelled", "Opened by mistake").status_code == 200
+    on_card = api.client.get(url).json()["product_anomaly"]
+    assert (on_card["status"], on_card["catalog_task_id"]) == ("open", None)
+    second = _create(api, anomaly["anomaly_id"]).json()["task_id"]
+    on_card = api.client.get(url).json()["product_anomaly"]
+    listed = {i["anomaly_id"]: i for i in _anomalies(api)["items"]}[anomaly["anomaly_id"]]
+    assert on_card["catalog_task_id"] == listed["catalog_task_id"] == second
+    assert on_card["status"] == listed["status"] == "task_opened"
+
+
 def test_the_follow_up_of_a_change_made_weeks_ago(api: Api) -> None:
     """US-606: the variant's weekly return rate for the reason before and after the change, from
     the sales known in the snapshot; the full weeks after the change only."""

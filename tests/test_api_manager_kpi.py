@@ -26,6 +26,9 @@ from tests.test_api_manager_evaluation import (  # noqa: F401 - pytest fixtures
     evaluated_dir_fixture,
     evaluated_serving_fixture,
     metrics_fixture,
+    unevaluated_api_fixture,
+    unevaluated_dir_fixture,
+    unevaluated_serving_fixture,
 )
 
 RESET_WEEK = "2026-09-28"  # the week of the snapshot instant (2026-10-01), when the reset decided
@@ -253,8 +256,8 @@ def test_invalid_weeks_are_refused(evaluated_api: Api) -> None:
         assert response.json()["code"] == "invalid_request"
 
 
-def test_kpi_without_the_report_is_not_found(api: Api) -> None:
-    response = api.client.get("/api/kpi")
+def test_kpi_without_the_report_is_not_found(unevaluated_api: Api) -> None:
+    response = unevaluated_api.client.get("/api/kpi")
     assert response.status_code == 404
     assert response.json()["code"] == "not_found"
 

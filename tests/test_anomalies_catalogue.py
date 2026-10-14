@@ -20,6 +20,7 @@ from pipeline.anomalies.catalogue import (
     PRODUCT_NOTE,
     before_after,
     catalogue_task,
+    weekly_counts,
     weekly_series,
 )
 from policy.types import ReturnReason
@@ -200,6 +201,24 @@ def test_the_weekly_series_has_every_calendar_week() -> None:
     assert series["comparison_n"].tolist() == [20, 20, 20, 0]
     assert math.isnan(series["expected"][1])
     assert series["expected"][2] > 0  # week 2 has a baseline: X in weeks 0 and 1
+
+
+def test_weekly_counts_are_the_counts_of_the_weekly_series() -> None:
+    """The fast trend of the API: the same weeks, n and observed as weekly_series, read from
+    the variant's own lines only."""
+    rows = weekly("V", [0, 2], 10, 3) + weekly("X", range(3), 20, 2)
+    sales = frame(rows)
+    for when in (at(21, 1), at(14, 1), LATER):
+        for reason in ("size", "defective"):
+            series = weekly_series(sales, "V", reason, when)[["week", "n", "observed"]]
+            mine = sales.loc[sales["variant_id"] == "V"]
+            pd.testing.assert_frame_equal(weekly_counts(mine, reason, when), series)
+    with pytest.raises(ValueError, match="one variant"):
+        weekly_counts(sales, "size", LATER)
+    with pytest.raises(ValueError, match="unknown return reason"):
+        weekly_counts(sales.loc[sales["variant_id"] == "V"], "moody", LATER)
+    with pytest.raises(ValueError, match="no sale known"):
+        weekly_counts(sales.loc[sales["variant_id"] == "V"], "size", at(0) - timedelta(days=1))
 
 
 def test_follow_up_refuses_inconsistent_requests() -> None:

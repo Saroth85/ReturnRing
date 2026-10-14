@@ -920,6 +920,42 @@ catalog_tasks = Table(
 )
 Index(None, catalog_tasks.c.anomaly_id)
 
+# ---- Telemetry (US-905, NFR-12, spec 9) ---------------------------------------------------------
+# One row per GPU and amd-smi sample, every 5 s, written by the sampler of
+# apps/api/services/other/telemetry.py and kept 24 hours; a row with an error and no numbers when
+# amd-smi gave none. Not a decision record: the demo reset empties it with the other tables.
+
+telemetry_samples = Table(
+    "telemetry_samples",
+    metadata,
+    Column(
+        "sample_id",
+        BigInteger().with_variant(Integer, "sqlite"),
+        primary_key=True,
+        autoincrement=True,
+    ),
+    Column("sampled_at", TS, nullable=False),
+    Column("device", String(64), nullable=False),
+    Column("gpu_index", Integer, nullable=False),
+    Column("utilization_percent", Float),
+    Column("memory_used_gib", Float),
+    Column("memory_total_gib", Float),
+    Column("power_watts", Float),
+    Column("source", String(32), nullable=False),
+    Column("error", Text),
+    _check(
+        "utilization_percent IS NULL OR (utilization_percent >= 0 AND utilization_percent <= 100)",
+        "utilization_range",
+    ),
+    _check(
+        "(memory_used_gib IS NULL OR memory_used_gib >= 0)"
+        " AND (memory_total_gib IS NULL OR memory_total_gib >= 0)"
+        " AND (power_watts IS NULL OR power_watts >= 0)",
+        "non_negative",
+    ),
+)
+Index(None, telemetry_samples.c.sampled_at)
+
 TABLES: tuple[Table, ...] = tuple(metadata.sorted_tables)
 APPEND_ONLY_TABLES: tuple[str, ...] = ("audit_log", "simulator_assumptions", "coupon_rules")
 

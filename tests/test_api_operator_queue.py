@@ -24,7 +24,6 @@ from tests.api_harness import Api, golden_return
 from tests.test_api_operator_support import (
     by_id,
     card,
-    cards_the_contract_refuses,
     decide,
     error,
     latest,
@@ -59,10 +58,7 @@ def test_the_queue_lists_every_return_sorted_by_expected_net_benefit(api: Api) -
 
 def test_every_item_shows_the_figures_of_its_case_card(api: Api) -> None:
     """One source for a figure (rule 11): the queue shows what the card shows."""
-    refused = cards_the_contract_refuses(api)
     for item in _queue(api, **ALL)["items"]:
-        if item["return_id"] in refused:
-            continue
         c = card(api, item["return_id"])
         d = c["decision"]
         recommended = next(a for a in c["alternatives"] if a["recommended"])
@@ -244,10 +240,7 @@ def test_a_return_of_the_shop_adapter_is_queued_with_the_figures_of_its_card(
 
 
 def test_every_version_of_a_card_is_served_as_a_record(api: Api) -> None:
-    refused = cards_the_contract_refuses(api)
     for return_id in api.serving.open_return_ids():
-        if return_id in refused:
-            continue
         c = card(api, return_id)
         body = ok(
             api.client.get(f"/api/decisions/{c['decision']['decision_id']}"), "decision_record"

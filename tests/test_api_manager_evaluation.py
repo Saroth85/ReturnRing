@@ -3,12 +3,13 @@ FAIR-02; rule 12).
 
 False positives need labels, so they come from the offline evaluation (ml.risk, FAIR-02 on the
 held-out test customers), never from data/truth/ at runtime. The serving snapshot carries the
-report as reports/evaluation.json, covered by the manifest. Until pipeline.serving writes it
-(open issue of this story), the fixtures below add it to a copy of the harness snapshot the way
-the export will: the FAIR-02 aggregates of artifacts/risk/metrics.json, nothing else.
+report as reports/evaluation.json, covered by the manifest: pipeline.serving writes the FAIR-02
+aggregates of artifacts/eval/risk/metrics.json, nothing else (pipeline.serving.evaluation), so the
+harness snapshot holds it. The fixtures below give a copy of the snapshot with a chosen report
+(evaluated_*) and one without any (unevaluated_*), where both routes answer 404.
 
-The fixtures of this module (metrics, evaluated_dir, evaluated_serving, evaluated_api) serve the
-KPI tests too: import their *_fixture functions.
+The fixtures of this module (metrics, evaluated_*, unevaluated_*) serve the KPI tests too: import
+their *_fixture functions.
 """
 
 from __future__ import annotations
@@ -35,40 +36,17 @@ from apps.api.services.manager.evaluation import (
 )
 from apps.api.serving import Serving
 from ml.risk.fairness import GAP_LIMIT_PP
+from ml.risk.run import metrics_path
+from pipeline.serving.evaluation import evaluation_document
 from pipeline.serving.manifest import Manifest, write_manifest
 from tests.api_harness import Api, open_api, settings_for, validate_body
-
-
-def evaluation_document(metrics: Mapping[str, Any], model_version: str) -> dict[str, Any]:
-    """reports/evaluation.json as the export writes it (the diff proposed with this story): the
-    FAIR-02 aggregates of the offline evaluation, with its instant, model and provenance."""
-    data = metrics["data"]["main"]
-    start, end = str(data["period"]).split("..")
-    eval_end = str(metrics["eval_end"])
-    return {
-        "format": REPORT_FORMAT,
-        "report_id": f"eval-{eval_end[:10]}",
-        "scenario": "main",
-        "as_of": eval_end,
-        "model_version": model_version,
-        "provenance": {
-            "origin": (
-                f"offline evaluation (ml.risk, FAIR-02) of the batch scores at {eval_end} on "
-                f"the synthetic labels of the held-out test customers; computed from: "
-                f"{data['origin']}"
-            ),
-            "period_start": start,
-            "period_end": end,
-            "nature": metrics["nature"],
-        },
-        "fair02": metrics["fair02"],
-    }
 
 
 def with_report(serving_dir: Path, document: Mapping[str, Any] | None, out: Path) -> Path:
     """A copy of a serving snapshot with reports/evaluation.json (or none), manifest rewritten."""
     shutil.copytree(serving_dir, out)
     target = out / REPORT_FILE
+    target.unlink(missing_ok=True)
     if document is not None:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(json.dumps(document, indent=2, sort_keys=True) + "\n", "utf-8")
@@ -79,9 +57,7 @@ def with_report(serving_dir: Path, document: Mapping[str, Any] | None, out: Path
 
 @pytest.fixture(scope="session", name="metrics")
 def metrics_fixture(serving_data: Path) -> dict[str, Any]:
-    found: dict[str, Any] = json.loads(
-        (serving_data / "artifacts" / "risk" / "metrics.json").read_text("utf-8")
-    )
+    found: dict[str, Any] = json.loads(metrics_path(serving_data / "artifacts").read_text("utf-8"))
     return found
 
 
@@ -108,6 +84,28 @@ def evaluated_api_fixture(
     database = tmp_path / "evaluated.sqlite"
     shutil.copyfile(seeded_db[0], database)
     yield from open_api(evaluated_serving, settings_for(evaluated_dir, database), database)
+
+
+@pytest.fixture(scope="session", name="unevaluated_dir")
+def unevaluated_dir_fixture(serving_dir: Path, tmp_path_factory: Any) -> Path:
+    return with_report(serving_dir, None, tmp_path_factory.mktemp("unevaluated") / "serving")
+
+
+@pytest.fixture(scope="session", name="unevaluated_serving")
+def unevaluated_serving_fixture(unevaluated_dir: Path) -> Serving:
+    return Serving.load(unevaluated_dir)
+
+
+@pytest.fixture(name="unevaluated_api")
+def unevaluated_api_fixture(
+    unevaluated_serving: Serving,
+    unevaluated_dir: Path,
+    seeded_db: tuple[Path, dict[str, Any]],
+    tmp_path: Path,
+) -> Iterator[Api]:
+    database = tmp_path / "unevaluated.sqlite"
+    shutil.copyfile(seeded_db[0], database)
+    yield from open_api(unevaluated_serving, settings_for(unevaluated_dir, database), database)
 
 
 # ---- The report ----------------------------------------------------------------------------------
@@ -142,9 +140,17 @@ def test_every_offline_dimension_has_its_contract_dimension(metrics: dict[str, A
     assert set(mapped.values()) == set(get_args(s.FairnessDimension))
 
 
-def test_without_the_report_the_reader_says_so(serving: Serving) -> None:
+def test_the_harness_snapshot_holds_the_report_the_export_wrote(
+    serving: Serving, metrics: dict[str, Any]
+) -> None:
+    report = load_report(serving)
+    assert report.report_id == f"eval-{metrics['eval_end'][:10]}"
+    assert report.model_version == serving.models.customer.version
+
+
+def test_without_the_report_the_reader_says_so(unevaluated_serving: Serving) -> None:
     with pytest.raises(ReportUnavailable, match="not in the serving snapshot"):
-        load_report(serving)
+        load_report(unevaluated_serving)
 
 
 def test_a_report_the_manifest_does_not_cover_is_refused(
@@ -276,8 +282,8 @@ def test_a_dimension_with_one_segment_is_left_out() -> None:
     assert [d.dimension for d in body.dimensions] == ["new_customers"]
 
 
-def test_fairness_without_the_report_is_not_found(api: Api) -> None:
-    response = api.client.get("/api/fairness")
+def test_fairness_without_the_report_is_not_found(unevaluated_api: Api) -> None:
+    response = unevaluated_api.client.get("/api/fairness")
     assert response.status_code == 404
     validate_body("error", response.json())
     assert "evaluation report" in response.json()["message"]

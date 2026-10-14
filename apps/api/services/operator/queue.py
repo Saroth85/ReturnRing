@@ -47,6 +47,31 @@ SORTS: Final[dict[str, SortKey]] = {
     "-risk": lambda i: (i.risk is None, -(i.risk.value if i.risk else 0.0), i.return_id),
 }
 _LIVE_CONTEXTS: Final = "_operator_live_contexts"
+# The decision columns a queue item and a dispute's affected cases read: the large JSON the queue
+# does not show (terms, score factors, model versions) stays in the database (US-301: < 2 s).
+_DECISION_COLUMNS: Final = (
+    "decision_id",
+    "return_id",
+    "order_id",
+    "customer_id",
+    "version",
+    "revision_trigger",
+    "created_at",
+    "state",
+    "path",
+    "evidence_quality",
+    "quadrant",
+    "requires_approval",
+    "risk",
+    "value_eur",
+    "value_threshold_eur",
+    "cluster_id",
+    "inputs_provenance",
+    "levers",
+    "review_at",
+    "alternatives",
+    "generation_id",
+)
 _RETURN_COLUMNS: Final = (
     "line_id",
     "variant_id",
@@ -58,7 +83,8 @@ _RETURN_COLUMNS: Final = (
 
 
 async def latest_rows(conn: AsyncConnection) -> list[tuple[dict[str, Any], dict[str, Any]]]:
-    """The latest decision version of every queued return, with its return_requests row."""
+    """The latest decision version of every queued return (the columns of _DECISION_COLUMNS),
+    with its return_requests row."""
     last = (
         select(decisions.c.return_id, func.max(decisions.c.version).label("version"))
         .group_by(decisions.c.return_id)
@@ -66,7 +92,7 @@ async def latest_rows(conn: AsyncConnection) -> list[tuple[dict[str, Any], dict[
     )
     extra = [return_requests.c[c].label(f"request_{c}") for c in _RETURN_COLUMNS]
     query = (
-        select(decisions, *extra)
+        select(*(decisions.c[c] for c in _DECISION_COLUMNS), *extra)
         .join(
             last,
             (decisions.c.return_id == last.c.return_id) & (decisions.c.version == last.c.version),
@@ -256,6 +282,26 @@ def queue_item(
         variant_anomaly=ret["variant_id"] in flagged,
         draft_status="ready" if row["generation_id"] is not None else "pending",
     )
+
+
+def warm(serving: Serving) -> None:
+    """What the first queue would compute once and keep (US-301: the first load under 2 s
+    too): the customer snapshot of every open store return computed at its request (a new
+    account without a snapshot before it, Snapshot.context)."""
+    rets = []
+    for return_id in serving.open_return_ids():
+        record = serving.store_return(return_id)
+        if record is not None:
+            rets.append(
+                {
+                    "return_id": return_id,
+                    "customer_id": record.customer_id,
+                    "requested_at": record.known_at,
+                }
+            )
+    for ret, snapshot in zip(rets, snapshots(serving, rets).values(), strict=True):
+        if snapshot.instant is None or snapshot.evidence is None or snapshot.value is None:
+            snapshot.context(serving, str(ret["customer_id"]))
 
 
 async def queue(

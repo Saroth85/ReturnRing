@@ -14,6 +14,11 @@ What the API needs, and nothing else:
 - models/checkout: the personalized line predictor (ml.reference), fitted here at as_of on the
   settled store lines (no label of the ground truth: the outcome of a line is in the store), which
   the checkout runs (ml.reference.checkout, US-401);
+- reports/evaluation.json: the FAIR-02 aggregates of the offline evaluation of ml.risk
+  (artifacts/eval/risk/metrics.json, ml.risk.run.metrics_path: false positives by dimension and
+  segment, counts and rates only), which the fairness report and the KPIs serve (US-603,
+  US-605); never metrics.json itself. An artifacts root without metrics.json gives a snapshot
+  without the report, and both routes say so;
 - manifest.json: as_of, the seed, the provenance and snapshots of each table, the model versions
   and the sha256 of every file.
 
@@ -41,6 +46,7 @@ from contracts.io import Provenance, read_table, write_table
 from contracts.parquet import CONTRACT_VERSION, SCHEMAS, TS
 from ml.reference.model import TrainConfig, fit, observed_frame
 from ml.reference.persist import save_line_model
+from ml.risk.run import metrics_path
 from ml.scoring.batch import Models
 from pipeline.anomalies.detect import ANOMALY_THRESHOLDS
 from pipeline.features.lines import line_frame
@@ -50,6 +56,7 @@ from pipeline.graph.clusters import clusters_table
 from pipeline.graph.links import links_table
 from pipeline.graph.snapshot import load_snapshot as load_graph_snapshot
 from pipeline.graph.weights import GraphParams
+from pipeline.serving.evaluation import REPORT_FILE, write_report
 from pipeline.serving.manifest import LLM_CACHE, write_manifest
 
 STORE_TABLES: Final = tuple(name for name in SCHEMAS if name.startswith("store/"))
@@ -66,7 +73,7 @@ RISK_MODELS: Final = ("customer", "request")
 RISK_SUFFIXES: Final = (".json", ".calibrator.json", ".meta.json")
 RISK_MANIFEST: Final = "manifest.json"
 CHECKOUT_ROLE: Final = "personalized"
-SUBDIRS: Final = ("store", "features", "scores", "models")
+SUBDIRS: Final = ("store", "features", "scores", "models", "reports")
 # Columns only the ground truth has (truth/labels, truth/variants): never in a served table.
 TRUTH_COLUMNS: Final = frozenset(
     field.name for name, schema in SCHEMAS.items() if name.startswith("truth/") for field in schema
@@ -101,6 +108,7 @@ class Export:
     as_of: datetime
     tables: dict[str, dict[str, Any]]
     versions: dict[str, str]
+    report: str | None = None  # reports/evaluation.json when the offline evaluation was found
 
 
 def _as_of_rows(table: pa.Table, as_of: datetime) -> pa.Table:
@@ -253,6 +261,15 @@ def export(
     checkout_version = _fit_checkout_model(data, out, moment, seed)
     say(f"models: {models.customer.version}, {models.request.version}, {checkout_version}")
 
+    metrics = check_source(metrics_path(artifacts))
+    report: str | None = None
+    if metrics.exists():
+        write_report(metrics, out, models.customer.version)
+        report = REPORT_FILE
+        say(f"offline evaluation: {REPORT_FILE} (FAIR-02 aggregates of {metrics})")
+    else:
+        say(f"no {metrics}: no evaluation report, so /api/fairness and /api/kpi answer 404")
+
     features = read_table("features/customer_features", out)[0].to_pandas()
     value = read_table("features/customer_value", out)[0].to_pandas()
     evidence = read_table("features/evidence_quality", out)[0].to_pandas()
@@ -282,11 +299,12 @@ def export(
             "checkout": {CHECKOUT_ROLE: {"version": checkout_version}},
         },
         "versions": versions,
+        "reports": {"evaluation": report},
         "llm_cache": f"{LLM_CACHE}/ (python -m apps.api.batch_generate; not hashed here)",
     }
     write_manifest(out, document)
     say(f"manifest: {out / 'manifest.json'}")
-    return Export(out, moment, records, versions)
+    return Export(out, moment, records, versions, report)
 
 
 def summary(result: Export) -> Mapping[str, Any]:
@@ -295,4 +313,5 @@ def summary(result: Export) -> Mapping[str, Any]:
         "as_of": result.as_of.isoformat(),
         "tables": {name: entry["rows"] for name, entry in sorted(result.tables.items())},
         "versions": result.versions,
+        "report": result.report,
     }

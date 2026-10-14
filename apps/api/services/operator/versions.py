@@ -3,8 +3,9 @@
 of the review"; a recompute likewise, on the account graph as people left it).
 
 services.cases.propose computes the engine's proposal, its inputs and their provenance, the
-alternatives and the draft inputs, but builds a version-1 view (trigger initial, no version
-before it): the model refuses any other version with that trigger. NextVersion takes its
+alternatives and the draft inputs, as a version-1 view (trigger initial, no version before it):
+the model refuses any other version with that trigger, and a review version is valid only with
+the person's outcome (lifted or renewed), so propose cannot build it alone. NextVersion takes its
 proposal and gives it the identity of version n: the decision id, the id of the cluster coupon
 application it proposes and the labels of its alternatives (<decision_id>/<kind>, US-602). The
 values are the engine's and the simulator's, unchanged.

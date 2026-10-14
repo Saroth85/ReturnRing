@@ -51,7 +51,8 @@
     "decision_id": "DEC-000106-1",
     "cluster_id": "CL-000731",
     "cluster_size_before": 3,
-    "cluster_size_after": 1
+    "cluster_size_after": 1,
+    "changes_decision": true
   },
   "carts": [
     {

@@ -151,6 +151,37 @@ def test_responses_list_every_field_as_required() -> None:
     assert "required" not in query
 
 
+def _definitions(path: Path) -> Iterator[tuple[str, str]]:
+    """Each model a schema file defines, by name, as exported: its $defs and its root."""
+    document = json.loads(path.read_text(encoding="utf-8"))
+    for name, body in document.get("$defs", {}).items():
+        yield name, json.dumps(body, indent=2, ensure_ascii=False)
+    root = {k: v for k, v in document.items() if k not in ("$schema", "$comment", "$defs")}
+    if "title" in root:
+        yield str(root["title"]), json.dumps(root, indent=2, ensure_ascii=False)
+
+
+def test_a_model_has_one_schema_in_every_file_that_defines_it() -> None:
+    """A type generator reads one type per name: every $def name, and every root model, has a
+    byte-identical body in each contracts/json/api/*.schema.json that defines it, whether the
+    file is exported in validation mode (a request) or serialization mode (a response, such as
+    the carts of demo_cases); openapi.json splits no model into -Input and -Output."""
+    bodies: dict[str, dict[str, list[str]]] = {}
+    for path in sorted(SCHEMAS.glob("*.schema.json")):
+        for name, body in _definitions(path):
+            bodies.setdefault(name, {}).setdefault(body, []).append(path.name)
+    clashes = {
+        name: [files[0] for files in found.values()]
+        for name, found in bodies.items()
+        if len(found) > 1
+    }
+    assert clashes == {}
+    assert len(bodies) > 50
+    openapi = json.loads((SCHEMAS / "openapi.json").read_text(encoding="utf-8"))
+    split = [n for n in openapi["components"]["schemas"] if n.endswith(("-Input", "-Output"))]
+    assert split == []
+
+
 def test_metric_requires_its_provenance() -> None:
     metric = schema("kpi")["$defs"]["Metric"]
     assert set(metric["required"]) == {"value", "unit", "provenance"}
@@ -581,7 +612,7 @@ REJECTED: list[tuple[str, str, Path_, Any]] = [
         "checkout_evaluate_response.giulia.json",
         "checkout_evaluate_response",
         ("lines", 0, "p_return"),
-        0.5,
+        0.2,  # below the threshold, with the advice shown
     ),  # noqa: E501
     (
         "checkout_evaluate_response.giulia.json",

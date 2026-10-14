@@ -5,19 +5,26 @@
     {
       "variant_id": "V-DRS-2500",
       "size": "M",
-      "p_return": 0.18,
-      "size_advice": null
+      "p_return": 0.47,
+      "size_advice": {
+        "kind": "measurement_guide",
+        "suggested_size": null,
+        "text": {
+          "it": "Prima di scegliere la taglia, guarda la guida alle misure di questo capo.",
+          "en": "Before choosing your size, look at the size guide of this item."
+        }
+      }
     },
     {
       "variant_id": "V-DRS-2500",
       "size": "L",
       "p_return": 0.47,
       "size_advice": {
-        "kind": "specific",
-        "suggested_size": "M",
+        "kind": "measurement_guide",
+        "suggested_size": null,
         "text": {
-          "it": "Chi ha le tue misure ha tenuto la taglia M di questo capo.",
-          "en": "Customers with your measurements kept size M of this item."
+          "it": "Prima di scegliere la taglia, guarda la guida alle misure di questo capo.",
+          "en": "Before choosing your size, look at the size guide of this item."
         }
       }
     }

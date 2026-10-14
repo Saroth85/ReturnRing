@@ -21,6 +21,17 @@ MANIFEST: Final = "manifest.json"
 FORMAT: Final = "returnring.serving.v1"
 LLM_CACHE: Final = "llm_cache"  # filled by python -m apps.api.batch_generate, not hashed here
 CHUNK: Final = 1 << 20
+# The keys of the manifest's "versions": the model_versions every decision records (the export
+# writes exactly these; the API contract examples use the same keys, ADR-15 section 16).
+MODEL_VERSION_KEYS: Final = (
+    "risk",
+    "risk_customer",
+    "checkout",
+    "reference",
+    "value",
+    "evidence",
+    "anomalies",
+)
 
 
 def sha256_of(path: Path) -> str:

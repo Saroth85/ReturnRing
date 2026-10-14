@@ -85,10 +85,14 @@ def test_an_anomaly_names_no_customer(api: Api) -> None:
 
 
 def test_the_anomaly_of_elena_is_the_one_of_her_card(api: Api) -> None:
-    """The anomaly list and the case card show the same anomaly of the jacket (golden case)."""
+    """The anomaly list and the case card show the same anomaly of the jacket (golden case); the
+    card also offers Elena's own return to the catalogue task (ADR-15 section 16)."""
     on_card = _elena_anomaly(api)
     listed = {i["anomaly_id"]: i for i in _anomalies(api)["items"]}
-    assert listed[on_card["anomaly_id"]] == on_card
+    in_list = listed[on_card["anomaly_id"]]
+    elena = golden_return(api.serving, ELENA)
+    assert on_card["queued_return_ids"] == sorted({*in_list["queued_return_ids"], elena})
+    assert {**on_card, "queued_return_ids": in_list["queued_return_ids"]} == in_list
 
 
 def test_filters(api: Api) -> None:
@@ -128,7 +132,9 @@ def test_elena_opens_a_catalogue_task_and_nothing_else(api: Api) -> None:
     assert card["product_anomaly"]["catalog_task_id"] == "CT-000001"
     assert card["decision"]["levers"] == [] and not card["decision"]["requires_approval"]
     listed = {i["anomaly_id"]: i for i in _anomalies(api)["items"]}
-    assert listed[anomaly["anomaly_id"]] == card["product_anomaly"]
+    in_list = listed[anomaly["anomaly_id"]]
+    assert elena in card["product_anomaly"]["queued_return_ids"]  # her card offers her return
+    assert {**card["product_anomaly"], "queued_return_ids": in_list["queued_return_ids"]} == in_list
     log = api.run(lambda conn: entries(conn, return_id=elena))
     opened = [e for e in log if e.action == "catalog_task_opened"]
     assert len(opened) == 1

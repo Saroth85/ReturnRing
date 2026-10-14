@@ -169,8 +169,11 @@ from policy.types import CouponRuleApplication as PolicyCouponRule
 # 1.4.1: the LLM layer's closing rounds merged (no lever fact, validator code TERMS_TOPIC; ADR-15
 # section 14); 1.5.0: the review of the API (ADR-15 section 15: GET /api/demo/cases, the demo
 # clock in /readyz, refund deadlines in the queue, the coupon block in the terms shown and stored,
-# a claim per return, the stale_proposal recompute, the write_request refusal, read-only mode)
-API_CONTRACT_VERSION = "1.5.0"
+# a claim per return, the stale_proposal recompute, the write_request refusal, read-only mode);
+# 1.6.0: the examples against the live service (ADR-15 section 16: one schema per model in every
+# file, DemoDispute.changes_decision, the case's own return in its card's queued_return_ids, the
+# manifest's model_versions keys, the checkout and inspection examples of the live paths)
+API_CONTRACT_VERSION = "1.6.0"
 MODE_HEADER = "X-ReturnRing-Mode"  # every response: "live" or "cached" (US-901)
 REQUEST_ID_HEADER = "X-Request-Id"  # every response; also in the audit log (NFR-12)
 CachedLabel = Literal["Precomputed on AMD MI300X"]
@@ -2212,7 +2215,9 @@ class ProductAnomaly(ApiModel):
     status: AnomalyStatus
     catalog_task_id: Id | None
     return_ids: list[Id]
-    # 1.5.0 (H14): the return_ids in the queue, the ones a catalogue task can name
+    # 1.5.0 (H14): the queued returns the UI offers to a catalogue task: the return_ids in the
+    # queue and, on a case card, the case's own return (a task may name any queued return of the
+    # variant, ADR-15 section 16)
     queued_return_ids: list[Id]
     trend: list[WeeklyReturnRate]  # the variant's weekly returns for this reason
 
@@ -2228,8 +2233,6 @@ class ProductAnomaly(ApiModel):
             raise ValueError("z must be (observed - expected) / sqrt(expected), 2 decimals")
         if (self.status == "open") != (self.catalog_task_id is None):
             raise ValueError("an open anomaly has no task; task_opened and resolved have one")
-        if not set(self.queued_return_ids) <= set(self.return_ids):
-            raise ValueError("queued_return_ids are return_ids of the anomaly")
         if self.queued_return_ids != sorted(set(self.queued_return_ids)):
             raise ValueError("queued_return_ids are sorted, each once")
         return self
@@ -2575,10 +2578,17 @@ class CaseCard(ApiModel):
         if self.draft is not None:
             factors = self.risk.top_factors if self.risk is not None else []
             _check_draft(self.draft, d, (factors, linked.cluster_size if linked else None))
-        if self.product_anomaly is not None and (
-            self.product_anomaly.variant_id != self.item.variant_id
-        ):
+        anomaly = self.product_anomaly
+        if anomaly is not None and anomaly.variant_id != self.item.variant_id:
             raise ValueError("the anomaly shown is on the returned variant")
+        if anomaly is not None and (
+            self.return_id not in anomaly.queued_return_ids
+            or not set(anomaly.queued_return_ids) <= {*anomaly.return_ids, self.return_id}
+        ):
+            raise ValueError(
+                "the card's anomaly offers the case's own return and the queued returns of the "
+                "anomaly to a catalogue task (ADR-15 section 16)"
+            )
         last = self.revisions[-1]
         if (last.decision_id, last.version, last.trigger, last.state) != (
             d.decision_id,
@@ -3553,13 +3563,25 @@ class LinkDisputeResponse(ApiModel):
 # ---- Checkout (US-401..403, spec 19.B, F2) -----------------------------------------------------
 
 
+# A request model a response also carries (DemoCart.request): its defaults stay optional in both
+# export modes, so every schema file defines it alike (ADR-15 section 16); the API always sends
+# them anyway.
+_REQUEST_IN_A_RESPONSE = ConfigDict(
+    extra="forbid", json_schema_serialization_defaults_required=False
+)
+
+
 class CartLine(ApiModel):
+    model_config = _REQUEST_IN_A_RESPONSE
+
     variant_id: Id
     size: Annotated[str, StringConstraints(min_length=1, max_length=16)]
     quantity: int = Field(default=1, ge=1, le=5)
 
 
 class CheckoutEvaluateRequest(ApiModel):
+    model_config = _REQUEST_IN_A_RESPONSE
+
     customer_id: Id
     lines: list[CartLine] = Field(min_length=1, max_length=20)
     coupon_code: Id | None = None
@@ -4193,6 +4215,8 @@ class ProductAnomaliesResponse(ApiModel):
         for item in self.items:
             if item.z.value <= self.thresholds.z or item.sales.value < self.thresholds.min_sales:
                 raise ValueError(f"{item.anomaly_id} is below the anomaly thresholds")
+            if not set(item.queued_return_ids) <= set(item.return_ids):
+                raise ValueError("in the list, queued_return_ids are return_ids of the anomaly")
         return self
 
 
@@ -4657,7 +4681,9 @@ class DemoCase(ApiModel):
 class DemoDispute(ApiModel):
     """A link whose dispute changes the cluster of the case named (US-310): the customer's
     cluster has cluster_size_before accounts, and cluster_size_after once the link is out (1:
-    the account alone)."""
+    the account alone). changes_decision (1.6.0) says whether the recompute the dispute makes
+    changes the engine's quadrant or levers of the case (a dry run at the reset, which prefers
+    such a link): false, the UI says "decision unchanged"."""
 
     link_id: Id
     return_id: Id
@@ -4665,6 +4691,7 @@ class DemoDispute(ApiModel):
     cluster_id: Id
     cluster_size_before: int = Field(ge=2)
     cluster_size_after: int = Field(ge=1)
+    changes_decision: bool
 
     @model_validator(mode="after")
     def _changes(self) -> Self:

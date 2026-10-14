@@ -36,7 +36,7 @@ function renderAssistant(props: { onRefSelect?: (ref: EntityRef) => void; onOpen
 }
 
 const panel = () => document.querySelector<HTMLElement>('[data-agent-panel]') as HTMLElement;
-const settled = () => waitFor(() => expect(panel().dataset.agentStream).not.toBe('streaming'), { timeout: 5000 });
+const settled = () => waitFor(() => expect(panel().dataset.agentStream).not.toBe('streaming'));
 
 function expectCleanScan(root: Element) {
   expect(findUnprovenancedNumbers(root), JSON.stringify(findUnprovenancedNumbers(root))).toEqual([]);
@@ -127,6 +127,10 @@ describe('CaseAssistant drawer', () => {
     const { dialog } = renderAssistant();
     await userEvent.click(within(dialog).getByRole('button', { name: LINK_Q }));
     await settled();
+    // After the first question the suggestions fold behind a disclosure, leaving the answer room (UI34).
+    const disclosure = within(dialog).getByRole('button', { name: 'Suggested questions' });
+    expect(disclosure).toHaveAttribute('aria-expanded', 'false');
+    await userEvent.click(disclosure);
     await userEvent.click(within(dialog).getByRole('button', { name: ROSSI_Q }));
     await settled();
     const turns = dialog.querySelectorAll('article[data-turn]');
@@ -216,6 +220,7 @@ describe('CaseAssistant drawer', () => {
     await settled();
     expect(dialog.querySelector('[data-agent-problem="rate_limited"]')).toHaveTextContent('Too many questions in a short time. Try again in a few seconds.');
     expect(within(dialog).getByRole('textbox')).toBeDisabled();
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Suggested questions' }));
     expect(within(dialog).getByRole('button', { name: ROSSI_Q })).toBeDisabled();
   });
 
@@ -346,7 +351,7 @@ describe('CaseAssistant stream control', () => {
 describe('agent harness /dev/agent', () => {
   it('renders the panel as a page and logs the refs it asks the case card to focus', async () => {
     renderApp('/dev/agent?return=RET-000102');
-    expect(await screen.findByRole('heading', { level: 1, name: 'Agent harness' }, { timeout: 5000 })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Agent harness' })).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: LINK_Q }));
     await settled();
     const chip = screen.getAllByRole('link', { name: 'Show cluster CL-000417 on the case card' })[0] as HTMLElement;

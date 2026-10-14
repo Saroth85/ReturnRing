@@ -45,6 +45,10 @@ export function ProvenancePopover({ provenance, label, valueText, nature, childr
   const [byHover, setByHover] = useState(false);
   const [copied, setCopied] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Whether the open popover came from a hover: closing it then never moves focus. Radix returns
+  // focus to the trigger, which scrolled the page back to a figure the pointer merely crossed
+  // while the page scrolled (a cited ref on a phone).
+  const hovered = useRef(false);
   const shown = nature ?? displayNature(provenance);
   const period = formatPeriod(provenance.period_start, provenance.period_end);
 
@@ -58,6 +62,7 @@ export function ProvenancePopover({ provenance, label, valueText, nature, childr
   const schedule = (next: boolean, delay: number) => {
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => {
+      if (next) hovered.current = true;
       setByHover(next);
       setOpen(next);
     }, delay);
@@ -80,6 +85,7 @@ export function ProvenancePopover({ provenance, label, valueText, nature, childr
     <Popover.Root
       open={open}
       onOpenChange={(next) => {
+        if (next) hovered.current = false;
         setByHover(false);
         setOpen(next);
         if (!next) setCopied(false);
@@ -97,6 +103,10 @@ export function ProvenancePopover({ provenance, label, valueText, nature, childr
           collisionPadding={16}
           onOpenAutoFocus={(event) => {
             if (byHover) event.preventDefault();
+          }}
+          onCloseAutoFocus={(event) => {
+            if (hovered.current) event.preventDefault();
+            hovered.current = false;
           }}
           onPointerEnter={keep}
           onPointerLeave={() => schedule(false, CLOSE_DELAY_MS)}

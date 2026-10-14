@@ -4,6 +4,8 @@ import { describe, expect, it } from 'vitest';
 import type { CaseCard, QueueResponse } from '@/api/models';
 import { encodeSseFrame, parseSseBuffer, type AgentEvent } from '@/api/sse';
 import { readExample, readExampleText, readIndex } from '@/test/examples';
+import { CONTRACT_VERSION } from '../contract.gen';
+import { compareContract } from '../contractVersion';
 import { createMockRouter, findEndpoint, normaliseQuery, queueItemMatches, type MockRoute } from './mockRouter';
 
 const index = readIndex();
@@ -116,6 +118,13 @@ describe('UI fixtures (open question O-1)', () => {
     expect((result.body as { value: { code: string } }).value.code).toBe('conflict');
   });
 
+  it('contract_mismatch: /readyz names the next minor contract version (UI1)', async () => {
+    const result = await route({ method: 'GET', path: '/readyz', headers: { 'X-Mock-Scenario': 'contract_mismatch' } });
+    const version = (result.body as { value: { contract_version: string } }).value.contract_version;
+    expect(version).not.toBe(CONTRACT_VERSION);
+    expect(compareContract(version).status).toBe('mismatch');
+  });
+
   it('an empty queue, a pending draft and an agent error event', async () => {
     const empty = await route({ method: 'GET', path: '/api/returns', headers: { 'X-Mock-Scenario': 'empty' } });
     expect((empty.body as { value: QueueResponse }).value.items).toEqual([]);
@@ -176,6 +185,57 @@ describe('unknown requests', () => {
   });
 });
 
+describe('fallbacks never invent an error or borrow another scenario (UI2)', () => {
+  const approve = (decisionId: string) =>
+    JSON.stringify({
+      decision_id: decisionId,
+      action: 'approve',
+      levers: [],
+      message: { lang: 'it', text: null },
+      override_reason: null,
+      override_category: null,
+      approver: 'sara',
+    });
+
+  it("Elena's guarantee approve is not answered with the legal guard refusal of her override example", async () => {
+    const result = await route({ method: 'POST', path: '/api/returns/RET-000105/decision', headers: {}, body: approve('DEC-000105-1') });
+    expect(result.status).toBeLessThan(400);
+    expect(result.example).not.toBe('error.legal_guard.json');
+    expect(result.note).toMatch(/no example for this request/);
+  });
+
+  it("Simone's approve in the default scenario is not answered with the invalid_request scenario", async () => {
+    const result = await route({ method: 'POST', path: '/api/returns/RET-000111/decision', headers: {}, body: approve('DEC-000111-1') });
+    expect(result.status).toBeLessThan(400);
+    expect(result.example).not.toBe('error.invalid_request.json');
+    expect(result.note).toMatch(/no example for this request/);
+  });
+
+  it('prefers a success example of the same action on another return', async () => {
+    const result = await route({ method: 'POST', path: '/api/returns/RET-000101/decision', headers: {}, body: approve('DEC-000101-1') });
+    expect(result.example).toBe('decision_result.marco_approved.json');
+  });
+
+  it('still serves an error example when its request matches or its scenario was asked for', async () => {
+    const legal = await route({
+      method: 'POST',
+      path: '/api/returns/RET-000105/decision',
+      headers: {},
+      body: readExampleText('decision_request.elena_shipping.json'),
+    });
+    expect(legal.status).toBe(422);
+    expect(legal.example).toBe('error.legal_guard.json');
+    const invalid = await route({
+      method: 'POST',
+      path: '/api/returns/RET-000111/decision',
+      headers: { 'X-Mock-Scenario': 'invalid_request' },
+      body: approve('DEC-000111-1'),
+    });
+    expect(invalid.status).toBe(422);
+    expect(invalid.example).toBe('error.invalid_request.json');
+  });
+});
+
 describe('SSE frames (ADR-15 section 4, sse_frame)', () => {
   it('writes the frames of the contract stream file', () => {
     const events = readExample<AgentEvent[]>('agent_stream.marco_link.json');
@@ -186,6 +246,23 @@ describe('SSE frames (ADR-15 section 4, sse_frame)', () => {
     expect(ours.messages.map((m) => [m.event, m.id, JSON.parse(m.data)])).toEqual(
       expected.messages.map((m) => [m.event, m.id, JSON.parse(m.data)]),
     );
+  });
+
+  it('keeps a CRLF that straddles two chunks as one line break (UI8)', () => {
+    const frame = encodeSseFrame({ type: 'token', seq: 4, text: 'a link is a shared identifier' }).replace(/\n/g, '\r\n');
+    const cut = frame.indexOf('\r\n') + 1; // the chunk ends between \r and \n
+    const first = parseSseBuffer(frame.slice(0, cut));
+    expect(first.messages).toEqual([]);
+    const second = parseSseBuffer(first.rest + frame.slice(cut));
+    expect(second.messages).toHaveLength(1);
+    expect(second.messages[0]?.event).toBe('token');
+    expect(JSON.parse(second.messages[0]?.data ?? '{}')).toMatchObject({ type: 'token', seq: 4 });
+    // Every cut point of a CRLF stream gives the same single message.
+    for (let i = 1; i < frame.length; i++) {
+      const a = parseSseBuffer(frame.slice(0, i));
+      const b = parseSseBuffer(a.rest + frame.slice(i));
+      expect([...a.messages, ...b.messages].map((m) => m.event)).toEqual(['token']);
+    }
   });
 
   it('parses frames split across chunks', () => {

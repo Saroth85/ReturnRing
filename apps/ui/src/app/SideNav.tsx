@@ -50,28 +50,35 @@ function orderedItems(role: Role): Array<{ group: NavGroup; items: NavItem[] }> 
   });
 }
 
-function NavList({ role }: { role: Role }) {
+function NavList({ role, compact = false }: { role: Role; compact?: boolean }) {
   return (
     <>
       {orderedItems(role).map(({ group, items }) =>
         items.length === 0 ? null : (
-          <div key={group} className="mb-4">
-            <p className="px-3 pb-1 text-micro uppercase text-ink-3">{SHELL.navGroups[group]}</p>
+          <div key={group} className={compact ? 'mb-2 border-b border-border pb-2 last:border-b-0' : 'mb-4'}>
+            {compact ? (
+              <p className="sr-only">{SHELL.navGroups[group]}</p>
+            ) : (
+              <p className="px-3 pb-1 text-micro uppercase text-ink-3">{SHELL.navGroups[group]}</p>
+            )}
             <ul>
               {items.map((item) => (
                 <li key={item.to}>
                   <NavLink
                     to={item.to}
+                    aria-label={compact ? item.label : undefined}
+                    title={compact ? item.label : undefined}
                     className={({ isActive }) =>
                       clsx(
-                        'flex items-center gap-2 rounded-control px-3 py-1.5 text-body',
+                        'flex items-center rounded-control text-body',
+                        compact ? 'relative justify-center px-0 py-2' : 'gap-2 px-3 py-1.5',
                         isActive ? 'bg-accent-bg font-medium text-ink-1' : 'text-ink-2 hover:bg-surface-2',
                       )
                     }
                   >
-                    <item.icon aria-hidden="true" size={16} />
-                    <span>{item.label}</span>
-                    {item.badge && <CountBadge badge={item.badge} />}
+                    <item.icon aria-hidden="true" size={compact ? 18 : 16} />
+                    {!compact && <span>{item.label}</span>}
+                    {!compact && item.badge && <CountBadge badge={item.badge} />}
                   </NavLink>
                 </li>
               ))}
@@ -83,21 +90,32 @@ function NavList({ role }: { role: Role }) {
   );
 }
 
-/** Grouped navigation (docs/ui-design.md 3.3): a column from 1024 px, a disclosure below. */
+/**
+ * Grouped navigation (docs/ui-design.md 3.3): a column from 1024 px, a disclosure below. Presenter
+ * mode collapses it to 64 px of icons, each named for screen readers and on hover (UI23): every
+ * page stays one click away for the Q&A detours.
+ */
 export function SideNav({ collapsed = false }: { collapsed?: boolean }) {
   const persona = usePersona();
   return (
     <>
       <nav
         aria-label={SHELL.navLabel}
-        className={clsx('hidden shrink-0 border-r border-border bg-surface py-4 lg:block', collapsed ? 'lg:hidden' : 'w-nav')}
+        className={clsx(
+          'hidden shrink-0 border-r border-border bg-surface lg:block',
+          // The icon column stays in view under the banner while a beat page scrolls.
+          collapsed
+            ? 'w-nav-collapsed px-2 py-3 lg:sticky lg:top-[var(--mode-banner-h,0px)] lg:max-h-[calc(100vh-var(--mode-banner-h,0px))] lg:self-start lg:overflow-y-auto'
+            : 'w-nav py-4',
+        )}
+        data-side-nav={collapsed ? 'collapsed' : 'full'}
       >
-        <NavList role={persona.role} />
+        <NavList role={persona.role} compact={collapsed} />
       </nav>
       <details className="border-b border-border bg-surface px-4 py-2 lg:hidden">
         <summary className="flex cursor-pointer items-center gap-2 text-body text-ink-1">
           <Menu aria-hidden="true" size={16} />
-          {SHELL.navLabel}
+          {SHELL.menu}
         </summary>
         <nav aria-label={SHELL.navLabel} className="mt-2">
           <NavList role={persona.role} />

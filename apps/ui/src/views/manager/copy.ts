@@ -83,7 +83,7 @@ export const MANAGER = {
     policy: {
       title: 'Terms by quadrant',
       staticNote: 'Static summary of the rules version',
-      staticTail: 'until the API exposes the lever table (open question O-19).',
+      staticTail: ': each case card shows the levers the engine chose for that case.',
       futureOnly: 'Restrictive terms apply only to future orders and are shown at checkout; the order in progress keeps its terms.',
       days: 'day return window',
       legalMinimum: '(legal minimum)',
@@ -113,6 +113,7 @@ export const MANAGER = {
       savedAs: 'Saved as',
       conflictTail: 'is no longer the current version: another one was saved meanwhile. Your edits are kept; review the differences and save on top of it.',
       invalid: 'Every value must be a number of zero or more.',
+      eurDecimals: 'Euro amounts take at most two decimals (cents).',
     },
     fields: {
       logistics_returns_avoided: { label: 'Returns avoided', unit: 'returns' },
@@ -142,7 +143,7 @@ export const MANAGER = {
       risk: 'Risk threshold',
       value: 'Value threshold',
       reset: 'Reset to the engine thresholds',
-      previewOnly: 'Preview only: thresholds here do not change the engine and do not feed the net benefit (open question O-6).',
+      previewOnly: 'Preview only: thresholds here do not change the engine and do not feed the net benefit.',
       before: 'engine',
       after: 'sandbox',
       caption: 'Customers per quadrant at the engine thresholds and at the sandbox thresholds',
@@ -294,7 +295,9 @@ export const MANAGER = {
     dueTitle: 'Restrictions due for review',
     cols: { ret: 'Return · customer', terms: 'Terms for future orders', approved: 'Approved by', review: 'Review date', actions: 'Actions' },
     lapsedOn: 'Lapsed on',
-    lapsedTail: ': no longer applies to new orders. Renew or lift.',
+    // The tail follows the generated action enum: "Renew or lift" only once renew exists (UI17).
+    lapsedTail: (canRenew: boolean) =>
+      canRenew ? ': no longer applies to new orders. Renew or lift.' : ': no longer applies to new orders. Review it and lift it.',
     reviewLift: 'Review: lift…',
     reviewLiftRenew: 'Review: lift or renew…',
     openCase: 'Open case',

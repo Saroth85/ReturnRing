@@ -11,7 +11,7 @@ import { usePresent } from '@/app/display';
 import { useHotkeys } from '@/app/hotkeys';
 import { LeverList, OutcomeBadge } from '@/components/decision';
 import { ErrorState, LoadingBlock } from '@/components/feedback';
-import { DateText, Figure, IdText, ProvenanceScope } from '@/components/provenance';
+import { DateText, Figure, IdText, ProvenanceFooter, ProvenanceScope } from '@/components/provenance';
 import { Button } from '@/components/ui';
 import { OPERATOR } from '../copy';
 import { reasonLabel } from '../format';
@@ -59,6 +59,10 @@ function Header({ card }: { card: Side }) {
 
 function RateBand({ card }: { card: Side }) {
   const t = OPERATOR.compare;
+  const { lines, returned_lines: returned, return_rate: rate } = card.orders;
+  // The rate next to "6 of 11 lines" is that exact ratio (UI32): a rate rounded upstream to four
+  // decimals (0.5455) would print 54.6% beside counts that make 54.5%.
+  const shown = lines.value > 0 ? { ...rate, value: returned.value / lines.value } : rate;
   return (
     <ProvenanceScope
       provenance={card.orders.provenance}
@@ -66,10 +70,10 @@ function RateBand({ card }: { card: Side }) {
       className="flex flex-col items-center gap-1"
     >
       <span className="text-hero" data-compare-rate>
-        <Figure metric={card.orders.return_rate} label={t.returnRate} size="hero" />
+        <Figure metric={shown} label={t.returnRate} size="hero" />
       </span>
-      <span className="text-caption text-ink-2">
-        ({t.lines(String(card.orders.returned_lines.value), String(card.orders.lines.value))})
+      <span className="inline-flex flex-wrap items-center gap-1 text-caption text-ink-2">
+        ({t.lines(String(returned.value), String(lines.value))}) <ProvenanceFooter compact />
       </span>
     </ProvenanceScope>
   );
@@ -85,6 +89,7 @@ function Linked({ card }: { card: Side }) {
         {t.clusterOf(String(la.cluster_size))}
         <Figure metric={la.features.creation_spread_days} label={OPERATOR.linked.factLabels.creation_spread_days} />
         <IdText id={la.cluster_id} />
+        <ProvenanceFooter compact />
       </span>
     </ProvenanceScope>
   );

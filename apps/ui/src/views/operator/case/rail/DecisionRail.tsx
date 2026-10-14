@@ -35,10 +35,16 @@ function useFitToViewport(ref: RefObject<HTMLElement | null>): number | undefine
           setMaxHeight(undefined);
           return;
         }
-        const top = Math.max(el.getBoundingClientRect().top, 0);
-        // The cached or contract-examples corner tag sits at the bottom right: the rail ends above it.
-        const corner = document.querySelector<HTMLElement>('[data-mode-corner]');
-        const gap = corner ? Math.max(BOTTOM_GAP_PX, window.innerHeight - corner.getBoundingClientRect().top + CORNER_GAP_PX) : BOTTOM_GAP_PX;
+        const rect = el.getBoundingClientRect();
+        const top = Math.max(rect.top, 0);
+        // Whatever is fixed or sticky at the bottom over the rail's column (the presenter's demo
+        // rail, the mode corner tag) ends the rail above it, so the action bar stays visible (UI22).
+        let gap = BOTTOM_GAP_PX;
+        for (const obstacle of document.querySelectorAll<HTMLElement>('[data-demo-rail], [data-mode-corner]')) {
+          const o = obstacle.getBoundingClientRect();
+          const overColumn = o.right > rect.left && o.left < rect.right && o.height > 0;
+          if (overColumn && o.top < window.innerHeight) gap = Math.max(gap, window.innerHeight - o.top + CORNER_GAP_PX);
+        }
         setMaxHeight(Math.max(MIN_RAIL_PX, Math.round(window.innerHeight - top - gap)));
       });
     };
@@ -65,10 +71,17 @@ function ApprovalGate({ card }: { card: CaseCard }) {
       <UserCheck aria-hidden="true" size={18} className="mt-0.5 shrink-0" />
       <p>
         <strong className="font-semibold">{r.gateTitle}</strong> · {r.gateBody}
-        {decision.review_at && (
+        {decision.review_at ? (
           <>
             {' · '}
             {r.gateReview} <DateText value={decision.review_at} />
+          </>
+        ) : (
+          <>
+            {' · '}
+            <span className="font-medium" data-gate-no-review>
+              {r.gateNoReview}
+            </span>
           </>
         )}
         {coupons > 0 && (

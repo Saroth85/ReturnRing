@@ -4,7 +4,10 @@ import clsx from 'clsx';
 import { useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import type { DemoUserId } from '@/api/models';
+import { setPresent } from '@/app/display';
 import { setPersona } from '@/app/persona';
+import { ModeCornerTag } from '@/components/mode';
+import { Button } from '@/components/ui';
 import { PLATFORM } from '../copy';
 import { BEATS as beats, currentBeat } from './beats';
 
@@ -50,7 +53,15 @@ export function DemoRail() {
             </li>
           ))}
         </ol>
-        <span className="text-caption text-ink-3">{PLATFORM.demo.railKeys}</span>
+        <span className="flex flex-wrap items-center gap-3">
+          {/* The key hint is for the presenter: only on very wide screens, so the rail stays one line. */}
+          <span className="hidden text-caption text-ink-3 2xl:inline">{PLATFORM.demo.railKeys}</span>
+          <ModeCornerTag inline />
+          {/* Presenter mode persists for the session: the way out is always on screen (UI23). */}
+          <Button onClick={() => setPresent(false)} data-leave-presenter>
+            {PLATFORM.demo.leavePresenter}
+          </Button>
+        </span>
       </div>
     </nav>
   );

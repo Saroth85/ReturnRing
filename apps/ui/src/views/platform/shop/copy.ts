@@ -1,7 +1,6 @@
 // Simulated checkout strings (US-401..403, docs/ui-design.md 9.1). English; numbers come from data
 // or named constants. The shop pane is customer-facing: it never mentions risk, score, quadrant,
 // cluster, linked accounts or the model (docs/ui-design.md 10.2).
-import { CONTRACT_VERSION } from '@/api/contract.gen';
 import type { ReceiptField, TermKey } from './checkout';
 import type { PresetId } from './presets';
 
@@ -50,6 +49,7 @@ export const SHOP = {
   placing: 'Placing the order',
   orderPlaced: (id: string) => `Order ${id} placed.`,
   orderPlacedTail: 'The terms above are saved with your order.',
+  orderMismatch: 'The order answer does not match the terms shown above: it is not shown as placed. Start the cart again.',
   newCart: 'Start the test cart again',
   evaluating: 'Checking the terms for this cart',
   cartChanged: 'The cart changed: the terms below are checked again.',
@@ -69,10 +69,8 @@ export const SHOP = {
   noReviewDate: 'none: not a restriction',
   lapsed: (id: string) => `Terms source ${id} has lapsed; the shop base terms apply to new orders.`,
   inForce: 'In force for future orders (server state)',
-  lapseUnknown: `Lapse state not in contract ${CONTRACT_VERSION}: the review date is shown, the client never derives a lapse.`,
   record: {
     loading: 'Loading the decision record',
-    missing: (id: string) => `No decision record for ${id} in this data source.`,
     open: 'Open the decision record',
     approvedBy: 'approved by',
     noApprover: 'no approver needed: applies by itself and stays in the log',
@@ -138,6 +136,7 @@ export const SHOP = {
   latencyWithin: 'within the target',
   latencyAbove: 'above the target',
   latencyNote: 'measured in this browser',
+  latencyNoteMock: 'measured in this browser on the mock adapter (no API, no model): not a service timing',
   afterOrder: 'After the order',
   receiptOk: (id: string) => `The terms shown are the terms stored (${id}).`,
   receiptBad: 'The stored snapshot differs from the terms shown.',

@@ -29,9 +29,24 @@ function ToneWord({ tone, children }: { tone: ReadinessTone; children: string })
   );
 }
 
-/** "● Live · ready" in the page header (ok, attention or danger with words). */
+/**
+ * "● Live · ready" in the page header (ok, attention or danger with words). On the mock adapter
+ * the /readyz answer is a contract example: the pill says so in the cached hatch, never in the ok
+ * colour, so a cropped screenshot of /system never reads as a live service (UI12).
+ */
 export function ReadinessPill({ readyz }: { readyz: ReadyzResponse | undefined }) {
   if (!readyz) return null;
+  if (API_MODE === 'mock') {
+    return (
+      <span
+        className="hatch-cached inline-flex items-center gap-1.5 rounded-full border border-cached-stripe px-3 py-1 text-body font-medium"
+        data-readiness-pill="contract"
+      >
+        <CircleMinus aria-hidden="true" size={16} />
+        {s.contractPill(s.modeWord[readyz.mode] ?? readyz.mode)}
+      </span>
+    );
+  }
   const tone: ReadinessTone = readyz.status === 'ready' ? 'ok' : readyz.status === 'degraded' ? 'off' : 'fail';
   const Icon = TONE_ICON[tone];
   return (
@@ -56,16 +71,24 @@ export function ModeCard() {
   const meta = useApiMeta();
   const r = readyz.data;
   const agreement = r ? headerAgreement(r.mode, meta.lastMode) : 'unknown';
+  // On the mock adapter every fact below is the /readyz contract example (UI12).
+  const onMock = API_MODE === 'mock';
+  const example = (text: string) => (onMock ? `${s.examplePrefix} ${text}` : text);
   return (
     <Panel id="readiness" title={s.sections.readiness}>
       {readyz.isPending && <LoadingBlock rows={4} />}
       {readyz.isError && <ErrorState error={readyz.error} onRetry={() => void readyz.refetch()} title="GET /readyz" />}
+      {onMock && r && (
+        <p className="hatch-cached rounded-control px-2 py-1 text-caption" data-contract-example-note>
+          {s.exampleNote}
+        </p>
+      )}
       <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-2" data-mode-facts>
         <Fact label={s.liveness}>
           <span className="flex flex-wrap items-center gap-x-2">
             <span className="font-mono text-dense">GET /healthz</span>
             {healthz.data ? (
-              <ToneWord tone="ok">{`${healthz.data.status} · ${s.livenessOk}`}</ToneWord>
+              <ToneWord tone={onMock ? 'off' : 'ok'}>{`${healthz.data.status} · ${onMock ? s.livenessMock : s.livenessOk}`}</ToneWord>
             ) : healthz.isError ? (
               <ToneWord tone="fail">{s.livenessFailed}</ToneWord>
             ) : null}
@@ -74,15 +97,17 @@ export function ModeCard() {
         {r && (
           <>
             <Fact label={s.readiness}>
-              <ToneWord tone={r.status === 'ready' ? 'ok' : r.status === 'degraded' ? 'off' : 'fail'}>{s.status[r.status] ?? r.status}</ToneWord>
+              <ToneWord tone={onMock ? 'off' : r.status === 'ready' ? 'ok' : r.status === 'degraded' ? 'off' : 'fail'}>
+                {example(s.status[r.status] ?? r.status)}
+              </ToneWord>
             </Fact>
             <Fact label={s.mode}>
-              <span data-mode={r.mode}>{s.modeWord[r.mode] ?? r.mode}</span>
+              <span data-mode={r.mode}>{example(s.modeWord[r.mode] ?? r.mode)}</span>
             </Fact>
             <Fact label={s.llmMode}>
-              <span data-constant>{s.llmModes[r.llm_mode] ?? r.llm_mode}</span>
+              <span data-constant>{example(s.llmModes[r.llm_mode] ?? r.llm_mode)}</span>
             </Fact>
-            <Fact label={s.device}>{s.devices[r.device] ?? r.device}</Fact>
+            <Fact label={s.device}>{example(s.devices[r.device] ?? r.device)}</Fact>
             <Fact label={s.label}>{r.label ? <span data-constant>{r.label}</span> : <span className="text-ink-3">{s.noLabel}</span>}</Fact>
             <Fact label={s.header}>
               <span className="flex flex-wrap items-center gap-x-1" data-header-agreement={agreement}>
@@ -107,7 +132,7 @@ export function ModeCard() {
               {r.checks.map((check) => (
                 <li key={check.component} className="flex flex-wrap items-center gap-x-2 text-body" data-check={check.status} data-component={check.component}>
                   <span className="min-w-24 text-ink-1">{s.components[check.component] ?? check.component}</span>
-                  <ToneWord tone={readinessTone(check.status)}>{s.tone[readinessTone(check.status)]}</ToneWord>
+                  <ToneWord tone={onMock ? 'off' : readinessTone(check.status)}>{example(s.tone[readinessTone(check.status)])}</ToneWord>
                   {check.detail && (
                     <span className="text-caption text-ink-3" data-verbatim>
                       {check.detail}

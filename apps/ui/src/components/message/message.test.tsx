@@ -2,7 +2,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import type { CaseCard } from '@/api/models';
-import { MessagePreview } from '@/components/message';
+import { CompactMessage, MessagePreview } from '@/components/message';
 import { readExample } from '@/test/examples';
 
 const marco = readExample<CaseCard>('case_card.marco.json');
@@ -49,5 +49,19 @@ describe('MessagePreview', () => {
     expect(container.querySelector('b')).toBeNull();
     expect(container.textContent).toContain('<b>tutti</b>');
     expect(screen.getByText('No legal clause: terms are not restrictive.')).toBeInTheDocument();
+  });
+});
+
+describe('CompactMessage (UI15)', () => {
+  it('keeps every field and the full legal clause of the guarantee message, scrolling instead of cutting', () => {
+    const elena = readExample<CaseCard>('case_card.elena.json').draft?.messages.find((m) => m.lang === 'it');
+    if (!elena) throw new Error('case_card.elena.json has no Italian message');
+    const { container } = render(<CompactMessage message={elena} stored={elena.rendered_text} />);
+    const fields = Array.from(container.querySelectorAll('[data-template-field]'));
+    expect(fields.length).toBe((elena.connective_text.match(/\{(terms|amount|deadline)\}/g) ?? []).length);
+    const clause = container.querySelector('[data-legal-clause="guarantee"]') as HTMLElement;
+    expect(clause).not.toBeNull();
+    expect(elena.rendered_text.endsWith(clause.querySelector('p[lang="it"]')?.textContent ?? '∅')).toBe(true);
+    expect(container.textContent).not.toContain('…');
   });
 });

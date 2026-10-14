@@ -2,7 +2,7 @@
 // (adapters/mock.ts) and the Vite dev-server middleware (mock/returnring-mock.ts). Pure code: it
 // reads examples through an injected loader and returns a MockResult, never touching the DOM or
 // the file system. Relative imports only: the Vite config bundles this file too.
-import { DEMO_USERS, ENDPOINTS, QUERY_PARAMS } from '../contract.gen';
+import { CONTRACT_VERSION, DEMO_USERS, ENDPOINTS, QUERY_PARAMS } from '../contract.gen';
 import type { AgentEvent } from '../sse';
 import type { AuditPage, CaseCard, ErrorResponse, OutboxResponse, QueueItem, QueueResponse } from '../types.gen';
 import { UI_FIXTURE_SCENARIOS } from './fixtures';
@@ -296,27 +296,27 @@ export function createMockRouter(index: MockIndex, load: ExampleLoader, options:
 
     // Example lookup: method and concrete path, then scenario, then query or body keys.
     const samePath = index.routes.filter((r) => r.method === method && r.path === pathname);
-    let candidates = samePath;
-    let fallbackNote: string | null = null;
-    if (candidates.length === 0) {
-      candidates = index.routes.filter((r) => r.method === method && r.endpoint === endpoint.path);
-      if (method === 'GET' && endpoint.path.includes('{')) {
-        const notFound = (await load('error.not_found.json')) as ErrorResponse;
-        return reply(404, { kind: 'json', value: { ...notFound, message: `${pathname} not found (no contract example for it)`, request_id: requestId } }, 'error.not_found.json', 'no example for this id');
-      }
-      if (candidates.length > 0) fallbackNote = `no example for ${pathname}; served the first example of ${endpoint.path}`;
-    }
-    if (candidates.length === 0) {
+    const endpointRoutes = index.routes.filter((r) => r.method === method && r.endpoint === endpoint.path);
+    const notFoundReply = async (note: string, message?: string) => {
       const notFound = (await load('error.not_found.json')) as ErrorResponse;
-      return reply(404, { kind: 'json', value: { ...notFound, request_id: requestId } }, 'error.not_found.json', 'no example for this route');
-    }
-    const inScenario = candidates.filter((r) => r.scenario === scenario);
-    const pool = inScenario.length > 0 ? inScenario : candidates.filter((r) => r.scenario === 'default');
-    const choices = pool.length > 0 ? pool : candidates;
+      return reply(404, { kind: 'json', value: { ...notFound, ...(message ? { message } : {}), request_id: requestId } }, 'error.not_found.json', note);
+    };
 
     let chosen: MockRoute | null = null;
     let filterQuery: Record<string, unknown> | null = null;
     if (method === 'GET') {
+      let candidates = samePath;
+      let fallbackNote: string | null = null;
+      if (candidates.length === 0) {
+        if (endpoint.path.includes('{')) return notFoundReply('no example for this id', `${pathname} not found (no contract example for it)`);
+        candidates = endpointRoutes;
+        if (candidates.length > 0) fallbackNote = `no example for ${pathname}; served the first example of ${endpoint.path}`;
+      }
+      if (candidates.length === 0) return notFoundReply('no example for this route');
+      // The requested scenario, else the default one: never a route of another scenario.
+      const inScenario = candidates.filter((r) => r.scenario === scenario);
+      const choices = inScenario.length > 0 ? inScenario : candidates.filter((r) => r.scenario === 'default');
+      if (choices.length === 0) return notFoundReply(`no example in the ${scenario} scenario`);
       const model = endpoint.query as QueryModel | null;
       const normalised = model ? normaliseQuery(model, url.searchParams) : null;
       if (normalised) {
@@ -339,30 +339,40 @@ export function createMockRouter(index: MockIndex, load: ExampleLoader, options:
         chosen = choices[0] ?? null;
         if (chosen && url.searchParams.toString() !== '') notes.push(`no example for this query; served ${chosen.response}`);
       }
+      if (fallbackNote) notes.push(fallbackNote);
     } else {
+      // Writes (UI2): an error example is served only when its request matches the body or its
+      // scenario was asked for. Otherwise a success example of the same endpoint, with a note, so
+      // a valid action is never answered with a refusal that belongs to another request.
       const keyOf = BODY_KEYS[key];
-      if (keyOf) {
-        const wanted = keyOf(body);
-        for (const r of choices) {
-          if (!r.request) continue;
-          if (sameValue(wanted, keyOf((await load(r.request)) as Record<string, unknown>))) {
-            chosen = r;
-            break;
-          }
+      const wanted = keyOf ? keyOf(body) : undefined;
+      const matches = async (r: MockRoute) =>
+        keyOf ? r.request !== null && sameValue(wanted, keyOf((await load(r.request)) as Record<string, unknown>)) : true;
+      const firstOf = async (routes: MockRoute[], ok: (r: MockRoute) => Promise<boolean> | boolean) => {
+        for (const r of routes) if (await ok(r)) return r;
+        return null;
+      };
+      const asked = scenario === 'default' ? [] : samePath.filter((r) => r.scenario === scenario);
+      const askedEndpoint = scenario === 'default' ? [] : endpointRoutes.filter((r) => r.scenario === scenario);
+      const defaults = samePath.filter((r) => r.scenario === 'default');
+      chosen =
+        (await firstOf(asked, (r) => r.request === null || matches(r))) ??
+        (await firstOf(askedEndpoint, (r) => r.request === null || matches(r))) ??
+        (await firstOf(defaults, async (r) => (keyOf ? matches(r) : r.status < 400))) ??
+        null;
+      if (!chosen) {
+        const successes = endpointRoutes.filter((r) => r.scenario === 'default' && r.status < 400);
+        chosen = (await firstOf(successes, matches)) ?? successes[0] ?? null;
+        if (chosen) {
+          const where = chosen.path === pathname ? '' : ` (an example for ${chosen.path})`;
+          notes.push(`no example for this request body on ${pathname}; served ${chosen.response}${where}`);
         }
-        if (!chosen) {
-          chosen = choices.find((c) => !c.request) ?? choices[0] ?? null;
-          if (chosen) notes.push(`no example for this request body; served ${chosen.response}`);
-        }
-      } else {
-        chosen = choices[0] ?? null;
       }
     }
     if (!chosen) {
       const notFound = (await load('error.not_found.json')) as ErrorResponse;
       return reply(404, { kind: 'json', value: { ...notFound, request_id: requestId } }, 'error.not_found.json', 'no example matched');
     }
-    if (fallbackNote) notes.push(fallbackNote);
 
     const example = await load(chosen.response);
 
@@ -390,6 +400,11 @@ export function createMockRouter(index: MockIndex, load: ExampleLoader, options:
         value = filterQueue(base, filterQuery);
         notes.push('filtered by the mock with QueueQuery.matches');
       }
+    }
+    if (endpoint.path === '/readyz' && scenario === 'contract_mismatch') {
+      const [major = '1', minor = '0'] = CONTRACT_VERSION.split('.');
+      value = { ...(value as object), contract_version: `${major}.${Number(minor) + 1}.0` };
+      notes.push('UI fixture: another contract version');
     }
     if (endpoint.path === '/api/returns/{return_id}' && method === 'GET' && scenario === 'draft_pending' && chosen.status === 200) {
       value = { ...(value as CaseCard), draft: null, draft_status: 'pending' };

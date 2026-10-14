@@ -7,7 +7,7 @@ import clsx from 'clsx';
 import { CircleDashed, Gauge } from 'lucide-react';
 import type { ReactNode } from 'react';
 import type { Benchmark } from '@/api/models';
-import { DateText, Figure, NatureMark, PlainNumber, ProvenanceScope } from '@/components/provenance';
+import { DateText, Figure, NatureMark, PlainNumber, ProvenanceFooter, ProvenanceScope } from '@/components/provenance';
 import { UNIT_WORDS } from '@/format';
 import { barFraction, resultCharts, speedups, type BenchmarkResult, type MetricBars } from './benchmarks';
 import { SYSTEM } from './copy';
@@ -78,6 +78,7 @@ function Qualifiers({ result }: { result: BenchmarkResult }) {
             {part}
           </span>
         ))}
+        <ProvenanceFooter compact />
       </span>
     </ProvenanceScope>
   );

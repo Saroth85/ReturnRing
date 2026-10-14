@@ -63,7 +63,8 @@ export function AssistantDrawer({ conversation, returnId, open, onOpenChange, on
               null;
             if (target) {
               event.preventDefault();
-              target.focus();
+              // Never scrolls: a cited ref may be scrolling the card to its target right now.
+              target.focus({ preventScroll: true });
             }
           }}
           onCloseAutoFocus={(event) => {
@@ -74,9 +75,14 @@ export function AssistantDrawer({ conversation, returnId, open, onOpenChange, on
               event.preventDefault();
               return;
             }
-            if (back?.isConnected) {
+            // Back to the element that opened the drawer; when it is gone or was the page itself
+            // (the I shortcut), to the "Ask about this case" button (UI24, WCAG 2.4.3).
+            const usable = back?.isConnected && back !== document.body && back.id !== 'main' ? back : null;
+            const target = usable ?? document.querySelector<HTMLElement>('[data-ask-button]');
+            if (target) {
               event.preventDefault();
-              back.focus();
+              // Never scrolls: a cited ref may be scrolling the card to its target right now.
+              target.focus({ preventScroll: true });
             }
           }}
         >

@@ -1,18 +1,19 @@
 // The decision sheets (docs/ui-design.md 6.3.2, 6.3.4, 6.3.5): approve a restriction, override
 // the proposal, reject it, review a restriction (lift, or renew when the contract has it). Each
-// sends the decision_id it was shown and the acting person; each needs a reason except approve.
+// sends the decision it was shown (`shown`, snapshotted when the sheet opened, UI38) and the acting
+// person; each needs a reason except approve. A newer version blocks the confirm until loaded.
 import { Check } from 'lucide-react';
 import { useState } from 'react';
 import { LEGAL_MINIMUM_WINDOW_DAYS, OVERRIDE_CATEGORIES } from '@/api/contract.gen';
 import { HAS_RENEW } from '@/api/models';
-import type { DecisionResult, Lever } from '@/api/models';
+import type { DecisionResult, DecisionView, Lever } from '@/api/models';
 import { usePersona } from '@/app/persona';
 import { InlineNotice } from '@/components/feedback';
 import { LEVER_COPY, LeverList, RestrictionBadge, TERMS_COPY, TermsDiff, leverLabel } from '@/components/decision';
 import { MessagePreview } from '@/components/message';
 import { DateText, IdText } from '@/components/provenance';
 import { Kbd } from '@/components/ui';
-import { termsRows } from '@/domain/decision';
+import { overrideLock, termsRows, type OverrideLock } from '@/domain/decision';
 import {
   hasRestrictiveLever,
   leverDirection,
@@ -30,7 +31,8 @@ import { Sheet } from '../../ui/Sheet';
 import { reasonValid } from '../../ui/validation';
 import { useCaseUi } from '../context';
 import { ActionError } from './ActionError';
-import { ActingAs, CaseIdsLine, ConfirmFooter, StaleOnOpen } from './common';
+import { ActingAs, CaseIdsLine, ConfirmFooter, StaleDecisionPanel } from './common';
+import { useNewerVersion } from './useNewerVersion';
 import { useDecisionAction } from './useDecisionAction';
 
 export interface DecisionSheetProps {
@@ -40,8 +42,8 @@ export interface DecisionSheetProps {
   onReload(): void;
   /** What changed after a reload (stale decision), if anything was reloaded. */
   changes: string[] | null;
-  /** The card changed between showing and opening the sheet. */
-  staleOnOpen: string | null;
+  /** The decision on screen when the sheet opened: the request is built from it (UI38). */
+  shown: DecisionView;
 }
 
 function MessageChoice() {
@@ -64,17 +66,21 @@ function MessageChoice() {
 
 // ---------------------------------------------------------------------------------------------
 
-export function ApproveRestrictionSheet({ open, onOpenChange, onDone, onReload, changes, staleOnOpen }: DecisionSheetProps) {
+export function ApproveRestrictionSheet({ open, onOpenChange, onDone, onReload, changes, shown }: DecisionSheetProps) {
   const { card, sendLang, openSheet, gates, draftPending } = useCaseUi();
   const persona = usePersona();
   const action = useDecisionAction(card, onDone);
+  const newer = useNewerVersion(shown);
   const [ack, setAck] = useState(false);
   const t = OPERATOR.sheets.approve;
-  const d = card.decision;
+  const d = shown;
   const rows = termsRows(d.current_return_terms, d.future_terms, d.levers);
   const unchanged = rows.filter((r) => r.change === 'same' && r.future === true);
   const rule = d.coupon_rule;
   const reasons = [
+    ...(newer ? [OPERATOR.sheets.staleReason] : []),
+    // Rule 5: a restriction is approved only with its review date (the server checks it too).
+    ...(!d.review_at ? [t.noReviewDate] : []),
     ...(rule && !ack ? [t.couponRequired] : []),
     ...(draftPending ? [OPERATOR.actions.draftPendingReason] : []),
     ...(!gates.decide.allowed && gates.decideNote ? [gates.decideNote] : []),
@@ -92,7 +98,7 @@ export function ApproveRestrictionSheet({ open, onOpenChange, onDone, onReload, 
         onOpenChange(next);
       }}
       title={t.title}
-      description={<CaseIdsLine />}
+      description={<CaseIdsLine decision={d} />}
       onConfirm={confirm}
       footer={
         <ConfirmFooter
@@ -107,7 +113,7 @@ export function ApproveRestrictionSheet({ open, onOpenChange, onDone, onReload, 
       }
     >
       <div className="flex flex-col gap-4">
-        <StaleOnOpen message={staleOnOpen} />
+        <StaleDecisionPanel shown={d} onReload={onReload} changes={changes} />
         <section className="flex flex-col gap-2">
           <h3 className="text-title">{t.changes}</h3>
           <TermsDiff
@@ -141,9 +147,13 @@ export function ApproveRestrictionSheet({ open, onOpenChange, onDone, onReload, 
           </ul>
         </section>
         <p className="text-body">{t.whenShown}</p>
-        <p className="text-body">
-          {t.untilWhen} {d.review_at && <DateText value={d.review_at} className="font-medium" />} · {t.lapses}
-        </p>
+        {d.review_at ? (
+          <p className="text-body">
+            {t.untilWhen} <DateText value={d.review_at} className="font-medium" /> · {t.lapses}
+          </p>
+        ) : (
+          <InlineNotice tone="attention">{t.noReviewDate}</InlineNotice>
+        )}
         {rule && (
           <div className="flex flex-col gap-2 rounded-control border-2 border-attn-border p-3" data-coupon-ack>
             <label className="flex items-start gap-2 text-body">
@@ -181,7 +191,7 @@ export function ApproveRestrictionSheet({ open, onOpenChange, onDone, onReload, 
 // ---------------------------------------------------------------------------------------------
 
 /** The lever editor of the override sheet (docs/ui-design.md 6.3.4). */
-function LeverEditor({ values, onChange, guarantee }: { values: LeverValues; onChange(values: LeverValues): void; guarantee: boolean }) {
+function LeverEditor({ values, onChange, lock }: { values: LeverValues; onChange(values: LeverValues): void; lock: OverrideLock | null }) {
   const { card } = useCaseUi();
   const base = card.order_terms.base_terms;
   const o = OPERATOR.sheets.override;
@@ -189,6 +199,11 @@ function LeverEditor({ values, onChange, guarantee }: { values: LeverValues; onC
   return (
     <fieldset className="flex flex-col divide-y divide-border rounded-control border border-border" data-lever-editor>
       <legend className="mb-1 text-title">{o.levers}</legend>
+      {lock === 'insufficient' && (
+        <p className="px-3 py-2 text-body text-ink-2" data-insufficient-lock>
+          {o.insufficientLocked}
+        </p>
+      )}
       {LEVER_SPECS.map((spec) => {
         const value = values[spec.id];
         const direction = leverDirection({ id: spec.id, value }, base);
@@ -199,6 +214,9 @@ function LeverEditor({ values, onChange, guarantee }: { values: LeverValues; onC
           ) : direction === 'more' ? (
             <span className="text-micro uppercase text-ink-3">{LEVER_COPY.moreGenerous}</span>
           ) : null;
+        const guarantee = lock === 'guarantee';
+        // Not enough evidence: every lever stays at the base terms (US-307, UI13).
+        const frozen = lock === 'insufficient';
         if (spec.valueType === 'integer') {
           const min = guarantee ? Math.max(LEGAL_MINIMUM_WINDOW_DAYS, Number(base.return_window_days)) : LEGAL_MINIMUM_WINDOW_DAYS;
           return (
@@ -209,30 +227,33 @@ function LeverEditor({ values, onChange, guarantee }: { values: LeverValues; onC
                 min={min}
                 step={1}
                 value={Number(value)}
+                disabled={frozen}
                 onChange={(e) => set(spec.id, Math.max(min, Math.round(Number(e.target.value) || min)))}
                 className="w-20 rounded-control border border-border-strong bg-surface px-2 py-1"
-                aria-describedby={`hint-${spec.id}`}
+                aria-describedby={frozen ? undefined : `hint-${spec.id}`}
               />
               <span className="text-caption text-ink-3">{o.days}</span>
               <span className="text-micro uppercase text-ink-3">· {scope}</span>
               {tag}
-              <span id={`hint-${spec.id}`} className="basis-full text-caption text-ink-3">
-                {guarantee ? o.notOnGuarantee : o.windowHint}
-              </span>
+              {!frozen && (
+                <span id={`hint-${spec.id}`} className="basis-full text-caption text-ink-3">
+                  {guarantee ? o.notOnGuarantee : o.windowHint}
+                </span>
+              )}
             </label>
           );
         }
         const checked = value === true;
         // On the guarantee path every change less generous than the base is disabled (rule 4).
         const wouldRestrict = leverDirection({ id: spec.id, value: !checked }, base) === 'less';
-        const locked = guarantee && wouldRestrict && direction !== 'less';
+        const locked = frozen || (guarantee && wouldRestrict && direction !== 'less');
         return (
           <label key={spec.id} className="flex flex-wrap items-center gap-2 px-3 py-2 text-body" data-lever-row={spec.id}>
             <input type="checkbox" checked={checked} disabled={locked} onChange={(e) => set(spec.id, e.target.checked)} />
             <span>{LEVER_COPY.label[spec.id as Exclude<LeverId, 'return_window_days'>].true}</span>
             <span className="text-micro uppercase text-ink-3">· {scope}</span>
             {tag}
-            {locked && <span className="basis-full text-caption text-ink-3">{o.notOnGuarantee}</span>}
+            {locked && !frozen && <span className="basis-full text-caption text-ink-3">{o.notOnGuarantee}</span>}
           </label>
         );
       })}
@@ -246,32 +267,44 @@ export function OverrideSheet({
   onDone,
   onReload,
   changes,
-  staleOnOpen,
+  shown,
   prefill,
 }: DecisionSheetProps & { prefill?: Lever[] }) {
   const { card, sendLang, gates, draftPending } = useCaseUi();
   const persona = usePersona();
   const action = useDecisionAction(card, onDone);
-  const d = card.decision;
+  const newer = useNewerVersion(shown);
+  const d = shown;
   const base = card.order_terms.base_terms;
   const o = OPERATOR.sheets.override;
+  const lock = overrideLock({ path: card.path, decision: d });
   const starts = [
     { key: 'proposal', label: o.proposal, levers: d.proposed_levers },
     ...card.alternatives
       .filter((a) => a.kind !== 'proposal')
       .map((a) => ({ key: a.kind, label: OPERATOR.alternatives.kinds[a.kind] ?? a.kind, levers: a.levers })),
   ];
-  const initial = prefill ?? d.proposed_levers;
+  // Not enough evidence: the editor starts and stays on the base terms, whatever the prefill (UI13).
+  const initial = lock === 'insufficient' ? [] : (prefill ?? d.proposed_levers);
   const [start, setStart] = useState(() => starts.find((s) => sameLevers(s.levers, initial))?.key ?? 'proposal');
   const [values, setValues] = useState<LeverValues>(() => leverValues(initial, base));
+  // "Load the new version" moves the sheet onto the new decision: the levers start again from its
+  // proposal, the reason and the category stay (docs/ui-design.md 6.4).
+  const [basedOn, setBasedOn] = useState(d.decision_id);
+  if (basedOn !== d.decision_id) {
+    setBasedOn(d.decision_id);
+    setStart('proposal');
+    setValues(leverValues(lock === 'insufficient' ? [] : d.proposed_levers, base));
+  }
   const [reason, setReason] = useState('');
   const [category, setCategory] = useState<OverrideCategory | ''>('');
   const [tried, setTried] = useState(false);
   const levers = leversFromValues(values, base);
   const restrictive = hasRestrictiveLever(levers, base);
   const asProposal = sameLevers(levers, d.proposed_levers);
-  const guarantee = card.path === 'guarantee';
   const reasons = [
+    ...(newer ? [OPERATOR.sheets.staleReason] : []),
+    ...(lock === 'insufficient' && levers.length > 0 ? [o.insufficientLocked] : []),
     ...(asProposal ? [o.noChange] : []),
     ...(!reasonValid(reason) ? [OPERATOR.sheets.reasonTooShort] : []),
     ...(category === '' ? [OPERATOR.sheets.chooseCategory] : []),
@@ -292,7 +325,7 @@ export function OverrideSheet({
         onOpenChange(next);
       }}
       title={o.title}
-      description={<CaseIdsLine />}
+      description={<CaseIdsLine decision={d} />}
       onConfirm={confirm}
       dirty={reason.trim().length > 0}
       footer={
@@ -308,13 +341,14 @@ export function OverrideSheet({
       }
     >
       <div className="flex flex-col gap-4">
-        <StaleOnOpen message={staleOnOpen} />
+        <StaleDecisionPanel shown={d} onReload={onReload} changes={changes} />
         {action.error ? <ActionError error={action.error} onLoadNew={onReload} onShowCurrent={onReload} changes={changes} /> : null}
         {action.mismatch && <InlineNotice tone="attention">{action.mismatch}</InlineNotice>}
         <label className="flex flex-col gap-1 text-body">
           <span className="font-medium">{o.startFrom}</span>
           <select
             value={start}
+            disabled={lock === 'insufficient'}
             onChange={(e) => {
               const chosen = starts.find((s) => s.key === e.target.value);
               setStart(e.target.value);
@@ -329,7 +363,7 @@ export function OverrideSheet({
             ))}
           </select>
         </label>
-        <LeverEditor values={values} onChange={setValues} guarantee={guarantee} />
+        <LeverEditor values={values} onChange={setValues} lock={lock} />
         <div className="rounded-control border border-border bg-surface-2 px-3 py-2 text-caption text-ink-2" data-guard-preview>
           <p className="font-medium text-ink-1">{o.guardTitle}</p>
           <ul className="list-disc pl-5" data-constant>
@@ -356,15 +390,17 @@ export function OverrideSheet({
 
 // ---------------------------------------------------------------------------------------------
 
-export function RejectSheet({ open, onOpenChange, onDone, onReload, changes, staleOnOpen }: DecisionSheetProps) {
+export function RejectSheet({ open, onOpenChange, onDone, onReload, changes, shown }: DecisionSheetProps) {
   const { card, sendLang, gates, draftPending } = useCaseUi();
   const persona = usePersona();
   const action = useDecisionAction(card, onDone);
+  const newer = useNewerVersion(shown);
   const [reason, setReason] = useState('');
   const [category, setCategory] = useState<OverrideCategory | ''>('');
   const [tried, setTried] = useState(false);
   const r = OPERATOR.sheets.reject;
   const reasons = [
+    ...(newer ? [OPERATOR.sheets.staleReason] : []),
     ...(!reasonValid(reason) ? [OPERATOR.sheets.reasonTooShort] : []),
     ...(category === '' ? [OPERATOR.sheets.chooseCategory] : []),
     ...(draftPending ? [OPERATOR.actions.draftPendingReason] : []),
@@ -373,7 +409,7 @@ export function RejectSheet({ open, onOpenChange, onDone, onReload, changes, sta
   const confirm = () => {
     setTried(true);
     if (reasons.length > 0 || action.pending || category === '') return;
-    action.submit(withoutLeversBody('reject', card.decision, reason, category, sendLang, persona.id));
+    action.submit(withoutLeversBody('reject', shown, reason, category, sendLang, persona.id));
   };
   return (
     <Sheet
@@ -384,7 +420,7 @@ export function RejectSheet({ open, onOpenChange, onDone, onReload, changes, sta
         onOpenChange(next);
       }}
       title={r.title}
-      description={<CaseIdsLine />}
+      description={<CaseIdsLine decision={shown} />}
       onConfirm={confirm}
       dirty={reason.trim().length > 0}
       footer={
@@ -399,7 +435,7 @@ export function RejectSheet({ open, onOpenChange, onDone, onReload, changes, sta
       }
     >
       <div className="flex flex-col gap-4">
-        <StaleOnOpen message={staleOnOpen} />
+        <StaleDecisionPanel shown={shown} onReload={onReload} changes={changes} />
         <p className="text-body text-ink-1">{r.body}</p>
         <CategorySelect value={category} onChange={setCategory} showError={tried} />
         <ReasonField value={reason} onChange={setReason} showError={tried} />
@@ -416,17 +452,19 @@ export function RejectSheet({ open, onOpenChange, onDone, onReload, changes, sta
 
 const REVIEW_CATEGORIES = OVERRIDE_CATEGORIES.filter((c) => c === 'periodic_review' || c === 'customer_context');
 
-export function ReviewSheet({ open, onOpenChange, onDone, onReload, changes, staleOnOpen }: DecisionSheetProps) {
+export function ReviewSheet({ open, onOpenChange, onDone, onReload, changes, shown }: DecisionSheetProps) {
   const { card, sendLang, gates, draftPending } = useCaseUi();
   const persona = usePersona();
   const action = useDecisionAction(card, onDone);
+  const newer = useNewerVersion(shown);
   const [choice, setChoice] = useState<'lift' | 'renew'>('lift');
   const [reason, setReason] = useState('');
   const [category, setCategory] = useState<OverrideCategory | ''>('periodic_review');
   const [tried, setTried] = useState(false);
   const v = OPERATOR.sheets.review;
-  const d = card.decision;
+  const d = shown;
   const reasons = [
+    ...(newer ? [OPERATOR.sheets.staleReason] : []),
     ...(!reasonValid(reason) ? [OPERATOR.sheets.reasonTooShort] : []),
     ...(category === '' ? [OPERATOR.sheets.chooseCategory] : []),
     ...(choice === 'renew' && !HAS_RENEW ? [v.choose] : []),
@@ -450,7 +488,7 @@ export function ReviewSheet({ open, onOpenChange, onDone, onReload, changes, sta
         onOpenChange(next);
       }}
       title={v.title}
-      description={<CaseIdsLine />}
+      description={<CaseIdsLine decision={d} />}
       onConfirm={confirm}
       dirty={reason.trim().length > 0}
       footer={
@@ -465,7 +503,7 @@ export function ReviewSheet({ open, onOpenChange, onDone, onReload, changes, sta
       }
     >
       <div className="flex flex-col gap-4">
-        <StaleOnOpen message={staleOnOpen} />
+        <StaleDecisionPanel shown={d} onReload={onReload} changes={changes} />
         <section className="flex flex-col gap-2 rounded-control border border-border p-3">
           <h3 className="text-title">{v.restriction}</h3>
           <LeverList levers={d.levers} base={card.order_terms.base_terms} />

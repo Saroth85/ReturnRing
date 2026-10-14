@@ -1,9 +1,12 @@
 // Mode banner (US-901, docs/ui-design.md 5.2): live and cached are never confused, and the banner
 // is always there in cached mode.
-import { cleanup, screen, waitFor, within } from '@testing-library/react';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
+import { CONTRACT_VERSION } from '@/api/contract.gen';
 import { metaStore, resetModesSeen } from '@/api/meta';
 import type { ReadyzResponse } from '@/api/models';
+import { createQueryClient, queryKeys } from '@/api/queries';
 import { setScenario } from '@/api/scenario';
 import { describeMode, ModeBanner, ModeCornerTag } from '@/components/mode';
 import { readExample } from '@/test/examples';
@@ -101,5 +104,32 @@ describe('ModeBanner on the mock adapter', () => {
     expect(banner.className).not.toContain('hidden');
     expect(document.querySelector('[data-mode-corner]')?.textContent).toMatch(/Cached demo/);
     expect(metaStore.get().lastMode).toBe('cached');
+  });
+});
+
+describe('ContractVersionNotice (UI1)', () => {
+  function renderWithReadyz(readyz: ReadyzResponse) {
+    const client = createQueryClient();
+    client.setDefaultOptions({ queries: { retry: false, refetchInterval: false, refetchOnWindowFocus: false, staleTime: Infinity } });
+    client.setQueryData(queryKeys.readyz, readyz);
+    return render(
+      <QueryClientProvider client={client}>
+        <ModeBanner />
+      </QueryClientProvider>,
+    );
+  }
+
+  it('shows a visible notice when the API serves another contract version', async () => {
+    renderWithReadyz({ ...live, contract_version: '1.4.0' });
+    const notice = await screen.findByRole('alert');
+    expect(notice).toHaveAttribute('data-contract-mismatch', '1.4.0');
+    expect(notice.textContent).toContain('1.4.0');
+    expect(notice.textContent).toContain(CONTRACT_VERSION);
+  });
+
+  it('stays silent on the same version', async () => {
+    renderWithReadyz({ ...live, contract_version: CONTRACT_VERSION });
+    await screen.findByRole('region', { name: 'Service mode' });
+    expect(document.querySelector('[data-contract-mismatch]')).toBeNull();
   });
 });

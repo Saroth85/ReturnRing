@@ -16,7 +16,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const CONTRACTS = path.resolve(ROOT, '../../contracts');
+// RETURNRING_CONTRACTS_DIR points the generator at another checkout's contracts/ (to try a
+// pending contract version before it lands); the default is the repository's own.
+const CONTRACTS = path.resolve(process.env.RETURNRING_CONTRACTS_DIR || path.resolve(ROOT, '../../contracts'));
 const SCHEMA_DIR = path.join(CONTRACTS, 'json/api');
 const OUT = path.join(ROOT, 'src/api/contract.gen.ts');
 const check = process.argv.includes('--check');
@@ -70,9 +72,35 @@ function enumOf(schema, where) {
 
 const enumAt = (defName, propertyPath) => enumOf(at(defName, `properties.${propertyPath}`), `${defName}.${propertyPath}`);
 
+/** The first of several contract paths that exists, for a value a later contract moved. */
+function enumAtFirst(...paths) {
+  for (const [defName, propertyPath] of paths) {
+    if (defs[defName]?.properties && propertyPath in defs[defName].properties) return enumAt(defName, propertyPath);
+  }
+  throw new Error(`contract: none of ${paths.map((p) => p.join('.')).join(', ')} exists`);
+}
+
+/**
+ * The lever schema: the `Lever` definition when the contract names one (1.1.0), otherwise the
+ * items of a `levers` array (later contracts inline the lever into each list).
+ */
+function leverSchema() {
+  if (defs.Lever) return resolve(defs.Lever);
+  for (const name of Object.keys(defs).sort()) {
+    const levers = defs[name]?.properties?.levers;
+    if (!levers) continue;
+    for (const branch of [levers, ...(levers.anyOf ?? [])].map(resolve)) {
+      const items = branch?.items ? resolve(branch.items) : null;
+      if (items?.properties?.id && items?.properties?.scope) return items;
+    }
+  }
+  throw new Error('contract: no lever schema (neither a Lever definition nor a levers array)');
+}
+const LEVER = leverSchema();
+
 /** The minimum of the return window from the lever catalogue rule (if id is return_window_days). */
 function legalMinimumWindowDays() {
-  for (const rule of defs.Lever?.allOf ?? []) {
+  for (const rule of LEVER.allOf ?? []) {
     if (rule.if?.properties?.id?.const === 'return_window_days') {
       const min = rule.then?.properties?.value?.minimum;
       if (typeof min === 'number') return min;
@@ -161,11 +189,11 @@ const constants = [
   ['REVISION_TRIGGERS', 'DecisionView.revision_trigger', enumAt('DecisionView', 'revision_trigger')],
   ['EVIDENCE_KINDS', 'EvidenceRequest.kind', enumAt('EvidenceRequest', 'kind')],
   ['AUDIT_ACTIONS', 'AuditEntry.action', auditActions],
-  ['LEVER_IDS', 'Lever.id', enumAt('Lever', 'id')],
-  ['LEVER_SCOPES', 'Lever.scope', enumAt('Lever', 'scope')],
+  ['LEVER_IDS', 'Lever.id', enumOf(LEVER.properties.id, 'Lever.id')],
+  ['LEVER_SCOPES', 'Lever.scope', enumOf(LEVER.properties.scope, 'Lever.scope')],
   ['METRIC_UNITS', 'Metric.unit', enumAt('Metric', 'unit')],
   ['NATURES', 'Provenance.nature', enumAt('Provenance', 'nature')],
-  ['MESSAGE_LANGS', 'CustomerMessageView.lang', enumAt('CustomerMessageView', 'lang')],
+  ['MESSAGE_LANGS', 'CustomerMessageView.lang', enumAtFirst(['CustomerMessageView', 'lang'], ['MessageChoice', 'lang'])],
   ['LEGAL_CLAUSE_KINDS', 'CustomerMessageView.legal_clause_kind', enumAt('CustomerMessageView', 'legal_clause_kind')],
   ['DRAFT_TONES', 'DraftView.tone', enumAt('DraftView', 'tone')],
   ['STATEMENT_LABELS', 'ExplanationStatement.label', enumAt('ExplanationStatement', 'label')],

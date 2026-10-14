@@ -2,6 +2,7 @@ import clsx from 'clsx';
 import { TriangleAlert } from 'lucide-react';
 import { useLayoutEffect, useRef } from 'react';
 import { MODE } from '@/copy/common';
+import { ContractVersionNotice } from './ContractVersionNotice';
 import { ScenarioSwitcher } from './ScenarioSwitcher';
 import { useModeView, type ModeKind } from './useModeView';
 
@@ -63,6 +64,7 @@ export function ModeBanner() {
           ))}
         </div>
       )}
+      <ContractVersionNotice />
     </section>
   );
 }

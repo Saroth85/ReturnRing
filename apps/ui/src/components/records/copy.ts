@@ -113,5 +113,7 @@ export const RECORDS = {
     cancel: 'Cancel',
     done: 'Coupon pause reversed',
     nothingSaved: 'Nothing was saved.',
+    mismatch: (got: string, want: string) =>
+      `The answer names ${got}, not ${want}: this pause is not shown as reversed. Load the coupon rules again.`,
   },
 };

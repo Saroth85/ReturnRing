@@ -31,13 +31,16 @@ RETURNRING_API_URL=mock npm run dev:live   # live adapter against the examples s
 | `npm run typecheck` | `tsc -b` over the app, the tests and the configs |
 | `npm run lint` | ESLint with jsx-a11y, react-hooks and the import boundaries between view areas |
 | `npm test` | Vitest + Testing Library (happy-dom) |
-| `npm run test:e2e` | Playwright smoke in mock mode; `SCREENSHOT_DIR=<dir>` saves one screenshot per route |
+| `npm run test:e2e` | Playwright on a mock build (`build:mock` served by `vite preview`, so no test waits on on-demand transforms); `UI_E2E_SERVER=dev` uses the dev server, `UI_E2E_PORT` picks the port, `SCREENSHOT_DIR=<dir>` saves one screenshot per route |
 | `npm run check:licenses` | Runtime tree MIT, BSD, Apache-2.0 or ISC; dev tree also PSF, PostgreSQL, MPL-2.0, CC-BY-4.0 |
-| `npm run build` | Typecheck, production build in live mode, then a check that no contract example is bundled |
+| `npm run build` | Typecheck of the app and the configs, production build in live mode, then `scripts/check-bundle.mjs`: no mock marker, no example or mock module in the source maps, and (in a repo checkout) no string of `contracts/examples/api` in any file of `dist/`, `.map` files included |
 | `npm run check` | All of the above except the e2e tests |
 
 A contract bump starts with `npm run gen:types && npm run typecheck`: components import
 `src/api/models.ts`, never the generated files, so only adapters and models break.
+`RETURNRING_CONTRACTS_DIR=<checkout>/contracts node scripts/gen-contract.mjs` tries another
+contract checkout first. At runtime the shell compares `/readyz` `contract_version` with
+`CONTRACT_VERSION` and shows a "Contract mismatch" line when the major or minor differs.
 
 ## Layout
 
@@ -59,5 +62,7 @@ in rendered text.
 
 ## Docker
 
-`Dockerfile` builds the bundle with Node and serves `dist/` with nginx (SPA fallback). The API is
-reached on the same origin through the Caddy proxy (`/api`, `/healthz`, `/readyz`).
+`Dockerfile` builds the bundle with Node and serves `dist/` with nginx (SPA fallback, gzip). The API is
+reached on the same origin through the Caddy proxy (`/api`, `/healthz`, `/readyz`). The build context
+is `apps/ui` without `tests/` (`.dockerignore`): `npm run build` typechecks only the app and the
+configs; the full `tsc -b` stays in `npm run typecheck`.

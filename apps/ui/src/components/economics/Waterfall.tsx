@@ -60,7 +60,9 @@ export function Waterfall({ view, footnote = true, className }: WaterfallProps) 
               data-component={isTotal ? undefined : row.id}
               data-net-total={isTotal ? '' : undefined}
               className={clsx(
-                'grid grid-cols-[minmax(0,9rem)_minmax(0,1fr)_auto] items-center gap-x-3 py-1 sm:grid-cols-[minmax(0,12rem)_minmax(0,1fr)_auto]',
+                // The bar keeps a minimum width: in provenance mode the figure column grows with the
+                // nature and period and would squeeze the bars to slivers (UI21).
+                'grid grid-cols-[minmax(0,9rem)_minmax(4rem,1fr)_auto] items-center gap-x-3 py-1 sm:grid-cols-[minmax(0,12rem)_minmax(6rem,1fr)_auto]',
                 isTotal && 'mt-1 border-t border-border-strong pt-2 font-medium',
               )}
             >

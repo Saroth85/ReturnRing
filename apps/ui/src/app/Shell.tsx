@@ -7,6 +7,7 @@ import { APP_NAME, MODE, SHELL } from '@/copy/common';
 import { SHELL_SLOTS } from './composition';
 import { useDisplaySettings, usePresent } from './display';
 import { useHotkeys } from './hotkeys';
+import { ShortcutsDialog } from './ShortcutsDialog';
 import { SideNav } from './SideNav';
 import { TopBar } from './TopBar';
 
@@ -29,7 +30,9 @@ export function Shell() {
   useDocumentTitle();
   const present = usePresent();
   const [gpuDock, setGpuDock] = useState(false);
+  const [shortcuts, setShortcuts] = useState(false);
   useHotkeys({
+    '?': () => setShortcuts(true),
     p: toggleProvenanceMode,
     t: () => setGpuDock((open) => !open),
     '/': () => document.querySelector<HTMLElement>('[data-search]')?.focus(),
@@ -58,7 +61,9 @@ export function Shell() {
       </div>
       <GpuDock open={gpuDock} onClose={() => setGpuDock(false)} />
       {present && <DemoRail />}
-      <ModeCornerTag />
+      {/* In presenter mode the demo rail carries the mode tag (UI30). */}
+      {!present && <ModeCornerTag />}
+      <ShortcutsDialog open={shortcuts} onOpenChange={setShortcuts} />
       <div aria-live="polite" className="sr-only" data-toast-region />
     </div>
   );

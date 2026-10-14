@@ -5,7 +5,8 @@ import { Shell } from './Shell';
 
 /** Every route: `/` by persona, the views' routes inside the shell, then not found. */
 export function buildRoutes(): RouteObject[] {
-  const routes = VIEW_ROUTES.filter((r) => !r.devOnly || import.meta.env.DEV);
+  // Dev-only routes (the agent harness) exist in dev and mock builds, never in a live build.
+  const routes = VIEW_ROUTES.filter((r) => !r.devOnly || import.meta.env.DEV || __API_MODE__ === 'mock');
   return [
     {
       element: <Shell />,

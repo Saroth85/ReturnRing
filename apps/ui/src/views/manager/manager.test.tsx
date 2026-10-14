@@ -8,7 +8,7 @@ import { findBannedWording, findUnprovenancedNumbers } from '@/test/scan';
 
 async function loaded() {
   // The first render compiles the lazily loaded page: allow for a busy machine.
-  await waitFor(() => expect(document.querySelector('[aria-busy="true"]')).toBeNull(), { timeout: 12_000 });
+  await waitFor(() => expect(document.querySelector('[aria-busy="true"]')).toBeNull());
 }
 
 function cleanScreen() {
@@ -38,7 +38,7 @@ describe('/portfolio (US-601)', () => {
   it('opens the customer list of a quadrant on click', async () => {
     const { router } = renderApp('/portfolio');
     await loaded();
-    await waitFor(() => expect(document.querySelector('[data-open-quadrant="Q4"]')).not.toBeNull(), { timeout: 5000 });
+    await waitFor(() => expect(document.querySelector('[data-open-quadrant="Q4"]')).not.toBeNull());
     fireEvent.click(document.querySelector('[data-open-quadrant="Q4"]') as HTMLElement);
     await waitFor(() => expect(router.state.location.search).toBe('?quadrant=Q4'));
     expect(await screen.findByRole('dialog', { name: 'Q4 customers' })).toBeInTheDocument();
@@ -126,14 +126,14 @@ describe('/simulator (US-602, ADR-04)', () => {
     fireEvent.change(screen.getByLabelText('Note for the new version (required)'), { target: { value: 'Carrier contract renegotiated' } });
     expect(save).toBeEnabled();
     fireEvent.click(save);
-    expect(await screen.findByText((_, el) => el?.getAttribute('data-saved-version') === 'assumptions-v2', {}, { timeout: 5000 })).toBeInTheDocument();
+    expect(await screen.findByText((_, el) => el?.getAttribute('data-saved-version') === 'assumptions-v2', {})).toBeInTheDocument();
     await waitFor(() => expect(document.querySelector('[data-history-version="assumptions-v2"]')).not.toBeNull());
   });
 
   it('re-buckets the matrix in the threshold sandbox without touching the net benefit', async () => {
     renderApp('/simulator');
     await loaded();
-    const risk = await screen.findByLabelText(/Risk threshold/, {}, { timeout: 5000 });
+    const risk = await screen.findByLabelText(/Risk threshold/, {});
     fireEvent.change(risk, { target: { value: '0.5' } });
     const q4 = document.querySelector('[data-sandbox-row="Q4"]') as HTMLElement;
     const cells = within(q4).getAllByRole('cell');
@@ -206,19 +206,19 @@ describe('/products (US-208, US-606)', () => {
     act(() => setPersona('luca'));
     renderApp('/products/V-SNK-2290~defective~2026-09-21');
     await loaded();
-    const form = await screen.findByText((_, el) => el?.hasAttribute('data-catalog-task-form') ?? false, {}, { timeout: 5000 });
+    const form = await screen.findByText((_, el) => el?.hasAttribute('data-catalog-task-form') ?? false, {});
     fireEvent.change(within(form).getByLabelText('Note (required)'), { target: { value: 'Check the sole glue of the batch' } });
     fireEvent.click(within(form).getByRole('button', { name: 'Open the task' }));
-    expect(await screen.findByText(/Task CT-000012 opened\./, {}, { timeout: 5000 })).toBeInTheDocument();
+    expect(await screen.findByText(/Task CT-000012 opened\./, {})).toBeInTheDocument();
   });
 
   it('moves a task forward and shows the follow-up of a done one with its caveat', async () => {
     act(() => setPersona('luca'));
     renderApp('/products/tasks');
     await loaded();
-    const open = await screen.findByText((_, el) => el?.getAttribute('data-task') === 'CT-000012', {}, { timeout: 5000 });
+    const open = await screen.findByText((_, el) => el?.getAttribute('data-task') === 'CT-000012', {});
     fireEvent.click(within(open).getByRole('button', { name: 'Start' }));
-    expect(await within(open).findByText('Task CT-000012: In progress.', {}, { timeout: 5000 })).toBeInTheDocument();
+    expect(await within(open).findByText('Task CT-000012: In progress.', {})).toBeInTheDocument();
     const done = document.querySelector('[data-task="CT-000007"]') as HTMLElement;
     expect(within(done).getByText('A decrease alone does not prove the effect of the correction: that needs a controlled comparison.')).toBeInTheDocument();
     cleanScreen();
@@ -229,7 +229,7 @@ describe('/reviews (US-607)', () => {
   it('lists the lapsed restriction from the server field, with its approver and the review link', async () => {
     renderApp('/reviews');
     await loaded();
-    const row = await screen.findByText((_, el) => el?.getAttribute('data-review-row') === 'RET-000088', {}, { timeout: 5000 });
+    const row = await screen.findByText((_, el) => el?.getAttribute('data-review-row') === 'RET-000088', {});
     expect(row.querySelector('[data-lapsed]')?.textContent).toContain('Lapsed on 27 Sep 2026');
     expect(within(row).getByRole('link', { name: /Review: lift/ })).toHaveAttribute('href', '/returns/RET-000088?action=review');
     await waitFor(() => expect(within(row).getByText('luca')).toBeInTheDocument());
@@ -243,7 +243,7 @@ describe('/audit (US-604)', () => {
   it('lists the entries with the human approval pill, and expands a row into what changed', async () => {
     renderApp('/audit');
     await loaded();
-    const approval = await screen.findByText((_, el) => el?.getAttribute('data-audit-row') === '3', {}, { timeout: 5000 });
+    const approval = await screen.findByText((_, el) => el?.getAttribute('data-audit-row') === '3', {});
     expect(within(approval).getByText('27 Dec 2026')).toBeInTheDocument();
     fireEvent.click(within(approval).getByRole('button', { name: /Details/ }));
     const details = document.querySelector('[data-audit-details="3"]') as HTMLElement;
@@ -255,7 +255,7 @@ describe('/audit (US-604)', () => {
   it('filters by actor and human actions, in the URL', async () => {
     renderApp('/audit?actor=luca');
     await loaded();
-    await screen.findByText((_, el) => el?.hasAttribute('data-audit-table') ?? false, {}, { timeout: 5000 });
+    await screen.findByText((_, el) => el?.hasAttribute('data-audit-table') ?? false, {});
     const actors = Array.from(document.querySelectorAll('[data-audit-row] [data-actor]')).map((a) => a.getAttribute('data-actor'));
     expect(new Set(actors)).toEqual(new Set(['luca']));
   });
@@ -269,7 +269,7 @@ describe('/audit (US-604)', () => {
     renderApp('/audit?return_id=RET-000102&human=1');
     await loaded();
     fireEvent.click(await screen.findByRole('button', { name: 'Export CSV' }));
-    const done = await screen.findByText((_, el) => el?.hasAttribute('data-exported') ?? false, {}, { timeout: 5000 });
+    const done = await screen.findByText((_, el) => el?.hasAttribute('data-exported') ?? false, {});
     expect(done.getAttribute('data-exported')).toBe('returnring-audit-RET-000102-human.csv');
     expect(click).toHaveBeenCalled();
     const blob = (created.mock.calls[0] as unknown as [Blob])[0];

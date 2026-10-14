@@ -8,7 +8,7 @@ import { isApiError } from '@/api/errors';
 import type { Metric, TelemetryResponse } from '@/api/models';
 import { useTelemetry } from '@/api/queries';
 import { ErrorState, LoadingBlock } from '@/components/feedback';
-import { DateText, Figure, NatureMark, PlainNumber, ProvenanceScope } from '@/components/provenance';
+import { DateText, Figure, NatureMark, PlainNumber, ProvenanceFooter, ProvenanceScope } from '@/components/provenance';
 import { formatValue } from '@/format';
 import { Panel } from '../shared/layout';
 import { SYSTEM } from './copy';
@@ -138,8 +138,8 @@ function LiveTelemetry({ data }: { data: TelemetryResponse }) {
         {data.llm && (
           <Tile title={s.llm}>
             <ProvenanceScope provenance={data.llm.requests.provenance} covers="the window of the language-model statistics">
-              <p className="text-caption text-ink-3">
-                {s.llmWindow} <PlainNumber value={data.llm.window_s} unit="seconds" />
+              <p className="flex flex-wrap items-center gap-1 text-caption text-ink-3">
+                {s.llmWindow} <PlainNumber value={data.llm.window_s} unit="seconds" /> <ProvenanceFooter compact />
               </p>
             </ProvenanceScope>
             <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-body">

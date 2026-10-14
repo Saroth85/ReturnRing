@@ -83,7 +83,12 @@ function AssumptionInputs({ alternative }: { alternative: Alternative }) {
           <div key={key} className="contents">
             <dt className="text-ink-3">{t.inputs[key] ?? key}</dt>
             <dd className="text-right">
-              <PlainNumber value={Number(a[key as keyof typeof a])} unit={EUR_INPUTS.has(key) ? 'eur' : 'count'} />
+              {/* minutes_saved is a float (AssumptionInputs): 7.5 minutes, not 8 (UI10). */}
+              <PlainNumber
+                value={Number(a[key as keyof typeof a])}
+                unit={EUR_INPUTS.has(key) ? 'eur' : 'count'}
+                maxFractionDigits={key === 'minutes_saved' ? 1 : undefined}
+              />
             </dd>
           </div>
         ))}

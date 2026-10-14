@@ -1,7 +1,7 @@
 // What the parts of the case card share: the card (with the operator's own actions applied), the
 // sheet opener, the selected link, the send language and the role gates of the writes.
 import { createContext, useContext } from 'react';
-import type { CaseCard, EntityRef, Lang, Lever, OutboxMessage } from '@/api/models';
+import type { CaseCard, DecisionView, EntityRef, Lang, Lever, OutboxMessage } from '@/api/models';
 import type { Gate } from '@/components/feedback';
 
 export type SheetKind = 'confirm' | 'approve' | 'override' | 'reject' | 'review' | 'evidence' | 'dispute' | 'regenerate';
@@ -12,6 +12,11 @@ export interface SheetRequest {
   linkId?: string;
   /** Levers an override starts from (an alternative's "Use these terms instead…"). */
   prefill?: Lever[];
+  /**
+   * The decision on screen when the sheet opened: every request body is built from it, never from
+   * a newer card that arrived meanwhile (docs/ui-design.md 6.3 and 6.4, UI38). Set by openSheet.
+   */
+  shown?: DecisionView;
 }
 
 export interface CaseGates {

@@ -5,6 +5,19 @@
 import * as Dialog from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
+
+/**
+ * Where focus goes back when a sheet closes and the element that opened it is gone or was the page
+ * itself (a shortcut): the button of the same action on the rail (UI24).
+ */
+const RETURN_FOCUS: Record<string, string> = {
+  approve: '[data-action="approve-restriction"]',
+  override: '[data-action="override"]',
+  reject: '[data-action="reject"]',
+  review: '[data-action="review"], [data-action="lift"]',
+  evidence: '[data-add-evidence], [data-explain-link]',
+  dispute: '[data-dispute-link]',
+};
 import { OPERATOR } from '../copy';
 
 interface SheetProps {
@@ -41,6 +54,9 @@ export function Sheet({
   modal = true,
 }: SheetProps) {
   const [escArmed, setEscArmed] = useState(false);
+  // The element that opened the sheet: focus returns there on close (docs/ui-design.md 10.3.3,
+  // WCAG 2.4.3). The sheets open through state, so Radix has no Dialog.Trigger to return to (UI24).
+  const [opener] = useState(() => (typeof document === 'undefined' ? null : (document.activeElement as HTMLElement | null)));
   const change = (next: boolean) => {
     if (!next) setEscArmed(false);
     onOpenChange(next);
@@ -57,6 +73,12 @@ export function Sheet({
             // copy-id button of the description.
             event.preventDefault();
             (event.currentTarget as HTMLElement | null)?.querySelector<HTMLElement>('[data-sheet-close]')?.focus();
+          }}
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            const usable = opener?.isConnected && opener !== document.body && opener.id !== 'main' ? opener : null;
+            const fallback = RETURN_FOCUS[name] ? document.querySelector<HTMLElement>(RETURN_FOCUS[name]) : null;
+            (usable ?? fallback)?.focus({ preventScroll: true });
           }}
           onEscapeKeyDown={(event) => {
             if (dirty && !escArmed) {

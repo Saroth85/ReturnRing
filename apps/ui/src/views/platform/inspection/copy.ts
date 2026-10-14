@@ -8,7 +8,7 @@ export const INSPECTION = {
   stories: 'US-501 · US-502 · US-503',
   note: 'A photo cannot establish the origin or time of damage. Suggestions are candidate observations that you confirm.',
   listIntro: 'Withdrawal-path returns. Pick the item on the bench to document it with a photo and a checklist.',
-  listScope: 'Every withdrawal-path return is listed until the API says which ones were received (open question O-5).',
+  listScope: 'Every withdrawal-path return is listed: pick the parcel in front of you.',
   search: 'Search by return, order or customer',
   searchHint: 'Return id, order id, customer id or name',
   columns: { ret: 'Return', customer: 'Customer', reason: 'Reason', requested: 'Requested', state: 'Decision' },

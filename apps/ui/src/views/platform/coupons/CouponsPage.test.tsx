@@ -9,7 +9,7 @@ afterEach(() => act(() => setPersona('sara')));
 
 async function open() {
   renderApp('/coupons');
-  await waitFor(() => expect(document.querySelector('[data-current-rule]')).not.toBeNull(), { timeout: 8000 });
+  await waitFor(() => expect(document.querySelector('[data-current-rule]')).not.toBeNull());
 }
 
 describe('/coupons (US-402)', () => {
@@ -38,7 +38,7 @@ describe('/coupons (US-402)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Start from the current rule' }));
     expect((field as HTMLTextAreaElement).value).toContain('Welcome coupons');
     fireEvent.keyDown(field, { key: 'Enter', ctrlKey: true });
-    await waitFor(() => expect(document.querySelector('[data-rule-created="coupon-rule-v2"]')).not.toBeNull(), { timeout: 5000 });
+    await waitFor(() => expect(document.querySelector('[data-rule-created="coupon-rule-v2"]')).not.toBeNull());
     expect(document.querySelector('[data-current-rule]')?.getAttribute('data-current-rule')).toBe('coupon-rule-v2');
     const history = document.querySelector('[data-rule-history]') as HTMLElement;
     expect(within(history).getAllByRole('row')).toHaveLength(3);

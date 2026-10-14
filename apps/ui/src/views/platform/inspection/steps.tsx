@@ -42,8 +42,8 @@ export function StepPanel({
       data-step-state={state}
       className={clsx(
         'flex flex-col gap-3 rounded-card border bg-surface p-4',
+        // A waiting step reads at full contrast (UI36): only its disabled controls are dimmed.
         state === 'current' ? 'border-accent' : 'border-border',
-        state === 'waiting' && 'opacity-70',
       )}
     >
       <h2 id={`step-${step}`} className="flex items-center gap-2 text-h3">
@@ -119,14 +119,13 @@ export function PhotoStep(props: PhotoStepProps) {
           onDrop={onDrop}
           className={clsx(
             'flex flex-col items-center gap-3 rounded-card border-2 border-dashed px-4 py-6 text-center',
-            over ? 'border-accent bg-accent-bg' : 'border-border-strong',
-            disabled && 'opacity-60',
+            over ? 'border-accent bg-accent-bg' : disabled ? 'border-border' : 'border-border-strong',
           )}
           data-photo-drop
         >
           <p className="text-body text-ink-2">{t.photo.drop}</p>
           <div className="flex flex-wrap justify-center gap-2">
-            <label htmlFor={fileId} className={clsx(button, disabled && 'pointer-events-none')}>
+            <label htmlFor={fileId} aria-disabled={disabled || undefined} className={clsx(button, disabled && 'pointer-events-none opacity-60')}>
               <ImageUp aria-hidden="true" size={18} />
               {t.photo.choose}
             </label>
@@ -142,7 +141,7 @@ export function PhotoStep(props: PhotoStepProps) {
               }}
               data-photo-input
             />
-            <label htmlFor={cameraId} className={clsx(button, disabled && 'pointer-events-none')}>
+            <label htmlFor={cameraId} aria-disabled={disabled || undefined} className={clsx(button, disabled && 'pointer-events-none opacity-60')}>
               <Camera aria-hidden="true" size={18} />
               {t.photo.camera}
             </label>

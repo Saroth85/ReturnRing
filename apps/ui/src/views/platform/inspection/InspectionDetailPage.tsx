@@ -13,7 +13,7 @@ import { useCase } from '@/api/queries';
 import { usePersona } from '@/app/persona';
 import { PathBadge } from '@/components/decision';
 import { ErrorState, InlineNotice, LoadingBlock, useRoleGate } from '@/components/feedback';
-import { IdText, PlainNumber, ProvenanceScope } from '@/components/provenance';
+import { IdText, PlainNumber, ProvenanceFooter, ProvenanceScope } from '@/components/provenance';
 import { Button, Kbd } from '@/components/ui';
 import { PLATFORM } from '../copy';
 import { PageHeader } from '../shared/layout';
@@ -75,7 +75,7 @@ function ReturnSummary({ returnId }: { returnId: string }) {
       </p>
       <p className="flex flex-wrap items-center gap-x-1 text-body text-ink-2">
         <span className="text-caption text-ink-3">{t.item}</span> {c.item.category} · <IdText id={c.item.variant_id} /> · {c.item.size} ·{' '}
-        <PlainNumber value={c.item.price_eur} unit="eur" />
+        <PlainNumber value={c.item.price_eur} unit="eur" /> <ProvenanceFooter compact />
       </p>
       {c.path === 'guarantee' && (
         <p className="text-body text-ink-1" data-guarantee-note>

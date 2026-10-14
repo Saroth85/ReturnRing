@@ -2,8 +2,10 @@
 // what runs where on the MI300X, the service mode and readiness (GET /healthz, GET /readyz, the
 // mode header), the AMD benchmarks B1..B4 with the cost per decision, and live telemetry.
 import { Cpu, Server } from 'lucide-react';
+import { useEffect } from 'react';
 import type { BenchmarksResponse } from '@/api/models';
 import { useBenchmarks, useReadyz } from '@/api/queries';
+import { usePresent } from '@/app/display';
 import { ErrorState, LoadingBlock } from '@/components/feedback';
 import { Figure, IdText } from '@/components/provenance';
 import { ARCHITECTURE } from '../constants';
@@ -103,30 +105,40 @@ function Benchmarks() {
 
 export default function SystemPage() {
   const readyz = useReadyz();
+  const present = usePresent();
+  // Beat 6 has no clicks (docs/ui-design.md 12): in presenter mode the page opens on the GPU line,
+  // so the first viewport holds it, the cost per decision and the first benchmarks (UI27).
+  useEffect(() => {
+    if (!present) return;
+    const frame = requestAnimationFrame(() => document.getElementById('gpu')?.scrollIntoView({ block: 'start' }));
+    return () => cancelAnimationFrame(frame);
+  }, [present]);
   return (
     <div className="mx-auto flex max-w-content flex-col gap-6" data-page="system">
       <PageHeader title={PLATFORM.titles.system} stories={s.stories} aside={<ReadinessPill readyz={readyz.data} />} />
       <nav aria-label={s.onPage} className="flex flex-wrap gap-x-4 gap-y-1 text-body lg:hidden">
         <span className="text-caption text-ink-3">{s.onPage}</span>
-        <a href="#readiness" className="text-accent underline underline-offset-2">
-          {s.sections.readiness}
-        </a>
         <a href="#benchmarks" className="text-accent underline underline-offset-2">
           {s.sections.benchmarks}
         </a>
         <a href="#telemetry" className="text-accent underline underline-offset-2">
           {s.sections.telemetry}
         </a>
+        <a href="#readiness" className="text-accent underline underline-offset-2">
+          {s.sections.readiness}
+        </a>
       </nav>
-      <Panel>
+      <Panel id="gpu">
         <p className="text-h3" data-constant>
           {s.hero}
         </p>
         <ArchitectureStrip />
       </Panel>
-      <ModeCard />
+      {/* Beat 6 (docs/ui-design.md 9.4, 12): the benchmarks and the telemetry come first, so the
+          first presenter viewport shows B1 to B4; readiness follows (UI27). */}
       <Benchmarks />
       <TelemetryPanel />
+      <ModeCard />
     </div>
   );
 }

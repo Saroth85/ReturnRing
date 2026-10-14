@@ -18,13 +18,13 @@ function examplePhoto(): File {
 async function sendPhoto(returnId: string) {
   act(() => setPersona('ahmed'));
   renderApp(`/inspection/${returnId}`);
-  await screen.findByText(returnId, {}, { timeout: 5000 });
+  await screen.findByText(returnId, {});
   const input = document.querySelector('[data-photo-input]') as HTMLInputElement;
   fireEvent.change(input, { target: { files: [examplePhoto()] } });
   const send = await screen.findByRole('button', { name: 'Suggest a checklist from the photo' });
   await waitFor(() => expect(send).toBeEnabled());
   fireEvent.click(send);
-  await waitFor(() => expect(document.querySelector('[data-checklist-row]')).not.toBeNull(), { timeout: 5000 });
+  await waitFor(() => expect(document.querySelector('[data-checklist-row]')).not.toBeNull());
 }
 
 const row = (item: string) => document.querySelector(`[data-checklist-row="${item}"]`) as HTMLElement;
@@ -75,7 +75,6 @@ describe('proposal and confirmation (US-502)', () => {
         expect(el).not.toBeNull();
         return el as HTMLElement;
       },
-      { timeout: 5000 },
     );
     expect(result.getAttribute('data-inspection-result')).toBe('claim');
     expect(result.querySelector('[data-claim]')?.textContent).toContain('€17.98');
@@ -94,7 +93,7 @@ describe('proposal and confirmation (US-502)', () => {
     await new Promise((r) => setTimeout(r, 50));
     expect(document.querySelector('[data-inspection-result]')).toBeNull();
     fireEvent.keyDown(window, { key: 'Enter', ctrlKey: true });
-    await waitFor(() => expect(document.querySelector('[data-inspection-result]')).not.toBeNull(), { timeout: 5000 });
+    await waitFor(() => expect(document.querySelector('[data-inspection-result]')).not.toBeNull());
   });
 
   it('reports a claim the API attached although no compensation was applied (the mock always answers with the claim)', async () => {
@@ -103,7 +102,7 @@ describe('proposal and confirmation (US-502)', () => {
     answer('visible_damage', 'Yes');
     answer('photo_quality', 'Yes');
     fireEvent.click(screen.getByRole('button', { name: /Confirm the observations/ }));
-    await waitFor(() => expect(document.querySelector('[data-answer-problem="unexpected_claim"]')).not.toBeNull(), { timeout: 5000 });
+    await waitFor(() => expect(document.querySelector('[data-answer-problem="unexpected_claim"]')).not.toBeNull());
     expect(document.querySelector('[data-inspection-result]')).toBeNull();
   });
 
@@ -132,7 +131,7 @@ describe('manual review (US-503)', () => {
     answer('visible_damage', 'Not observable');
     answer('photo_quality', 'No');
     fireEvent.click(screen.getByRole('button', { name: /Confirm the observations/ }));
-    await waitFor(() => expect(document.querySelector('[data-answer-problem="other_inspection"]')).not.toBeNull(), { timeout: 5000 });
+    await waitFor(() => expect(document.querySelector('[data-answer-problem="other_inspection"]')).not.toBeNull());
     expect(document.querySelector('[data-inspection-result]')).toBeNull();
   });
 });
@@ -140,7 +139,7 @@ describe('manual review (US-503)', () => {
 describe('roles and photos', () => {
   it('lets the operator view the steps with every write disabled and the reason', async () => {
     renderApp('/inspection/RET-000110');
-    await screen.findByText('RET-000110', {}, { timeout: 5000 });
+    await screen.findByText('RET-000110', {});
     expect(screen.getByRole('button', { name: 'Suggest a checklist from the photo' })).toBeDisabled();
     expect(screen.getAllByText('This action is for warehouses (operator can view).').length).toBeGreaterThan(0);
     expect((document.querySelector('[data-photo-input]') as HTMLInputElement).disabled).toBe(true);
@@ -149,7 +148,7 @@ describe('roles and photos', () => {
   it('refuses a file that is not a JPEG, PNG or WebP photo before any upload', async () => {
     act(() => setPersona('ahmed'));
     renderApp('/inspection/RET-000110');
-    await screen.findByText('RET-000110', {}, { timeout: 5000 });
+    await screen.findByText('RET-000110', {});
     const input = document.querySelector('[data-photo-input]') as HTMLInputElement;
     fireEvent.change(input, { target: { files: [new File(['GIF89a'], 'x.gif', { type: 'image/gif' })] } });
     expect(document.querySelector('[data-photo-error]')?.textContent).toContain('not a JPEG, PNG or WebP photo');
@@ -158,7 +157,7 @@ describe('roles and photos', () => {
 
   it('shows the guarantee-path note on a guarantee return', async () => {
     renderApp('/inspection/RET-000105');
-    await waitFor(() => expect(document.querySelector('[data-guarantee-note]')).not.toBeNull(), { timeout: 5000 });
+    await waitFor(() => expect(document.querySelector('[data-guarantee-note]')).not.toBeNull());
     expect(document.querySelector('[data-guarantee-note]')?.textContent).toContain('no diminished-value claim applies (art. 14(2)');
   });
 
@@ -169,7 +168,7 @@ describe('roles and photos', () => {
     answer('photo_quality', 'Yes');
     fireEvent.click(document.querySelector('[data-apply-compensation]') as HTMLElement);
     fireEvent.click(screen.getByRole('button', { name: /Confirm the observations/ }));
-    await waitFor(() => expect(document.querySelector('[data-inspection-result]')).not.toBeNull(), { timeout: 5000 });
+    await waitFor(() => expect(document.querySelector('[data-inspection-result]')).not.toBeNull());
     expect(findUnprovenancedNumbers(document.body)).toEqual([]);
     expect(findBannedWording(document.body).errors).toEqual([]);
   });
@@ -178,7 +177,7 @@ describe('roles and photos', () => {
 describe('the list (find the return)', () => {
   it('lists the withdrawal-path returns only, each opening its inspection', async () => {
     renderApp('/inspection');
-    await waitFor(() => expect(document.querySelector('[data-inspection-list]')).not.toBeNull(), { timeout: 5000 });
+    await waitFor(() => expect(document.querySelector('[data-inspection-list]')).not.toBeNull());
     const ids = Array.from(document.querySelectorAll('[data-inspection-row]')).map((r) => r.getAttribute('data-inspection-row'));
     expect(ids).toContain('RET-000110');
     expect(ids).toContain('RET-000111');
@@ -188,6 +187,6 @@ describe('the list (find the return)', () => {
 
   it('searches through the queue query', async () => {
     renderApp('/inspection?q=Valentina');
-    await waitFor(() => expect(document.querySelectorAll('[data-inspection-row]')).toHaveLength(1), { timeout: 5000 });
+    await waitFor(() => expect(document.querySelectorAll('[data-inspection-row]')).toHaveLength(1));
   });
 });

@@ -18,9 +18,12 @@ export function encodeSseFrame(event: AgentEvent): string {
 
 /** Parses complete SSE messages out of a text buffer; returns them and the unparsed rest. */
 export function parseSseBuffer(buffer: string): { messages: SseMessage[]; rest: string } {
-  const normalised = buffer.replace(/\r\n?/g, '\n');
+  // A chunk may end between the \r and the \n of a CRLF: keep that \r for the next chunk, so the
+  // pair stays one line break and never becomes a blank line that splits an event (UI8).
+  const heldCr = buffer.endsWith('\r');
+  const normalised = (heldCr ? buffer.slice(0, -1) : buffer).replace(/\r\n?/g, '\n');
   const blocks = normalised.split('\n\n');
-  const rest = blocks.pop() ?? '';
+  const rest = (blocks.pop() ?? '') + (heldCr ? '\r' : '');
   const messages: SseMessage[] = [];
   for (const block of blocks) {
     let event = 'message';

@@ -12,6 +12,7 @@ data/*
 !data/README.md
 artifacts/
 demo-cache/
+/demo-cache.tar.gz
 *.parquet
 .coverage
 /serving/

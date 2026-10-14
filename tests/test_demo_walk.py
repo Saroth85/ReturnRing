@@ -12,12 +12,15 @@ US-403. Every number is synthetic.
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
+from typing import Any
 
 import pytest
 
+from apps.api.serving import Serving
 from scripts.demo_walk import CHECKOUT_LIMIT_S, QUEUE_LIMIT_S, main, walk
-from tests.api_harness import Api
+from tests.api_harness import Api, open_api, settings_for
 
 STEPS = [
     "readiness",
@@ -49,6 +52,42 @@ def test_the_golden_demo_walk(api: Api) -> None:
     # a second walk needs a new reset: no restriction awaits approval any more
     again = walk(api.client)
     assert again.passed == ["readiness", "demo_cases"] and "reset" in again.failed["queue"]
+
+
+@pytest.mark.e2e
+def test_the_read_only_walk_of_the_public_demo(
+    serving: Serving,
+    serving_dir: Path,
+    seeded_db: tuple[Path, dict[str, Any]],
+    tmp_path: Path,
+) -> None:
+    """PUBLIC_READ_ONLY (spec 11, the default of the cached demo): the same steps read the same
+    cases; every write of the pitch is a 403 forbidden_role that changes nothing, the checkout
+    evaluation and the agent still answer, and the walk can run again without a reset (it
+    changes no decision)."""
+    database = tmp_path / "public.sqlite"
+    shutil.copyfile(seeded_db[0], database)
+    settings = settings_for(serving_dir, database, public_read_only=True)
+    for api in open_api(serving, settings, database):
+        report = walk(api.client)
+        assert report.failed == {}, json.dumps(report.failed, indent=2)
+        assert report.passed == STEPS
+        assert report.facts["mode"]["public_read_only"] is True
+        facts = report.facts
+        decision = "POST /api/returns/{}/decision".format
+        assert facts["refused_writes"] == [
+            decision(facts["giulia"]["return_id"]),
+            decision(facts["marco"]["return_id"]),
+            "POST /api/checkout/confirm",
+            decision(facts["elena"]["return_id"]),
+            "POST /api/catalog-tasks",
+            decision(facts["insufficient"]["return_id"]),
+            f"POST /api/links/{facts['dispute']['link_id']}/dispute",
+        ]
+        assert {c.status for c in report.calls} <= {200, 403}
+        assert len(facts["agent"]) == 3  # the agent still answers (rate limited)
+        again = walk(api.client)
+        assert again.failed == {} and again.passed == STEPS
 
 
 @pytest.mark.e2e

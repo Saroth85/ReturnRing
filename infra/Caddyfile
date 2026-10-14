@@ -1,5 +1,44 @@
-# PUBLIC_HOST: e.g. 203-0-113-10.sslip.io (HTTPS without buying a domain).
-{$PUBLIC_HOST} {
+# ReturnRing entry point (spec 9 and 11): the UI and the API on one origin.
+# Environment (infra/docker-compose.yml, infra/compose.public.yml):
+#   SITE_ADDRESS        ":80" on a laptop (plain HTTP, published on 127.0.0.1:8080 only);
+#                       PUBLIC_HOST on a public server, e.g. 203-0-113-10.sslip.io (automatic HTTPS)
+#   ADMIN_AUTH          off on a laptop; on for a public server (compose.public.yml)
+#   ADMIN_USER, ADMIN_PASSWORD_HASH   basic auth credentials (make admin-password prints the hash)
+#   PUBLIC_READ_ONLY    true (or on, 1): writes go to the API, which refuses them (public
+#                       read-only views); anything else: on a public server every write needs
+#                       basic auth
+# Caddy substitutes {$VAR} before parsing, so ADMIN_AUTH picks one of the two snippets below.
+
+(admin_auth_off) {
+}
+
+(admin_auth_on) {
+	# Spec 11: the admin page and the telemetry are protected by basic auth.
+	@admin path /system /system/* /api/telemetry /api/telemetry/*
+	basic_auth @admin {
+		{$ADMIN_USER} {$ADMIN_PASSWORD_HASH}
+	}
+	# Writes (anything but GET, HEAD and OPTIONS) need basic auth unless the views are read-only.
+	@write {
+		path /api/*
+		not method GET HEAD OPTIONS
+		expression `!("{$PUBLIC_READ_ONLY}" in ["true", "on", "1"])`
+	}
+	basic_auth @write {
+		{$ADMIN_USER} {$ADMIN_PASSWORD_HASH}
+	}
+}
+
+{$SITE_ADDRESS} {
+	import admin_auth_{$ADMIN_AUTH}
+
+	# Inspection photos are the largest bodies; anything larger is refused before the API.
+	request_body /api/* {
+		max_size 10MB
+	}
+
+	# No response compression here: the agent answers as a server-sent event stream, which must
+	# reach the browser unbuffered. The UI's nginx compresses the bundle itself.
 	handle /api/* {
 		reverse_proxy api:8000
 	}
@@ -11,5 +50,11 @@
 	}
 	handle {
 		reverse_proxy ui:80
+	}
+
+	header {
+		-Server
+		X-Content-Type-Options nosniff
+		Referrer-Policy same-origin
 	}
 }

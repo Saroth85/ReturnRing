@@ -1,5 +1,7 @@
-.PHONY: dev-up dev-down gpu-up gpu-down demo-up test test-gpu test-asos lint licenses asos asos-verify \
-	generate generate-ood graph features anomalies risk score results propensity pipeline bench demo-export \
+.PHONY: dev-up dev-down dev-logs demo-data reset demo-walk gpu-up gpu-down gpu-reset batch-generate serving-check \
+	demo-export demo-import demo-verify demo-up demo-local demo-reset demo-down admin-password \
+	test test-gpu test-asos lint licenses asos asos-verify \
+	generate generate-ood graph features anomalies risk score results propensity serving pipeline bench \
 	gnn-asos embeddings gnn-results gnn-test gnn-image gnn-asos-gpu gnn-asos-cpu-container \
 	embeddings-gpu gnn-test-gpu \
 	spike-preflight spike-prep spike-weights spike-weights-wait spike-vllm spike-wait spike-g1 \
@@ -22,27 +24,110 @@ COMPOSE = docker compose -f infra/docker-compose.yml --env-file $(ENV_FILE)
 # gpu and demo use override files so the laptop .env (DEVICE=cpu, LLM_MODE=mock) cannot leak in.
 GPU = docker compose -f infra/docker-compose.yml -f infra/compose.gpu.yml --env-file $(ENV_FILE) --profile gpu
 DEMO = docker compose -f infra/docker-compose.yml -f infra/compose.demo.yml --env-file $(ENV_FILE) --profile demo
+# A server reachable from the Internet adds HTTPS on PUBLIC_HOST and basic auth (spec 11).
+PUBLIC = -f infra/compose.public.yml
 SPIKE = docker compose -f infra/docker-compose.yml -f infra/compose.gpu.yml -f infra/compose.spike.yml --env-file $(ENV_FILE) --profile gpu
 SPIKES = artifacts/spikes
 LOAD_ENV = set -a && . ./$(ENV_FILE) && set +a
+# The proxy image of infra/docker-compose.yml, for `make admin-password`.
+CADDY_IMAGE = caddy:2.11.7-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f
+# The cached demo package (make demo-export): serving snapshot with llm_cache/, benchmark results,
+# MANIFEST.json with the sha256 of every file. Read by compose.demo.yml.
+DEMO_DIR = demo-cache
+API_URL ?= http://127.0.0.1:8000
 
-dev-up:
+# ---- The judge's path (README, US-904): cp .env.example .env; make demo-data; make dev-up ----
+# CPU and the mock LLM, no GPU. demo-data runs the whole pipeline in the pipeline job container
+# (its commands took 9 min 39 s on 4 shared vCPUs on 14 Oct 2026, plus the image build) and
+# writes data/, artifacts/ and the serving snapshot serving/. dev-up builds the images and starts postgres, the reset (every open return decided
+# again, golden cases first), the api, the ui and the proxy on http://localhost:8080.
+# The folders exist before Docker mounts them, so they belong to the host user, not to root.
+$(ENV_FILE):
+	@echo "$(ENV_FILE) is missing: run cp .env.example $(ENV_FILE) first (README, Quick start)"; exit 1
+
+demo-data: $(ENV_FILE)
+	mkdir -p data artifacts serving
+	SEED=$(SEED) SCALE=$(SCALE) $(COMPOSE) run --rm --build pipeline
+
+dev-up: $(ENV_FILE)
+	@test -f serving/manifest.json || { echo "No serving snapshot in serving/: running make demo-data first"; \
+	  $(MAKE) demo-data; }
 	$(COMPOSE) --profile dev up -d --build
+	@echo "ReturnRing (CPU, mock LLM): http://localhost:8080 - API http://127.0.0.1:8000/readyz"
 
 dev-down:
-	$(COMPOSE) --profile dev --profile gpu --profile demo down
+	$(COMPOSE) --profile dev --profile gpu --profile demo down --remove-orphans
 
+dev-logs:
+	$(COMPOSE) --profile dev logs --tail 100 -f
+
+# US-903: the demo again from the same state, in one command, on a running stack.
+reset:
+	$(COMPOSE) --profile dev run --rm reset
+
+# The golden walk of the pitch over HTTP against the running API (scripts/demo_walk.py, after a
+# reset; it approves cases). Runs on the host with requirements/dev.txt installed.
+demo-walk:
+	mkdir -p artifacts
+	python -m scripts.demo_walk --base-url $(API_URL) --report artifacts/demo-walk.json
+
+# ---- MI300X droplet (infra/spikes/README.md, "The demo export") ----
 # vLLM first, without a build, and healthy before anything else touches the GPU: vLLM sizes its
 # KV cache from the free memory it sees while it starts.
-gpu-up: spike-vllm spike-wait
-	$(GPU) up -d --build
+gpu-up: serving-check spike-vllm spike-wait
+	$(GPU) $(PUBLIC) up -d --build
+
+serving-check:
+	@test -f serving/manifest.json || { echo "No serving snapshot in serving/: make demo-data, \
+	  or copy serving/ from the laptop (infra/spikes/README.md, The demo export)"; exit 1; }
 
 # Keeps the volumes: never add -v here, hf-cache holds the 62 GB of Gemma weights.
 gpu-down:
 	$(GPU) down
 
-demo-up:
+gpu-reset:
+	$(GPU) run --rm reset
+
+# The draft of every open return through vLLM into serving/llm_cache/ (vLLM must be up).
+batch-generate:
+	$(GPU) run --rm batch-generate
+
+# The cached demo package from serving/ (after batch-generate) and bench/results/. Runs with the
+# host python3 (standard library only: the droplet host has no project Python).
+# ALLOW_EMPTY_CACHE=1 packs a snapshot without MI300X drafts (a CPU rehearsal: templates only).
+DEMO_GPU ?= AMD Instinct MI300X (AMD Developer Cloud)
+demo-export:
+	python3 -m scripts.demo_export build --serving serving --bench bench/results --out $(DEMO_DIR) \
+	  --generated-on "$(DEMO_GPU)" $(if $(ALLOW_EMPTY_CACHE),--allow-empty-cache)
+	tar -czf $(DEMO_DIR).tar.gz $(DEMO_DIR)
+	@echo "$(DEMO_DIR).tar.gz: copy it to the demo server, then make demo-import demo-up"
+
+demo-import:
+	tar -xzf $(DEMO_DIR).tar.gz
+	python3 -m scripts.demo_export verify $(DEMO_DIR)
+
+demo-verify:
+	python3 -m scripts.demo_export verify $(DEMO_DIR)
+
+# ---- The cached demo (US-901): DEMO_MODE=cached, GPU containers off, read-only by default ----
+# demo-up: the public server (HTTPS on PUBLIC_HOST, basic auth); demo-local: a laptop, on
+# http://localhost:8080. Both check every hash of the package first.
+demo-up: $(ENV_FILE) demo-verify
+	$(DEMO) $(PUBLIC) up -d --build
+
+demo-local: $(ENV_FILE) demo-verify
 	$(DEMO) up -d --build
+	@echo "ReturnRing cached demo: http://localhost:8080"
+
+demo-reset:
+	$(DEMO) run --rm reset
+
+demo-down:
+	$(DEMO) down --remove-orphans
+
+# The bcrypt hash for ADMIN_PASSWORD_HASH (basic auth on a public server); prompts twice.
+admin-password:
+	docker run --rm -it $(CADDY_IMAGE) caddy hash-password
 
 test:
 	python -m pytest -m "not gpu" -q
@@ -172,9 +257,15 @@ gnn-test-gpu:
 	$(GNN) python -m pytest -m "torch or gpu" -q -p no:cacheprovider tests/test_gnn_model.py \
 	  tests/test_gnn_jobs.py
 
-# Phase 1 and 2: the synthetic store, the account graph, the features, the product anomalies and
-# the risk models with their batch scores (docs/spec.md, section 15).
-pipeline: generate generate-ood graph features anomalies risk
+# ADR-16: the serving snapshot the API reads (store, features, scores and models at the scoring
+# instant, sha256 of every file, no ground truth). Keeps serving/llm_cache/ (keyed by the case).
+serving:
+	python -m pipeline.serving --data data --artifacts artifacts --out serving
+
+# Phase 1 and 2 on the host: the synthetic store, the account graph, the features, the product
+# anomalies, the risk models with their batch scores (docs/spec.md, section 15) and the serving
+# snapshot. `make demo-data` runs the same chain in the pipeline job container.
+pipeline: generate generate-ood graph features anomalies risk serving
 
 # ---- Benchmarks B1-B4 (US-902): method in docs/benchmarks.md, GPU session order in
 # infra/spikes/README.md ("The GPU session"). Parts go to artifacts/bench/<run-id>/, the merged run
@@ -271,9 +362,6 @@ bench-merge:
 # On the laptop, after copying bench/results/ back: make bench-report BENCH_RUN=<run-id> DEVICE=gpu
 bench-report:
 	python -m bench report --run bench/results/$(BENCH_RUN).json --out $(BENCH_DOC)
-
-demo-export:
-	@echo "demo-export: implemented in session E9 (US-901)"
 
 # ---- GPU spikes SPK-G1..G7 on the MI300X droplet: infra/spikes/README.md ----
 

@@ -19,6 +19,9 @@
   PyTorch and the commands on the MI300X.
 - `benchmarks.md` — benchmarks B1-B4 (US-902): what each measures, the four rules of spec 12, the
   cost per decision and its versioned assumptions, the run file served by GET /api/benchmarks.
+- Deployment (ADR-17): the compose profiles, the proxy, the reset and the cached demo package are
+  described in the README ("Quick start", "The cached demo", "Architecture") and, for the
+  droplet, in `infra/spikes/README.md` ("The demo export").
 - `synthetic-store.md` — the Navigli Fashion generator (US-102..US-105): calibration, behaviours,
   golden cases, out-of-distribution scenario, measured numbers.
 - `customer-features.md` — decision-time customer features, the product/cohort reference model, the

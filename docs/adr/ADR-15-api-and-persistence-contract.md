@@ -1027,9 +1027,9 @@ dispute of one link is a 409, also when two arrive together (the unique key of
 telemetry behind basic auth. `PUBLIC_READ_ONLY=on` answers 403 `forbidden_role` to every write
 route but `POST /api/agent/ask` and `POST /api/checkout/evaluate`, which stay for the public
 pages and are rate limited per client (30 per minute, the first `X-Forwarded-For` hop the proxy
-sets); `/readyz` says `public_read_only`. The proxy owner protects the manager's views and
-`/api/telemetry` with basic auth (Caddy `basic_auth` on those paths) and limits request bodies
-to 10 MB (`request_body max_size`); the API refuses bodies over 8 MiB itself (413). Checkout
+sets); `/readyz` says `public_read_only`. The proxy protects the admin page (`/system`) and
+`/api/telemetry` with basic auth (Caddy `basic_auth` on those paths, ADR-17) and limits request
+bodies to 10 MB (`request_body max_size`); the API refuses bodies over 8 MiB itself (413). Checkout
 `/confirm` declares 403 now; the checkout evaluation declares 429.
 
 **The language model (H15, H30, H32, H33, H34, H36, H8).** `GEMMA_MODEL` reaches the vLLM client,
@@ -1120,7 +1120,9 @@ confirm responses, both readyz responses, both product anomaly lists and
 Tables: `demo_reset` and `id_counters` (section 6), the column `terms_snapshots.coupon_review_at`
 and the index `uq_inspections_one_claim_per_return`.
 
-**For the infrastructure round (not changed here: infra/, Makefile, README).**
+**For the infrastructure round (not changed here: infra/, Makefile, README).** Done in
+[ADR-17](ADR-17-deployment-and-demo-package.md), merged with this contract: compose passes every
+setting below under these names and `tests/test_infra.py` checks that the API reads them.
 
 - H29 (blocker): mount `serving/` read-only in the api and reset services with
   `SERVING_DIR=/app/serving`, build it in the pipeline job (`python -m pipeline.serving`), run
@@ -1129,7 +1131,7 @@ and the index `uq_inspections_one_claim_per_return`.
   the body), with a start period of 60 s or more.
 - H30: pass `GEMMA_MODEL` (and `VLLM_TIMEOUT_S`, `LLM_CONCURRENCY` if changed) to the api, the
   reset and `batch_generate`.
-- H21: the demo profile sets `PUBLIC_READ_ONLY=on`; Caddy protects the manager's views and
+- H21: the demo profile sets `PUBLIC_READ_ONLY=on`; Caddy protects the admin page and
   `/api/telemetry` with `basic_auth`, sets `X-Forwarded-For`, and limits request bodies
   (`request_body { max_size 10MB }`).
 - H40: a telemetry sampler service on the GPU profile (`python -m

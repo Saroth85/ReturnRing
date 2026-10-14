@@ -15,6 +15,16 @@ MOD05_ORDER: Final = ("customers_test", "requests_test", "customers_ood", "reque
 GPU_NOTE: Final = "not run: phase 6 (GPU), EmbeddingSource hook in ml/risk/features.py"
 
 
+def _not_run(r: dict[str, Any]) -> str:
+    """Why a step of the ablation did not run (older documents: the phase 6 note)."""
+    status = str(r.get("status", ""))
+    return status if status.startswith("not run") else GPU_NOTE
+
+
+def _a4(doc: dict[str, Any]) -> dict[str, Any] | None:
+    return next((r for r in doc["ablation"] if r["set"] == "A4"), None)
+
+
 def _f(x: float | None, digits: int = 3) -> str:
     return "n/a" if x is None else f"{x:,.{digits}f}"
 
@@ -82,8 +92,9 @@ def _ablation_rows(doc: dict[str, Any], population: str) -> list[list[str]]:
     blank = ["-"] * (len(METRIC_HEADER) - 1)
     for r in doc["ablation"]:
         name = f"{r['set']} ({r['purpose']})"
-        if r["status"] != "run":
-            rows.append([name, str(len(r["features"])), GPU_NOTE, *blank])
+        if r["status"] != "run" or population not in r:
+            note = _not_run(r) if r["status"] != "run" else "not run: no embeddings for this store"
+            rows.append([name, str(len(r["features"])), note, *blank])
             continue
         rows.append([name, str(len(r["features"])), *_metric_cells(r[population], r["threshold"])])
     return rows
@@ -356,11 +367,17 @@ def _summary(doc: dict[str, Any]) -> list[str]:
     f02 = doc["fair02"]
     f03 = doc["fair03"]
     checks = doc["golden"]["checks"]
+    a4 = _a4(doc)
+    a4_text = (
+        "A0 to A4 reported on the same rows (A4: GraphSAGE embeddings, US-202)"
+        if a4 is not None and a4["status"] == "run"
+        else "A0 to A3 reported on the same rows; A4 " + (_not_run(a4) if a4 else GPU_NOTE)
+    )
     rows = [
         [
             "MOD-04",
             "A0 to A4 on the same split, regressions included",
-            "A0 to A3 reported on the same rows; A4 " + GPU_NOTE,
+            a4_text,
             "reported",
         ],
         [
@@ -470,7 +487,7 @@ def _features_section(doc: dict[str, Any]) -> list[str]:
         if r["status"] != "run":
             lines.append(
                 f"- **{r['set']}**: the {len(r['features'])} features of A3 plus GraphSAGE "
-                f"embedding columns; {GPU_NOTE}."
+                f"embedding columns; {_not_run(r)}."
             )
             continue
         lines.append(
@@ -478,6 +495,19 @@ def _features_section(doc: dict[str, Any]) -> list[str]:
             + ", ".join(f"`{f}`" for f in r["features"])
             + "."
         )
+        if r.get("embeddings"):
+            e = r["embeddings"]
+            cover = r.get("embedding_coverage", {})
+            lines.append(
+                f"  Embeddings: `{e['file']}`, encoder {', '.join(e['encoder_versions'])}; "
+                f"origin {e['origin']}; period {e['period']}; nature {e['nature']}. Customer "
+                "rows without an embedding: "
+                + "; ".join(
+                    f"{k} {v['without_embedding']} of {_n(v['rows'])}" for k, v in cover.items()
+                )
+                + ". Trained by link prediction on the customer-identifier graph, no label "
+                "(spec 8.3); method and timings in docs/results/us-202-graphsage.md."
+            )
         if r.get("rules"):
             lines.append(
                 "  Rules fitted on the training rows (quantile with the best single-rule F1): "

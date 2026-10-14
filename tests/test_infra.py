@@ -375,6 +375,65 @@ def test_gbm_pypi_requirements_pinned_and_without_upstream_xgboost() -> None:
         assert name.lower() not in {"xgboost", "xgboost-cpu", "amd_xgboost", "amd-xgboost"}
 
 
+def test_the_graphsage_trainer_never_sees_the_ground_truth() -> None:
+    """US-202 and A4 (ml/gnn) need the ASOS tables, the stores and their features, never the
+    ground truth: trainer-graphsage mounts data/ subfolders read-only and no ancestor of
+    data/truth, so rule 12 holds by construction (it is not one of the JOB_SERVICES)."""
+    service = services("docker-compose.yml")["trainer-graphsage"]
+    assert "trainer-graphsage" not in JOB_SERVICES
+    data, truth = ROOT / "data", ROOT / "data" / "truth"
+    mounts = bind_mounts(service)
+    for name in ("raw", "store", "features", "ood"):
+        assert ((data / name).resolve(), f"/app/data/{name}", True) in mounts, name
+    for source, _, read_only in mounts:
+        assert source != truth and truth not in source.parents and source not in truth.parents
+        if source == data or data in source.parents:
+            assert read_only, source
+    assert ((ROOT / "artifacts").resolve(), "/app/artifacts", False) in mounts
+    assert service["build"]["dockerfile"] == "infra/docker/trainer-gnn.Dockerfile"
+    assert service["build"]["args"]["DGL_IMAGE"] == "${DGL_IMAGE}"
+    gpu = services("compose.gpu.yml")["trainer-graphsage"]
+    assert gpu["build"]["args"]["DGL_IMAGE"].startswith("${DGL_IMAGE:?")
+    assert gpu["environment"]["DEVICE"] == "gpu"
+
+
+def test_the_graphsage_image_adds_pinned_packages_and_keeps_the_rocm_stack() -> None:
+    dockerfile = (INFRA / "docker" / "trainer-gnn.Dockerfile").read_text(encoding="utf-8")
+    assert "FROM ${DGL_IMAGE}" in dockerfile and "--extra-index-url" not in dockerfile
+    assert "--no-deps --index-url https://pypi.org/simple" in dockerfile
+    assert "import ml.gnn.asos, ml.gnn.embeddings" in dockerfile  # fails the build, not the run
+    lines = [
+        line.strip()
+        for line in (INFRA / "docker" / "requirements-gnn.txt").read_text().splitlines()
+        if line.strip() and not line.startswith("#")
+    ]
+    names = set()
+    for line in lines:
+        name, _, version = line.partition("==")
+        assert version, f"{line} is not pinned"
+        names.add(name.lower())
+    image_stack = {"torch", "dgl", "numpy", "scipy", "pandas", "networkx"}
+    assert not names & image_stack, "the rocm/dgl image ships these, built together for ROCm"
+    assert not names & {"xgboost", "amd_xgboost", "amd-xgboost"}
+    cpu = (INFRA / "requirements-gnn-cpu.txt").read_text(encoding="utf-8")
+    assert "torch==2.8.0+cpu" in cpu  # the PyTorch of the rocm/dgl image, CPU build
+
+
+def test_makefile_gnn_targets() -> None:
+    targets = makefile_targets()
+    assert targets["gnn-asos"][1] == [
+        "python -m ml.gnn asos --raw data/raw --out artifacts --sample $(GNN_SAMPLE)"
+    ]
+    assert " ".join(targets["embeddings"][1]).count("python -m ml.gnn embed") == 2
+    assert "--encoder artifacts/gnn/models/customer_encoder" in " ".join(targets["embeddings"][1])
+    assert targets["gnn-results"][1] == [
+        "python -m ml.gnn report --artifacts artifacts --doc docs/results/us-202-graphsage.md"
+    ]
+    assert "--device gpu" in " ".join(targets["gnn-asos-gpu"][1])
+    assert "--device cpu" in " ".join(targets["gnn-asos-cpu-container"][1])
+    assert "embeddings" not in targets["pipeline"][0].split()  # make pipeline needs no torch
+
+
 def test_makefile_targets_use_overrides_and_existing_scripts() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
     assert re.search(r"^GPU = .*-f infra/compose\.gpu\.yml", makefile, re.M)

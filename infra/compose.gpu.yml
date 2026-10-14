@@ -24,6 +24,13 @@ services:
   trainer-gnn:
     image: ${DGL_IMAGE:?set DGL_IMAGE in .env (tag@sha256, see .env.example)}
 
+  trainer-graphsage:
+    environment:
+      DEVICE: gpu
+    build:
+      args:
+        DGL_IMAGE: ${DGL_IMAGE:?set DGL_IMAGE in .env (tag@sha256, see .env.example)}
+
   telemetry:
     build:
       args:

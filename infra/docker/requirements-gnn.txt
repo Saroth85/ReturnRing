@@ -1,0 +1,19 @@
+# trainer-graphsage (infra/docker/trainer-gnn.Dockerfile): what python -m ml.gnn needs on top of
+# rocm/dgl, from PyPI only, pinned, installed with --no-deps. The versions are those of
+# requirements/base.txt and dev.txt. Never add torch, dgl, numpy, scipy, pandas or networkx here:
+# the image ships them, built together for ROCm. xgboost-cpu (not amd_xgboost) is the CPU XGBoost
+# of the side-by-side comparison; the GPU XGBoost is trainer-gbm's. pytest runs the GPU tests in
+# the container. Outside the licence gate as a pulled-image add-on (ADR-12); all permissive anyway.
+polars==2.0.0
+polars-runtime-32==2.0.0
+pyarrow==26.0.0
+scikit-learn==1.9.1
+joblib==1.6.0
+cloudpickle==3.1.2
+threadpoolctl==3.7.0
+narwhals==2.27.1
+xgboost-cpu==3.2.0
+pytest==9.1.1
+iniconfig==2.3.1
+pluggy==1.6.0
+pygments==2.21.0

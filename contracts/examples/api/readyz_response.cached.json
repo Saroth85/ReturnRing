@@ -33,7 +33,7 @@
     {
       "component": "telemetry",
       "status": "disabled",
-      "detail": null
+      "detail": "GPU off: cached mode serves precomputed results"
     }
   ],
   "contract_version": "1.8.0",

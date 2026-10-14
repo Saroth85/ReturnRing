@@ -2,8 +2,9 @@
 19, contract 1.7.0), on the tiny store of the harness (Navigli Fashion, scale 0.05, seed 7;
 every number synthetic):
 
-1. the public or cached demo runs on a frozen demo clock, so no open return drifts into an
-   overdue refund after the reset, and /readyz says so;
+1. the public read-only demo (cached or live) runs on a frozen demo clock, so no open return
+   drifts into an overdue refund after the reset, and /readyz says so; with writes on the clock
+   runs (section 20);
 2. a guarantee case states no refund deadline: no 14-day date, never overdue, never blocked
    (rule 4, NFR-17);
 3. after the refund deadline, a pending proposal can still be rejected or overridden to the

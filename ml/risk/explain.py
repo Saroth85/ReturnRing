@@ -31,7 +31,9 @@ from ml.risk.features import EMBEDDING_PREFIX, all_feature_names
 
 TOP: Final = 3
 Lang = Literal["en", "it"]
-Direction = Literal["up", "down", "flat"]
+# The words of the API's ScoreContribution.direction (ADR-13 amendment 5, review F18), plus
+# unchanged for a zero contribution.
+Direction = Literal["raises", "lowers", "unchanged"]
 
 # feature -> (English label, Italian label). Labels hold no number and no verdict.
 LABELS: Final[dict[str, tuple[str, str]]] = {
@@ -197,9 +199,9 @@ EMBEDDING_LABEL: Final = (
     "Posizione nel grafo di account e identificativi (componente dell'embedding)",
 )
 DIRECTIONS: Final[dict[Direction, tuple[str, str]]] = {
-    "up": ("raises the score", "alza il punteggio"),
-    "down": ("lowers the score", "abbassa il punteggio"),
-    "flat": ("leaves the score unchanged", "lascia invariato il punteggio"),
+    "raises": ("raises the score", "alza il punteggio"),
+    "lowers": ("lowers the score", "abbassa il punteggio"),
+    "unchanged": ("leaves the score unchanged", "lascia invariato il punteggio"),
 }
 NOT_A_CAUSE: Final = (
     "a contribution to the score, not a cause",
@@ -212,10 +214,10 @@ if _missing:  # pragma: no cover - a guard on the constants
 
 def direction_of(contribution: float) -> Direction:
     if contribution > 0:
-        return "up"
+        return "raises"
     if contribution < 0:
-        return "down"
-    return "flat"
+        return "lowers"
+    return "unchanged"
 
 
 def labels_of(feature: str, alone: bool = False) -> tuple[str, str]:

@@ -576,7 +576,9 @@ def plan_coupons(
                     p = WELCOME_REDEEM_PROBABILITY
                 if draws[i, 0] < p:
                     redeem(c, mine[0])
-        if pop.scripted[i] or pop.ring_of[i] >= 0:
+        # Ring accounts get referral and Black Friday codes like everyone else (review F5): a
+        # code that only non-ring accounts can hold would be a label proxy.
+        if pop.scripted[i]:
             continue
         if created >= START_US and draws[i, 1] < REFERRAL_SHARE:
             c = issue(i, "referral", created + 2 * US_PER_SECOND, FIXED_COUPON_CENTS)

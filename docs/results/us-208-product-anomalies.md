@@ -4,9 +4,11 @@ Stories US-208 and US-606, data side (tests MOD-10, MOD-08, MOD-12, E2E-04; deci
 
 Rewritten by `python -m pipeline.anomalies.evaluate --data data --results docs/results/us-208-product-anomalies.md` from the data alone (no wall-clock value), so the same store gives the same file. Every number below is synthetic: measured on the Navigli Fashion store, whose defects and their sales surges are design hypotheses calibrated on real ASOS aggregates. None is a measure on real products.
 
-- Main store origin: Navigli Fashion generator, calibrated on ASOS GraphReturns aggregates (calibration: ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; calibration: aggregates of the train split by pipeline/ingest/asos_profile.py. Rates, counts and purchases per customer come from the train events (2021-09-01..2021-10-31); product types, prices, return rates and reason shares come from the train product table, whose aggregates equal the test table's for every shared variant, so their window is the test window too (ADR-10); hence the period 2021-09-01..2021-11-30; calibration nature real; sha256 f49ce3711edd; seed 42, scale 1, scenario main; store period 2025-10-01..2026-09-30); nature synthetic.
-- OOD store origin: Navigli Fashion generator, calibrated on ASOS GraphReturns aggregates (calibration: ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; calibration: aggregates of the train split by pipeline/ingest/asos_profile.py. Rates, counts and purchases per customer come from the train events (2021-09-01..2021-10-31); product types, prices, return rates and reason shares come from the train product table, whose aggregates equal the test table's for every shared variant, so their window is the test window too (ADR-10); hence the period 2021-09-01..2021-11-30; calibration nature real; sha256 f49ce3711edd; seed 42, scale 1, scenario ood; store period 2025-10-01..2026-09-30); nature synthetic.
+- Main store origin: Navigli Fashion generator, calibrated on ASOS GraphReturns aggregates (seed 42, scale 1, scenario main; calibration real, sha256 f49ce3711edd: ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0); store period 2025-10-01..2026-09-30; calibration: ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; calibration: aggregates of the train split by pipeline/ingest/asos_profile.py. Rates, counts and purchases per customer come from the train events (2021-09-01..2021-10-31); product types, prices, return rates and reason shares come from the train product table, whose aggregates equal the test table's for every shared variant, so their window is the test window too (ADR-10); hence the period 2021-09-01..2021-11-30; calibration nature real; sha256 f49ce3711edd0edf1a7fd30bcbfed790a0a60ea334545c5c1b5a107c01e9f0af; nature synthetic.
+- OOD store origin: Navigli Fashion generator, calibrated on ASOS GraphReturns aggregates (seed 42, scale 1, scenario ood; calibration real, sha256 f49ce3711edd: ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0); store period 2025-10-01..2026-09-30; calibration: ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; calibration: aggregates of the train split by pipeline/ingest/asos_profile.py. Rates, counts and purchases per customer come from the train events (2021-09-01..2021-10-31); product types, prices, return rates and reason shares come from the train product table, whose aggregates equal the test table's for every shared variant, so their window is the test window too (ADR-10); hence the period 2021-09-01..2021-11-30; calibration nature real; sha256 f49ce3711edd0edf1a7fd30bcbfed790a0a60ea334545c5c1b5a107c01e9f0af; nature synthetic.
 - Code: anomalies-v1; product thresholds anomalies-v1-2026-10-13: at least 20 sales in the week, z > 3, and P(X >= O) <= 0.000169 for X ~ Poisson(E) (the normal tail of z = 3 shared by the 8 reasons).
+
+**In-sample for the choice of rule** (review F10): no constant was tuned, but steps 2 to 4 were adopted after the literal rule of spec 8.9 (step 1) was measured on this main store, so the MOD-10 figures of section B are in-sample for that choice. The OOD store changes the customers, not the defect mechanism: section C does not test the rule on another defect mechanism. Spec 8.9 and D-15 record the rule as implemented.
 
 ## A. Volume: who reaches the minimum of 20 sales in a week
 
@@ -33,15 +35,15 @@ At the extraction instant 2026-10-01 00:00Z (every sales week of the year, each 
 | **4. + level shared by the 8 reasons of a variant-week (anomalies-v1-2026-10-13, the product rule)** | 103 | 100 | 0.971 | 0.971 | 1.000 (100 of 100) | 374 | 0.992 |
 | 4 without step 2 (E = h / S) | 101 | 97 | 0.960 | 0.960 | 0.970 (97 of 100) | 363 | 0.989 |
 
-Weekly operation: one run every Monday 00:00 UTC (52 runs) and one at the extraction instant, each with what was known then. A variant flagged in any run would have opened a catalogue task; the delay runs from the defect start to the first run with a matching flag:
+Weekly operation: one run every Monday 00:00 UTC (52 runs) and one at the extraction instant, each with what was known then. A variant flagged in any run would have opened a catalogue task for each flagged reason (one task per variant and reason, pipeline.anomalies.catalogue). Precision per variant is the MOD-10 measure; precision per task counts a defective variant flagged for a reason that is not its defect as a false task. The delay runs from the defect start to the first run with a matching flag:
 
-| Rule | Catalogue tasks (variants) | Precision | Recall | Delay median (days) | Delay p90 | Delay max |
-| --- | --- | --- | --- | --- | --- | --- |
-| 1. Spec 8.9 read literally: E = h / S, z > 3 | 347 | 0.280 | 0.970 (97 of 100) | 14 | 14 | 21 |
-| 2. + rule of succession: E = (h + 1) / (S + 2) per line | 346 | 0.289 | 1.000 (100 of 100) | 14 | 14 | 21 |
-| 3. + exact Poisson tail at the level of z > 3 | 125 | 0.800 | 1.000 (100 of 100) | 14 | 21 | 21 |
-| **4. + level shared by the 8 reasons of a variant-week (anomalies-v1-2026-10-13, the product rule)** | 105 | 0.952 | 1.000 (100 of 100) | 14 | 21 | 28 |
-| 4 without step 2 (E = h / S) | 104 | 0.933 | 0.970 (97 of 100) | 14 | 21 | 28 |
+| Rule | Variants flagged in any run | Precision per variant (MOD-10) | Catalogue tasks (variant, reason) | Task precision | Recall | Delay median (days) | Delay p90 | Delay max |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1. Spec 8.9 read literally: E = h / S, z > 3 | 347 | 0.280 | 607 | 0.160 | 0.970 (97 of 100) | 14 | 14 | 21 |
+| 2. + rule of succession: E = (h + 1) / (S + 2) per line | 346 | 0.289 | 596 | 0.168 | 1.000 (100 of 100) | 14 | 14 | 21 |
+| 3. + exact Poisson tail at the level of z > 3 | 125 | 0.800 | 129 | 0.775 | 1.000 (100 of 100) | 14 | 21 | 21 |
+| **4. + level shared by the 8 reasons of a variant-week (anomalies-v1-2026-10-13, the product rule)** | 105 | 0.952 | 106 | 0.943 | 1.000 (100 of 100) | 14 | 21 | 28 |
+| 4 without step 2 (E = h / S) | 104 | 0.933 | 104 | 0.933 | 0.970 (97 of 100) | 14 | 21 | 28 |
 
 ## C. MOD-12: the out-of-distribution store, a separate row whatever the result
 
@@ -57,15 +59,15 @@ At the extraction instant 2026-10-01 00:00Z (every sales week of the year, each 
 | **4. + level shared by the 8 reasons of a variant-week (anomalies-v1-2026-10-13, the product rule)** | 100 | 100 | 1.000 | 1.000 | 1.000 (100 of 100) | 368 | 0.997 |
 | 4 without step 2 (E = h / S) | 99 | 99 | 1.000 | 1.000 | 0.990 (99 of 100) | 363 | 0.997 |
 
-Weekly operation: one run every Monday 00:00 UTC (52 runs) and one at the extraction instant, each with what was known then. A variant flagged in any run would have opened a catalogue task; the delay runs from the defect start to the first run with a matching flag:
+Weekly operation: one run every Monday 00:00 UTC (52 runs) and one at the extraction instant, each with what was known then. A variant flagged in any run would have opened a catalogue task for each flagged reason (one task per variant and reason, pipeline.anomalies.catalogue). Precision per variant is the MOD-10 measure; precision per task counts a defective variant flagged for a reason that is not its defect as a false task. The delay runs from the defect start to the first run with a matching flag:
 
-| Rule | Catalogue tasks (variants) | Precision | Recall | Delay median (days) | Delay p90 | Delay max |
-| --- | --- | --- | --- | --- | --- | --- |
-| 1. Spec 8.9 read literally: E = h / S, z > 3 | 362 | 0.273 | 0.990 (99 of 100) | 14 | 14 | 28 |
-| 2. + rule of succession: E = (h + 1) / (S + 2) per line | 360 | 0.278 | 1.000 (100 of 100) | 14 | 14 | 28 |
-| 3. + exact Poisson tail at the level of z > 3 | 124 | 0.806 | 1.000 (100 of 100) | 14 | 15 | 28 |
-| **4. + level shared by the 8 reasons of a variant-week (anomalies-v1-2026-10-13, the product rule)** | 100 | 1.000 | 1.000 (100 of 100) | 14 | 21 | 28 |
-| 4 without step 2 (E = h / S) | 99 | 1.000 | 0.990 (99 of 100) | 14 | 21 | 28 |
+| Rule | Variants flagged in any run | Precision per variant (MOD-10) | Catalogue tasks (variant, reason) | Task precision | Recall | Delay median (days) | Delay p90 | Delay max |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1. Spec 8.9 read literally: E = h / S, z > 3 | 362 | 0.273 | 664 | 0.149 | 0.990 (99 of 100) | 14 | 14 | 28 |
+| 2. + rule of succession: E = (h + 1) / (S + 2) per line | 360 | 0.278 | 651 | 0.154 | 1.000 (100 of 100) | 14 | 14 | 28 |
+| 3. + exact Poisson tail at the level of z > 3 | 124 | 0.806 | 125 | 0.800 | 1.000 (100 of 100) | 14 | 15 | 28 |
+| **4. + level shared by the 8 reasons of a variant-week (anomalies-v1-2026-10-13, the product rule)** | 100 | 1.000 | 101 | 0.990 | 1.000 (100 of 100) | 14 | 21 | 28 |
+| 4 without step 2 (E = h / S) | 99 | 1.000 | 100 | 0.990 | 0.990 (99 of 100) | 14 | 21 | 28 |
 
 ## D. Flagged cells that match no defect window (product rule, every run)
 

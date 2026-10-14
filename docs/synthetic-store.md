@@ -10,7 +10,7 @@ python -m pipeline.generator --calibration pipeline/calibration/asos_calibration
   --out data --seed 42 [--scale 1.0] [--scenario main|ood]
 make generate        # main scenario, CALIBRATION, SEED and SCALE overridable
 make generate-ood    # out-of-distribution scenario
-make pipeline        # both (phase 1; features join in phase 2)
+make pipeline        # both, then graph, features, anomalies and risk (phase 2, data/README.md)
 ```
 
 The command prints a JSON summary on stdout, with counts, measured return rates against the
@@ -153,6 +153,18 @@ Hard situations (spec section 7):
   unrelated customers.
 - **Shared mobile prefixes**: mobile carrier IP prefixes, each shared by about 24 customers.
 - **Card-sharing families**: families where two accounts share a card.
+- **Unrelated accounts sharing a strong identifier** (OOD only, review F3): pairs of unrelated
+  accounts of any behaviour that come to use one device (a second-hand phone, a shared laptop; 100
+  pairs at scale 1.0), and flatmates who pay with one card at half the collective addresses. In the
+  main store no card, e-mail or device is shared across rings, families and unrelated accounts, so
+  the graph's precision at the 0.8 threshold holds by construction there.
+
+Identifier counts never tell the behaviour (review F5): every account, ring and family members
+included, draws a second device (35%), a second card (25%) and a mobile IP prefix (40%) with the
+same probabilities; ring and family members keep their shared values on top. Ring accounts get
+referral and Black Friday codes like everyone else. Before the fix, ring and family accounts never
+had a mobile prefix, family accounts always had two devices, and ring accounts never held a
+referral or Black Friday code: label proxies for a graph model (A4).
 
 ### Golden cases (US-104, DATA-05)
 
@@ -185,6 +197,8 @@ the generator's rules.
 | Ring sharing | Device 0.8, address 0.7, card 0.65, e-mail 0.45 | Device 0.45, address 0.4, card 0.3, e-mail 0.1; no guaranteed strong link |
 | Missing identifiers | Phone 12% | Phone 40%, device 30%, card 25%, IP prefix 20% |
 | Families | 15% share a card | 60% share a card; 15% opened together with a welcome coupon each; plus F-OOD-HARD: five accounts opened within 10 days, each with a welcome coupon, sharing address, device and one card, returning at most 40% of lines |
+| Unrelated accounts | Share no card, e-mail or device | 100 pairs per 20,000 accounts share a device (second-hand or shared); flatmates share a card at half the collective addresses |
+| Wardrobers, size, defects | Same rules in both stores: the OOD wardrober rows are in distribution (review F4) | Same |
 | Ids | Golden cases; plain ids | No golden case; every id carries `OOD-` (C-OOD-000001, R-OOD-001, ...) |
 
 **Rule: the OOD store is never used in training, tuning or threshold selection.** Training jobs read
@@ -198,7 +212,8 @@ scale 1.0, built from `pipeline/calibration/asos_calibration.json` (sha256 f49ce
 aggregates of the real ASOS GraphReturns train split (calibration nature: real, period
 2021-09-01..2021-11-30). Nature of the numbers: **synthetic**, measured on the generated store, period
 of the store October 2025 to September 2026. Measured on 13 Oct 2026 on the development container
-(CPU). The calibration targets are real ASOS aggregates (origin: ASOS GraphReturns, OSF c793h).
+(CPU); the identifier and coupon rows and the OOD identifier coverage after the phase 2 review fixes
+F3 and F5, which change no other row of this table. The calibration targets are real ASOS aggregates (origin: ASOS GraphReturns, OSF c793h).
 
 | | main | ood |
 | --- | --- | --- |
@@ -206,13 +221,13 @@ of the store October 2025 to September 2026. Measured on 13 Oct 2026 on the deve
 | Orders / lines | 80,356 / 205,462 | 80,103 / 204,081 |
 | Lines per order / orders per customer | 2.56 / 4.02 | 2.55 / 4.01 |
 | Deliveries / returns / return states | 79,636 / 60,916 / 241,399 | 79,346 / 60,678 / 240,523 |
-| Identifier rows / coupon rows | 138,932 / 12,429 | 113,863 / 12,785 |
+| Identifier rows / coupon rows | 139,086 / 12,453 | 114,569 / 12,819 |
 | Behaviour shares: normal, size, benign, wardrober, ring | 80.0%, 12.0%, 3.5%, 3.0%, 1.5% | same |
 | Rings / families / card-sharing families | 40 / 261 / 40 | 75 / 252 / 177 |
 | Return rate of mature lines vs calibration 0.3096 (real, sales-weighted) | 0.3063 (-1.1%) | 0.3077 (-0.6%) |
 | Return rate by behaviour (delivered lines): normal, benign, size, wardrober, ring | 0.275, 0.278, 0.326, 0.741, 0.947 | 0.276, 0.264, 0.333, 0.738, 0.728 |
 | Abusive share of returned value (wardrobers and rings; spec target about 12%) | 13.2% | 13.4% |
-| Accounts with a device / card / phone / IP prefix | 100% / 100% / 88.1% / 100% | 70.9% / 75.7% / 60.1% / 81.0% |
+| Accounts with a device / card / phone / IP prefix | 100% / 100% / 88.1% / 100% | 71.1% / 75.8% / 60.1% / 81.0% |
 | Surging variants: defects + matched controls; lines switched to them | 100 + 396; 48,572 (23.6% of lines) | 100 + 400; 49,646 (24.3%) |
 | Variants that ever sell 20 in a week (spec 8.9 minimum): all, defective share | 495, 0.202 | 502, 0.199 |
 | Run time (CPU; the code at commit 472d798 took 16.8 s on the same container that day) | 16.4 s | 16.5 s |

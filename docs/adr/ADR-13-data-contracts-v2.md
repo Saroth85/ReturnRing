@@ -374,3 +374,28 @@ the withdrawal path, so a defect or non-conformity request is listed and never s
 risk in [0, 1]; quadrant null on the guarantee path and without sufficient evidence;
 `context_as_of < decided_at` (MOD-08: a snapshot taken at the request instant already counts the
 request); every timestamp `<= as_of`, as in every as-of table.
+
+## Amendment 5 (13 Oct 2026): phase 2 review F1, F6, F14, F15, F17 to F20, F22
+
+The contract version stays `2.0.0`. Files written before this amendment fail `read_table` with a
+`ContractError` that names the reason (a scores/ schema that differs, or an origin longer than 300
+characters), and `make pipeline` rewrites them all. Code: `contracts/`, `ml/scoring/`, `ml/risk/`,
+`pipeline/*/build.py`, `pipeline/generator/core.py`.
+
+| Change | What and why |
+| --- | --- |
+| Short origin, lineage key (F17) | `Provenance.origin` holds at most 300 characters, the limit of the API's `Provenance.origin` (ADR-15), checked when a provenance is made and when a file is read. The full chain of origins of a derived file goes to its own metadata key, `returnring.lineage`: this file's origin and details, then ` <- ` and the chain of the file it was computed from (`Provenance.derive`). `returnring.provenance` keeps the four fields of the API. A source file (store, truth, raw) has its long details (the calibration's origin) in its lineage too. |
+| Joins on the same data (F22) | `contracts.io.require_derived(child, parent, ...)`: a features/ or scores/ table is joined to a store only when its lineage ends with the store's whole chain. Customer ids are the same at any seed, so a table left over from another store would otherwise join silently. Checked by `ml.scoring.read_inputs`, `ml.risk.data.GraphSnapshots` and `pipeline.features.build.clusters_at`. |
+| Thresholds with every quadrant (F15) | `scores/scores` gains `risk_threshold` (float64, not null) and `value_threshold_eur` (EUR, not null); `scores/request_scores` gains both, nullable: `risk_threshold` with `risk`, `value_threshold_eur` with `value_eur` (the 70th percentile at `context_as_of`). New check `QuadrantRule`: where the evidence is sufficient, the quadrant is `policy.engine.quadrant_for` of the risk, the value and the two thresholds on the same row. The API reproduces and shows every quadrant without reading features/ or the models. |
+| Direction words (F18) | `shap_top3[].direction` is `raises`, `lowers` or `unchanged` (a zero contribution), the words of the API's `ScoreContribution.direction` plus `unchanged`; the API maps `unchanged` or leaves such a factor out. |
+| No snapshot before a request (F19) | A withdrawal-path request whose account has no snapshot before `decided_at` has `evidence_quality = insufficient` (never null), no value and no quadrant: standard terms with a missing-evidence reason (US-307). Check: `evidence_quality` present exactly on the withdrawal path. |
+| Guarantee path has no model version (F20) | `scores/request_scores.model_version` is nullable: present exactly on the withdrawal path, null on the guarantee path, which is not scored (rule 4); the path column says why. |
+| Decision time after training (F1) | `ml.scoring` refuses a decision time before the models' training end (rule 7: the scores would be in-sample, with labels from after the decision); `backtest=True` (`--backtest`) allows it for an offline check and writes "in-sample backtest" into the origin. |
+| Evidence of the account only (F14) | `features/evidence_quality.n_observations_linked` stays a reported column: the outcome counts the account's own settled lines only. Counted, linked observations let an account with no line of its own into Q4, and the FAIR-03 counterfactual, which keeps the evidence fixed, could not see it. |
+| Labels and keys are never features (F6) | `contracts.parquet.label_or_key_features`: every column of `truth/*`, the derived label `abusive`, and every row key (any name ending in `_id`, the link pair, `coupon_code`, `value_hash`). `ml.risk.features.check_feature_names`, `ml.reference.features.check_feature_names` and `ml.propensity.features.check_feature_names` refuse them, with the forbidden features of section 6. |
+
+Offline evaluation outputs (graph `evaluation.json`, risk `metrics.json`, FAIR-02/03 of
+`ml.scoring --truth`) are written under `artifacts/eval/` and hold counts and metrics, never a
+customer or a cluster listed with its ground truth (review F2). A running service needs only
+`artifacts/risk/models`; narrowing its mount is an infra change (`tests/test_infra.py` holds the
+check as a strict expected failure until then).

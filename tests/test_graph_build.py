@@ -13,7 +13,7 @@ from pathlib import Path
 import polars as pl
 import pytest
 
-from contracts.io import read_table
+from contracts.io import MAX_ORIGIN_CHARS, read_table
 from contracts.parquet import CONTRACT_VERSION
 from pipeline.generator import golden
 from pipeline.generator.calibration import load_calibration
@@ -58,7 +58,8 @@ def test_the_cli_writes_both_contract_files(
         assert table.num_rows > 0
         assert provenance.nature == "synthetic"
         assert provenance.origin.startswith(ORIGIN)
-        assert "Navigli Fashion generator" in provenance.origin  # the store it read
+        assert "Navigli Fashion generator" in provenance.chain  # the store it read
+        assert len(provenance.origin) <= MAX_ORIGIN_CHARS  # review F17
         assert "as of 2026-10-01T00:00:00+00:00" in provenance.origin
         assert str(provenance.period_end) == "2026-09-30"
         assert table.schema.metadata[b"returnring.contract_version"] == CONTRACT_VERSION.encode()

@@ -25,7 +25,7 @@ import numpy as np
 import numpy.typing as npt
 import pandas as pd
 
-from contracts.parquet import forbidden_features
+from contracts.parquet import forbidden_features, label_or_key_features
 from pipeline.features.lines import line_history
 
 REFERENCE_FEATURES: Final = (
@@ -42,8 +42,17 @@ REFERENCE_FEATURES: Final = (
 )
 CUSTOMER_HISTORY_FEATURES: Final = ("customer_rate", "customer_log_n")
 PERSONALIZED_FEATURES: Final = (*REFERENCE_FEATURES, *CUSTOMER_HISTORY_FEATURES)
-if forbidden_features(PERSONALIZED_FEATURES):  # pragma: no cover - FAIR-01 guard on constants
-    raise RuntimeError(f"forbidden features: {forbidden_features(PERSONALIZED_FEATURES)}")
+
+
+def check_feature_names(names: Sequence[str]) -> None:
+    """FAIR-01 and rule 6 on a feature list: no forbidden feature, no ground-truth column and
+    no row key (review F6). Raises ValueError."""
+    bad = forbidden_features(names) + label_or_key_features(names)
+    if bad:
+        raise ValueError(f"forbidden features, labels or row keys (rule 6, FAIR-01): {bad}")
+
+
+check_feature_names(PERSONALIZED_FEATURES)
 
 K_CATEGORY: Final = 20.0  # pseudo-lines of the store rate inside a category rate (hypothesis)
 K_CUSTOMER: Final = 2.0  # pseudo-lines of the store rate inside a customer's rate (hypothesis)

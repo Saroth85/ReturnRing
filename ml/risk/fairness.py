@@ -7,13 +7,16 @@ shared_benign in the ground truth) that the product treats as high risk, counted
 - restrictive: placed in Q3 or Q4 (risk above the threshold, sufficient evidence: what the
   customer would see, after human approval).
 
-Per segment, the false-positive rate is false positives over the segment's non-abusive customers,
-and the gap is that rate minus the rate of the whole population, in percentage points. A warning
-is raised when a gap exceeds 5 points either way (spec 12: "scarto <= 5 punti"). Segments: new
-customers (account opened less than 90 days before the decision time), linked accounts (in a graph
-cluster) and families (shared_benign in the ground truth), low-data groups (fewer settled lines
-than the evidence threshold), tenure bands, price bands (thirds of the mean line price, cut on the
-population itself) and the customer's main category (most lines ordered).
+Per segment, the false-positive rate is false positives over the segment's non-abusive customers.
+Per dimension, the gap is the largest segment rate minus the smallest, in percentage points (spec
+12: "scarto <= 5 punti tra" the segments; the API's FairnessDimensionReport.max_gap is the same
+quantity). FAIR-02 fails when a gap exceeds 5 points, for the flagged or the Q3/Q4 measure (review
+F8: the earlier version compared each segment with the pooled rate and called it a warning).
+Segments: new customers (account opened less than 90 days before the decision time), linked
+accounts (in a graph cluster) and families (shared_benign in the ground truth), low-data groups
+(fewer settled lines than the evidence threshold), tenure bands, price bands (thirds of the mean
+line price, cut on the population itself) and the customer's main category (most lines ordered).
+Small segments are noisy: the report prints every segment's size next to its rate.
 
 FAIR-03: no shared_benign customer in Q3 or Q4 because of the cluster alone. Counterfactual: the
 same customer scored with the cluster features computed on the account alone (as if it were linked
@@ -123,9 +126,25 @@ class SegmentRow:
     fpr: float | None
     restrictive: int
     fpr_restrictive: float | None
-    gap_pp: float | None
-    gap_restrictive_pp: float | None
-    warning: bool
+
+
+@dataclass(frozen=True)
+class DimensionRow:
+    """FAIR-02 on one dimension: the gap between its segments (largest rate minus smallest)."""
+
+    dimension: str
+    segments: int
+    smallest_segment: int  # non-abusive customers in the smallest segment
+    highest: str  # segment with the largest flagged rate
+    lowest: str  # segment with the smallest flagged rate
+    gap_pp: float
+    highest_restrictive: str
+    lowest_restrictive: str
+    gap_restrictive_pp: float
+
+    @property
+    def passed(self) -> bool:
+        return self.gap_pp <= GAP_LIMIT_PP and self.gap_restrictive_pp <= GAP_LIMIT_PP
 
 
 @dataclass(frozen=True)
@@ -139,14 +158,24 @@ class FairnessReport:
     threshold: float | None
     price_cuts: tuple[float, float]
     rows: list[SegmentRow] = field(default_factory=list)
+    dimensions: list[DimensionRow] = field(default_factory=list)
 
     @property
-    def warnings(self) -> list[SegmentRow]:
-        return [r for r in self.rows if r.warning]
+    def failures(self) -> list[str]:
+        """The dimensions whose gap between segments exceeds GAP_LIMIT_PP (spec 12)."""
+        return [d.dimension for d in self.dimensions if not d.passed]
+
+    @property
+    def passed(self) -> bool:
+        return not self.failures
 
     def as_dict(self) -> dict[str, Any]:
         out = asdict(self)
-        out["warnings"] = [f"{r.dimension}: {r.segment}" for r in self.warnings]
+        for d, row in zip(out["dimensions"], self.dimensions, strict=True):
+            d["passed"] = row.passed
+        out["failures"] = self.failures
+        out["passed"] = self.passed
+        out["gap_limit_pp"] = GAP_LIMIT_PP
         return out
 
 
@@ -154,8 +183,31 @@ def _rate(n: int, d: int) -> float | None:
     return n / d if d else None
 
 
-def _gap(rate: float | None, overall: float | None) -> float | None:
-    return None if rate is None or overall is None else 100.0 * (rate - overall)
+def _spread(rows: Sequence[SegmentRow], rate: str) -> tuple[str, str, float]:
+    """(segment with the largest rate, segment with the smallest, gap in points); ties go to
+    the first segment in alphabetical order."""
+    known = [(getattr(r, rate), r.segment) for r in rows if getattr(r, rate) is not None]
+    if not known:
+        return "", "", 0.0
+    high = min(known, key=lambda x: (-x[0], x[1]))
+    low = min(known, key=lambda x: (x[0], x[1]))
+    return high[1], low[1], 100.0 * (high[0] - low[0])
+
+
+def dimension_row(dimension: str, rows: Sequence[SegmentRow]) -> DimensionRow:
+    high, low, gap = _spread(rows, "fpr")
+    high_r, low_r, gap_r = _spread(rows, "fpr_restrictive")
+    return DimensionRow(
+        dimension,
+        len(rows),
+        min((r.non_abusers for r in rows), default=0),
+        high,
+        low,
+        gap,
+        high_r,
+        low_r,
+        gap_r,
+    )
 
 
 def fair02(
@@ -177,29 +229,29 @@ def fair02(
     fp, fr = int((negative & flagged).sum()), int((negative & restrictive).sum())
     overall, overall_r = _rate(fp, n), _rate(fr, n)
     rows: list[SegmentRow] = []
+    dims: list[DimensionRow] = []
     for dimension in segments.columns:
         seg = segments[dimension].reindex(s.index)
+        mine: list[SegmentRow] = []
         for value in sorted(seg[negative].dropna().unique()):
             mask = negative & (seg == value)
             d = int(mask.sum())
             f, r = int((mask & flagged).sum()), int((mask & restrictive).sum())
-            gap, gap_r = _gap(_rate(f, d), overall), _gap(_rate(r, d), overall_r)
-            warn = any(g is not None and abs(g) > GAP_LIMIT_PP for g in (gap, gap_r))
-            rows.append(
-                SegmentRow(
-                    dimension, str(value), d, f, _rate(f, d), r, _rate(r, d), gap, gap_r, warn
-                )
-            )
-    return FairnessReport(name, n, fp, fr, overall, overall_r, threshold, price_cuts, rows)
+            mine.append(SegmentRow(dimension, str(value), d, f, _rate(f, d), r, _rate(r, d)))
+        rows += mine
+        dims.append(dimension_row(str(dimension), mine))
+    return FairnessReport(name, n, fp, fr, overall, overall_r, threshold, price_cuts, rows, dims)
 
 
 @dataclass(frozen=True)
 class Fair03:
+    """Counts only: the output lands under artifacts/, and a customer id listed here would carry
+    its ground-truth behaviour with it (rule 12, review F2)."""
+
     population: str
     families: int
     restrictive: int
     because_of_cluster: int
-    customers: tuple[str, ...]
 
     @property
     def passed(self) -> bool:
@@ -242,13 +294,7 @@ def fair03(
     restrictive = s["quadrant"].isin(RESTRICTIVE)
     without = alone.reindex(s.index).isin(RESTRICTIVE)
     because = family & restrictive & ~without
-    return Fair03(
-        name,
-        int(family.sum()),
-        int((family & restrictive).sum()),
-        int(because.sum()),
-        tuple(sorted(s.index[because])),
-    )
+    return Fair03(name, int(family.sum()), int((family & restrictive).sum()), int(because.sum()))
 
 
 def segment_summary(report: FairnessReport) -> list[dict[str, Any]]:

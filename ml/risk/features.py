@@ -36,7 +36,7 @@ import numpy as np
 import numpy.typing as npt
 import pandas as pd
 
-from contracts.parquet import SCHEMAS, forbidden_features
+from contracts.parquet import SCHEMAS, forbidden_features, label_or_key_features
 from pipeline.graph.clusters import CLUSTER_FEATURES as GRAPH_CLUSTER_FEATURES
 from policy.types import Path, ReturnReason
 
@@ -129,11 +129,14 @@ def all_feature_names() -> tuple[str, ...]:
 
 
 def check_feature_names(names: Sequence[str]) -> None:
-    """FAIR-01 and rule 6 on a feature list: no forbidden feature, no customer value, no
-    duplicate. Raises ValueError."""
+    """FAIR-01 and rule 6 on a feature list: no forbidden feature, no ground-truth column or row
+    key (review F6), no customer value, no duplicate. Raises ValueError."""
     bad = forbidden_features(names)
     if bad:
         raise ValueError(f"forbidden features (rule 6, FAIR-01): {bad}")
+    keys = label_or_key_features(names)
+    if keys:
+        raise ValueError(f"labels and row keys are never features (rule 6, FAIR-01): {keys}")
     value = sorted(set(names) & VALUE_COLUMNS)
     if value:
         raise ValueError(f"customer value never feeds risk (rule 6): {value}")

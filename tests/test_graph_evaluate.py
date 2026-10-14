@@ -12,14 +12,19 @@ import pytest
 
 from pipeline.generator.calibration import load_calibration
 from pipeline.generator.core import generate
+from pipeline.graph.build import build_graph, default_as_of
 from pipeline.graph.evaluate import (
+    DEFAULT_JSON,
+    _by_construction,
     common_addresses,
+    cross_group_sharing,
     family_metrics,
     main,
     mixing,
     ring_metrics,
     ring_pair_weights,
 )
+from pipeline.graph.snapshot import load_snapshot
 
 ROOT = Path(__file__).resolve().parents[1]
 EXAMPLE = ROOT / "contracts" / "examples" / "calibration.json"
@@ -182,6 +187,58 @@ def test_cli_writes_the_report_and_the_json(tiny_data: Path, tmp_path: Path) -> 
     again = tmp_path / "again.md"
     assert main(["--data", str(tiny_data), "--report", str(again), "--json", str(out_json)]) == 0
     assert again.read_text() == text
+
+
+def test_f3_strong_sharing_across_groups_by_hand() -> None:
+    """F3: pairs of accounts of different groups sharing a card, e-mail or device; the report
+    calls the precision at 0.8 'by construction' exactly when there is none."""
+    ids = pl.DataFrame(
+        {
+            "customer_id": ["a1", "o1", "a1", "a2", "f1", "f2", "u1", "o1", "b1"],
+            "kind": [
+                "card",
+                "card",
+                "device",
+                "device",
+                "email",
+                "email",
+                "address",
+                "address",
+                "device",
+            ],
+            "value_hash": ["c1", "c1", "d1", "d1", "e1", "e1", "h1", "h1", "d1"],
+        }
+    )
+    pairs = cross_group_sharing(ids, CASE)
+    # card c1: a1 (R1) with o1 (alone); device d1: a1, a2 (R1) and b1 (R2): two cross pairs;
+    # e-mail e1: one family; the address is not a strong kind.
+    assert pairs == {"card": 1, "email": 0, "device": 2}
+    text = "\n".join(_by_construction([{"scenario": "x", "cross_group_strong_pairs": pairs}]))
+    assert "measured here" in text and "by construction" not in text
+    none = {"card": 0, "email": 0, "device": 0}
+    text = "\n".join(_by_construction([{"scenario": "x", "cross_group_strong_pairs": none}]))
+    assert "**by construction**" in text
+
+
+def test_f2_the_evaluation_names_no_cluster_with_its_ground_truth(
+    tiny_data: Path, tmp_path: Path
+) -> None:
+    """F2 (rule 12): the largest clusters are listed by rank and size; no cluster id of the
+    product's features/clusters appears with its composition by ground-truth behaviour, in the
+    JSON or in the report. The JSON goes to artifacts/eval/ by default."""
+    assert DEFAULT_JSON.parts[:2] == ("artifacts", "eval")
+    report, out_json = tmp_path / "graph.md", tmp_path / "graph.json"
+    assert main(["--data", str(tiny_data), "--report", str(report), "--json", str(out_json)]) == 0
+    data = json.loads(out_json.read_text())
+    for scenario in data["scenarios"]:
+        ranks = [c["rank"] for c in scenario["largest_clusters"]]
+        assert ranks == list(range(1, len(ranks) + 1)) and ranks
+        assert all("cluster_id" not in c for c in scenario["largest_clusters"])
+    snap = load_snapshot(tiny_data, default_as_of(tiny_data))
+    ids = set(build_graph(snap).clusters["cluster_id"].drop_nulls().to_list())
+    assert ids
+    text = out_json.read_text() + report.read_text()
+    assert not [cid for cid in ids if cid in text]
 
 
 def test_cli_runs_without_an_ood_store(tmp_path: Path) -> None:

@@ -78,6 +78,32 @@ def test_scores_count_variants_and_distinct_cells() -> None:
     assert days.to_dict() == {"D1": 7.0}  # first matching run on 9 March, start on 2 March
 
 
+def test_f11_catalogue_tasks_are_counted_per_variant_and_reason() -> None:
+    """F11: catalogue.catalogue_task opens one task per (variant, reason). A defective variant
+    flagged for its defect and for another reason is one true variant (MOD-10) but two tasks,
+    one of them false; task precision counts it so."""
+    labelled = cells(
+        [
+            ("D1", "defective", 0, "2026-03-09"),  # the defect: a true task
+            ("D1", "defective", 1, "2026-03-16"),  # the same task in a later run and week
+            ("D1", "other", 1, "2026-03-16"),  # the same variant, another reason: a false task
+            ("N1", "size", 0, "2026-03-16"),  # a false task on a sound variant
+        ]
+    )
+    s = evaluate.score(labelled, pd.Series(True, index=labelled.index), defective=2)
+    assert (s.flagged, s.true) == (2, 1)  # variants: D1 true, N1 false
+    assert (s.tasks, s.true_tasks) == (3, 1)
+    assert s.precision == pytest.approx(1 / 2)
+    assert s.task_precision == pytest.approx(1 / 3)
+
+
+def test_f11_the_weekly_table_names_what_it_counts() -> None:
+    header = evaluate.WEEKLY_HEADER
+    assert "Variants flagged in any run" in header
+    assert "Catalogue tasks (variant, reason)" in header and "Task precision" in header
+    assert "Catalogue tasks (variants)" not in header
+
+
 @pytest.fixture(scope="module")
 def data(tmp_path_factory: pytest.TempPathFactory) -> Path:
     out = tmp_path_factory.mktemp("anomaly-data")

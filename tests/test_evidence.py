@@ -136,17 +136,26 @@ def test_a_size_reason_on_an_item_without_size_is_incoherent(root: Path) -> None
     assert row["evidence_quality"] == EvidenceQuality.INSUFFICIENT
 
 
-def test_linked_accounts_add_observations_when_the_graph_is_known(root: Path) -> None:
+def test_linked_accounts_are_reported_never_counted_as_own_evidence(root: Path) -> None:
+    """Review F14: the observations of linked accounts are reported in n_observations_linked
+    and never make an account's own evidence sufficient. Counted, they let an account with no
+    settled line of its own into Q4 (C-ROSSI-2 at 2026-01-01 in the review), and FAIR-03, which
+    keeps the evidence fixed, cannot see it."""
     out = evidence(root)
     assert out["n_observations_linked"].isna().all()
     clusters = pd.DataFrame(
-        {"customer_id": ["C-FEW", "C-OK", "C-NEW"], "cluster_id": ["K-1", "K-1", None]}
+        {"customer_id": ["C-FEW", "C-OK", "C-NEW"], "cluster_id": ["K-1", "K-1", "K-1"]}
     )
     linked = evidence(root, clusters=clusters)
     assert linked.loc["C-FEW", "n_observations_linked"] == 1 + 4
-    assert linked.loc["C-FEW", "evidence_quality"] == EvidenceQuality.SUFFICIENT
-    assert linked.loc["C-NEW", "n_observations_linked"] == 0
+    assert linked.loc["C-FEW", "evidence_quality"] == EvidenceQuality.INSUFFICIENT
+    assert linked.loc["C-NEW", "n_observations"] == 0
+    assert linked.loc["C-NEW", "n_observations_linked"] == 5
+    assert linked.loc["C-NEW", "evidence_quality"] == EvidenceQuality.INSUFFICIENT
+    assert "5 with linked accounts" in linked.loc["C-NEW", "missing_evidence"][0]
     assert linked.loc["C-IDS", "n_observations_linked"] == 4  # no cluster row: own only
+    for column in ("evidence_quality", "n_observations"):  # the graph changes no outcome
+        assert linked[column].tolist() == out[column].tolist()
 
 
 def test_insufficient_exactly_when_something_is_missing(root: Path) -> None:

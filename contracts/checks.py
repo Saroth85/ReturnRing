@@ -252,6 +252,75 @@ class EventLog:
 
 
 @dataclass(frozen=True)
+class PresentTogether:
+    """`column` and `other` are both null or both non-null on every row."""
+
+    column: str
+    other: str
+
+    def columns(self) -> tuple[str, ...]:
+        return (self.column, self.other)
+
+    def violations(self, table: pa.Table) -> list[str]:
+        a = pc.is_valid(table.column(self.column))
+        b = pc.is_valid(table.column(self.other))
+        n = pc.sum(pc.not_equal(a, b)).as_py() or 0
+        return (
+            [f"{self.column}: present without {self.other} or the reverse in {n} rows"] if n else []
+        )
+
+
+@dataclass(frozen=True)
+class QuadrantRule:
+    """Spec 8.6 on a score table (ADR-13 amendment 5, review F15): where the evidence is
+    sufficient, the quadrant is policy.engine.quadrant_for of the risk, the value and the
+    thresholds stored on the same row."""
+
+    quadrant: str = "quadrant"
+    evidence: str = "evidence_quality"
+    risk: str = "risk"
+    risk_threshold: str = "risk_threshold"
+    value: str = "value_eur"
+    value_threshold: str = "value_threshold_eur"
+
+    def columns(self) -> tuple[str, ...]:
+        return (
+            self.quadrant,
+            self.evidence,
+            self.risk,
+            self.risk_threshold,
+            self.value,
+            self.value_threshold,
+        )
+
+    def violations(self, table: pa.Table) -> list[str]:
+        rows = table.select(list(self.columns())).to_pylist()
+        wrong: list[str] = []
+        for r in rows:
+            if r[self.evidence] != EvidenceQuality.SUFFICIENT.value:
+                continue
+            needed = (r[self.risk], r[self.risk_threshold], r[self.value], r[self.value_threshold])
+            if any(v is None for v in needed):
+                wrong.append(f"{r[self.quadrant]} without its risk, value or thresholds")
+                continue
+            high_risk = r[self.risk] >= r[self.risk_threshold]
+            high_value = r[self.value] >= r[self.value_threshold]
+            expected = (
+                (Quadrant.Q3 if high_risk else Quadrant.Q1)
+                if high_value
+                else (Quadrant.Q4 if high_risk else Quadrant.Q2)
+            )
+            if r[self.quadrant] != expected.value:
+                wrong.append(f"{r[self.quadrant]} where the thresholds give {expected.value}")
+        if wrong:
+            return [
+                f"{self.quadrant}: {len(wrong)} rows disagree with the stored risk and value "
+                f"thresholds (spec 8.6), for example {sorted(set(wrong))[:_SHOWN]}"
+            ]
+        return []
+
+
+@dataclass(frozen=True)
 class NotBlank:
     """String values are not empty or whitespace."""
 
@@ -422,21 +491,30 @@ CHECKS: dict[str, tuple[Check, ...]] = {
     "scores/scores": (
         Unique(("customer_id", "as_of")),
         InRange("risk", *_SHARE),
+        InRange("risk_threshold", *_SHARE),
         OneOf("evidence_quality", tuple(e.value for e in EvidenceQuality)),
         OneOf("quadrant", _QUADRANTS),
         NullUnless("quadrant", "evidence_quality", (EvidenceQuality.SUFFICIENT.value,)),
+        QuadrantRule(),
         NotBlank("model_version"),
     ),
     "scores/request_scores": (
         Unique(("return_id", "as_of")),
         OneOf("path", tuple(p.value for p in Path)),
         PresentWhen("risk", "path", (Path.WITHDRAWAL.value,), only_then=True),
+        PresentWhen("risk_threshold", "path", (Path.WITHDRAWAL.value,), only_then=True),
         PresentWhen("shap_top3", "path", (Path.WITHDRAWAL.value,), only_then=True),
+        PresentWhen("model_version", "path", (Path.WITHDRAWAL.value,), only_then=True),
+        PresentWhen("evidence_quality", "path", (Path.WITHDRAWAL.value,), only_then=True),
         InRange("risk", *_SHARE),
+        InRange("risk_threshold", *_SHARE),
         OneOf("evidence_quality", tuple(e.value for e in EvidenceQuality)),
         OneOf("quadrant", _QUADRANTS),
         NullUnless("quadrant", "evidence_quality", (EvidenceQuality.SUFFICIENT.value,)),
         NullUnless("quadrant", "path", (Path.WITHDRAWAL.value,)),
+        PresentTogether("value_eur", "value_threshold_eur"),
+        PresentTogether("value_eur", "context_as_of"),
+        QuadrantRule(),
         NotAfter("context_as_of", "decided_at", strict=True),
         NotBlank("model_version"),
     ),

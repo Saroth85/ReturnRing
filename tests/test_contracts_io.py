@@ -20,13 +20,17 @@ import pytest
 
 from contracts.checks import CHECKS, InRange, NotAfter, OneOf, PresentWhen, Unique, checks_for
 from contracts.io import (
+    LINEAGE_SEPARATOR,
+    MAX_ORIGIN_CHARS,
     META_CONTRACT,
+    META_LINEAGE,
     META_PROVENANCE,
     META_VERSION,
     ContractError,
     Provenance,
     path_for,
     read_table,
+    require_derived,
     validate_table,
     write_table,
 )
@@ -389,8 +393,10 @@ def test_scores_reject_out_of_range_risk_and_unknown_enums() -> None:
     row = {
         "customer_id": "C-1",
         "risk": 1.7,
+        "risk_threshold": 0.25,
         "evidence_quality": "maybe",
         "value_eur": Decimal("-12.50"),
+        "value_threshold_eur": Decimal("100.00"),
         "quadrant": "Q9",
         "shap_top3": None,
         "model_version": "risk-0",
@@ -400,8 +406,108 @@ def test_scores_reject_out_of_range_risk_and_unknown_enums() -> None:
     assert any("risk" in e for e in found)
     assert any("evidence_quality" in e for e in found)
     assert any("quadrant" in e for e in found)
-    row.update(risk=0.2, evidence_quality="sufficient", quadrant=None)
+    row.update(risk=0.2, evidence_quality="sufficient", quadrant="Q2")
     assert validate_table("scores/scores", table("scores/scores", [row])) == []
+
+
+def score_row(**changes: Any) -> dict[str, Any]:
+    row: dict[str, Any] = {
+        "customer_id": "C-1",
+        "risk": 0.3,
+        "risk_threshold": 0.2,
+        "evidence_quality": "sufficient",
+        "value_eur": Decimal("50.00"),
+        "value_threshold_eur": Decimal("100.00"),
+        "quadrant": "Q4",
+        "shap_top3": None,
+        "model_version": "risk-0",
+        "as_of": at(0),
+    }
+    return {**row, **changes}
+
+
+def test_f15_the_quadrant_follows_the_thresholds_stored_with_it() -> None:
+    """F15: every score row carries the risk and value thresholds of its quadrant, and the
+    quadrant is policy.engine.quadrant_for of them whenever the evidence is sufficient."""
+    ok = [
+        score_row(),
+        score_row(customer_id="C-2", risk=0.1, quadrant="Q2"),
+        score_row(customer_id="C-3", value_eur=Decimal("100.00"), quadrant="Q3"),
+        score_row(customer_id="C-4", risk=0.2, value_eur=Decimal("100.01"), quadrant="Q3"),
+        score_row(customer_id="C-5", evidence_quality="insufficient", quadrant=None),
+    ]
+    assert validate_table("scores/scores", table("scores/scores", ok)) == []
+    for wrong in (score_row(quadrant="Q2"), score_row(quadrant=None), score_row(quadrant="Q3")):
+        found = validate_table("scores/scores", table("scores/scores", [wrong]))
+        assert any("quadrant" in e and "threshold" in e for e in found), wrong
+    found = validate_table("scores/scores", table("scores/scores", [score_row(risk_threshold=1.5)]))
+    assert any("risk_threshold" in e for e in found)
+    for column in ("risk_threshold", "value_threshold_eur"):
+        assert not SCHEMAS["scores/scores"].field(column).nullable
+
+
+def request_row(**changes: Any) -> dict[str, Any]:
+    row: dict[str, Any] = {
+        "return_id": "RET-1",
+        "customer_id": "C-1",
+        "decided_at": at(0),
+        "path": "withdrawal",
+        "context_as_of": at(-10),
+        "risk": 0.3,
+        "risk_threshold": 0.4,
+        "evidence_quality": "sufficient",
+        "value_eur": Decimal("50.00"),
+        "value_threshold_eur": Decimal("100.00"),
+        "quadrant": "Q2",
+        "shap_top3": "[]",
+        "model_version": "risk-request-0",
+        "as_of": at(1),
+    }
+    return {**row, **changes}
+
+
+GUARANTEE_ROW = request_row(
+    return_id="RET-2",
+    path="guarantee",
+    context_as_of=None,
+    risk=None,
+    risk_threshold=None,
+    evidence_quality=None,
+    value_eur=None,
+    value_threshold_eur=None,
+    quadrant=None,
+    shap_top3=None,
+    model_version=None,
+)
+NO_SNAPSHOT_ROW = request_row(
+    return_id="RET-3",
+    context_as_of=None,
+    evidence_quality="insufficient",
+    value_eur=None,
+    value_threshold_eur=None,
+    quadrant=None,
+)
+
+
+def _request_errors(*rows: dict[str, Any]) -> list[str]:
+    name = "scores/request_scores"
+    return validate_table(name, table(name, list(rows)))
+
+
+def test_f19_f20_request_scores_by_path() -> None:
+    """F20: the guarantee path has no model version (it is not scored, rule 4); a scored request
+    always has one. F19: a scored request without an earlier snapshot has insufficient evidence,
+    never a null one. F15: a value comes with its threshold."""
+    assert _request_errors(request_row(), GUARANTEE_ROW, NO_SNAPSHOT_ROW) == []
+    sentence = {**GUARANTEE_ROW, "model_version": "not scored: guarantee path (rule 4)"}
+    assert any("model_version" in e for e in _request_errors(sentence))
+    assert any("model_version" in e for e in _request_errors(request_row(model_version=None)))
+    unknown = {**NO_SNAPSHOT_ROW, "evidence_quality": None}
+    assert any("evidence_quality" in e for e in _request_errors(unknown))
+    lone = request_row(value_threshold_eur=None)
+    assert any("value_threshold_eur" in e for e in _request_errors(lone))
+    assert any("quadrant" in e for e in _request_errors(request_row(quadrant="Q4")))
+    assert any("risk_threshold" in e for e in _request_errors(request_row(risk_threshold=None)))
 
 
 def test_decimal_ranges() -> None:
@@ -824,3 +930,57 @@ def test_p3_write_table_leaves_nothing_when_a_directory_is_in_the_way(tmp_path: 
         write_table("store/returns", table("store/returns", returns_rows()), tmp_path, SYNTH)
     assert target.is_dir()
     assert [p.name for p in target.parent.iterdir()] == [target.name]
+
+
+# ---- Phase 2 review F17 and F22: short origin, lineage, joins on the same data ------------------
+
+
+def test_f17_origin_holds_at_most_300_characters() -> None:
+    """F17: the API's Provenance.origin (ADR-15) holds at most 300 characters; a longer origin
+    could never reach a case card, so it is refused where it is made and where it is read."""
+    assert MAX_ORIGIN_CHARS == 300
+    Provenance("x" * 300, SYNTH.period_start, SYNTH.period_end, "synthetic")
+    with pytest.raises(ContractError, match="300"):
+        Provenance("x" * 301, SYNTH.period_start, SYNTH.period_end, "synthetic")
+    text = SYNTH.to_json().replace(SYNTH.origin, "y" * 301)
+    with pytest.raises(ContractError, match="300"):
+        Provenance.from_json(text)
+
+
+def test_f17_the_lineage_has_its_own_metadata_key(tmp_path: Path) -> None:
+    """F17: the full chain of origins goes to returnring.lineage; returnring.provenance keeps the
+    four fields of the API's Provenance."""
+    child = SYNTH.derive("ReturnRing features, test", date(2025, 10, 1), date(2026, 9, 30))
+    assert child.origin == "ReturnRing features, test"
+    assert child.lineage == f"ReturnRing features, test{LINEAGE_SEPARATOR}{SYNTH.origin}"
+    assert child.chain == child.lineage and SYNTH.chain == SYNTH.origin
+    grandchild = child.derive(
+        "ReturnRing scores, test", date(2025, 10, 1), date(2026, 9, 30), detail="as of T"
+    )
+    assert grandchild.chain.endswith(LINEAGE_SEPARATOR + child.chain)
+    assert grandchild.chain.startswith("ReturnRing scores, test; as of T")
+    rows = table("store/returns", returns_rows())
+    path = write_table("store/returns", rows, tmp_path, grandchild)
+    meta = pq.read_schema(path).metadata
+    fields = set(json.loads(meta[META_PROVENANCE]))
+    assert fields == {"origin", "period_start", "period_end", "nature"}
+    assert meta[META_LINEAGE].decode() == grandchild.lineage
+    assert read_table("store/returns", tmp_path)[1] == grandchild
+
+
+def test_f17_a_lineage_must_start_with_its_origin() -> None:
+    with pytest.raises(ContractError, match="lineage"):
+        Provenance("a", SYNTH.period_start, SYNTH.period_end, "synthetic", lineage="b <- a")
+
+
+def test_f22_a_table_joined_to_another_store_is_refused() -> None:
+    """F22: a features table built from another store (an older seed) is refused when joined."""
+    other = replace(SYNTH, origin="Navigli Fashion generator, another seed")
+    features = SYNTH.derive("ReturnRing features, test", date(2025, 10, 1), date(2026, 9, 30))
+    require_derived(features, SYNTH, "features/customer_features", "store/orders")
+    with pytest.raises(ContractError, match="features/customer_features"):
+        require_derived(features, other, "features/customer_features", "store/orders")
+    # a suffix of the chain that is not a whole origin does not count
+    tail = replace(SYNTH, origin=SYNTH.origin[5:])
+    with pytest.raises(ContractError):
+        require_derived(features, tail, "features/customer_features", "store/orders")

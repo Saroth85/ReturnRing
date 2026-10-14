@@ -394,6 +394,7 @@ Contratti versione 2 (ADR-13), in `contracts/`. Ogni file Parquet porta nei meta
 | scores/request\_scores.parquet | risk | policy, API, coda | return\_id, customer\_id, decided\_at, path, context\_as\_of (ultimo snapshot del cliente prima della richiesta), risk (nullo sul percorso di garanzia), evidence\_quality, value\_eur, quadrant, shap\_top3, model\_version (ADR-13, emendamento 4) |
 | decisions, audit\_log, outbox (PostgreSQL) | API | UI, export | decision\_id, return\_id, path, evidence\_quality, alternatives, levers, requires\_approval, approver, review\_at, rules\_version, model\_versions, llm\_output, created\_at |
 | features/product\_anomalies.parquet | anomalies | API, attività di catalogo | variant\_id, reason, week, observed, expected, z, n, status (open, task\_opened, resolved) |
+| features/customer\_embeddings.parquet | gnn (`python -m ml.gnn embed`) | risk (ablazione A4) | customer\_id, graphsage\_0..15, encoder\_version, as\_of: embedding GraphSAGE per predizione di legami sul grafo cliente–identificatore, senza etichette; encoder addestrato alla fine del training del rischio e applicato senza modifiche agli istanti successivi (ADR-13, emendamento 6) |
 
 Le leve viaggiano come oggetti {id, value, scope} del catalogo `contracts/levers.py` e, quando serve un identificatore unico, come stringa "id:value" del motore (per esempio instant\_refund:false); il welcome\_coupon:false con ambito cluster della prima versione dell'appendice 19.B è cluster\_coupons\_disabled:true, mentre i coupon del singolo cliente sugli ordini futuri sono coupons\_enabled (ADR-13).
 
@@ -580,7 +581,7 @@ Il riquadro colorato è ciò che usa la GPU: Gemma per testo, visione e agente, 
 | api | Python 3.12, FastAPI, Pydantic, SQLAlchemy | No | Endpoint REST e streaming, motore di policy, guardiano legale, validatore, orchestrazione |
 | vllm | vllm/vllm-openai-rocm con Gemma 4 31B-it | Sì | Testo, visione e chiamate a strumenti; solo rete interna, chiave API |
 | trainer-gbm | Immagine ROCm + amd\_xgboost | Sì | Probabilità di reso, rischio, scoring batch notturno |
-| trainer-gnn | rocm/dgl | Sì | GraphSAGE: benchmark ASOS ed embedding dei clienti |
+| trainer-gnn | rocm/dgl | Sì | GraphSAGE: benchmark ASOS ed embedding dei clienti. Le spike SPK-G3 e G4 usano l'immagine invariata; i job `python -m ml.gnn` girano in trainer-graphsage, la stessa immagine con il codice e pochi pacchetti fissati, senza montare truth/ (docs/graphsage.md) |
 | pipeline | Python, Polars, NetworkX, clvkit | No | Ingest, profilo, generatore, feature, cluster, valore, anomalie di prodotto, pre-generazione dei messaggi |
 | postgres | PostgreSQL 16 | No | Decisioni, audit, casella d'uscita, ispezioni, snapshot delle condizioni |
 

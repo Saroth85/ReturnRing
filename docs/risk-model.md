@@ -56,7 +56,7 @@ them with their path, a null risk, no evidence and no model version.
 | A1 | A0 + 15 individual behaviour features (counts, rates, reason shares, tenure, coupons, weekend orders) | XGBoost |
 | A2 | A1 + the 8 cluster features of spec 8.3 | XGBoost |
 | A3 | A2 + expected returns, residual R_c and z_c of spec 8.2 | XGBoost (the product's customer model) |
-| A4 | A3 + GraphSAGE embeddings | Hook only (`EmbeddingSource` in `ml/risk/features.py`): phase 6, GPU |
+| A4 | A3 + the 16 GraphSAGE embedding components of `features/customer_embeddings` (`python -m ml.gnn embed`, docs/graphsage.md) | XGBoost, run when the file exists (`ml/risk/embeddings.py`); else reported as not run |
 | Request | A3 + days since delivery, item price, item return rate and lines, category return rate, reason (one-hot) | XGBoost |
 
 **A0, the returnguard-like baseline**, implemented here (no dependency): a customer fires the rule
@@ -166,6 +166,10 @@ distribution; the ring rows carry the shift.
   (coupons disabled) still covers it. If linked observations are ever counted, the FAIR-03
   counterfactual must recompute the evidence without the linked accounts too, and the F-ROSSI and
   FAIR-03 checks must hold at every month end (they are measured there already).
-- **A4** waits for the GraphSAGE embeddings of phase 6.
+- **A4** uses GraphSAGE embeddings trained by link prediction on the customer-identifier graph,
+  without labels (spec 8.3). The encoder is fitted on the store known at the train end and applied,
+  frozen, at the evaluation time and to the OOD store, so the train rows take the embeddings at the
+  train end and the test rows those at the evaluation time, the instants of A0..A3 (rule 7). It is
+  measured against A3 on the same rows; a regression is reported as such (rule 13).
 - **Ground-truth groups.** The split joins ground-truth rings and families to the graph clusters.
   This is a stricter split than the graph alone, possible only offline.

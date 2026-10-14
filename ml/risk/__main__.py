@@ -1,8 +1,10 @@
 """CLI of US-204: python -m ml.risk --data data --out artifacts --scores data
-[--results docs/results/us-204-risk.md]
+[--results docs/results/us-204-risk.md] [--embeddings ROOT]
 
 Offline training and evaluation job (reads data/truth, rule 12 as amended by ADR-13): trains the
-ablation A0..A3 and the request model on the grouped, time-ordered split, evaluates them on the
+ablation A0..A3 (and A4 when features/customer_embeddings exists under --embeddings, default
+--data: `python -m ml.gnn embed`, US-202) and the request model on the grouped, time-ordered
+split, evaluates them on the
 held-out groups and on the out-of-distribution store (data/ood, data/truth/ood) when present,
 saves the models under <out>/risk/models, writes every number to <out>/eval/risk/metrics.json
 (offline outputs, never mounted by a service: rule 12), runs the batch scoring at the evaluation
@@ -56,6 +58,12 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--train-end", type=_instant, help="train end (default: 3 months before)")
     p.add_argument("--eval-end", type=_instant, help="evaluation time (default: last snapshot)")
     p.add_argument("--seed", type=int, default=int(os.environ.get("SEED", "42")))
+    p.add_argument(
+        "--embeddings",
+        type=Path,
+        help="root of features/customer_embeddings for A4 (default: --data; the OOD file under "
+        "<root>/ood); A4 is not run when the file is absent",
+    )
     return p
 
 
@@ -71,6 +79,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         eval_end=args.eval_end,
         split=SplitConfig(seed=args.seed),
         train=TrainConfig(seed=args.seed),
+        embeddings=args.embeddings,
     )
     scores = None if args.no_scores else (args.scores or args.data)
     run(args.data, args.out, scores, config, log)

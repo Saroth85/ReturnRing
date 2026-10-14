@@ -87,30 +87,52 @@ dependency of the product.
 
 ## On the MI300X droplet
 
-The `trainer-graphsage` service (`infra/docker/trainer-gnn.Dockerfile`) is the trainer-gnn base
-(`rocm/dgl`, pinned in `.env.example`) plus this code and the pinned packages of
-`infra/docker/requirements-gnn.txt`; the build imports every module of the jobs, so a broken
-image fails the build, not the session. It mounts `data/raw`, `data/store`, `data/features` and
-`data/ood` read-only (never `data/truth`) and writes `artifacts/`. After `make spike-prep` (or
-with the DGL image already pulled), from the repository root:
+The order of the session, with what each command writes, is one list in
+`infra/spikes/README.md` ("The GPU session"); the GraphSAGE part of it:
 
 ```bash
 make gnn-image                 # build trainer-graphsage on top of the pulled rocm/dgl
-make gnn-test-gpu              # DGL against the PyTorch layers on the GPU, and the job tests
-make gnn-asos-gpu              # B2 on the MI300X: artifacts/eval/gnn/us-202-asos-gpu.json
-make gnn-asos-cpu-container    # the same in the same image on the droplet's CPU (alone on the
-                               # CPU: before vLLM starts or after it is stopped)
+make gnn-test-gpu              # DGL against the PyTorch layers on CPU and GPU, the job tests
+make bench-b2 DEVICE=gpu       # B2 = the US-202 runs: us-202-asos-{cpu,gpu}.json, B2.json
 make embeddings-gpu            # A4 encoder and embeddings on the GPU, copied into data/
-make risk gnn-results          # host: the A4 row (docs/results/us-204-risk.md) and this report
+# then, on the laptop, with those files copied back: make risk gnn-results
 ```
 
-Each GPU target runs `docker compose ... run --rm -T trainer-graphsage python -m ml.gnn ...`
-(`make -n <target>` prints the exact commands). Expected: an environment line with `torch_hip` set, the dgl
-backend and `gpu_arch` gfx942 in the metrics; a `GpuUnavailable` exit 2 means the GPU is not
-visible in the container (`make spike-gpu-check`). The spec 11 memory budget for the ASOS graph
-is under 8 GB, unmeasured so far; each run records its peak (`peak_allocated_gb`).
-`GNN_SAMPLE=0.25` runs a seeded customer sample, reported as such; the B2 numbers come from
-full-data runs on both devices.
+The `trainer-graphsage` service (`infra/docker/trainer-gnn.Dockerfile`) is the trainer-gnn base
+(`rocm/dgl`, pinned in `.env.example`) plus this code and the pinned packages of
+`infra/docker/requirements-gnn.txt`. The pinned image ships torch 2.8.0 (ROCm 7.0), DGL 2.4.0,
+scipy 1.16.2 and numpy 1.26.4 (amd-dgl declares `numpy==1.26.4`), and no pandas in DGL's layer;
+the ingest and the propensity code need numpy 2, so the requirements add numpy 2.5.4 and pandas
+3.0.6 (the versions of `requirements/base.txt`) with what the jobs, B2 and the GPU tests import
+(Hypothesis for `tests/conftest.py`), and leave torch, DGL and scipy as shipped. The build checks
+numpy, runs a DGL `SAGEConv` on numpy 2 and imports every module of the jobs, so a broken image
+fails the build, not the session (`tests/test_infra.py` checks that every third-party import of
+those modules is either shipped or pinned; `make licenses` checks the pinned packages). It mounts
+`data/raw`, `data/store`, `data/features` and `data/ood` read-only (never `data/truth`) and
+writes `artifacts/`.
+
+- `make bench-b2 DEVICE=gpu` (benchmark B2, `docs/benchmarks.md`) calls `ml.gnn.b2_timing`, which
+  runs `python -m ml.gnn asos` in a fresh process per device and data size and reads its metrics
+  file: the full-data CPU and GPU runs are the US-202 runs (both protocols, with the MLP and
+  XGBoost rows), so nothing trains twice; the 25% and 50% samples go under the bench run folder.
+  B2 reports the median epoch as the speedup basis and the F1 as US-202 states it (protocol B on
+  the decision-time population, protocol A on the full test set next to the paper's 0.792).
+- `make gnn-asos-gpu` and `make gnn-asos-cpu-container` run the same job outside the benchmark
+  (same files). Like `make embeddings-gpu` and B1 and B2, they refuse to start while vLLM is up:
+  the CPU baseline runs alone on the CPU, the GPU run alone on the GPU.
+- `make gnn-test-gpu` runs the tests marked torch or gpu in the container, where `DEVICE=gpu`:
+  the CPU job tests pass `--device cpu` and read the CPU files (a CPU rerun is exact); the
+  gpu-marked tests run the job and `b2_timing` with `--device gpu` and read the GPU files.
+- `make risk gnn-results` needs the project's Python stack and, for the A4 row, the ground truth:
+  both are on the laptop, not on the droplet host. Copy back `artifacts/eval/gnn/*.json` and the
+  two `customer_embeddings.parquet` files, then run it there (runbook steps 15, 18 and 19).
+
+Expected in the metrics: an environment with `torch_hip` set, the dgl backend and `gpu_arch`
+gfx942; a `GpuUnavailable` exit 2 means the GPU is not visible in the container (`make
+spike-gpu-check`). The spec 11 memory budget for the ASOS graph is under 8 GB, unmeasured so far;
+each run records its peak (`peak_allocated_gb`). Every timing carries its machine (CPU model,
+threads, load average before and after), the UTC day it was measured and its nature (real,
+rule 11). `GNN_SAMPLE=0.25` runs a seeded customer sample, reported as such.
 
 On a shared CPU, `--threads 1` can be faster than every core. On this project's 4-vCPU
 development machine under a load average of 15 to 25 (other jobs), one training step on the ASOS

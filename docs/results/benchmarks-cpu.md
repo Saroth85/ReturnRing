@@ -6,7 +6,7 @@ US-902. Method and the four rules of spec 12: [docs/benchmarks.md](../benchmarks
 
 Natures (rule 11): a time measured on this hardware is real, also when the data it ran on is synthetic (B4, B3 inputs); dry-run and cost figures are simulated. Measurements vary between runs and machines; each is one run unless a median says otherwise.
 
-This run had no GPU: B1 timed the CPU only, B3 was a dry run against a local fake server (no Gemma), B4 had no GPU sampling and a mock model in its batch generation. The MI300X numbers come from `make bench DEVICE=gpu` on the droplet (infra/spikes/README.md, "Benchmarks B1-B4").
+This run had no GPU: B1 timed the CPU only, B3 was a dry run against a local fake server (no Gemma), B4 had no GPU sampling and a mock model in its batch generation. The MI300X numbers come from `make bench DEVICE=gpu` on the droplet (infra/spikes/README.md, "The GPU session"). A CPU run checks the harness on a development machine, under the load recorded next to each time: it is not the run GET /api/benchmarks serves (bench/results/latest.json names GPU runs only).
 
 ## Hardware and software
 
@@ -53,11 +53,11 @@ Cold start (first training call on the device in the process):
 | cpu | 10% | 123,222 | early stopping | 154.29 | 1 | 113 | 136.539 | 0.39 | 0.4998 | 0.8259 | 13.72/13.95 |
 | cpu | 10% | 123,222 | fixed50 | 52.40 | 1 | 50 | 104.793 | 0.54 | 0.5028 | 0.8241 | 13.95/12.61 |
 
-Scoring of every fit row with the early-stopping model of the largest size (DMatrix build included):
+Scoring of every fit row with the model of the largest size (the fixed-rounds model when the run has one: the same trees on every device; DMatrix build included):
 
-| Device | Batch rows | Batch s (median) | Single row p50 ms | p95 ms | n |
-| --- | --- | --- | --- | --- | --- |
-| cpu | 1,232,220 | 6.448 | 156.056 | 244.077 | 200 |
+| Device | Model | Trees | Batch rows | Batch s (median) | Single row p50 ms | p95 ms | n |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| cpu | es | 108 | 1,232,220 | 6.448 | 156.056 | 244.077 | 200 |
 
 ### Protocol B: Decision-time protocol
 
@@ -72,11 +72,11 @@ Scoring of every fit row with the early-stopping model of the largest size (DMat
 | cpu | 10% | 117,778 | early stopping | 130.99 | 1 | 202 | 64.844 | 0.28 | 0.5816 | 0.7555 | 10.69/11.44 |
 | cpu | 10% | 117,778 | fixed50 | 23.26 | 1 | 50 | 46.528 | 0.12 | 0.5903 | 0.7499 | 11.44/11.16 |
 
-Scoring of every fit row with the early-stopping model of the largest size (DMatrix build included):
+Scoring of every fit row with the model of the largest size (the fixed-rounds model when the run has one: the same trees on every device; DMatrix build included):
 
-| Device | Batch rows | Batch s (median) | Single row p50 ms | p95 ms | n |
-| --- | --- | --- | --- | --- | --- |
-| cpu | 1,177,783 | 2.994 | 79.241 | 135.699 | 200 |
+| Device | Model | Trees | Batch rows | Batch s (median) | Single row p50 ms | p95 ms | n |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| cpu | es | 197 | 1,177,783 | 2.994 | 79.241 | 135.699 | 200 |
 
 Notes:
 
@@ -152,15 +152,15 @@ Status: **measured**. Data: Navigli Fashion synthetic store generated from the c
 
 Configuration: cpu Intel(R) Xeon(R) Processor @ 2.80GHz; device cpu; generation_concurrency 32; gpu_sampler none; llm_mode mock; logical_cpus 4; sample_interval_s 5.0; scale 1.0; seed 42; steps generate,graph,features,anomalies,risk,scoring,batch_generation.
 
-| Step | Exit | Seconds | Commands (s) | GPU samples | GPU mean % | GPU max % | VRAM max GiB | Power W |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| generate | ok | 25.8 | 13.0, 12.9 | n/a | n/a | n/a | n/a | n/a |
-| graph | ok | 4.7 | 2.5, 2.2 | n/a | n/a | n/a | n/a | n/a |
-| features | ok | 246.1 | 120.6, 125.6 | n/a | n/a | n/a | n/a | n/a |
-| anomalies | ok | 64.7 | 33.5, 31.2 | n/a | n/a | n/a | n/a | n/a |
-| risk | ok | 150.3 | 150.3 | n/a | n/a | n/a | n/a | n/a |
-| scoring | ok | 19.9 | 19.9 | n/a | n/a | n/a | n/a | n/a |
-| batch_generation | ok | 5.8 | 5.8 | n/a | n/a | n/a | n/a | n/a |
+| Step | Ran on | Exit | Seconds | Commands (s) | GPU samples | GPU mean % | GPU max % | VRAM max GiB | Power W |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| generate | cpu | ok | 25.8 | 13.0, 12.9 | n/a | n/a | n/a | n/a | n/a |
+| graph | cpu | ok | 4.7 | 2.5, 2.2 | n/a | n/a | n/a | n/a | n/a |
+| features | cpu | ok | 246.1 | 120.6, 125.6 | n/a | n/a | n/a | n/a | n/a |
+| anomalies | cpu | ok | 64.7 | 33.5, 31.2 | n/a | n/a | n/a | n/a | n/a |
+| risk | cpu | ok | 150.3 | 150.3 | n/a | n/a | n/a | n/a | n/a |
+| scoring | cpu | ok | 19.9 | 19.9 | n/a | n/a | n/a | n/a | n/a |
+| batch_generation | cpu | ok | 5.8 | 5.8 | n/a | n/a | n/a | n/a | n/a |
 
 Total: 517.3 s (8.6 min).
 

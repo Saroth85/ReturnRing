@@ -118,7 +118,7 @@ Inputs. Customer nodes (19): `customer_sales`, `customer_returns`, `customer_ret
 ### CPU run
 
 Device cpu: Intel(R) Xeon(R) Processor @ 2.80GHz (4 logical CPUs, 4 threads); torch backend; torch 2.8.0+cpu. Data: every event.
-Nature: measured on this machine; varies between runs and machines. Load: the machine's 1-minute load average before and after training; a load above the number of CPUs means other jobs shared them, and the CPU times are an upper bound.
+Nature: real (measured on the machine named here; varies between runs and machines). Period: date not recorded in the metrics file. Load: the machine's 1-minute load average before and after training; a load above the number of CPUs means other jobs shared them, and the CPU times are an upper bound.
 
 | Phase | Seconds |
 | --- | --- |
@@ -149,10 +149,12 @@ Origin: ReturnRing GraphSAGE customer embeddings (ml.gnn, US-202, spec 8.3): lin
 
 Encoder: 2 heterogeneous SAGE layers of 16 units, aggregator mean, dropout 0.2, trained by link prediction on the (account, identifier value) uses known at 2026-07-01T00:00:00+00:00: each epoch hides 20% of the uses and scores them against random values of the same kind; a fixed 10% is held out for early stopping. Inputs: `n_card_values`, `n_email_values`, `n_device_values`, `n_address_values`, `n_phone_values`, `n_ip_prefix_values`, `tenure_days`, `n_delivered_lines`, `withdrawal_return_share`, `has_delivered_lines`, `n_welcome_coupons_used` (accounts); `kind_index_0`, `kind_index_1`, `kind_index_2`, `kind_index_3`, `kind_index_4`, `kind_index_5`, `kind_weight`, `n_sharers` (identifier values). Graph at the last instant: 20,000 accounts, 123,578 values, 139,086 uses, 4,690 values shared by two accounts or more.
 
-| Store | Encoder | Instants | Rows written | Epochs | Validation AUC (self-supervised task) | Training s | Inference s (all instants) | Device, backend |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| main | graphsage-link-prediction-v1@2026-07-01T00:00Z (trained here) | 2026-07-01, 2026-08-01, 2026-09-01, 2026-10-01 | 77,703 | 300 (best 287) | 0.9479 | 147.34 | 0.786 | cpu, torch |
-| ood | graphsage-link-prediction-v1@2026-07-01T00:00Z (applied) | 2026-07-01, 2026-08-01, 2026-09-01, 2026-10-01 | 77,657 | - | - | - | 0.840 | cpu, torch |
+| Store | Encoder | Instants | Rows written | Epochs | Validation AUC (self-supervised task) | Training s | Inference s (all instants) | Device: hardware, backend, versions | Load before / after training | Period |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| main | graphsage-link-prediction-v1@2026-07-01T00:00Z (trained here) | 2026-07-01, 2026-08-01, 2026-09-01, 2026-10-01 | 77,703 | 300 (best 287) | 0.9479 | 147.34 | 0.786 | cpu: Intel(R) Xeon(R) Processor @ 2.80GHz (4 logical CPUs, 1 threads); torch backend; torch 2.8.0+cpu | 14.87 / 10.73 | date not recorded in the metrics file |
+| ood | graphsage-link-prediction-v1@2026-07-01T00:00Z (applied) | 2026-07-01, 2026-08-01, 2026-09-01, 2026-10-01 | 77,657 | - | - | - | 0.840 | cpu: Intel(R) Xeon(R) Processor @ 2.80GHz (4 logical CPUs, 1 threads); torch backend; torch 2.8.0+cpu | - | date not recorded in the metrics file |
+
+Timings: nature real (measured on the machine named here; varies between runs and machines); a load above the number of CPUs means other jobs shared them, and the CPU times are an upper bound.
 
 The AUC measures the self-supervised task (a held-out use against a random value of the same kind), not abuse detection; what the embeddings add to abuse detection is the A4 row below.
 
@@ -195,14 +197,15 @@ make risk                    # runs A4 when data/features/customer_embeddings ex
 make gnn-results             # this file
 ```
 
-MI300X droplet (trainer-graphsage image: rocm/dgl plus this code; DGL backend):
+MI300X droplet (trainer-graphsage image: rocm/dgl plus this code; DGL backend), in the order of infra/spikes/README.md, 'The GPU session':
 
 ```bash
 make gnn-image               # build the trainer-graphsage image (pulls rocm/dgl)
-make gnn-asos-gpu            # DEVICE=gpu: artifacts/eval/gnn/us-202-asos-gpu.json
-make gnn-asos-cpu-container  # same image, --device cpu: the B2 CPU baseline
+make bench-b2 DEVICE=gpu     # B2: the asos job on the CPU and the MI300X, both
+                             # artifacts/eval/gnn/us-202-asos-{cpu,gpu}.json
 make embeddings-gpu          # encoder on the GPU, embeddings copied into data/
-make risk gnn-results        # on the host: A4 row and this file
 ```
+
+Then on the laptop, with the metrics files and the embeddings copied back: `make risk gnn-results` (the A4 row needs the ground truth, which stays on the laptop).
 
 Tests: `python -m pytest -m torch` with PyTorch installed (skipped without it); on the droplet `make gnn-test-gpu` also compares the DGL and PyTorch layers on the GPU.

@@ -2,11 +2,12 @@
 
 - B1 (b1_xgboost): XGBoost training and scoring time on ASOS GraphReturns, protocols A and B of
   ADR-10, CPU against the MI300X, several data sizes; same data, version and parameters on both.
-- B2 (b2_gnn): GraphSAGE timings and F1, through the hook ml.gnn.b2_timing; skipped when ml.gnn
-  is absent.
+- B2 (b2_gnn): GraphSAGE timings and F1 as US-202 states them, through the hook
+  ml.gnn.b2_timing (the US-202 job, once per device and data size); skipped where it cannot run
+  (no PyTorch), with the reason.
 - B3 (b3_llm): Gemma on the local vLLM, through llm.client.VllmClient only (rule 2): latency
   p50 and p95, tokens per second for single requests, batches of 1, 8 and 32 and concurrency
-  levels, on llm_case inputs built by llm.case from the synthetic store, golden cases first; a
+  levels, every load on one seeded case list built by llm.case from the synthetic store; a
   dry run against a local fake OpenAI-compatible server (fake_vllm); the cost per decision in a
   declared, versioned operating scenario (cost).
 - B4 (b4_pipeline): the nightly pipeline duration per step, with GPU utilisation sampled from

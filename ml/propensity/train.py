@@ -112,8 +112,11 @@ def train_booster(
     max_rounds: int = MAX_ROUNDS,
     early_stopping_rounds: int = EARLY_STOPPING_ROUNDS,
     threads: int | None = None,
+    keep_all_rounds: bool = False,
 ) -> TrainedBooster:
-    """Train on (x_fit, y_fit) with early stopping on (x_valid, y_valid); NaN is missing."""
+    """Train on (x_fit, y_fit) with early stopping on (x_valid, y_valid); NaN is missing.
+    keep_all_rounds keeps every tree trained instead of those up to the best iteration (benchmark
+    B1: a fixed number of rounds, the same trees to score on every device)."""
     check_device(device, device)
     if max_rounds < 1:
         raise ValueError("max_rounds must be at least 1")
@@ -141,7 +144,7 @@ def train_booster(
     device_effective = effective_device(booster)
     check_device(device, device_effective)
     return TrainedBooster(
-        booster=booster[: best + 1],
+        booster=booster if keep_all_rounds else booster[: best + 1],
         device_requested=device,
         device_effective=device_effective,
         threads=nthread,

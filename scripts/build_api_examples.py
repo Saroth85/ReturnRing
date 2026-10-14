@@ -4279,7 +4279,7 @@ def ops_examples() -> dict[str, BaseModel]:
         gpu_history=[],
         llm=None,
         api_latency_p95=None,
-        note="GPU off: cached mode serves results precomputed on the AMD MI300X",
+        note="GPU off: cached mode serves precomputed results",
     )
     versions: dict[str, Any] = {
         "contract_version": s.API_CONTRACT_VERSION,

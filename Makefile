@@ -88,17 +88,24 @@ gpu-down:
 gpu-reset:
 	$(GPU) run --rm reset
 
-# The draft of every open return through vLLM into serving/llm_cache/ (vLLM must be up).
+# The draft of every open return through vLLM into serving/llm_cache/ (vLLM must be up and serve
+# GEMMA_MODEL, or the batch stops; it records DEVICE=gpu and remakes drafts of another model).
 batch-generate:
 	$(GPU) run --rm batch-generate
 
 # The cached demo package from serving/ (after batch-generate) and bench/results/. Runs with the
-# host python3 (standard library only: the droplet host has no project Python).
-# ALLOW_EMPTY_CACHE=1 packs a snapshot without MI300X drafts (a CPU rehearsal: templates only).
-DEMO_GPU ?= AMD Instinct MI300X (AMD Developer Cloud)
-demo-export:
-	python3 -m scripts.demo_export build --serving serving --bench bench/results --out $(DEMO_DIR) \
-	  --generated-on "$(DEMO_GPU)" $(if $(ALLOW_EMPTY_CACHE),--allow-empty-cache)
+# host python3, 3.8 or later (standard library only: the droplet host has no project Python).
+# DEMO_GPU has no default: name the GPU the batch ran on, e.g.
+#   make demo-export DEMO_GPU="AMD Instinct MI300X (AMD Developer Cloud)"
+# and every draft must be GEMMA_MODEL's (.env), from a batch run with DEVICE=gpu: the demo shows
+# "Precomputed on AMD MI300X" only then (rules 11 and 13). REHEARSAL=1 packs anything else (a fake
+# vLLM server on a CPU, another model) as a rehearsal, labelled as one; ALLOW_EMPTY_CACHE=1 packs
+# a rehearsal without drafts.
+DEMO_GPU ?=
+demo-export: $(ENV_FILE)
+	$(LOAD_ENV) && python3 -m scripts.demo_export build --serving serving --bench bench/results \
+	  --out $(DEMO_DIR) --generated-on "$(DEMO_GPU)" --model "$$GEMMA_MODEL" \
+	  $(if $(REHEARSAL),--rehearsal) $(if $(ALLOW_EMPTY_CACHE),--allow-empty-cache)
 	tar -czf $(DEMO_DIR).tar.gz $(DEMO_DIR)
 	@echo "$(DEMO_DIR).tar.gz: copy it to the demo server, then make demo-import demo-up"
 
@@ -125,9 +132,12 @@ demo-reset:
 demo-down:
 	$(DEMO) down --remove-orphans
 
-# The bcrypt hash for ADMIN_PASSWORD_HASH (basic auth on a public server); prompts twice.
+# The bcrypt hash for ADMIN_PASSWORD_HASH (basic auth of the user admin on a public server);
+# prompts twice. Cost 10 (about 70 ms per check with Caddy 2.11.7 on 4 shared vCPUs, 14 Oct
+# 2026), not Caddy's default 14 (about 1.1 s): a wrong password of admin costs one comparison;
+# any other user name gets a 401 before any hash (infra/Caddyfile).
 admin-password:
-	docker run --rm -it $(CADDY_IMAGE) caddy hash-password
+	docker run --rm -it $(CADDY_IMAGE) caddy hash-password --algorithm bcrypt --bcrypt-cost 10
 
 test:
 	python -m pytest -m "not gpu" -q

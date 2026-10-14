@@ -3,20 +3,33 @@
 #   SITE_ADDRESS        ":80" on a laptop (plain HTTP, published on 127.0.0.1:8080 only);
 #                       PUBLIC_HOST on a public server, e.g. 203-0-113-10.sslip.io (automatic HTTPS)
 #   ADMIN_AUTH          off on a laptop; on for a public server (compose.public.yml)
-#   ADMIN_USER, ADMIN_PASSWORD_HASH   basic auth credentials (make admin-password prints the hash)
+#   ADMIN_PASSWORD_HASH the bcrypt hash of the password of the basic-auth user, admin
+#                       (make admin-password prints it)
 #   PUBLIC_READ_ONLY    true (or on, 1): writes go to the API, which refuses them (public
 #                       read-only views); anything else: on a public server every write needs
 #                       basic auth
 # Caddy substitutes {$VAR} before parsing, so ADMIN_AUTH picks one of the two snippets below.
+# respond runs before basic_auth, for the cheap refusal of another user in admin_auth_on.
+{
+	order respond before basic_auth
+}
 
 (admin_auth_off) {
 }
 
 (admin_auth_on) {
-	# Spec 11: the admin page and the telemetry are protected by basic auth.
-	@admin path /system /system/* /api/telemetry /api/telemetry/*
+	# Spec 11: the admin data is protected by basic auth: the telemetry endpoint. The admin
+	# page's client route (/system) is not: the single-page UI serves it from any path, so a
+	# password there protects nothing and asks judges for one on a reload of the benchmarks.
+	# Caddy checks the password of an unknown user against its fixed bcrypt cost-14 fake hash
+	# (about 1.1 s of CPU): Basic credentials that do not name the user admin ("YWRtaW46" is
+	# the base64 of "admin:") get a 401 here, before any hash, on every path.
+	@other_user expression `{http.request.header.Authorization}.matches("(?i)^basic ") && !{http.request.header.Authorization}.startsWith("Basic YWRtaW46")`
+	header @other_user WWW-Authenticate `Basic realm="restricted"`
+	respond @other_user 401
+	@admin path /api/telemetry /api/telemetry/*
 	basic_auth @admin {
-		{$ADMIN_USER} {$ADMIN_PASSWORD_HASH}
+		admin {$ADMIN_PASSWORD_HASH}
 	}
 	# Writes (anything but GET, HEAD and OPTIONS) need basic auth unless the views are read-only.
 	@write {
@@ -25,7 +38,7 @@
 		expression `!("{$PUBLIC_READ_ONLY}" in ["true", "on", "1"])`
 	}
 	basic_auth @write {
-		{$ADMIN_USER} {$ADMIN_PASSWORD_HASH}
+		admin {$ADMIN_PASSWORD_HASH}
 	}
 }
 

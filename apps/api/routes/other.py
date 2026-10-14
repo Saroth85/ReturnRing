@@ -27,7 +27,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from apps.api import schemas as s
 from apps.api.errors import ApiError, not_found, request_id_of
-from apps.api.roles import authorize, check_public_rate
+from apps.api.roles import authorize, check_public_rate, client_key, public_read_only
 from apps.api.routes.stubs import add_stubs, response_model, responses
 from apps.api.runtime import Runtime, runtime
 from apps.api.services import demo
@@ -161,8 +161,11 @@ async def agent_ask(
 ) -> StreamingResponse:
     """US-701, US-702: the read-only agent's answer as server-sent events (sse_frame)."""
     authorize(request, ASK.method, ASK.path, body)
-    agent.check_rate(request.app, body.asked_by)
+    # The public limit first: a client past it spends no question of the agent's budget, which
+    # the public demo counts per client and person (one client cannot lock the agent for all).
     check_public_rate(request)
+    public = public_read_only(request)
+    agent.check_rate(request.app, body.asked_by, client_key(request) if public else None)
     rt = runtime(request)
     serving = rt.require_serving()
     async with rt.transaction() as conn:

@@ -296,6 +296,29 @@ def test_other_hosts_are_refused(url: str) -> None:
         check_local_url(url)
 
 
+@pytest.mark.parametrize(
+    ("url", "part"),
+    [
+        ("http://admin:hunter2@vllm:8001/v1", "a user"),
+        ("http://:hunter2@vllm:8001/v1", "a user"),  # a password with an empty user name
+        ("http://vllm:8001/v1?token=hunter2", "a query"),
+        ("http://vllm:8001/v1#hunter2", "a fragment"),
+        ("hunter2://vllm/v1", "a scheme other than http or https"),
+        ("ftp://admin:hunter2@vllm/v1?x=1", "a scheme other than http or https, a user, a query"),
+        ("http://hunter2.example.com/v1", "not the local vLLM"),
+        ("http://203.0.113.99/v1", "not a local address"),
+    ],
+)
+def test_a_refused_url_is_named_by_its_part_never_echoed(url: str, part: str) -> None:
+    """The error reaches the public /readyz and the 503 bodies (review of 14 Oct 2026): it says
+    which part is refused and never repeats the URL, its credentials, query or host."""
+    with pytest.raises(ValueError, match="VLLM_BASE_URL") as caught:
+        check_local_url(url)
+    message = str(caught.value)
+    assert part in message
+    assert "hunter2" not in message and "203.0.113" not in message and "admin" not in message
+
+
 def test_api_key_is_required_and_never_shown() -> None:
     with pytest.raises(ValueError):
         VllmClient(VllmConfig(base_url="http://vllm:8001/v1", api_key=""))

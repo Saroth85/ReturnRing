@@ -731,8 +731,7 @@
             "customer",
             "return",
             "order",
-            "cluster",
-            "policy"
+            "cluster"
           ],
           "title": "Entity",
           "type": "string"
@@ -2522,6 +2521,7 @@
               "SCHEMA",
               "CASE_INVALID",
               "DECISION_ECHO",
+              "TERMS_TOPIC",
               "UNKNOWN_FACT",
               "MISSING_FACT",
               "LABEL_MISMATCH",

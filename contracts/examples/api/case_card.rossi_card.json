@@ -1085,7 +1085,7 @@
       {
         "label": "OBSERVED",
         "fact_ids": [],
-        "text": "The rules engine placed the case in Q2; the levers are listed with the decision.",
+        "text": "The rules engine placed the case in Q2; the case view shows the decision.",
         "facts": []
       },
       {
@@ -1121,7 +1121,7 @@
             "amount": null,
             "deadline": "10 ottobre 2026"
           },
-          "text": "Ciao, grazie per averci scritto. Abbiamo registrato la tua richiesta di reso e il rimborso è previsto per il 10 ottobre 2026. Se ti serve un'altra taglia, rispondi pure a questo messaggio. Un caro saluto dal nostro team."
+          "text": "Ciao, grazie per averci scritto. Abbiamo registrato la tua richiesta di reso e il rimborso è previsto al più tardi per il 10 ottobre 2026. Se ti serve un'altra taglia, rispondi pure a questo messaggio. Un caro saluto dal nostro team."
         },
         {
           "lang": "en",

@@ -17,7 +17,7 @@
         "deadline": "12 October 2026"
       },
       "refund": null,
-      "body": "Hello, thank you for writing to us. We have registered your return request and your refund is due by 12 October 2026. The return terms of your orders stay the same as always. We are happy to have you with us.",
+      "body": "Hello, thank you for writing to us. We have registered your return request and your refund is due by 12 October 2026. Your next orders have our standard return terms. We are happy to have you with us.",
       "legal_clause_kind": null,
       "generation_id": null,
       "status": "sent_simulated",
@@ -42,7 +42,7 @@
         "deadline": "13 ottobre 2026"
       },
       "refund": null,
-      "body": "Ciao, grazie per il tuo messaggio. Abbiamo registrato la tua richiesta di reso e il rimborso è previsto per il 13 ottobre 2026. Le condizioni di reso dei tuoi ordini restano quelle di sempre. Il nostro team ti risponderà volentieri. Grazie ancora e buona giornata.",
+      "body": "Ciao, grazie per il tuo messaggio. Abbiamo registrato la tua richiesta di reso e il rimborso è previsto al più tardi per il 13 ottobre 2026. I tuoi prossimi ordini hanno le nostre condizioni di reso standard. Il nostro team ti risponderà volentieri. Grazie ancora e buona giornata.",
       "legal_clause_kind": null,
       "generation_id": null,
       "status": "sent_simulated",
@@ -76,7 +76,7 @@
           "nature": "synthetic"
         }
       },
-      "body": "Ciao, grazie per averci scritto. Abbiamo registrato la tua richiesta di reso e il rimborso di 71,92 € è previsto per il 10 ottobre 2026. Se ti serve un'altra taglia, rispondi pure a questo messaggio. Un caro saluto dal nostro team.",
+      "body": "Ciao, grazie per averci scritto. Abbiamo registrato la tua richiesta di reso e il rimborso di 71,92 € è previsto al più tardi per il 10 ottobre 2026. Se ti serve un'altra taglia, rispondi pure a questo messaggio. Un caro saluto dal nostro team.",
       "legal_clause_kind": null,
       "generation_id": null,
       "status": "sent_simulated",
@@ -101,7 +101,7 @@
         "deadline": "12 ottobre 2026"
       },
       "refund": null,
-      "body": "Ciao, grazie per averci scritto. Abbiamo registrato la tua richiesta di reso e il rimborso è previsto per il 12 ottobre 2026. I tuoi prossimi ordini avranno nuove condizioni di reso, mostrate prima di ogni acquisto: reso entro 14 giorni dalla consegna; spedizione del reso a tuo carico; rimborso nei tempi di legge, non istantaneo; codici sconto non utilizzabili. Queste condizioni tengono conto dei resi dei tuoi ordini precedenti. Per domande su queste condizioni, rispondi pure a questo messaggio. Un caro saluto dal nostro team.\n\nTi ricordiamo che puoi sempre esercitare il diritto di recesso entro 14 giorni dalla consegna, senza indicarne il motivo. Ti rimborseremo entro 14 giorni dalla tua comunicazione, al ricevimento dei prodotti o della prova della loro spedizione.",
+      "body": "Ciao, grazie per averci scritto. Abbiamo registrato la tua richiesta di reso e il rimborso è previsto al più tardi per il 12 ottobre 2026. Questo reso mantiene le condizioni del tuo ordine. I tuoi prossimi ordini avranno queste condizioni di reso, mostrate prima dell'acquisto: reso entro 14 giorni dalla consegna; spedizione del reso a tuo carico; rimborso nei tempi di legge, non istantaneo; codici sconto non utilizzabili. Queste condizioni tengono conto dei tuoi resi precedenti. Per domande su queste condizioni, rispondi pure a questo messaggio. Un caro saluto dal nostro team.\n\nTi ricordiamo che puoi sempre esercitare il diritto di recesso entro 14 giorni dalla consegna, senza indicarne il motivo. Ti rimborseremo entro 14 giorni dalla tua comunicazione, al ricevimento dei prodotti o della prova della loro spedizione.",
       "legal_clause_kind": "withdrawal",
       "generation_id": "GEN-000102-1",
       "status": "sent_simulated",

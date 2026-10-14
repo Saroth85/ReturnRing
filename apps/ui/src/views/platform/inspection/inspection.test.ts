@@ -1,8 +1,11 @@
 // Inspection logic (US-501..503, docs/ui-design.md 9.2), on the contract examples.
 import { describe, expect, it } from 'vitest';
+import { PHOTO_BASE64_MAX_LENGTH } from '@/api/contract.gen';
 import type { InspectionView } from '@/api/models';
 import type { ResponseOf } from '@/api/client';
 import { readExample } from '@/test/examples';
+import { PHOTO_MAX_BYTES, PHOTO_MAX_MB } from '../constants';
+import { INSPECTION } from './copy';
 import {
   answersComplete,
   CHECKLIST_ITEMS,
@@ -80,14 +83,26 @@ describe('confirmRequest', () => {
 });
 
 describe('checkPhoto', () => {
+  const base64Length = (bytes: number) => 4 * Math.ceil(bytes / 3);
+
+  it('derives the limit from PhotoUpload.data_base64 maxLength and states it in the copy', () => {
+    expect(PHOTO_BASE64_MAX_LENGTH).toBe(7_000_000);
+    expect(PHOTO_MAX_BYTES).toBe(5_250_000);
+    expect(base64Length(PHOTO_MAX_BYTES)).toBeLessThanOrEqual(PHOTO_BASE64_MAX_LENGTH);
+    expect(base64Length(PHOTO_MAX_BYTES + 1)).toBeGreaterThan(PHOTO_BASE64_MAX_LENGTH);
+    expect(PHOTO_MAX_MB).toBe(5.25);
+    expect(INSPECTION.photo.types).toBe('JPEG, PNG or WebP, up to 5.25 MB');
+    expect(INSPECTION.photo.refusedSize).toContain('larger than 5.25 MB');
+  });
+
   it('accepts JPEG, PNG and WebP up to the limit', () => {
     expect(checkPhoto({ type: 'image/jpeg', size: 1000 })).toEqual({ ok: true, mediaType: 'image/jpeg' });
-    expect(checkPhoto({ type: 'image/webp', size: 8 * 1024 * 1024 })).toEqual({ ok: true, mediaType: 'image/webp' });
+    expect(checkPhoto({ type: 'image/webp', size: PHOTO_MAX_BYTES })).toEqual({ ok: true, mediaType: 'image/webp' });
   });
 
   it('refuses other types and files above the limit, with a reason', () => {
     expect(checkPhoto({ type: 'image/gif', size: 1000 })).toEqual({ ok: false, reason: 'type' });
-    expect(checkPhoto({ type: 'image/png', size: 8 * 1024 * 1024 + 1 })).toEqual({ ok: false, reason: 'size' });
+    expect(checkPhoto({ type: 'image/png', size: PHOTO_MAX_BYTES + 1 })).toEqual({ ok: false, reason: 'size' });
   });
 
   it('strips the data URL prefix to the base64 the API takes', () => {

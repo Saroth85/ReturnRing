@@ -73,10 +73,12 @@ function enumOf(schema, where) {
 
 const enumAt = (defName, propertyPath) => enumOf(at(defName, `properties.${propertyPath}`), `${defName}.${propertyPath}`);
 
+const hasProperty = (defName, property) => Boolean(defs[defName]?.properties && property in defs[defName].properties);
+
 /** The first of several contract paths that exists, for a value a later contract moved. */
 function enumAtFirst(...paths) {
   for (const [defName, propertyPath] of paths) {
-    if (defs[defName]?.properties && propertyPath in defs[defName].properties) return enumAt(defName, propertyPath);
+    if (hasProperty(defName, propertyPath)) return enumAt(defName, propertyPath);
   }
   throw new Error(`contract: none of ${paths.map((p) => p.join('.')).join(', ')} exists`);
 }
@@ -178,6 +180,8 @@ if (!minReasonMatch) throw new Error('contracts/vocab.py: MIN_REASON_CHARS not f
 const auditActions = enumAt('AuditEntry', 'action');
 
 // ---- output -------------------------------------------------------------------------------
+// An entry with a fourth element `{ optional: true }` is left out of the file when the contract no
+// longer states it (DraftView.tone is gone after 1.1.0); every other entry must resolve.
 const constants = [
   ['CONTRACT_VERSION', 'endpoints.json contract_version', endpointsFile.contract_version],
   ['QUADRANTS', 'Quadrant', enumOf(defs.Quadrant, 'Quadrant')],
@@ -187,6 +191,7 @@ const constants = [
   ['DECISION_ACTIONS', 'DecisionRequest.action', enumAt('DecisionRequest', 'action')],
   ['OVERRIDE_CATEGORIES', 'DecisionRequest.override_category', enumAt('DecisionRequest', 'override_category')],
   ['DECISION_STATES', 'DecisionView.state', enumAt('DecisionView', 'state')],
+  ['QUEUE_SORTS', 'QueueQuery.sort', enumAt('QueueQuery', 'sort')],
   ['REVISION_TRIGGERS', 'DecisionView.revision_trigger', enumAt('DecisionView', 'revision_trigger')],
   ['EVIDENCE_KINDS', 'EvidenceRequest.kind', enumAt('EvidenceRequest', 'kind')],
   ['AUDIT_ACTIONS', 'AuditEntry.action', auditActions],
@@ -196,13 +201,14 @@ const constants = [
   ['NATURES', 'Provenance.nature', enumAt('Provenance', 'nature')],
   ['MESSAGE_LANGS', 'CustomerMessageView.lang', enumAtFirst(['CustomerMessageView', 'lang'], ['MessageChoice', 'lang'])],
   ['LEGAL_CLAUSE_KINDS', 'CustomerMessageView.legal_clause_kind', enumAt('CustomerMessageView', 'legal_clause_kind')],
-  ['DRAFT_TONES', 'DraftView.tone', enumAt('DraftView', 'tone')],
+  ['DRAFT_TONES', 'DraftView.tone', hasProperty('DraftView', 'tone') ? enumAt('DraftView', 'tone') : undefined, { optional: true }],
   ['STATEMENT_LABELS', 'ExplanationStatement.label', enumAt('ExplanationStatement', 'label')],
   ['GENERATION_PATHS', 'GenerationInfo.generation_path', enumAt('GenerationInfo', 'generation_path')],
   ['AGENT_TOOLS', 'ToolCallEvent.tool', enumAt('ToolCallEvent', 'tool')],
   ['ENTITY_REF_KINDS', 'EntityRef.kind', enumAt('EntityRef', 'kind')],
   ['AGENT_MAX_STEPS', 'ToolCallEvent.step maximum', at('ToolCallEvent', 'properties.step').maximum],
   ['AGENT_QUESTION_MAX_LENGTH', 'AgentAskRequest.question maxLength', at('AgentAskRequest', 'properties.question').maxLength],
+  ['PHOTO_BASE64_MAX_LENGTH', 'PhotoUpload.data_base64 maxLength', at('PhotoUpload', 'properties.data_base64').maxLength],
   ['HUMAN_ONLY_ACTIONS', 'contracts/vocab.py HUMAN_ONLY_ACTIONS', vocabActionSet('HUMAN_ONLY_ACTIONS', auditActions)],
   ['REASON_REQUIRED_ACTIONS', 'contracts/vocab.py REASON_REQUIRED_ACTIONS', vocabActionSet('REASON_REQUIRED_ACTIONS', auditActions)],
   ['MIN_REASON_CHARS', 'contracts/vocab.py MIN_REASON_CHARS', Number(minReasonMatch[1])],
@@ -210,9 +216,10 @@ const constants = [
   ['MOCK_SCENARIOS', 'contracts/examples/api/index.json scenarios', scenarios],
   ['DEMO_USERS', 'contracts/vocab.py DEMO_USERS', demoUsers],
 ];
-for (const [name, source, value] of constants) {
-  if (value === undefined || value === null) throw new Error(`contract: ${name} (${source}) is missing`);
+for (const [name, source, value, options] of constants) {
+  if ((value === undefined || value === null) && !options?.optional) throw new Error(`contract: ${name} (${source}) is missing`);
 }
+const stated = constants.filter(([, , value]) => value !== undefined && value !== null);
 
 const queryModels = ['queue_query', 'audit_query', 'kpi_query', 'outbox_query', 'anomalies_query'];
 const queryParamsOut = Object.fromEntries(queryModels.map((stem) => [stem, queryParams(stem)]));
@@ -223,7 +230,7 @@ const lines = [
   '// examples/api/index.json and contracts/vocab.py. Do not edit: run `npm run gen:types`.',
   '',
 ];
-for (const [name, source, value] of constants) {
+for (const [name, source, value] of stated) {
   lines.push(`/** From ${source}. */`);
   lines.push(`export const ${name} = ${JSON.stringify(value, null, 2)} as const;`);
   lines.push('');

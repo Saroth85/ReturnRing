@@ -18,7 +18,7 @@ describe('applyOverlay', () => {
     expect(out.decision.state).toBe('approved');
     expect(out.decision.approver).toBe('sara');
     expect(out.revisions).toHaveLength(1);
-    expect(out.revisions[0].state).toBe('approved');
+    expect(out.revisions[0]?.state).toBe('approved');
     expect(out.draft).toBe(marco.draft);
   });
 
@@ -51,7 +51,7 @@ describe('applyOverlay', () => {
     const out = applyOverlay(card('rossi_card'), { recompute, links: { [linkId]: { explained_by_evidence_id: 'EV-000004' } } });
     expect(out.decision.decision_id).toBe('DEC-000104-2');
     expect(out.risk?.score.value).toBe(0.21);
-    expect(out.risk?.top_factors[2].phrase).toBe('No identifier shared beyond address and device');
+    expect(out.risk?.top_factors[2]?.phrase).toBe('No identifier shared beyond address and device');
     expect(out.draft).toBe(recompute.draft);
     expect(out.linked_accounts?.links.find((l) => l.link_id === linkId)?.explained_by_evidence_id).toBe('EV-000004');
     expect(out.revisions.map((r) => r.version)).toEqual([1, 2]);

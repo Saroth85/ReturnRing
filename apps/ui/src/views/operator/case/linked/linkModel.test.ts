@@ -37,6 +37,7 @@ describe('linkModel', () => {
     expect(strongest?.link_id).toBe('C-MARCO-2~C-MARCO-7');
     expect(strongestKind(strongest!)).toBe('card');
     expect(strongestKind({ kinds: ['ip_prefix', 'device'] })).toBe('device');
+    expect(strongestKind({ kinds: [] })).toBeNull();
   });
 
   it("marks Chiara's card link as weak: shared by 41 accounts", () => {
@@ -51,7 +52,8 @@ describe('linkModel', () => {
   });
 
   it('reads the dispute and explanation state', () => {
-    const link = marco.links[0];
+    const [link] = marco.links;
+    if (!link) throw new Error('case_card.marco.json has no link');
     expect(linkState(link)).toBe('active');
     expect(linkState({ ...link, disputed: true })).toBe('disputed');
     expect(linkState({ ...link, explained_by_evidence_id: 'EV-1' })).toBe('explained');

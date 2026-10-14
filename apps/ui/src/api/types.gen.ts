@@ -508,14 +508,14 @@ export interface CaseCard {
    * @minItems 1
    * @maxItems 3
    */
-  alternatives: [Alternative] | [Alternative, Alternative] | [Alternative, Alternative, Alternative];
+  alternatives: Alternative[];
   draft_status: 'ready' | 'pending';
   draft: DraftView | null;
   product_anomaly: ProductAnomaly | null;
   /**
    * @minItems 1
    */
-  revisions: [RevisionSummary, ...RevisionSummary[]];
+  revisions: RevisionSummary[];
   provenance: Provenance;
 }
 /**
@@ -579,7 +579,7 @@ export interface RiskView {
    * @minItems 3
    * @maxItems 3
    */
-  top_factors: [ScoreContribution, ScoreContribution, ScoreContribution];
+  top_factors: ScoreContribution[];
   residual_z: Metric | null;
   residual_note: 'An indicator of returns beyond what the products predict, not a probability';
   favourable: EvidencePoint[];
@@ -641,7 +641,7 @@ export interface LinkedAccountsView {
   /**
    * @minItems 1
    */
-  links: [AccountLink, ...AccountLink[]];
+  links: AccountLink[];
   features: ClusterFeatures;
   as_of: string;
   provenance: Provenance;
@@ -673,10 +673,7 @@ export interface AccountLink {
   /**
    * @minItems 1
    */
-  kinds: [
-    'card' | 'email' | 'device' | 'address' | 'phone' | 'ip_prefix',
-    ...('card' | 'email' | 'device' | 'address' | 'phone' | 'ip_prefix')[],
-  ];
+  kinds: ('card' | 'email' | 'device' | 'address' | 'phone' | 'ip_prefix')[];
   weight: number;
   weight_decayed: number;
   first_shared_at: string;
@@ -738,7 +735,7 @@ export interface OrderView {
   /**
    * @minItems 1
    */
-  lines: [OrderLineView, ...OrderLineView[]];
+  lines: OrderLineView[];
 }
 /**
  * This interface was referenced by `ApiSchemas`'s JSON-Schema
@@ -884,7 +881,7 @@ export interface CouponRuleRef {
   /**
    * @minItems 1
    */
-  affected_customer_ids: [string, ...string[]];
+  affected_customer_ids: string[];
   confirmed_by: string | null;
 }
 /**
@@ -899,7 +896,7 @@ export interface ClaimView {
   /**
    * @minItems 1
    */
-  photo_evidence_ids: [string, ...string[]];
+  photo_evidence_ids: string[];
   confirmed_by: string;
   rule_id: string;
 }
@@ -1015,12 +1012,12 @@ export interface DraftView {
   /**
    * @minItems 1
    */
-  explanation: [ExplanationStatement, ...ExplanationStatement[]];
+  explanation: ExplanationStatement[];
   /**
    * @minItems 1
    * @maxItems 2
    */
-  messages: [CustomerMessageView] | [CustomerMessageView, CustomerMessageView];
+  messages: CustomerMessageView[];
 }
 /**
  * This interface was referenced by `ApiSchemas`'s JSON-Schema
@@ -1191,192 +1188,7 @@ export interface CheckoutConfirmRequest {
    * @minItems 1
    * @maxItems 20
    */
-  lines:
-    | [CartLine]
-    | [CartLine, CartLine]
-    | [CartLine, CartLine, CartLine]
-    | [CartLine, CartLine, CartLine, CartLine]
-    | [CartLine, CartLine, CartLine, CartLine, CartLine]
-    | [CartLine, CartLine, CartLine, CartLine, CartLine, CartLine]
-    | [CartLine, CartLine, CartLine, CartLine, CartLine, CartLine, CartLine]
-    | [CartLine, CartLine, CartLine, CartLine, CartLine, CartLine, CartLine, CartLine]
-    | [CartLine, CartLine, CartLine, CartLine, CartLine, CartLine, CartLine, CartLine, CartLine]
-    | [CartLine, CartLine, CartLine, CartLine, CartLine, CartLine, CartLine, CartLine, CartLine, CartLine]
-    | [
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-      ]
-    | [
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-      ]
-    | [
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-      ]
-    | [
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-      ]
-    | [
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-      ]
-    | [
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-      ]
-    | [
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-      ]
-    | [
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-      ]
-    | [
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-      ]
-    | [
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-      ];
+  lines: CartLine[];
   coupon_code?: string | null;
 }
 /**
@@ -1407,192 +1219,7 @@ export interface CheckoutEvaluateRequest {
    * @minItems 1
    * @maxItems 20
    */
-  lines:
-    | [CartLine]
-    | [CartLine, CartLine]
-    | [CartLine, CartLine, CartLine]
-    | [CartLine, CartLine, CartLine, CartLine]
-    | [CartLine, CartLine, CartLine, CartLine, CartLine]
-    | [CartLine, CartLine, CartLine, CartLine, CartLine, CartLine]
-    | [CartLine, CartLine, CartLine, CartLine, CartLine, CartLine, CartLine]
-    | [CartLine, CartLine, CartLine, CartLine, CartLine, CartLine, CartLine, CartLine]
-    | [CartLine, CartLine, CartLine, CartLine, CartLine, CartLine, CartLine, CartLine, CartLine]
-    | [CartLine, CartLine, CartLine, CartLine, CartLine, CartLine, CartLine, CartLine, CartLine, CartLine]
-    | [
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-      ]
-    | [
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-      ]
-    | [
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-      ]
-    | [
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-      ]
-    | [
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-      ]
-    | [
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-      ]
-    | [
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-      ]
-    | [
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-      ]
-    | [
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-      ]
-    | [
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-        CartLine,
-      ];
+  lines: CartLine[];
   coupon_code?: string | null;
 }
 /**
@@ -1609,7 +1236,7 @@ export interface CheckoutEvaluateResponse {
   /**
    * @minItems 1
    */
-  lines: [CheckoutLine, ...CheckoutLine[]];
+  lines: CheckoutLine[];
   terms: Terms;
   base_terms: Terms;
   coupon_eligible: boolean;
@@ -1679,7 +1306,7 @@ export interface CouponRuleApplication {
   /**
    * @minItems 1
    */
-  affected_customer_ids: [string, ...string[]];
+  affected_customer_ids: string[];
   state: 'proposed' | 'confirmed' | 'reversed';
   proposed_at: string;
   confirmed_by: string | null;
@@ -1709,7 +1336,7 @@ export interface CouponRulesResponse {
   /**
    * @minItems 1
    */
-  history: [CouponRule, ...CouponRule[]];
+  history: CouponRule[];
   applications: CouponRuleApplication[];
 }
 /**
@@ -1742,7 +1369,7 @@ export interface DecisionRecord {
    * @minItems 1
    * @maxItems 3
    */
-  alternatives: [Alternative] | [Alternative, Alternative] | [Alternative, Alternative, Alternative];
+  alternatives: Alternative[];
   provenance: Provenance;
 }
 /**
@@ -1883,7 +1510,7 @@ export interface FairnessResponse {
   /**
    * @minItems 1
    */
-  dimensions: [FairnessDimensionReport, ...FairnessDimensionReport[]];
+  dimensions: FairnessDimensionReport[];
 }
 /**
  * This interface was referenced by `ApiSchemas`'s JSON-Schema
@@ -1894,7 +1521,7 @@ export interface FairnessDimensionReport {
   /**
    * @minItems 2
    */
-  segments: [FairnessSegment, FairnessSegment, ...FairnessSegment[]];
+  segments: FairnessSegment[];
   max_gap: Metric;
   warning: boolean;
 }
@@ -1962,10 +1589,7 @@ export interface CompensationProposal {
   /**
    * @minItems 1
    */
-  basis: [
-    'tag_attached' | 'visible_damage' | 'photo_quality',
-    ...('tag_attached' | 'visible_damage' | 'photo_quality')[],
-  ];
+  basis: ('tag_attached' | 'visible_damage' | 'photo_quality')[];
   text: string;
 }
 /**
@@ -2029,7 +1653,7 @@ export interface KpiResponse {
   /**
    * @minItems 1
    */
-  false_positives: [CohortRate, ...CohortRate[]];
+  false_positives: CohortRate[];
   decision_time_p50: Metric;
   decision_time_p95: Metric;
   abstentions_insufficient_evidence: Metric;
@@ -2120,7 +1744,7 @@ export interface RecomputeResponse {
   /**
    * @minItems 1
    */
-  audit_entry_ids: [number, ...number[]];
+  audit_entry_ids: number[];
   provenance: Provenance;
 }
 /**
@@ -2138,11 +1762,7 @@ export interface CaseSnapshot {
   /**
    * @maxItems 3
    */
-  top_factors:
-    | []
-    | [ScoreContribution]
-    | [ScoreContribution, ScoreContribution]
-    | [ScoreContribution, ScoreContribution, ScoreContribution];
+  top_factors: ScoreContribution[];
   lever_ids: string[];
   requires_approval: boolean;
   cluster_size: number | null;
@@ -2314,7 +1934,7 @@ export interface ReadyzResponse {
   /**
    * @minItems 1
    */
-  checks: [ComponentCheck, ...ComponentCheck[]];
+  checks: ComponentCheck[];
   contract_version: string;
   rules_version: string;
   assumptions_version: string;
@@ -2345,7 +1965,7 @@ export interface RegenerateRequest {
    * @minItems 1
    * @maxItems 2
    */
-  languages?: ['it' | 'en'] | ['it' | 'en', 'it' | 'en'];
+  languages?: ('it' | 'en')[];
   tone?: 'neutral' | 'warm' | 'formal';
   requested_by: string;
 }
@@ -2369,7 +1989,7 @@ export interface SimulatorAssumptionsResponse {
   /**
    * @minItems 1
    */
-  history: [AssumptionVersion, ...AssumptionVersion[]];
+  history: AssumptionVersion[];
 }
 /**
  * This interface was referenced by `ApiSchemas`'s JSON-Schema

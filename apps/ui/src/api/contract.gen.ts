@@ -63,6 +63,15 @@ export const DECISION_STATES = [
   "rejected"
 ] as const;
 
+/** From QueueQuery.sort. */
+export const QUEUE_SORTS = [
+  "-expected_net_benefit",
+  "expected_net_benefit",
+  "-requested_at",
+  "requested_at",
+  "-risk"
+] as const;
+
 /** From DecisionView.revision_trigger. */
 export const REVISION_TRIGGERS = [
   "initial",
@@ -216,6 +225,9 @@ export const AGENT_MAX_STEPS = 5 as const;
 
 /** From AgentAskRequest.question maxLength. */
 export const AGENT_QUESTION_MAX_LENGTH = 500 as const;
+
+/** From PhotoUpload.data_base64 maxLength. */
+export const PHOTO_BASE64_MAX_LENGTH = 7000000 as const;
 
 /** From contracts/vocab.py HUMAN_ONLY_ACTIONS. */
 export const HUMAN_ONLY_ACTIONS = [

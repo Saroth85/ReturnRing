@@ -1,6 +1,7 @@
 // Operator area strings (docs/ui-design.md 6). English; no number literals: numbers come from
 // data or from named constants (docs/ui-design.md 10.2). Plurals are chosen in ./format.ts.
 import { LEGAL_MINIMUM_WINDOW_DAYS } from '@/api/contract.gen';
+import type { QueueQuery } from '@/api/models';
 import { HISTORY_MONTHS, REVIEW_HORIZON_DAYS } from '@/copy/constants';
 
 export const OPERATOR = {
@@ -54,7 +55,7 @@ export const OPERATOR = {
       '-requested_at': 'Newest request first',
       requested_at: 'Oldest request first',
       '-risk': 'Risk score, highest first',
-    } as Record<string, string>,
+    } satisfies Record<NonNullable<QueueQuery['sort']>, string>,
     any: 'Any',
     quadrantNone: 'none',
     quadrantNoneLong: 'No quadrant (guarantee path or not enough evidence)',
@@ -718,6 +719,7 @@ export const OPERATOR = {
     sameIndicator: 'Same indicator',
     lines: (returned: string, lines: string) => `${returned} of ${lines} lines`,
     topFactor: 'Top score factor (a contribution, not a cause)',
+    noFactor: 'no factor recorded',
     linked: 'Linked accounts',
     noLinked: 'none',
     clusterOf: (n: string) => `Cluster of ${n} accounts, created within`,

@@ -114,12 +114,11 @@ function Columns({ a, b }: { a: Side; b: Side }) {
   const [revealed, setRevealed] = useState(!present);
   useHotkeys({ ArrowRight: () => setRevealed(true) });
   const names: [string, string] = [a.display_name ?? a.customer_id, b.display_name ?? b.customer_id];
-  const factor = (card: Side) =>
-    card.risk ? (
-      <span data-verbatim>{card.risk.top_factors[0].phrase}</span>
-    ) : (
-      <span className="text-ink-2">{OPERATOR.queue.notScored}</span>
-    );
+  const factor = (card: Side) => {
+    if (!card.risk) return <span className="text-ink-2">{OPERATOR.queue.notScored}</span>;
+    const [top] = card.risk.top_factors;
+    return top ? <span data-verbatim>{top.phrase}</span> : <span className="text-ink-2">{t.noFactor}</span>;
+  };
   const risk = (card: Side) =>
     card.risk ? (
       <div className="flex flex-col gap-1">

@@ -3,6 +3,8 @@
 - `spec.md` — the full specification, exported as Markdown from the project document. It is the source of
   truth: when a decision changes, update it first.
 - `adr/` — architecture decisions.
+- `ui-design.md` — the UI design for phase 5 (`apps/ui`): screens, shared components, tokens, data
+  layer, demo path, and the ownership split between the four view areas.
 - `spike-results.md` — results of the GPU spikes SPK-G1..G7 (written on the droplet).
 - `results/` — measured results, each file rewritten from the data by the command named at its top
   (never by hand): `us-201-propensity.md` by `python -m ml.propensity --raw data/raw --out
@@ -32,3 +34,5 @@
   and the follow-up after a change (US-208, US-606 data side).
 - `risk-model.md` — the abuse-risk model per customer and per return request (US-204): feature sets
   and ablation, split, calibration and thresholds, explanations, batch scoring, FAIR-02 and FAIR-03.
+- `review-backlog.md` — open findings of the last review round, the starting list of the next
+  session (including the UI migration to API contract 1.5.0).

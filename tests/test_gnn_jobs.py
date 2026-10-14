@@ -196,7 +196,8 @@ def ring_store() -> MiniStore:
 
 def embed(store: Path, out: Path, art: Path, *extra: str) -> dict[str, Any]:
     argv = ["embed", "--store", str(store), "--out", str(out), "--models", str(art)]
-    assert gnn_main([*argv, "--backend", "torch", "--max-epochs", "30", *extra]) == 0
+    extra = ("--backend", "torch", "--max-epochs", "30", "--threads", "1", *extra)
+    assert gnn_main([*argv, *extra]) == 0
     name = "ood" if store.name == "ood" else "main"
     doc: dict[str, Any] = json.loads((art / f"eval/gnn/us-202-embeddings-{name}.json").read_text())
     return doc

@@ -13,19 +13,31 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import func, insert, select
+from sqlalchemy import insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from apps.api import schemas as s
+from apps.api.errors import conflict
 from apps.api.services.audit import record
-from apps.api.services.ids import message_id
+from apps.api.services.ids import allocate, message_id
 from contracts.sql import outbox
 from contracts.vocab import Lang
 
 
+def check_refund_due(view: s.DecisionView, now: datetime) -> None:
+    """409 when a message about `view` would state a refund deadline that has already passed
+    (rule 3; 1.5.0, H1): the refund is overdue and the case needs the merchant's attention, not
+    a message promising a past date. The queue shows refund_overdue."""
+    if s.utc_day(now) > view.refund_due_by:
+        raise conflict(
+            f"the refund of {view.return_id} was due by {view.refund_due_by.isoformat()} (14 days "
+            "from the notice, rule 3): it is overdue; no message states a past deadline"
+        )
+
+
 async def next_message_id(conn: AsyncConnection) -> str:
-    count = await conn.scalar(select(func.count()).select_from(outbox))
-    return message_id(int(count or 0) + 1)
+    """MSG-<n>: the next number of the outbox counter, in the caller's transaction (H10)."""
+    return message_id(await allocate(conn, "MSG", outbox))
 
 
 async def compose(

@@ -290,6 +290,8 @@
       "coupons_enabled": true
     },
     "review_at": null,
+    "coupon_application_id": null,
+    "coupon_review_at": null,
     "shown_at": "2026-09-14T20:14:00Z",
     "confirmed_at": "2026-09-14T20:15:00Z"
   },
@@ -810,6 +812,9 @@
     "return_ids": [
       "RET-000097",
       "RET-000099",
+      "RET-000105"
+    ],
+    "queued_return_ids": [
       "RET-000105"
     ],
     "trend": [

@@ -151,7 +151,8 @@
               "enum": [
                 "decision_echo",
                 "invalid_twice",
-                "unavailable"
+                "unavailable",
+                "write_request"
               ],
               "type": "string"
             },

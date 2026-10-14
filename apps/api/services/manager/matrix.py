@@ -322,8 +322,9 @@ async def portfolio_matrix(
     points_prov = from_file(
         p["scores/scores"],
         f"customer scores of {model.version} at {scored_day}; a customer with an open case "
-        "shows the risk, value, evidence and cluster of its case card; returns and welcome "
-        f"coupons in the 12 months to {day}",
+        "shows the risk, value, evidence and cluster of its case card, or the customer's batch "
+        "risk when the case follows the guarantee path, which is never scored (rule 4); "
+        f"returns and welcome coupons in the 12 months to {day}",
         day,
     )
     value_prov = from_file(p["features/customer_value"], f"customer value at {scored_day}", day)

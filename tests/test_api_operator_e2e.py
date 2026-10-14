@@ -251,17 +251,17 @@ def test_acts_mean_what_the_contract_examples_mean(api: Api) -> None:
         "decision_result",
     )
     assert _result(rejected) == _result(_example("decision_result.reject"))
+    rossi = _owned(api, ROSSI_CARD_ACCOUNTS)[0]  # a proposal of the standard levers
+    overridden = ok(
+        decide(api, rossi, "override", levers=[], override_category="other", **reason),
+        "decision_result",
+    )  # before the refund deadline: a message never states a past one (1.5.0, H1)
+    assert _result(overridden) == _result(_example("decision_result.override"))
     api.clock.advance(timedelta(days=200))  # Marco's restriction is due for review
     lift = {"override_reason": "Reviewed at the due date", "override_category": "periodic_review"}
     lifted = ok(decide(api, marco, "lift", approver="luca", **lift), "decision_result")
     assert _result(lifted, blocks=False) == _result(_example("decision_result.lift"), False)
     assert lifted["coupon_application"]["state"] == "reversed"
-    rossi = _owned(api, ROSSI_CARD_ACCOUNTS)[0]  # a proposal of the standard levers
-    overridden = ok(
-        decide(api, rossi, "override", levers=[], override_category="other", **reason),
-        "decision_result",
-    )
-    assert _result(overridden) == _result(_example("decision_result.override"))
 
 
 def test_reviews_and_recomputes_mean_what_the_contract_examples_mean(api: Api) -> None:

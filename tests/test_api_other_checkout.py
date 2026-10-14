@@ -189,9 +189,15 @@ def test_an_approved_restriction_and_its_coupon_block(api: Api) -> None:
             continue
         linked = _evaluate(api, _cart(other, variant))
         if linked["terms_source"] == "base":  # no decision of its own in force
-            assert linked["terms"] == BASE
+            # the base terms, with the coupons the block turns off (1.5.0, H12)
+            assert linked["terms"] == {**BASE, "coupons_enabled": False}
             assert linked["coupon_block"]["application_id"] == block["application_id"]
             assert not linked["coupon_eligible"]
+            snapshot_id = linked["terms_snapshot_id"]
+            stored = api.run(lambda conn, sid=snapshot_id: _snapshot_row(conn, sid))
+            assert stored["coupon_application_id"] == block["application_id"]
+            assert stored["coupon_review_at"].isoformat() == block["review_at"]
+            assert not stored["coupons_enabled"]
 
 
 def test_a_reversed_coupon_block_is_not_shown(api: Api) -> None:

@@ -24,6 +24,7 @@ from apps.api import schemas as s
 from apps.api.errors import not_found, stale_decision
 from apps.api.services import decisions as store
 from apps.api.services.cases import record_of
+from apps.api.services.prices import paid_price
 from apps.api.serving import ReturnRecord, Serving
 from contracts.sql import return_requests
 
@@ -45,8 +46,8 @@ class Shown:
 
 
 def line_price(serving: Serving, line_id: str) -> Decimal:
-    line = serving.by_key("store/order_lines", line_id) or {}
-    return Decimal(str(line.get("price_eur", 0)))
+    """The price paid for the returned line (services.prices, H2)."""
+    return paid_price(serving, line_id)
 
 
 async def return_of(

@@ -30,6 +30,17 @@ the review (services.cases.propose on the account graph as people left it):
   coupon block of it gets a new application confirmed by the person.
 
 Neither sends a message (ADR-15 section 12, E27): the customer sees the terms at checkout.
+
+Contract 1.5.0 (ADR-15 section 15):
+
+- a proposal whose review window has passed (a restriction on or after its review date, or a
+  restrictive override of a version decided REVIEW_DAYS ago) is stale: the act answers 409
+  StaleProposal and the route decides the case again (trigger stale_proposal, recompute_stale),
+  so the next attempt acts on a fresh proposal (H16);
+- approve, override and reject send a message: on a case whose refund deadline has passed the
+  act answers 409 instead of promising a past date (H1); the queue flags such a case
+  (refund_overdue). A stale proposal is decided again first: its refund is always overdue too
+  (14 days from the notice come before a review date 90 days after the decision).
 """
 
 from __future__ import annotations
@@ -51,9 +62,10 @@ from apps.api.services.audit import record
 from apps.api.services.generation import load_draft
 from apps.api.services.operator import coupons
 from apps.api.services.operator.graph import GraphView, exclusions
+from apps.api.services.operator.recompute import Recomputed, recompute_version
 from apps.api.services.operator.shown import Shown, shown
 from apps.api.services.operator.versions import next_version
-from apps.api.services.outbox import compose, queue
+from apps.api.services.outbox import check_refund_due, compose, queue
 from apps.api.services.seeds import current_assumptions, current_coupon_rule
 from apps.api.serving import Serving
 from contracts.sql import decisions
@@ -101,12 +113,58 @@ def revalidate(view: s.DecisionView, **updates: Any) -> s.DecisionView:
     return s.DecisionView.model_validate({**view.model_dump(), **updates})
 
 
+class StaleProposal(ApiError):
+    """409: a restriction proposal at or past its review date (US-607); the route decides the
+    case again (recompute_stale) before it answers."""
+
+    def __init__(self, view: s.DecisionView, review_at: Any) -> None:
+        self.decision_id = view.decision_id
+        super().__init__(
+            409,
+            "conflict",
+            f"{view.decision_id} reached its review date, {review_at.isoformat()}: a restriction "
+            "is approved before it; the proposal is stale and the case is decided again (US-607)",
+        )
+
+    def recomputed(self, decision_id: str) -> None:
+        self.message = (
+            f"{self.decision_id} was stale (its review date passed before anyone acted on it): "
+            f"the case is decided again as {decision_id}; act on that version (US-607)"
+        )
+
+
 def _not_stale(view: s.DecisionView, review_at: Any, now: datetime) -> None:
     if review_at is not None and s.utc_day(now) >= review_at:
-        raise conflict(
-            f"{view.decision_id} reached its review date, {review_at.isoformat()}: a restriction "
-            "is approved before it; the proposal is stale and the case must be recomputed (US-607)"
-        )
+        raise StaleProposal(view, review_at)
+
+
+def is_stale(view: s.DecisionView, now: datetime) -> bool:
+    """A proposal decided REVIEW_DAYS ago or more: a restriction can no longer be approved or
+    chosen on it before its review date."""
+    return view.state == "proposed" and s.utc_day(now) >= view.decided_on + timedelta(
+        days=REVIEW_DAYS
+    )
+
+
+async def recompute_stale(
+    conn: AsyncConnection,
+    serving: Serving,
+    return_id: str,
+    decision_id: str,
+    now: datetime,
+    request_id: str | None,
+) -> Recomputed | None:
+    """The next version of a stale proposal (trigger stale_proposal, by the system), or None
+    when the case moved on meanwhile; services.operator.recompute.store_draft adds its draft."""
+    case = await shown(conn, serving, return_id, None, now, lock=True)
+    if case.view.decision_id != decision_id or not is_stale(case.view, now):
+        return None
+    made = [e for e in await exclusions(conn) if e.created_at <= now]
+    return await recompute_version(
+        conn, serving, case, trigger="stale_proposal", made_before=made, made_after=made,
+        author="system", reason="the proposal reached its review date before anyone acted",
+        act_entry=None, now=now, request_id=request_id,
+    )  # fmt: skip
 
 
 def _levers_chosen(levers: Sequence[s.Lever], base: Any) -> list[s.Lever]:
@@ -178,6 +236,7 @@ async def _on_proposal(
                 "general coupon rule applies to the cluster of a Q4 case on its proposal (LEG-09)"
             )
         kept = rule if blocks else None
+    check_refund_due(view, now)  # every act sends a message stating the refund deadline (H1)
     state = {"approve": "approved", "override": "overridden", "reject": "rejected"}[body.action]
     standing = store.in_force(state, needs, review, now, False)
     acted = revalidate(

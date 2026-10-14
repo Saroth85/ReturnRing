@@ -1,0 +1,6 @@
+{
+  "code": "not_found",
+  "message": "no demo reset yet: run python -m apps.api.reset",
+  "violations": [],
+  "request_id": "req-000134"
+}

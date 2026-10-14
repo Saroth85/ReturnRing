@@ -13,21 +13,22 @@ the model is off (US-901: the cache holds the drafts of the reset, not new ones)
 vLLM mode with vLLM unreachable llm.generate could only give the template again. The stored
 draft stays and nothing is written. In mock mode the mock model answers.
 
-The model call runs outside any transaction: the case is read in one, the draft stored in a
-second one that checks the version is still the latest (409 stale_decision otherwise).
+The model call runs outside any transaction, on the runtime's model-call pool: the case is
+read in one, the draft stored in a second one that checks the version is still the latest (409
+stale_decision otherwise) and gives it its id. A vLLM configuration the client refuses is an
+unavailable model: 503, never a 500 (1.5.0, H15).
 """
 
 from __future__ import annotations
 
-import asyncio
 from datetime import datetime
 
 from apps.api import schemas as s
-from apps.api.errors import conflict, llm_unavailable, stale_decision
+from apps.api.errors import llm_unavailable, stale_decision
 from apps.api.runtime import Runtime
 from apps.api.services import decisions as store
 from apps.api.services.cases import cluster_summary, policy_request
-from apps.api.services.generation import DraftInputs, next_generation_id
+from apps.api.services.generation import DraftInputs
 from apps.api.services.generation import store as store_generation
 from apps.api.services.operator.graph import view_for
 from apps.api.services.operator.shown import return_of, shown
@@ -50,9 +51,12 @@ async def regenerate(
     async with rt.transaction() as conn:
         case = await shown(conn, serving, return_id, body.decision_id, now)
         graph = await view_for(conn, serving, case.row)
-        generation_id = await next_generation_id(conn, return_id)
     if rt.settings.cached:
         raise llm_unavailable(CACHED_OFF)
+    if rt.settings.llm_mode == "vllm":
+        generator.client()
+        if generator.client_error is not None:
+            raise llm_unavailable(f"{VLLM_DOWN} (the local vLLM is not configured)")
     view, record = case.view, case.record
     context = graph.customer_context(record.customer_id, record.known_at)
     scored = view.path is ReturnPath.WITHDRAWAL and (
@@ -66,9 +70,7 @@ async def regenerate(
         customer_text=record.customer_text,
         languages=list(body.languages),
     )
-    outcome = await asyncio.to_thread(
-        generator.generate, inputs, generation_id=generation_id, created_at=now, kind="regenerate"
-    )
+    outcome = await rt.model_call(generator.generate, inputs, created_at=now, kind="regenerate")
     info = outcome.info
     if rt.settings.llm_mode == "vllm" and info.fallback_reason == "unavailable":
         raise llm_unavailable(VLLM_DOWN)
@@ -77,9 +79,9 @@ async def regenerate(
         rows = await store.decision_rows(conn, return_id)
         if rows[-1]["decision_id"] != view.decision_id:
             raise stale_decision(view.decision_id, rows[-1]["decision_id"])
-        if await next_generation_id(conn, return_id) != generation_id:
-            raise conflict(f"another draft of {return_id} was stored meanwhile: try again")
-        await store_generation(conn, outcome, view, actor=body.requested_by, request_id=request_id)
+        _, outcome = await store_generation(
+            conn, outcome, view, actor=body.requested_by, request_id=request_id
+        )
         row = await store.decision_row_by_id(conn, view.decision_id)
         assert row is not None
         served = await store.view_of(conn, row, now, line_price=case.line_price)

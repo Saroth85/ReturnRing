@@ -1,0 +1,6 @@
+{
+  "code": "rate_limited",
+  "message": "at most 30 requests of the public demo per client every 60 s: try again in 12 s",
+  "violations": [],
+  "request_id": "req-000132"
+}

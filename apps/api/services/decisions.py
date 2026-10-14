@@ -6,6 +6,10 @@ engine output, the alternatives, the human outcome and the version chain. Its vi
 is computed when served, at `as_of`: in_force of the decision and of its cluster coupon
 application, superseded_by, and the diminished-value claim of a confirmed inspection. Every view
 passes policy.legal_guard in its model validator.
+
+A claim belongs to the return (1.5.0, H13): confirmed on a version, it stays on every later
+version of the return (a recompute keeps it, so the message of the act states the deduction),
+and a return has at most one (uq_inspections_one_claim_per_return).
 """
 
 from __future__ import annotations
@@ -19,10 +23,11 @@ from sqlalchemy import insert, select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from apps.api import schemas as s
+from apps.api.services.prices import paid_provenance
 from apps.api.services.provenance import provenance
 from contracts.sql import coupon_rule_applications, decisions, inspections, return_requests
 
-LinePrice = Callable[[str], Decimal | None]  # return_id -> price of the returned line, EUR
+LinePrice = Callable[[str], Decimal | None]  # return_id -> price paid for the returned line
 
 CLAIM_ORIGIN: Final = "diminished-value claim: rule {rule} on inspection {inspection}"
 
@@ -162,13 +167,19 @@ def claim_provenance(rule_id: str, inspection_id: str, confirmed_at: datetime) -
 
 
 async def _claim(
-    conn: AsyncConnection, decision_id: str, return_id: str, line_price: LinePrice | None
+    conn: AsyncConnection, version: int, return_id: str, line_price: LinePrice | None
 ) -> s.ClaimView | None:
+    """The claim of the return confirmed on this version or an earlier one (H13)."""
     row = await _one(
         conn,
-        select(inspections).where(
-            (inspections.c.decision_id == decision_id) & inspections.c.compensation_applied
-        ),
+        select(inspections)
+        .join(decisions, decisions.c.decision_id == inspections.c.decision_id)
+        .where(
+            (inspections.c.return_id == return_id)
+            & inspections.c.compensation_applied
+            & (decisions.c.version <= version)
+        )
+        .order_by(inspections.c.confirmed_at, inspections.c.inspection_id),
     )
     if row is None:
         return None
@@ -176,10 +187,11 @@ async def _claim(
     if price is None:
         raise ValueError(f"{return_id}: the price of the returned line is unknown")
     prov = claim_provenance(row["compensation_rule_id"], row["inspection_id"], row["confirmed_at"])
+    paid = paid_provenance(s.utc_day(row["confirmed_at"]))
     return s.ClaimView(
         inspection_id=row["inspection_id"],
         amount=s.Metric(value=_money(row["compensation_eur"]) or 0.0, unit="eur", provenance=prov),
-        line_price=s.Metric(value=float(price), unit="eur", provenance=prov),
+        line_price=s.Metric(value=float(price), unit="eur", provenance=paid),
         photo_evidence_ids=[row["photo_id"]],
         confirmed_by=row["confirmed_by"],
         rule_id=row["compensation_rule_id"],
@@ -276,7 +288,7 @@ async def view_of(
         override_reason=row["override_reason"],
         override_category=row["override_category"],
         coupon_rule=coupon_rule,
-        diminished_value_claim=await _claim(conn, row["decision_id"], row["return_id"], line_price),
+        diminished_value_claim=await _claim(conn, row["version"], row["return_id"], line_price),
         inputs=inputs,
         rules_version=row["rules_version"],
         model_versions=dict(row["model_versions"]),

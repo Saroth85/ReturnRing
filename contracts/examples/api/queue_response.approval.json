@@ -23,6 +23,8 @@
       ],
       "review_at": "2026-12-27",
       "review_due": false,
+      "refund_due_by": "2026-10-12",
+      "refund_overdue": false,
       "risk": {
         "value": 0.87,
         "unit": "probability",
@@ -76,6 +78,8 @@
       ],
       "review_at": "2026-12-28",
       "review_due": false,
+      "refund_due_by": "2026-10-13",
+      "refund_overdue": false,
       "risk": {
         "value": 0.71,
         "unit": "probability",
@@ -129,6 +133,8 @@
       ],
       "review_at": "2026-12-28",
       "review_due": false,
+      "refund_due_by": "2026-10-13",
+      "refund_overdue": false,
       "risk": {
         "value": 0.66,
         "unit": "probability",

@@ -1,8 +1,9 @@
 # ADR-15: API and persistence contract
 
 Status: accepted, 13 Oct 2026; amended the same day after four reviews (sections 9 to 12), and on
-14 Oct 2026 by the phase 4 integration (section 13) and the merge of the LLM layer's closing
-rounds (section 14). API contract version `1.4.1`. Covers spec section 9 (API table, flows F1 to F7), the stories of E3,
+14 Oct 2026 by the phase 4 integration (section 13), the merge of the LLM layer's closing
+rounds (section 14) and the review of the running API (section 15). API contract version
+`1.5.0`. Covers spec section 9 (API table, flows F1 to F7), the stories of E3,
 E4, E5, E6, E7 and E9, NFR-16 and CLAUDE.md rules 1, 3, 4, 5, 9, 10, 11 and 12. Changes
 `contracts/` (new `contracts/vocab.py`, `contracts/sql.py`, `contracts/json/api/`,
 `contracts/examples/api/`), removes two v1 API schemas, and adds `apps/api/schemas.py` and two
@@ -123,12 +124,14 @@ Rules on these files:
   | Status | `code` | When |
   | --- | --- | --- |
   | 422 | `invalid_request` | The body, path or query is invalid; pydantic errors become `violations` |
+  | 400 | `invalid_request` | The body cannot be parsed (not UTF-8, nested too deep; section 15, H28) |
+  | 413 | `invalid_request` | The body is larger than 8 MiB, on every endpoint with a body (section 15, H24) |
   | 422 | `legal_guard` | `policy.legal_guard` refused the decision; `violations` carries its codes |
   | 404 | `not_found` | |
-  | 409 | `conflict` | Already decided, already confirmed, "approve" sent with levers different from the proposal, "lift" or "renew" on a version that is not a restriction, "renew" before the review date or when the fresh proposal is not a restriction, a restriction approved on or after its review date (a stale proposal: the case is recomputed), `/checkout/confirm` of terms whose decision is no longer in force |
+  | 409 | `conflict` | Already decided, already confirmed, "approve" sent with levers different from the proposal, "lift" or "renew" on a version that is not a restriction, "renew" before the review date or when the fresh proposal is not a restriction, a restriction approved on or after its review date (a stale proposal: the case is recomputed), `/checkout/confirm` of terms whose decision is no longer in force; an act whose message would state a refund deadline already past (section 15, H1); a restriction proposal at or past its review date, decided again first (trigger `stale_proposal`, section 15, H16) |
   | 409 | `stale_decision` | The `decision_id` sent is not the latest version of the case |
-  | 403 | `forbidden_role` | The actor's role is not among the endpoint's `roles` (section 5) |
-  | 429 | `rate_limited` | Agent endpoint only |
+  | 403 | `forbidden_role` | The actor's role is not among the endpoint's `roles` (section 5); a write on the public read-only demo (section 15, H21) |
+  | 429 | `rate_limited` | The agent; on the public read-only demo, the checkout evaluation too |
   | 503 | `llm_unavailable` | Regeneration and the agent only: no template or cache can answer them |
 - **Pages and order.**
   - Pages are 1-based (`page`, `page_size`); `total` counts after the filters.
@@ -173,6 +176,7 @@ the decision history (US-604).
 | POST /api/agent/ask | `agent_ask_request` → `text/event-stream` of `agent_stream` events | US-701, 702 |
 | GET /api/benchmarks | → `benchmarks` | US-902 |
 | GET /api/telemetry | → `telemetry` | US-905 |
+| GET /api/demo/cases | → `demo_cases` (the golden cases of the reset with their live ids; 404 before a reset) | US-903 |
 
 ### 4. Semantics by area
 
@@ -537,6 +541,8 @@ mock routes serve every version a version chain of the examples points to.
 `DEMO_USERS`: sara (operator), luca (manager), ahmed (warehouse). Actor fields take a lowercase
 id and never `system` for a human act (rule 5). Each endpoint lists its `roles`; the API answers
 403 `forbidden_role` otherwise. The checkout is called by the simulated shop, with no role check.
+On the public read-only demo (`PUBLIC_READ_ONLY=on`, section 15) every write answers 403 but the
+agent and the checkout evaluation, which are rate limited per client.
 
 | Action | Operator | Manager | Warehouse |
 | --- | --- | --- | --- |
@@ -562,7 +568,11 @@ Tables:
 - `simulator_assumptions` and `coupon_rules`: versioned, with a `seq` chain;
 - `coupon_rule_applications`;
 - `llm_generations`: the llm_case sent (with its code-built facts), the output, the path of
-  `llm.generate`, the fallback reason, the model calls and the validator codes (no tone).
+  `llm.generate`, the fallback reason, the model calls and the validator codes (no tone);
+- `demo_reset` (1.5.0): one row, the snapshot instant of the reset, the wall time the demo clock
+  started and the golden cases of `GET /api/demo/cases`;
+- `id_counters` (1.5.0): the next number of each kind of sequential id, incremented in the
+  transaction that writes the id (section 15).
 
 Column types:
 
@@ -600,6 +610,9 @@ is refused with its CHECK, and accepted once that one CHECK is removed.
 | Compensation needs a photo, a confirmation and a rule (LEG-05) | `ck_inspections_compensation_evidence` |
 | No proposal when unsure (US-503) | `ck_inspections_unsure_no_proposal` |
 | No window below 14 days (LEG-01) | `ck_terms_snapshots_window_legal` |
+| A coupon block shown turns the coupons of the terms off, carries its review date, shown before it and within 180 days (1.5.0, H12) | `ck_terms_snapshots_coupon_block_review`, `ck_terms_snapshots_coupon_block_off`, `ck_terms_snapshots_coupon_review_after_shown`, `ck_terms_snapshots_coupon_review_within_max` |
+| One diminished-value claim per return (1.5.0, H13, H19) | the partial unique index `uq_inspections_one_claim_per_return` |
+| One demo reset; counters never below 0 (1.5.0) | `ck_demo_reset_single`, `ck_id_counters_non_negative` |
 | A snapshot gets its order at confirmation, not before | `ck_terms_snapshots_confirmed_with_order` |
 | Base terms are the base terms, with no review date; less generous terms come from a decision with a review date (US-403, US-607) | `ck_terms_snapshots_base_terms`, `ck_terms_snapshots_base_no_review`, `ck_terms_snapshots_restriction_has_review` |
 | Terms from a restriction are shown before its review date, in UTC days, within 180 days of the day shown, and bound to an order only before it (US-607, D2, D3) | `ck_terms_snapshots_review_after_shown`, `ck_terms_snapshots_review_within_max`, `ck_terms_snapshots_review_after_confirmed` |
@@ -932,6 +945,210 @@ shape changed: the drafts that lost their `policy` fact (`case_card.andrea`,
 `regenerate_response`) and the generation records with `TERMS_TOPIC` (`case_card.insufficient`,
 `audit_page`). The other changed examples change texts only.
 
+
+### 15. Review of the running API (14 Oct 2026, contract 1.5.0)
+
+A four-lens review (rules, contract, security, operations) ran the merged API on the full
+synthetic store, on PostgreSQL 16 and in a browser, and found 40 issues (H1 to H40): two
+blockers, fourteen majors. This round fixes both blockers on the API side (the compose file,
+the Makefile and the README belong to the infrastructure round: H29 and H40 are listed for it
+below), every major, and the minors that were cheap and right; the other minors are reported
+as they are. Each finding is a test: `tests/test_api_round5.py` on SQLite and
+`tests/test_api_round5_postgres.py`, which fires concurrent requests at PostgreSQL. ADR-16
+section 10 has the serving and operations side. The version is 1.5.0: a new endpoint and new
+fields.
+
+**The demo clock (H1, H11, H31).** The reset decides every open return at the snapshot instant
+(2026-10-01), and the service ran on the wall clock: every message promised a refund date
+already past, the default KPI week was empty and the decision time read 13 days. Decided: one
+clock for the whole API. With `DEMO_CLOCK=on` (the default, for the cached demo, the GPU demo
+and the reset alike) 'now' is the snapshot instant plus the time elapsed since the reset
+started the clock (`apps.api.clock.DemoClock`); `off` runs on the wall clock. The reset writes
+its start in the one row of the new table `demo_reset`; the service reads it at startup and at
+most every 5 s (a reset while the API runs restarts its clock), and before any reset starts at
+the snapshot instant when the service starts. Every 'now' of a response (an `as_of`, the time of
+an act, the period of a figure that ends now, the KPI week) comes from that clock; GPU samples
+keep the wall clock (they are measured in real time). `/readyz` shows it as `clock`
+(`ClockView`: kind demo, system or fixed, now, the snapshot instant and the wall time it
+started). The KPI week by default is the week of the latest decision (the reset week in a demo),
+no longer the last complete week before now. Beyond the clock: an act whose message would
+state a refund deadline already past answers 409 instead of promising a past date (rule 3),
+and the queue shows `refund_due_by` and `refund_overdue` (a proposed case past the day; sort
+`refund_due_by` brings them first). A reviewed "your refund is overdue" sentence would need the
+phrasebook review of ADR-14 decision 8: not done, the 409 stands.
+
+**The golden cases of the demo (H9, blocker).** The UI hard-coded the example ids
+(RET-000101..., V-DRS-2500, CL-000417); the live store has other ids. Decided: option B of the
+finding, with one source. The reset finds the golden cases from the golden customer ids of the
+store (`pipeline.generator.golden`) and stores them in `demo_reset`; `GET /api/demo/cases`
+(`demo_cases`, every role, 404 before a reset) serves `DemoCasesResponse`:
+
+- `cases`: one `DemoCase {key, return_id, customer_id, decision_id, cluster_id}` per key of
+  `giulia`, `marco` (a ring account with an open return, the Q4 awaiting approval when there is
+  one), `rossi`, `rossi_card` (a case with linked accounts when there is one), `elena` and
+  `insufficient` (the first withdrawal case with insufficient evidence); a key the store does
+  not hold (a small `--scale`) is missing;
+- `dispute`: a link whose dispute makes the cluster of the case named smaller (`link_id`,
+  `return_id`, `decision_id`, `cluster_id`, `cluster_size_before`, `cluster_size_after`), looked
+  for in the Rossi families first, then in the clusters of the other cases (the Marco ring and
+  the other golden cases keep their story); the Rossi families are held together by several
+  identifiers, so a single dispute rarely splits them;
+- `carts`: `giulia` (the lines of her order: the two sizes) and `ring` (the returned item of the
+  ring account, with an unredeemed coupon of the account when it has one), each a
+  `CheckoutEvaluateRequest`.
+
+The example `demo_cases.json` names the ids of the examples (RET-000101 to RET-000105,
+RET-000109, the dispute of C-10233~C-20871 on RET-000106, V-DRS-2500 and V-JKT-2207), so the
+mock serves them and the ids of the examples stay as they were. The UI reads the live ids from
+this endpoint instead of constants.
+
+**Ids (H10, H18).** `count(*) + 1` gave two concurrent writers the same id (500 on PostgreSQL).
+Every sequential id (MSG, TS-CHK, ORD-CHK, INS with its PH and GEN-INS, EV, LD, CT, GEN-AGENT and
+the drafts of each return, GEN-<return>-<n>) now comes from the new table `id_counters`
+(`apps.api.services.ids.allocate`): the counter row is incremented in the transaction that writes
+the id, stays locked until it ends and gives its number back on a rollback, so ids stay
+sequential and deterministic (two resets still write the same rows). A database without a
+counter row starts the kind after its existing rows. Decision and application ids are per
+version of a return, under the lock of the return, as before.
+
+**Transactions (H19, H20, H22).** No model call runs inside an open database transaction: the
+agent, the vision checklist, regeneration, the recomputes of evidence and disputes and the
+reset read in one transaction, call the model on the runtime's own pool (`LLM_CONCURRENCY`
+workers, apart from asyncio's default executor) and write in a second one; a draft gets its id
+when it is stored. The inspection confirmation takes the lock of the decision acts (the return
+row, `SELECT ... FOR UPDATE`), confirms with a conditional UPDATE (409 when it was confirmed
+meanwhile) and a return has at most one claim (the partial unique index
+`uq_inspections_one_claim_per_return`). A dispute locks the named case and every case it
+recomputes in return id order before it reads the link (no lock-order deadlock), and a second
+dispute of one link is a 409, also when two arrive together (the unique key of
+`link_disputes.link_id` maps to 409).
+
+**Public read-only mode (H21).** Spec 11: the demo views are public and read only, admin and
+telemetry behind basic auth. `PUBLIC_READ_ONLY=on` answers 403 `forbidden_role` to every write
+route but `POST /api/agent/ask` and `POST /api/checkout/evaluate`, which stay for the public
+pages and are rate limited per client (30 per minute, the first `X-Forwarded-For` hop the proxy
+sets); `/readyz` says `public_read_only`. The proxy owner protects the manager's views and
+`/api/telemetry` with basic auth (Caddy `basic_auth` on those paths) and limits request bodies
+to 10 MB (`request_body max_size`); the API refuses bodies over 8 MiB itself (413). Checkout
+`/confirm` declares 403 now; the checkout evaluation declares 429.
+
+**The language model (H15, H30, H32, H33, H34, H36, H8).** `GEMMA_MODEL` reaches the vLLM client,
+the vision and the agent, and every label; `/readyz` checks that vLLM serves it. A vLLM
+configuration the client refuses (no key, a URL that is not local) is an unavailable model: the
+drafts use the template, labelled, the reset fills the queue (and exits 1 with a warning), and
+regeneration and the agent answer 503 `llm_unavailable`, never a 500. `VLLM_TIMEOUT_S` (20 s)
+bounds a call. The reset and `batch_generate` send the drafts with `LLM_CONCURRENCY` (32) calls
+in flight and store them in their order. Labels: an output no model call produced is labelled
+with the model `template`; in cached mode the outputs are labelled `vllm` (`/readyz.llm_mode`
+too), a cache miss being the template served live, and the cached label is shown only while the
+precomputed outputs are there (H6). The agent's refusal of a write request is decided by code
+before any call: path `template`, the new fallback reason `write_request`, no model call
+(`check_generation_path` accepts it with no call and no code; `AgentStream` requires it exactly
+with a `write_request` refusal).
+
+**Money (H2).** A refund and a diminished-value claim are on the price paid for the line: its
+list price less its share of the order's coupon, pro rata of the list prices, to the cent
+(`apps.api.services.prices`). `ClaimView.line_price` is that price, with its own provenance.
+
+**Coupon block, claims, stale proposals (H12, H13, H16, H3).**
+
+- A confirmed cluster coupon block turns the coupons of the terms shown off, base terms included
+  (`terms.coupons_enabled` false, `coupon_eligible` false), and the stored snapshot names it:
+  `TermsSnapshotView.coupon_application_id` and `coupon_review_at` (new, null without a block).
+  The terms rules let base terms differ from the base only by the coupons a block turns off;
+  CHECKs `ck_terms_snapshots_coupon_block_review`, `_coupon_block_off`,
+  `_coupon_review_after_shown`, `_coupon_review_within_max`, and `_base_terms` and
+  `_restriction_has_review` read the block.
+- A claim belongs to the return: confirmed on a version, it stays on the later ones (a
+  recompute keeps it, so the approval states the refund and the deduction), and a second claim
+  on the return is a 409.
+- A restriction proposal at or past its review date is stale: the act answers 409 after the
+  case is decided again on the day of the attempt (a new version, trigger `stale_proposal`, by
+  the system, `case_recomputed` in the log, with its draft); the next attempt acts on it. Its
+  refund is then always overdue (14 days from the notice come before a review date 90 days
+  after the decision), so in practice the case moves on by evidence or the merchant's refund.
+- Checkout shows the engine's quadrant only while its levers stand (proposed, approved): an
+  override shows its own levers with no quadrant (`quadrant` null, `terms_source` the decision),
+  and an override to the standard levers (a lift) leaves the base terms. The rule "a decision
+  source has a quadrant" of `CheckoutEvaluateResponse`, `TermsSnapshotView` and
+  `ck_terms_snapshots_source` becomes "base has no quadrant".
+
+**Other changes.**
+
+| Finding | Change |
+| --- | --- |
+| H4 | A recompute of a guarantee case says in its provenance that no request model ran |
+| H5 | The KPI counts no proposal a lift or a recompute superseded |
+| H7 | The matrix provenance says a guarantee case shows the customer's batch risk |
+| H14 | `ProductAnomaly.queued_return_ids`: the returns of the anomaly a catalogue task can name; another one is a 404 that says so |
+| H17 | `GET /api/kpi` and `GET /api/fairness` declare 404 (no offline report), with an error example and a mock route; the message has no stray suffix |
+| H23 | The vLLM probe follows no redirect (a 3xx is an unreachable vLLM) |
+| H25 | Pages are at most `MAX_PAGE` (100,000) in the queue, the audit log and the outbox |
+| H26 | No server path in a public body: the reason of a missing snapshot is in the server log |
+| H27 | SQL errors log no parameter (`hide_parameters`) |
+| H28 | An unparseable body is a 4xx `invalid_request`, not `internal` |
+| H35 | The demo walk reads the golden cases from `/api/demo/cases` and expects the agent's 503 in cached mode |
+| H37, H38, H39 | `/readyz` is `not_ready` without scores or models; the startup log says why; the reset CLI exits 2 with the remedy on a missing snapshot and reports generation paths; one log line per request (id, method, path, status, duration) |
+
+**Contract changes for the UI (1.5.0).**
+
+- New endpoint `GET /api/demo/cases` (`demo_cases.schema.json`): use its ids for the demo
+  flows, the compare page, the shop presets and the matrix highlights (cluster ids of the
+  cases). Mock: `demo_cases.json`, scenario `empty` for the 404.
+- `ReadyzResponse`: `clock` (show the demo clock), `public_read_only` (hide the write actions),
+  `label` only while precomputed outputs exist, `llm_mode` `vllm` in cached mode, `not_ready`
+  also without scores or models.
+- `QueueItem`: `refund_due_by`, `refund_overdue`; `QueueQuery.sort` gains `refund_due_by`.
+- `TermsSnapshotView` (case card `order_terms`, checkout confirm): `coupon_application_id`,
+  `coupon_review_at`. `CheckoutEvaluateResponse.terms.coupons_enabled` is false under a coupon
+  block, base terms included; `quadrant` can be null with a decision as `terms_source` (an
+  override).
+- `ProductAnomaly` (case card, anomaly list): `queued_return_ids` for the catalogue task form.
+- `RevisionTrigger` gains `stale_proposal`; `FallbackReason` gains `write_request` (the agent's
+  refusal: `model_calls` 0, model `template`).
+- Errors: 403 on checkout confirm (scenario `read_only`), 429 on checkout evaluate (scenario
+  `rate_limited`), 404 on KPI and fairness (scenario `no_report`), 409 examples for a stale
+  proposal and an overdue refund (scenarios `stale_proposal`, `refund_overdue`), 413 and 400
+  `invalid_request` on any body; pages above 100,000 are 422.
+
+Examples whose shape changed: every case card (`order_terms` coupon fields;
+`product_anomaly.queued_return_ids` for Elena), the three queue responses, both checkout
+confirm responses, both readyz responses, both product anomaly lists and
+`agent_stream.write_refused`. New files: `demo_cases.json`, `error.read_only`,
+`error.rate_limited_public`, `error.report_unavailable`, `error.no_demo_reset`,
+`error.conflict_stale_proposal`, `error.conflict_refund_overdue`, `demo_cases.schema.json`.
+Tables: `demo_reset` and `id_counters` (section 6), the column `terms_snapshots.coupon_review_at`
+and the index `uq_inspections_one_claim_per_return`.
+
+**For the infrastructure round (not changed here: infra/, Makefile, README).**
+
+- H29 (blocker): mount `serving/` read-only in the api and reset services with
+  `SERVING_DIR=/app/serving`, build it in the pipeline job (`python -m pipeline.serving`), run
+  `python -m apps.api.reset` once the database is up, and give the api a healthcheck on
+  `/readyz` that fails while the body says `not_ready` (the status stays 200, so the probe reads
+  the body), with a start period of 60 s or more.
+- H30: pass `GEMMA_MODEL` (and `VLLM_TIMEOUT_S`, `LLM_CONCURRENCY` if changed) to the api, the
+  reset and `batch_generate`.
+- H21: the demo profile sets `PUBLIC_READ_ONLY=on`; Caddy protects the manager's views and
+  `/api/telemetry` with `basic_auth`, sets `X-Forwarded-For`, and limits request bodies
+  (`request_body { max_size 10MB }`).
+- H40: a telemetry sampler service on the GPU profile (`python -m
+  apps.api.services.other.telemetry`).
+- `DEMO_CLOCK` stays on (the default) on every profile; the reset starts the clock.
+
+Known limits, reported as they are:
+
+- **H4, the periods of the draft facts.** The value, cluster and factor facts of a draft are
+  labelled "as of" the decision day while the card dates the customer snapshot (a month
+  earlier). Fixing it needs the snapshot day in `DecisionInputs` (a column of `decisions` and a
+  field of every decision example) and in `_check_case_facts`: not cheap, left for a later
+  round.
+- **An overdue refund blocks the acts that send a message** (409) until the merchant pays it;
+  the queue flags it. A reviewed sentence for a late refund would let the act go on.
+- **The demo clock of a long-running public demo** moves past the refund deadlines two days
+  after the reset (the earliest is 2 October at full scale); the public demo is read-only, so
+  no message is composed there, and a reset restarts the clock.
+- **E15 is still open** (section 12).
 
 ## Consequences
 

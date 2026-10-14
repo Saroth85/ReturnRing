@@ -713,6 +713,18 @@ LESS_GENEROUS = " OR ".join(
     ["return_window_days < base_return_window_days"]
     + [f"(base_{c} AND NOT {c})" for c in TERM_COLUMNS[1:]]
 )
+# Contract 1.5.0 (ADR-15 section 15, H12): a confirmed cluster coupon block in force turns the
+# coupons of the terms shown off, also on base terms; the block carries its own review date.
+_COUPON_BLOCKED = "(coupon_application_id IS NOT NULL AND NOT coupons_enabled)"
+SAME_AS_BASE_SHOWN = " AND ".join(
+    [f"{c} = base_{c}" for c in TERM_COLUMNS if c != "coupons_enabled"]
+    + [f"(coupons_enabled = base_coupons_enabled OR {_COUPON_BLOCKED})"]
+)
+LESS_GENEROUS_SHOWN = " OR ".join(
+    ["return_window_days < base_return_window_days"]
+    + [f"(base_{c} AND NOT {c})" for c in TERM_COLUMNS[1:] if c != "coupons_enabled"]
+    + ["(base_coupons_enabled AND NOT coupons_enabled AND coupon_application_id IS NULL)"]
+)
 
 terms_snapshots = Table(
     "terms_snapshots",
@@ -737,6 +749,7 @@ terms_snapshots = Table(
     Column("base_coupons_enabled", Boolean, nullable=False),
     Column("review_at", Date),
     Column("coupon_application_id", Id, ForeignKey("coupon_rule_applications.application_id")),
+    Column("coupon_review_at", Date),  # the review date of the coupon block shown (1.5.0)
     Column("cart", JSONDoc, nullable=False),
     Column("shown_at", TS, nullable=False),
     Column("confirmed_at", TS),
@@ -748,20 +761,45 @@ terms_snapshots = Table(
         "confirmed_with_order",
     ),
     _check("confirmed_at IS NULL OR confirmed_at >= shown_at", "confirmed_after_shown"),
+    # the quadrant is the engine's while its levers stand, none after a person's override (H3)
     _check(
         "(source = 'base' AND source_decision_id IS NULL AND quadrant_at_purchase IS NULL)"
         " OR (source <> 'base' AND source_decision_id IS NOT NULL"
-        " AND source_decision_id = source AND quadrant_at_purchase IS NOT NULL)",
+        " AND source_decision_id = source)",
         "source",
     ),
-    # base terms are exactly the merchant base terms (US-403)
-    _check(f"source <> 'base' OR ({SAME_AS_BASE})", "base_terms"),
+    # base terms are exactly the merchant base terms (US-403), coupons off under a block
+    _check(f"source <> 'base' OR ({SAME_AS_BASE_SHOWN})", "base_terms"),
     _check("source <> 'base' OR review_at IS NULL", "base_no_review"),
     # terms less generous than the base come from a decision with a review date (US-607);
-    # LESS_GENEROUS mirrors policy.types.ReturnTerms.is_less_generous_than (a test checks it)
+    # LESS_GENEROUS mirrors policy.types.ReturnTerms.is_less_generous_than (a test checks it),
+    # the coupons turned off by a coupon block aside: the block has its own review date
     _check(
-        f"NOT ({LESS_GENEROUS}) OR (source <> 'base' AND review_at IS NOT NULL)",
+        f"NOT ({LESS_GENEROUS_SHOWN}) OR (source <> 'base' AND review_at IS NOT NULL)",
         "restriction_has_review",
+    ),
+    # H12: a coupon block shown turns the coupons of the terms off and carries its review date
+    _check(
+        "(coupon_application_id IS NULL AND coupon_review_at IS NULL)"
+        " OR (coupon_application_id IS NOT NULL AND coupon_review_at IS NOT NULL)",
+        "coupon_block_review",
+    ),
+    _check("coupon_application_id IS NULL OR NOT coupons_enabled", "coupon_block_off"),
+    # a coupon block lapses at its review date: shown before it, within 180 days of the day
+    CheckConstraint(
+        or_(
+            column("coupon_review_at").is_(None),
+            utc_date(column("shown_at")) < column("coupon_review_at", Date),
+        ),
+        name="coupon_review_after_shown",
+    ),
+    CheckConstraint(
+        or_(
+            column("coupon_review_at").is_(None),
+            column("coupon_review_at", Date)
+            <= days_after(utc_date(column("shown_at")), MAX_REVIEW_DAYS),
+        ),
+        name="coupon_review_within_max",
     ),
     # US-607: terms from a restriction are shown only before its review date, when it lapses
     # (the UTC day of shown_at, as DecisionView.in_force and the API models count it)
@@ -888,6 +926,14 @@ inspections = Table(
     ),
 )
 Index(None, inspections.c.return_id)
+# H13, H19 (contract 1.5.0): a diminished-value claim belongs to the return, once
+Index(
+    "uq_inspections_one_claim_per_return",
+    inspections.c.return_id,
+    unique=True,
+    postgresql_where=inspections.c.compensation_applied,
+    sqlite_where=inspections.c.compensation_applied,
+)
 
 # ---- Catalogue tasks (US-606, spec 8.9) ---------------------------------------------------------
 
@@ -955,6 +1001,33 @@ telemetry_samples = Table(
     ),
 )
 Index(None, telemetry_samples.c.sampled_at)
+
+# ---- The demo reset and the id counters (ADR-15 section 15, contract 1.5.0) -------------------
+
+# One row, written by the demo reset (python -m apps.api.reset, US-903): the instant of the
+# serving snapshot the reset decided at, the wall time the demo clock started (DEMO_CLOCK, the
+# end of the reset) and the golden cases of GET /api/demo/cases with their live ids.
+demo_reset = Table(
+    "demo_reset",
+    metadata,
+    Column("reset_id", Integer, primary_key=True, autoincrement=False),
+    Column("snapshot_as_of", TS, nullable=False),
+    Column("started_at", TS, nullable=False),  # wall clock, real time
+    Column("cases", JSONDoc, nullable=False),  # DemoCasesResponse without as_of
+    _check("reset_id = 1", "single"),
+)
+
+# The next number of each id kind (MSG, TS-CHK, ORD-CHK, INS, EV, LD, CT, GEN-AGENT and the
+# drafts of each return): incremented in the transaction that writes the id, so two writers
+# never take the same number (its row stays locked until the transaction ends) and a rolled
+# back transaction gives its number back. Ids stay sequential and deterministic (H10, H18).
+id_counters = Table(
+    "id_counters",
+    metadata,
+    Column("kind", String(128), primary_key=True),
+    Column("value", BigInteger, nullable=False),
+    _check("value >= 0", "non_negative"),
+)
 
 TABLES: tuple[Table, ...] = tuple(metadata.sorted_tables)
 APPEND_ONLY_TABLES: tuple[str, ...] = ("audit_log", "simulator_assumptions", "coupon_rules")

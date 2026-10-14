@@ -52,8 +52,10 @@ OverrideCategory = Literal[
 OVERRIDE_CATEGORIES: tuple[OverrideCategory, ...] = get_args(OverrideCategory)
 # Why a new version of a decision exists (F7: every version stays in the log), and what makes it:
 # initial, the intake function; evidence_added and link_disputed, the recompute of a case;
-# review, a person's review of a restriction (action lift or renew).
-RevisionTrigger = Literal["initial", "evidence_added", "link_disputed", "review"]
+# review, a person's review of a restriction (action lift or renew); stale_proposal, the
+# recompute of a restriction proposal that reached its review date before anyone acted on it
+# (ADR-15 section 15, H16: the attempt to act answers 409 and the case is decided again).
+RevisionTrigger = Literal["initial", "evidence_added", "link_disputed", "review", "stale_proposal"]
 REVISION_TRIGGERS: tuple[RevisionTrigger, ...] = get_args(RevisionTrigger)
 MIN_REASON_CHARS = 3  # an override, a rejection, a dispute or a reversal needs a real reason
 
@@ -63,8 +65,10 @@ MIN_REASON_CHARS = 3  # an override, a rejection, a dispute or a reversal needs 
 # first call; regenerated, validated on the second call; template, the deterministic fallback.
 GenerationPath = Literal["model", "regenerated", "template"]
 GENERATION_PATHS: tuple[GenerationPath, ...] = get_args(GenerationPath)
-# Why llm.generate fell back to the template (Generation.fallback_reason).
-FallbackReason = Literal["decision_echo", "invalid_twice", "unavailable"]
+# Why llm.generate fell back to the template (Generation.fallback_reason), and write_request:
+# the agent's refusal of a request to change something, written by code before any model call
+# (llm.agent.is_write_request; ADR-15 section 15, H8).
+FallbackReason = Literal["decision_echo", "invalid_twice", "unavailable", "write_request"]
 FALLBACK_REASONS: tuple[FallbackReason, ...] = get_args(FallbackReason)
 # The codes of llm.validator.Code (a test keeps them equal), recorded with each generation.
 ValidatorCode = Literal[

@@ -11,13 +11,16 @@ POST /api/checkout/evaluate, in this order:
    hold: the advice is the size guide of a sized item, or a plain "no reliable advice" when
    the variant has no size range or a flagged size or description anomaly (spec 8.9: its size
    guide may be what is wrong);
-3. the terms of the latest decision in force for the customer that has a quadrant (US-403):
-   its levers on future orders, with its review date. A proposal that awaits a person is not
-   in force (rule 5), and a restriction lapses at its review date (US-607); otherwise the
-   merchant base terms;
+3. the terms of the latest decision in force for the customer that sets them (US-403): its
+   levers on future orders, with its review date. A proposal that awaits a person is not in
+   force (rule 5), and a restriction lapses at its review date (US-607); otherwise the merchant
+   base terms. The quadrant is the engine's only while its levers stand (proposed, approved):
+   a person's override shows its own levers with no quadrant, and an override (a lift) to the
+   standard levers leaves the base terms (1.5.0, H3: no permanent label);
 4. the coupon block: a confirmed application of the general cluster coupon rule, in force,
    naming the customer among its linked accounts (US-402), shown in the neutral words of
-   llm.phrasebook (rule 11);
+   llm.phrasebook (rule 11). It turns the coupons of the terms shown off and the snapshot
+   stores it with its review date (1.5.0, H12);
 5. the terms shown are stored as a terms_snapshots row with no order and logged
    (checkout_terms_shown) before the answer.
 
@@ -48,6 +51,7 @@ from apps.api.services import decisions as store
 from apps.api.services.audit import record as audit
 from apps.api.services.cases import variant_anomaly
 from apps.api.services.other.common import line_prices, next_number, view_at
+from apps.api.services.prices import paid_price
 from apps.api.services.provenance import from_file
 from apps.api.serving import BASE_TERMS, Serving
 from contracts.sql import TERM_COLUMNS, coupon_rule_applications, decisions, terms_snapshots
@@ -101,6 +105,13 @@ def _counts(serving: Serving) -> _Counts:
     )
     _COUNTS[id(serving)] = (weakref.ref(serving), counts)
     return counts
+
+
+def warm(serving: Serving) -> None:
+    """What the first checkout would compute once (US-403: the first evaluation under 1 s too):
+    the counts of the snapshot and the price paid of its lines."""
+    _counts(serving)
+    paid_price(serving, "")
 
 
 def _lookup(keys: pd.Series, values: pd.Series) -> npt.NDArray[np.int64]:
@@ -180,18 +191,31 @@ async def _latest_rows(conn: AsyncConnection, customer_id: str) -> list[dict[str
     return list(latest.values())
 
 
+def engine_levers_stand(view: s.DecisionView) -> bool:
+    """The engine's levers apply as proposed (proposed or approved), not a person's choice."""
+    return view.state in ("proposed", "approved")
+
+
+def sets_terms(view: s.DecisionView) -> bool:
+    """Whether a decision in force sets the terms of future orders: the engine's proposal of a
+    quadrant, or a person's override to levers other than the standard ones (H3)."""
+    if engine_levers_stand(view):
+        return view.quadrant is not None
+    return view.future_terms != view.inputs.base_terms
+
+
 async def decision_in_force(
     conn: AsyncConnection, serving: Serving, customer_id: str, at: datetime
 ) -> s.DecisionView | None:
-    """The latest decision in force at `at` that sets the terms of future orders (it has a
-    quadrant): approved or overridden, or proposed without a need for approval; never a
-    restriction on or after its review date (DecisionView.in_force)."""
+    """The latest decision in force at `at` that sets the terms of future orders (sets_terms):
+    approved or overridden, or proposed without a need for approval; never a restriction on or
+    after its review date (DecisionView.in_force)."""
     rows = await _latest_rows(conn, customer_id)
     prices = await line_prices(conn, serving, [str(r["return_id"]) for r in rows])
     best: tuple[tuple[datetime, str], s.DecisionView] | None = None
     for row in rows:
         view = await store.view_of(conn, row, at, line_price=prices.get)
-        if not view.in_force or view.quadrant is None:
+        if not view.in_force or not sets_terms(view):
             continue
         key = (view.approved_at or view.created_at, view.decision_id)
         if best is None or key > best[0]:
@@ -288,12 +312,15 @@ async def evaluate(
     terms = base if view is None else view.future_terms
     source = BASE_SOURCE if view is None else view.decision_id
     review_at = None if view is None else view.review_at
+    quadrant = view.quadrant if view is not None and engine_levers_stand(view) else None
     block = await coupon_block(conn, serving, body.customer_id, at)
-    number = await next_number(conn, terms_snapshots)
+    if block is not None:  # the block turns the coupons of the terms shown off (H12)
+        terms = terms.model_copy(update={"coupons_enabled": False})
+    number = await next_number(conn, SNAPSHOT_PREFIX.rstrip("-"), terms_snapshots)
     snapshot_id = f"{SNAPSHOT_PREFIX}{number:06d}"
     response = s.CheckoutEvaluateResponse(
         customer_id=body.customer_id,
-        quadrant=None if view is None else view.quadrant,
+        quadrant=quadrant,
         lines=lines,
         terms=terms,
         base_terms=base,
@@ -319,6 +346,7 @@ async def evaluate(
             **{f"base_{k}": v for k, v in base.model_dump().items()},
             review_at=review_at,
             coupon_application_id=None if block is None else block.application_id,
+            coupon_review_at=None if block is None else block.review_at,
             cart=_cart_json(body.lines, body.coupon_code),
             shown_at=at,
             confirmed_at=None,
@@ -351,6 +379,8 @@ def snapshot_view(row: Mapping[str, Any]) -> s.TermsSnapshotView:
         terms=s.Terms.model_validate({c: row[c] for c in TERM_COLUMNS}),
         base_terms=s.Terms.model_validate({c: row[f"base_{c}"] for c in TERM_COLUMNS}),
         review_at=row["review_at"],
+        coupon_application_id=row["coupon_application_id"],
+        coupon_review_at=row["coupon_review_at"],
         shown_at=row["shown_at"],
         confirmed_at=row["confirmed_at"],
     )
@@ -446,7 +476,9 @@ async def confirm(
     if problem is not None:
         raise conflict(problem)
     applied = await _coupon_applies(conn, serving, row, body.coupon_code)
-    number = await next_number(conn, terms_snapshots, terms_snapshots.c.order_id.is_not(None))
+    number = await next_number(
+        conn, ORDER_PREFIX.rstrip("-"), terms_snapshots, terms_snapshots.c.order_id.is_not(None)
+    )
     order_id = f"{ORDER_PREFIX}{number:06d}"
     cart = {**row["cart"], "coupon_code": body.coupon_code, "coupon_applied": applied}
     result = await conn.execute(

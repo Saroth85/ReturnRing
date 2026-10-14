@@ -27,11 +27,21 @@ claim is recomputed from the confirmed observations and the rule, checked by pol
 attached to the decision (the inspections row), and the customer is told the refund it leaves
 and the amount withheld with its reason, exactly when the decision awaits no person's approval:
 an unapproved Q3 or Q4 proposal is never announced (rule 5, ADR-15 E1).
+
+Contract 1.5.0 (ADR-15 section 15):
+
+- the vision call runs with no database transaction open (H20): the case is read in one
+  transaction, the checklist made on the runtime's model-call pool, the inspection stored in a
+  second one;
+- the confirmation locks the return first (SELECT ... FOR UPDATE, as the decision acts do),
+  confirms the inspection only once (a conditional UPDATE) and makes at most one claim per
+  return (uq_inspections_one_claim_per_return), so concurrent confirmations and approvals
+  cannot both act (H19, H13); the claim is on the price paid for the line (H2);
+- a message that would state a refund deadline already past is refused (409, H1).
 """
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import binascii
 import hashlib
@@ -44,6 +54,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Final, Literal, Protocol
 
 from sqlalchemy import insert, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from apps.api import schemas as s
@@ -52,6 +63,7 @@ from apps.api.services import decisions as store
 from apps.api.services import outbox
 from apps.api.services.audit import record as audit
 from apps.api.services.generation import info_of, load_draft
+from apps.api.services.operator.shown import return_of
 from apps.api.services.other.common import line_prices, next_number
 from apps.api.services.provenance import provenance
 from apps.api.serving import Serving
@@ -74,6 +86,7 @@ from policy.types import Path as ReturnPath
 CONFIDENCE_GATE: Final = 0.6  # below this declared confidence the system stops (US-503)
 MESSAGE_LANG: Final = "it"  # the merchant's language: the customer has no other on file
 MOCK_MODEL: Final = "mock"
+TEMPLATE_MODEL: Final = "template"  # no model call: the template checklist
 VISION_TOKENS: Final = 400
 MAX_VISION_CALLS: Final = 2  # one more call after a refused answer, then the template (8.7)
 JPEG_MAGIC: Final = b"\xff\xd8\xff"
@@ -240,9 +253,11 @@ def template_result(
     calls: int = 0,
     codes: Sequence[ValidatorCode] = (),
 ) -> VisionResult:
-    """No model answer: every item not observable (the gate then stops at manual review)."""
+    """No model answer: every item not observable (the gate then stops at manual review). With
+    no model call the label is the template, never a model that did not run (H30)."""
     items = [_item(item, "not_observable", 0.0, None) for item in CHECKLIST_ITEMS]
-    return VisionResult(items, "template", reason, calls, list(codes), model, llm_mode)
+    label = model if calls else TEMPLATE_MODEL
+    return VisionResult(items, "template", reason, calls, list(codes), label, llm_mode)
 
 
 def parse_checklist(
@@ -435,7 +450,7 @@ def assess(
 # ---- Storage and views --------------------------------------------------------------------------
 
 
-def _decode(photo: s.PhotoUpload) -> Photo:
+def decode(photo: s.PhotoUpload) -> Photo:
     try:
         data = base64.b64decode(photo.data_base64, validate=True)
     except (binascii.Error, ValueError):
@@ -537,33 +552,45 @@ def _with_path(row: Mapping[str, Any], path: ReturnPath) -> dict[str, Any]:
 # ---- POST /api/inspections ----------------------------------------------------------------------
 
 
+async def latest_case(
+    conn: AsyncConnection, serving: Serving, return_id: str, at: datetime
+) -> tuple[s.DecisionView, Decimal]:
+    """The latest decision version of a queued return and the price paid for its line (404)."""
+    prices = await line_prices(conn, serving, [return_id])
+    found = await store.latest_view(conn, return_id, at, line_price=prices.get)
+    if found is None or return_id not in prices:
+        raise not_found(f"return {return_id}")
+    return found[0], prices[return_id]
+
+
+def checklist(
+    vision: VisionModel | None, settings: Settings, photo: Photo, return_id: str
+) -> VisionResult:
+    """The checklist of the photo (a blocking model call in vllm mode: run it on the model-call
+    pool, with no transaction open), or the template when no model can answer."""
+    if vision is None:
+        model = settings.gemma_model if settings.served_llm_mode == "vllm" else MOCK_MODEL
+        return template_result("unavailable", settings.served_llm_mode, model)
+    return vision.checklist(photo, return_id)
+
+
 async def create(
     conn: AsyncConnection,
     serving: Serving,
-    vision: VisionModel | None,
     settings: Settings,
     body: s.InspectionCreateRequest,
+    photo: Photo,
+    result: VisionResult,
     at: datetime,
     request_id: str | None = None,
 ) -> s.InspectionView:
     """Store the photo's checklist for the latest decision version of the return."""
-    photo = _decode(body.photo)
-    prices = await line_prices(conn, serving, [body.return_id])
-    found = await store.latest_view(conn, body.return_id, at, line_price=prices.get)
-    if found is None or body.return_id not in prices:
-        raise not_found(f"return {body.return_id}")
-    view, _ = found
-    number = await next_number(conn, inspections)
+    view, price = await latest_case(conn, serving, body.return_id, at)
+    number = await next_number(conn, "INS", inspections)
     inspection_id, photo_id = f"INS-{number:06d}", f"PH-{number:06d}"
     generation_id = f"GEN-INS-{number:06d}"
-    if vision is None:
-        mode: Literal["mock", "vllm"] = "vllm" if settings.llm_mode == "vllm" else "mock"
-        model = settings.gemma_model if mode == "vllm" else MOCK_MODEL
-        result = template_result("unavailable", mode, model)
-    else:  # a blocking HTTP call in vllm mode: off the event loop
-        result = await asyncio.to_thread(vision.checklist, photo, body.return_id)
     claim_prov = proposal_provenance(DAMAGE_RULE.rule_id, inspection_id, at)
-    verdict = assess(result, view.path, prices[body.return_id], claim_prov)
+    verdict = assess(result, view.path, price, claim_prov)
     vision_prov = _vision_provenance(result, photo_id, at)
     info = s.GenerationInfo(
         generation_id=generation_id,
@@ -595,7 +622,7 @@ async def create(
         generation=info,
         provenance=vision_prov,
     )
-    checklist = [i.model_dump(mode="json") for i in result.items]
+    suggested = [i.model_dump(mode="json") for i in result.items]
     tokens = result.completion_tokens
     latency = result.latency_ms
     await conn.execute(
@@ -620,7 +647,7 @@ async def create(
                 "media_type": photo.media_type,
                 "provenance": vision_prov.model_dump(mode="json"),
             },
-            output={"items": checklist},
+            output={"items": suggested},
             validator_codes=list(info.validator_codes),
             latency_ms=latency,
             prompt_tokens=None,
@@ -639,7 +666,7 @@ async def create(
             photo_media_type=photo.media_type,
             photo_sha256=photo.sha256,
             state=verdict.state,
-            checklist=checklist,
+            checklist=suggested,
             min_model_confidence=min(i.model_confidence for i in result.items),
             manual_review_reason=verdict.manual_review_reason,
             proposal=None if verdict.proposal is None else verdict.proposal.model_dump(mode="json"),
@@ -714,10 +741,13 @@ async def confirm(
     found = await _rows(conn, inspection_id)
     if found is None:
         raise not_found(f"inspection {inspection_id}")
+    return_id = str(found[0]["return_id"])
+    await return_of(conn, return_id, lock=True)  # the lock of the decision acts (H19)
+    found = await _rows(conn, inspection_id)  # read again under the lock
+    assert found is not None
     row, generation = found
     if row["state"] == "confirmed":
         raise conflict(f"{inspection_id} is already confirmed")
-    return_id = str(row["return_id"])
     prices = await line_prices(conn, serving, [return_id])
     latest = await store.latest_view(conn, return_id, at, line_price=prices.get)
     if latest is None or return_id not in prices:
@@ -729,9 +759,9 @@ async def confirm(
             f"{view.decision_id}: inspect the item again"
         )
     earlier = view.diminished_value_claim
-    if earlier is not None:  # one claim per decision, confirmed with its own inspection
+    if earlier is not None:  # one claim per return, confirmed with its own inspection (H13)
         raise conflict(
-            f"{view.decision_id} already carries the diminished-value claim of "
+            f"{return_id} already carries the diminished-value claim of "
             f"{earlier.inspection_id}: no other inspection is confirmed for it"
         )
     rule: CompensationRule | None = None
@@ -751,20 +781,31 @@ async def confirm(
         violations = check(claimed, request, view.inputs.base_terms.to_policy())
         if violations:
             raise legal_guard(violations)
+        awaiting = view.state == "proposed" and view.requires_approval
+        if not awaiting:  # a message will state the refund: never a past deadline (H1)
+            outbox.check_refund_due(view, at)
     observations = [o.model_dump(mode="json") for o in body.observations]
-    await conn.execute(
-        update(inspections)
-        .where(inspections.c.inspection_id == inspection_id)
-        .values(
-            state="confirmed",
-            confirmed_observations=observations,
-            confirmed_by=body.inspector,
-            confirmed_at=at,
-            compensation_applied=rule is not None,
-            compensation_eur=amount,
-            compensation_rule_id=None if rule is None else rule.rule_id,
+    try:
+        result = await conn.execute(
+            update(inspections)
+            .where(
+                (inspections.c.inspection_id == inspection_id)
+                & (inspections.c.state != "confirmed")
+            )
+            .values(
+                state="confirmed",
+                confirmed_observations=observations,
+                confirmed_by=body.inspector,
+                confirmed_at=at,
+                compensation_applied=rule is not None,
+                compensation_eur=amount,
+                compensation_rule_id=None if rule is None else rule.rule_id,
+            )
         )
-    )
+    except IntegrityError:
+        raise conflict(f"{return_id} already carries a diminished-value claim") from None
+    if result.rowcount != 1:
+        raise conflict(f"{inspection_id} was confirmed meanwhile")
     after = await store.view_of(conn, decision_row, at, line_price=prices.get)
     claim = after.diminished_value_claim
     confirmed = {

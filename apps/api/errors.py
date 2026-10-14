@@ -21,6 +21,10 @@ LOG: Final = logging.getLogger("returnring.api")
 MAX_TEXT: Final = 300  # ShortText of the contract
 
 
+class BodyTooLarge(Exception):
+    """A request body passed the limit of the middleware while it was read (413)."""
+
+
 def _short(text: str) -> str:
     text = " ".join(text.split()) or "-"
     return text if len(text) <= MAX_TEXT else text[: MAX_TEXT - 1] + "…"
@@ -129,11 +133,18 @@ async def _validation_error(request: Request, exc: Exception) -> JSONResponse:
 
 
 async def _http_error(request: Request, exc: Exception) -> JSONResponse:
+    """Starlette's errors: 404 not_found, a body too large 413, another client error (an
+    unparseable body: 400) invalid_request with its status (H28), a server error internal."""
     assert isinstance(exc, StarletteHTTPException)
     if exc.status_code == 404:
         error = not_found(f"{request.method} {request.url.path}")
     elif exc.status_code == 405:
         error = ApiError(405, "invalid_request", f"{request.method} is not allowed here")
+    elif isinstance(exc.__cause__, BodyTooLarge):
+        error = ApiError(413, "invalid_request", "the request body is too large")
+    elif 400 <= exc.status_code < 500:
+        error = invalid_request(str(exc.detail))
+        error.status = exc.status_code
     else:
         error = ApiError(exc.status_code, "internal", str(exc.detail))
     return error_json(error, request_id_of(request))

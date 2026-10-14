@@ -922,7 +922,8 @@
             "initial",
             "evidence_added",
             "link_disputed",
-            "review"
+            "review",
+            "stale_proposal"
           ],
           "title": "Revision Trigger",
           "type": "string"
@@ -2006,7 +2007,8 @@
               "enum": [
                 "decision_echo",
                 "invalid_twice",
-                "unavailable"
+                "unavailable",
+                "write_request"
               ],
               "type": "string"
             },

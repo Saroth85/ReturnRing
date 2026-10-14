@@ -22,18 +22,19 @@ from datetime import date, datetime
 from typing import Any, Final
 
 import pandas as pd
-from sqlalchemy import func, insert, select, update
+from sqlalchemy import insert, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from apps.api import schemas as s
-from apps.api.errors import conflict, invalid_request, not_found
+from apps.api.errors import ApiError, conflict, invalid_request, not_found
 from apps.api.services.audit import record
 from apps.api.services.cases import anomaly_detail
 from apps.api.services.decisions import return_row
+from apps.api.services.ids import allocate
 from apps.api.services.provenance import from_file
 from apps.api.serving import Serving
-from contracts.sql import catalog_tasks
+from contracts.sql import catalog_tasks, return_requests
 from pipeline.anomalies.catalogue import FOLLOW_WEEKS, weekly_series
 from pipeline.anomalies.detect import ANOMALY_THRESHOLDS, week_start
 from policy.types import ReturnReason
@@ -83,11 +84,19 @@ async def active_tasks(conn: AsyncConnection) -> dict[str, dict[str, Any]]:
     return found
 
 
+async def queued_ids(conn: AsyncConnection) -> set[str]:
+    """The returns in the queue (return_requests): the ones a catalogue task can name (H14)."""
+    return {str(r) for r in (await conn.execute(select(return_requests.c.return_id))).scalars()}
+
+
 def anomaly_view(
-    serving: Serving, row: Mapping[str, Any], task: Mapping[str, Any] | None
+    serving: Serving,
+    row: Mapping[str, Any],
+    task: Mapping[str, Any] | None,
+    queued: set[str] | frozenset[str] = frozenset(),
 ) -> s.ProductAnomaly:
     """One anomaly with its catalogue task and the variant's weekly returns for the reason, as
-    a case card shows it."""
+    a case card shows it; queued_return_ids are its returns in the queue."""
     variant_id, reason = str(row["variant_id"]), str(row["reason"])
     week = pd.Timestamp(row["week"]).date()
     status: s.AnomalyStatus = "open"
@@ -112,6 +121,7 @@ def anomaly_view(
         status=status,
         catalog_task_id=None if task is None else task["task_id"],
         return_ids=ids,
+        queued_return_ids=sorted(set(ids) & set(queued)),
         trend=trend,
     )
 
@@ -127,7 +137,10 @@ async def anomalies(
         ["z", "week", "variant_id", "reason"], ascending=[False, False, True, True]
     )
     tasks = await active_tasks(conn)
-    items = [anomaly_view(serving, r, tasks.get(anomaly_key(r))) for r in rows.to_dict("records")]
+    queued = await queued_ids(conn)
+    items = [
+        anomaly_view(serving, r, tasks.get(anomaly_key(r)), queued) for r in rows.to_dict("records")
+    ]
     if query.status:
         items = [i for i in items if i.status in query.status]
     frame = serving.frame("features/product_anomalies")
@@ -249,8 +262,13 @@ async def open_task(
     row = _anomaly_row(serving, body.anomaly_id, at)
     if body.return_id is not None:
         ret = await return_row(conn, body.return_id)
-        if ret is None:
-            raise not_found(f"return {body.return_id}")
+        if ret is None:  # a store return outside the queue (H14): queued_return_ids lists them
+            raise ApiError(
+                404,
+                "not_found",
+                f"return {body.return_id} is not in the queue: a catalogue task names a queued "
+                "return of the anomaly (queued_return_ids)",
+            )
         if ret["variant_id"] != row["variant_id"]:
             raise invalid_request(
                 f"return {body.return_id} is not of the variant {row['variant_id']} of the anomaly"
@@ -260,8 +278,7 @@ async def open_task(
         raise conflict(
             f"{held['task_id']} is already the task of {body.anomaly_id} ({held['status']})"
         )
-    count = await conn.scalar(select(func.count()).select_from(catalog_tasks))
-    task_id = f"{TASK_PREFIX}{int(count or 0) + 1:06d}"
+    task_id = f"{TASK_PREFIX}{await allocate(conn, TASK_PREFIX.rstrip('-'), catalog_tasks):06d}"
     week: date = pd.Timestamp(row["week"]).date()
     values = {
         "task_id": task_id,

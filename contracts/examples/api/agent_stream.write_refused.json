@@ -11,15 +11,15 @@
     "steps_used": 0,
     "generation": {
       "generation_id": "GEN-AGENT-000004",
-      "generation_path": "model",
-      "fallback_reason": null,
+      "generation_path": "template",
+      "fallback_reason": "write_request",
       "llm_mode": "mock",
       "served_from": "live",
-      "model": "mock",
-      "model_calls": 1,
+      "model": "template",
+      "model_calls": 0,
       "validator_codes": [],
       "created_at": "2026-09-30T18:10:00Z",
-      "latency_ms": 27
+      "latency_ms": null
     }
   }
 ]

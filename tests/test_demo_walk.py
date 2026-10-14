@@ -21,6 +21,7 @@ from tests.api_harness import Api
 
 STEPS = [
     "readiness",
+    "demo_cases",
     "queue",
     "giulia",
     "marco",
@@ -47,7 +48,7 @@ def test_the_golden_demo_walk(api: Api) -> None:
     assert all(c.status in (200, 201, 409) for c in report.calls)
     # a second walk needs a new reset: no restriction awaits approval any more
     again = walk(api.client)
-    assert again.passed == ["readiness"] and "reset" in again.failed["queue"]
+    assert again.passed == ["readiness", "demo_cases"] and "reset" in again.failed["queue"]
 
 
 @pytest.mark.e2e

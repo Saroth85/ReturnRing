@@ -23,27 +23,40 @@ reason. A new proposal that blocks the cluster's coupons waits for a person agai
 The audit log keeps every version (F7): the act (evidence_added or link_disputed, by its
 author, with the reason), case_recomputed by the system (before and after: two versions), the
 reversal of a coupon application (by the author) and the generation of the new draft.
+
+Contract 1.5.0 (ADR-15 section 15):
+
+- no model call inside a transaction (H20): the act and the new versions are written in one
+  transaction (recompute_version), the drafts made on the runtime's model-call pool, then stored
+  in a second transaction (finish) that builds the responses;
+- a dispute locks the named case and every case it recomputes in one sorted pass, so two
+  disputes of one cluster wait for each other instead of deadlocking, and a second dispute of
+  the same link is a 409, also when two arrive together (H22, H10);
+- ids come from the id counters (EV-, LD-), never count(*) + 1;
+- the provenance of a response says the guarantee path has no request model (H4).
 """
 
 from __future__ import annotations
 
 import asyncio
 from collections.abc import Collection, Mapping, Sequence
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Final, Literal
 
 import pandas as pd
-from sqlalchemy import func, insert, select, update
+from sqlalchemy import insert, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection
-from sqlalchemy.sql.schema import Table
 
 from apps.api import schemas as s
 from apps.api.errors import ApiError, conflict, invalid_request, not_found
 from apps.api.services import decisions as store
 from apps.api.services.audit import record as audit
 from apps.api.services.cases import Proposal, record_of
-from apps.api.services.generation import DraftInputs, Generator, next_generation_id
+from apps.api.services.generation import DraftInputs, Generator, Outcome
 from apps.api.services.generation import store as store_generation
+from apps.api.services.ids import allocate
 from apps.api.services.operator import coupons
 from apps.api.services.operator.graph import (
     Exclusion,
@@ -52,7 +65,7 @@ from apps.api.services.operator.graph import (
     version_exclusions,
 )
 from apps.api.services.operator.queue import latest_rows
-from apps.api.services.operator.shown import Shown, shown
+from apps.api.services.operator.shown import Shown, return_of, shown
 from apps.api.services.operator.versions import next_version
 from apps.api.services.provenance import from_file, provenance
 from apps.api.services.seeds import current_assumptions, current_coupon_rule
@@ -62,7 +75,7 @@ from contracts.vocab import LINK_EXPLAINING_EVIDENCE
 from policy.types import EvidenceQuality
 from policy.types import Path as ReturnPath
 
-Trigger = Literal["evidence_added", "link_disputed"]
+Trigger = Literal["evidence_added", "link_disputed", "stale_proposal"]
 GRAPH_NOTE: Final = "account graph without the {n} links disputed or explained by people (US-310)"
 
 
@@ -71,9 +84,9 @@ def _ts(value: Any) -> datetime:
     return moment
 
 
-async def _next_id(conn: AsyncConnection, table: Table, prefix: str) -> str:
-    count = await conn.scalar(select(func.count()).select_from(table))
-    return f"{prefix}-{int(count or 0) + 1:06d}"
+async def _next_id(conn: AsyncConnection, table: Any, prefix: str) -> str:
+    """EV-<n>, LD-<n>: the next number of the id counter of `prefix` (H10)."""
+    return f"{prefix}-{await allocate(conn, prefix, table):06d}"
 
 
 def active_links(
@@ -142,10 +155,35 @@ def _inputs_provenance(proposal: Proposal, trigger: Trigger, n: int) -> s.Proven
     return provenance(origin, base.period_start, base.period_end, base.nature)
 
 
-async def recompute_case(
+@dataclass(frozen=True)
+class Recomputed:
+    """A new version written by recompute_version, waiting for its draft (finish)."""
+
+    case: Shown
+    new: s.DecisionView
+    proposal: Proposal
+    trigger: Trigger
+    before: s.CaseSnapshot
+    after: s.CaseSnapshot
+    block: s.CouponRuleRef | None
+    entry_ids: list[int]
+    evidence_id: str | None
+    dispute_id: str | None
+    graph_note: str
+
+    def draft_inputs(self) -> DraftInputs:
+        return DraftInputs(
+            view=self.new,
+            request=self.proposal.request,
+            factors=self.proposal.factors,
+            cluster=self.proposal.cluster,
+            customer_text=self.case.record.customer_text,
+        )
+
+
+async def recompute_version(
     conn: AsyncConnection,
     serving: Serving,
-    generator: Generator,
     case: Shown,
     *,
     trigger: Trigger,
@@ -153,14 +191,15 @@ async def recompute_case(
     made_after: Sequence[Exclusion],
     author: str,
     reason: str,
-    act_entry: s.AuditEntry,
+    act_entry: s.AuditEntry | None,
     now: datetime,
     request_id: str | None,
     evidence_id: str | None = None,
     dispute_id: str | None = None,
-) -> s.RecomputeResponse:
-    """The next version of `case` on the graph without the links of `made_after`, its draft,
-    the reversal of a confirmed coupon block of the version superseded, and the log."""
+) -> Recomputed:
+    """The next version of `case` on the graph without the links of `made_after`, the reversal
+    of a confirmed coupon block of the version superseded, and the log; the draft follows, out
+    of the transaction (finish)."""
     old, record = case.view, case.record
     old_graph = GraphView.of(serving, version_exclusions(case.row, made_before))
     old_context = old_graph.customer_context(record.customer_id, record.known_at)
@@ -213,41 +252,26 @@ async def recompute_case(
         assumptions_version=new.assumptions_version,
         request_id=request_id,
     )
-    ids = [act_entry.entry_id, recomputed.entry_id]
+    ids = [*([act_entry.entry_id] if act_entry is not None else []), recomputed.entry_id]
     if block is not None and reversed_now:
         reversal = await coupons.log_reversal(
             conn, block.application_id, by=author, at=now, reason=reason,
             return_id=old.return_id, decision_id=old.decision_id, request_id=request_id,
         )  # fmt: skip
         ids.append(reversal.entry_id)
-
-    draft_inputs = DraftInputs(
-        view=new,
-        request=proposal.request,
-        factors=proposal.factors,
-        cluster=proposal.cluster,
-        customer_text=record.customer_text,
-    )
-    generation_id = await next_generation_id(conn, new.return_id)
-    outcome = await asyncio.to_thread(
-        generator.generate, draft_inputs, generation_id=generation_id, created_at=now
-    )
-    drafted = await store_generation(conn, outcome, new, request_id=request_id)
-    ids.append(drafted.entry_id)
     row = await store.decision_row_by_id(conn, new.decision_id)
     assert row is not None
     served = await store.view_of(conn, row, now, line_price=case.line_price)
-
     context = proposal.context
     cluster = served.inputs.cluster_id
     after_ids = {e.link_id for e in made_after}
     after_size = len(graph.cluster_members(cluster, context.as_of)) if cluster else None
     old_factors = store.factors_of(case.row) if _scored(old) else []
-    return s.RecomputeResponse(
-        return_id=served.return_id,
+    return Recomputed(
+        case=case,
+        new=new,
+        proposal=proposal,
         trigger=trigger,
-        evidence_id=evidence_id,
-        dispute_id=dispute_id,
         before=_snapshot(old, old_factors, before_size, before_active),
         after=_snapshot(
             served,
@@ -255,16 +279,73 @@ async def recompute_case(
             after_size,
             active_links(graph, cluster, context.as_of, after_ids),
         ),
+        block=block,
+        entry_ids=ids,
+        evidence_id=evidence_id,
+        dispute_id=dispute_id,
+        graph_note=GRAPH_NOTE.format(n=len(made_after)),
+    )
+
+
+def make_drafts(
+    generator: Generator, pending: Sequence[Recomputed], now: datetime
+) -> list[Outcome]:
+    """The drafts of the new versions, with at most LLM_CONCURRENCY model calls in flight (run
+    it with no transaction open, on the runtime's model-call pool)."""
+    return generator.generate_many([p.draft_inputs() for p in pending], created_at=now)
+
+
+async def store_draft(
+    conn: AsyncConnection,
+    pending: Recomputed,
+    outcome: Outcome,
+    now: datetime,
+    request_id: str | None,
+) -> tuple[s.AuditEntry, Outcome, s.DecisionView]:
+    """Store the draft of a recomputed version (the version keeps it even if a person acted on
+    the case meanwhile); the entry, the draft as stored and the version served now."""
+    case, new = pending.case, pending.new
+    await return_of(conn, new.return_id, lock=True)
+    drafted, stored = await store_generation(conn, outcome, new, request_id=request_id)
+    row = await store.decision_row_by_id(conn, new.decision_id)
+    assert row is not None
+    served = await store.view_of(conn, row, now, line_price=case.line_price)
+    return drafted, stored, served
+
+
+async def finish(
+    conn: AsyncConnection,
+    serving: Serving,
+    pending: Recomputed,
+    outcome: Outcome,
+    now: datetime,
+    request_id: str | None,
+) -> s.RecomputeResponse:
+    """Store the draft of a recomputed version and answer the recompute."""
+    drafted, stored, served = await store_draft(conn, pending, outcome, now, request_id)
+    block = pending.block
+    path = (
+        f"the request model of the snapshot on the {pending.graph_note}"
+        if served.path is ReturnPath.WITHDRAWAL
+        else "no request model on the guarantee path (rule 4)"
+    )
+    assert pending.trigger != "stale_proposal", "a stale proposal answers 409, not a recompute"
+    return s.RecomputeResponse(
+        return_id=served.return_id,
+        trigger=pending.trigger,
+        evidence_id=pending.evidence_id,
+        dispute_id=pending.dispute_id,
+        before=pending.before,
+        after=pending.after,
         decision=served,
-        draft=outcome.draft,
+        draft=stored.draft,
         coupon_application=(
             await coupons.application(conn, block.application_id, now) if block else None
         ),
-        audit_entry_ids=ids,
+        audit_entry_ids=[*pending.entry_ids, drafted.entry_id],
         provenance=from_file(
             serving.provenance["scores/request_scores"],
-            f"recompute of {served.return_id} on {now:%Y-%m-%d}: the request model of the "
-            f"snapshot on the {GRAPH_NOTE.format(n=len(made_after))}",
+            f"recompute of {served.return_id} on {now:%Y-%m-%d}: {path}",
             now.date(),
         ),
     )
@@ -294,12 +375,13 @@ def _active_in_case(serving: Serving, case: Shown, made: Sequence[Exclusion]) ->
 async def add_evidence(
     conn: AsyncConnection,
     serving: Serving,
-    generator: Generator,
     return_id: str,
     body: s.EvidenceRequest,
     now: datetime,
     request_id: str | None = None,
-) -> s.RecomputeResponse:
+) -> Recomputed:
+    """POST /api/returns/{return_id}/evidence, first transaction: the evidence and the new
+    version; finish() stores its draft and answers."""
     case = await shown(conn, serving, return_id, body.decision_id, now, lock=True)
     made = [e for e in await exclusions(conn) if e.created_at <= now]
     targets = list(dict.fromkeys(body.target_link_ids))
@@ -335,8 +417,8 @@ async def add_evidence(
         Exclusion(t, *s.split_link_id(t), kind="explained", source_id=evidence_id, created_at=now)
         for t in targets
     ]
-    response = await recompute_case(
-        conn, serving, generator, case, trigger="evidence_added", made_before=made,
+    pending = await recompute_version(
+        conn, serving, case, trigger="evidence_added", made_before=made,
         made_after=[*made, *added], author=body.author, reason=body.note, act_entry=act_entry,
         now=now, request_id=request_id, evidence_id=evidence_id,
     )  # fmt: skip
@@ -345,17 +427,17 @@ async def add_evidence(
             evidence_id=evidence_id,
             return_id=return_id,
             decision_before_id=case.view.decision_id,
-            decision_after_id=response.decision.decision_id,
+            decision_after_id=pending.new.decision_id,
             kind=body.kind,
             note=body.note,
             target_link_ids=targets,
             author=body.author,
             created_at=now,
-            before=response.before.model_dump(mode="json"),
-            after=response.after.model_dump(mode="json"),
+            before=pending.before.model_dump(mode="json"),
+            after=pending.after.model_dump(mode="json"),
         )
     )
-    return response
+    return pending
 
 
 # ---- disputes ------------------------------------------------------------------------------------
@@ -403,15 +485,32 @@ def _link_view(row: Mapping[str, Any], info: s.LinkDisputeInfo) -> s.AccountLink
     )
 
 
+@dataclass(frozen=True)
+class PendingDispute:
+    """A dispute written by dispute(), its recomputes waiting for their drafts."""
+
+    link_row: dict[str, Any]
+    info: s.LinkDisputeInfo
+    affected: list[str]
+    recomputes: list[Recomputed]
+    named: str | None  # the return the dispute was sent from
+    day: Any
+
+    def mine(self) -> Recomputed | None:
+        return next((r for r in self.recomputes if r.case.view.return_id == self.named), None)
+
+
 async def dispute(
     conn: AsyncConnection,
     serving: Serving,
-    generator: Generator,
     link: str,
     body: s.LinkDisputeRequest,
     now: datetime,
     request_id: str | None = None,
-) -> s.LinkDisputeResponse:
+) -> PendingDispute:
+    """POST /api/links/{link_id}/dispute, first transaction: the dispute and the new version of
+    every case it recomputes, the cases locked in return id order; finish_dispute() stores the
+    drafts and answers."""
     try:
         a, b = s.split_link_id(link)
     except ValueError:
@@ -424,8 +523,13 @@ async def dispute(
     ]
     if rows.empty:
         raise not_found(f"link {link}")
+    # Lock the named case and the cases the link holds, in one sorted pass (H22).
+    candidates = await affected_cases(conn, serving, a, b, await exclusions(conn))
+    locked = sorted({*candidates, *([body.return_id] if body.return_id else [])})
+    for return_id in locked:
+        await return_of(conn, return_id, lock=True)
     case = (
-        await shown(conn, serving, body.return_id, body.decision_id, now, lock=True)
+        await shown(conn, serving, body.return_id, body.decision_id, now)
         if body.return_id is not None
         else None
     )
@@ -442,23 +546,28 @@ async def dispute(
             "cluster features"
         )
     affected = await affected_cases(conn, serving, a, b, made)
+    for return_id in sorted(set(affected) - set(locked)):  # changed while waiting for the locks
+        await return_of(conn, return_id, lock=True)
     if case is not None and case.view.return_id not in affected:
         raise invalid_request(
             f"{link} is not a link of the cluster given to the engine for {case.view.decision_id}"
         )
     dispute_id = await _next_id(conn, link_disputes, "LD")
-    await conn.execute(
-        insert(link_disputes).values(
-            dispute_id=dispute_id,
-            link_id=link,
-            customer_a=a,
-            customer_b=b,
-            return_id=body.return_id,
-            reason=body.reason,
-            author=body.author,
-            created_at=now,
+    try:
+        await conn.execute(
+            insert(link_disputes).values(
+                dispute_id=dispute_id,
+                link_id=link,
+                customer_a=a,
+                customer_b=b,
+                return_id=body.return_id,
+                reason=body.reason,
+                author=body.author,
+                created_at=now,
+            )
         )
-    )
+    except IntegrityError:
+        raise conflict(f"{link} is already disputed: a link is disputed once") from None
     act_entry = await audit(
         conn,
         at=now,
@@ -474,19 +583,22 @@ async def dispute(
         request_id=request_id,
     )
     added = Exclusion(link, a, b, "disputed", dispute_id, now)
-    recomputed: dict[str, s.RecomputeResponse] = {}
+    recomputes: list[Recomputed] = []
     for return_id in affected:
         this = (
             case
             if case is not None and case.view.return_id == return_id
-            else await shown(conn, serving, return_id, None, now, lock=True)
+            else await shown(conn, serving, return_id, None, now)
         )
-        recomputed[return_id] = await recompute_case(
-            conn, serving, generator, this, trigger="link_disputed", made_before=made,
-            made_after=[*made, added], author=body.author, reason=body.reason,
-            act_entry=act_entry, now=now, request_id=request_id, dispute_id=dispute_id,
+        recomputes.append(
+            await recompute_version(
+                conn, serving, this, trigger="link_disputed", made_before=made,
+                made_after=[*made, added], author=body.author, reason=body.reason,
+                act_entry=act_entry, now=now, request_id=request_id, dispute_id=dispute_id,
+            )
         )  # fmt: skip
-    mine = recomputed.get(case.view.return_id) if case is not None else None
+    named = case.view.return_id if case is not None else None
+    mine = next((r for r in recomputes if r.case.view.return_id == named), None)
     if mine is not None:
         await conn.execute(
             update(link_disputes)
@@ -505,10 +617,28 @@ async def dispute(
     info = s.LinkDisputeInfo(
         dispute_id=dispute_id, reason=body.reason, author=body.author, created_at=now
     )
-    day = _ts(instant).date()
+    return PendingDispute(shown_row, info, affected, recomputes, named, _ts(instant).date())
+
+
+async def finish_dispute(
+    conn: AsyncConnection,
+    serving: Serving,
+    pending: PendingDispute,
+    outcomes: Sequence[Outcome],
+    now: datetime,
+    request_id: str | None,
+) -> s.LinkDisputeResponse:
+    """The second transaction of a dispute: the drafts of the recomputed versions, in return id
+    order, and the response."""
+    answers = [
+        await finish(conn, serving, r, o, now, request_id)
+        for r, o in zip(pending.recomputes, outcomes, strict=True)
+    ]
+    mine = next((x for x in answers if x.return_id == pending.named), None)
+    day = pending.day
     return s.LinkDisputeResponse(
-        link=_link_view(shown_row, info),
-        affected_return_ids=affected,
+        link=_link_view(pending.link_row, pending.info),
+        affected_return_ids=pending.affected,
         recompute=mine,
         provenance=from_file(serving.provenance["features/links"], f"account graph at {day}", day),
     )

@@ -12,7 +12,8 @@ counts as the act it is.
 - abstentions: withdrawal returns with insufficient evidence (US-307), over the week's decisions;
 - override reasons: the categories of the overrides and rejections;
 - net_benefit_simulated: policy.simulator on the summed quantities of the engine's proposal of
-  every decision whose proposal applies (approved, or proposed without a need for approval),
+  every decision whose proposal applies (approved, or proposed without a need for approval) and
+  is still in force: a version a lift or a recompute superseded applies no more (1.5.0, H5),
   labelled kpi/<week> and priced with the unit costs of the stored version in force (US-602).
   Overrides, rejections and proposals awaiting approval apply none of the proposal's levers. The
   refund owed to the consumer is never a quantity (rule 9);
@@ -58,10 +59,23 @@ QUANTITIES: Final = (
 )
 
 
-def default_week(now: datetime) -> date:
-    """The Monday of the last complete week (Monday to Sunday, UTC) before `now`."""
+def default_week(now: datetime, latest: datetime | None = None) -> date:
+    """The Monday of the week (UTC) of the latest decision version, `latest`, no later than
+    `now` (1.5.0, H31: the demo's decisions are made in the week of the snapshot, the acts on
+    them just after); without a decision, the last complete week before `now`."""
     today = s.utc_day(now)
+    if latest is not None and s.utc_day(latest) <= today:
+        day = s.utc_day(latest)
+        return day - timedelta(days=day.weekday())
     return today - timedelta(days=today.weekday()) - WEEK
+
+
+async def latest_decision_at(conn: AsyncConnection) -> datetime | None:
+    """When the latest decision version was created or acted on."""
+    created = await conn.scalar(select(func.max(decisions.c.created_at)))
+    acted = await conn.scalar(select(func.max(decisions.c.approved_at)))
+    found = [x for x in (created, acted) if x is not None]
+    return max(found) if found else None
 
 
 def _start(week: date) -> datetime:
@@ -70,7 +84,7 @@ def _start(week: date) -> datetime:
 
 async def week_rows(conn: AsyncConnection, week: date) -> list[dict[str, Any]]:
     """The decision versions proposed in the week, without the proposals superseded before a
-    person acted on them."""
+    person acted on them; each row says whether a later version superseded it (superseded)."""
     start = _start(week)
     query = (
         select(decisions)
@@ -87,13 +101,20 @@ async def week_rows(conn: AsyncConnection, week: date) -> list[dict[str, Any]]:
             )
         ).scalars()
     )
-    return [r for r in rows if not (r["state"] == "proposed" and r["decision_id"] in superseded)]
+    return [
+        {**r, "superseded": r["decision_id"] in superseded}
+        for r in rows
+        if not (r["state"] == "proposed" and r["decision_id"] in superseded)
+    ]
 
 
 def proposal_applies(row: Mapping[str, Any]) -> bool:
-    return row["state"] == "approved" or (
+    """The engine's proposal applies: approved, or proposed without a need for approval, and
+    not superseded by a lift or a recompute (H5)."""
+    standing = row["state"] == "approved" or (
         row["state"] == "proposed" and not row["requires_approval"]
     )
+    return standing and not row.get("superseded", False)
 
 
 def week_quantities(rows: Sequence[Mapping[str, Any]]) -> dict[str, int | float]:

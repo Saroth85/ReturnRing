@@ -15,12 +15,13 @@ from contracts.sql import create_all, enable_sqlite_foreign_keys, metadata
 
 def make_engine(url: str) -> AsyncEngine:
     """An async engine on DATABASE_URL; an in-memory SQLite database is shared by every
-    connection of the engine (one StaticPool connection), so tests see one database."""
-    kwargs: dict[str, Any] = {}
+    connection of the engine (one StaticPool connection), so tests see one database. Errors
+    never log the parameters of a statement (H27): message bodies, reasons and customer ids."""
+    kwargs: dict[str, Any] = {"hide_parameters": True}
     if url.startswith("sqlite") and (
         ":memory:" in url or url.rstrip("/").endswith("sqlite+aiosqlite:")
     ):
-        kwargs = {"poolclass": StaticPool, "connect_args": {"check_same_thread": False}}
+        kwargs.update(poolclass=StaticPool, connect_args={"check_same_thread": False})
     engine = create_async_engine(url, **kwargs)
     enable_sqlite_foreign_keys(engine)
     return engine

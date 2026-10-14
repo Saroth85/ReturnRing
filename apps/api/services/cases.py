@@ -36,9 +36,10 @@ from apps.api import schemas as s
 from apps.api.services import decisions as store
 from apps.api.services.alternatives import CaseFacts, alternatives
 from apps.api.services.audit import record as audit
-from apps.api.services.generation import DraftInputs, Generator, load_draft, next_generation_id
+from apps.api.services.generation import DraftInputs, Generator, load_draft
 from apps.api.services.generation import store as store_generation
 from apps.api.services.ids import application_id, decision_id
+from apps.api.services.prices import paid_price
 from apps.api.services.provenance import from_file, provenance
 from apps.api.services.seeds import current_assumptions, current_coupon_rule
 from apps.api.serving import (
@@ -315,18 +316,18 @@ async def insert_return(
     )
 
 
-async def intake(
+async def admit(
     conn: AsyncConnection,
     serving: Serving,
-    generator: Generator | None,
     record: ReturnRecord,
     *,
     at: datetime,
     source: Source,
     request_id: str | None = None,
-) -> s.DecisionView:
-    """Flow F1 for one return request: store it, decide (version 1), log, and draft unless
-    `generator` is None (the draft then stays pending, for the generation queue)."""
+) -> Proposal:
+    """Steps 1 to 5 of flow F1 for one return request: store it, decide (version 1) and log.
+    The draft is made outside the transaction (H20): the case stays draft_status pending until
+    services.generation.store writes it."""
     exists = await conn.scalar(
         select(return_requests.c.return_id).where(return_requests.c.return_id == record.return_id)
     )
@@ -358,15 +359,30 @@ async def intake(
         assumptions_version=view.assumptions_version,
         request_id=request_id,
     )
+    return proposal
+
+
+async def intake(
+    conn: AsyncConnection,
+    serving: Serving,
+    generator: Generator | None,
+    record: ReturnRecord,
+    *,
+    at: datetime,
+    source: Source,
+    request_id: str | None = None,
+) -> s.DecisionView:
+    """Flow F1 for one return request in one transaction: admit() and, unless `generator` is
+    None (the draft then stays pending, for the generation queue), the draft. The demo reset
+    makes the drafts of every return after their decisions, outside any transaction, with
+    Generator.generate_many; this one-shot form is for the mock model and the tests."""
+    proposal = await admit(conn, serving, record, at=at, source=source, request_id=request_id)
+    view = proposal.view
     if generator is None:
         return view
-    outcome = generator.generate(
-        proposal.draft_inputs(),
-        generation_id=await next_generation_id(conn, record.return_id),
-        created_at=at,
-    )
-    await store_generation(conn, outcome, view, request_id=request_id)
-    return view.model_copy(update={"generation_id": outcome.info.generation_id})
+    outcome = generator.generate(proposal.draft_inputs(), created_at=at)
+    _, stored = await store_generation(conn, outcome, view, request_id=request_id)
+    return view.model_copy(update={"generation_id": stored.info.generation_id})
 
 
 # ---- The case card (US-302) --------------------------------------------------------------------
@@ -717,6 +733,8 @@ def terms_snapshot(serving: Serving, record: ReturnRecord) -> s.TermsSnapshotVie
         terms=s.Terms.from_policy(record.order_terms),
         base_terms=s.Terms.from_policy(BASE_TERMS),
         review_at=None,
+        coupon_application_id=None,
+        coupon_review_at=None,
         shown_at=shown,
         confirmed_at=max(shown, placed),
     )
@@ -824,8 +842,17 @@ async def product_anomaly(
         status=status,
         catalog_task_id=None if task is None else task["task_id"],
         return_ids=[str(i) for i in ids],
+        queued_return_ids=await _queued(conn, [str(i) for i in ids]),
         trend=trend,
     )
+
+
+async def _queued(conn: AsyncConnection, return_ids: Sequence[str]) -> list[str]:
+    """The returns among `return_ids` in the queue (1.5.0, H14), sorted."""
+    if not return_ids:
+        return []
+    query = select(return_requests.c.return_id).where(return_requests.c.return_id.in_(return_ids))
+    return sorted(str(r) for r in (await conn.execute(query)).scalars())
 
 
 def record_of(serving: Serving, ret: Mapping[str, Any]) -> ReturnRecord:
@@ -849,7 +876,7 @@ async def case_card(
         return None
     record = record_of(serving, ret)
     line = serving.by_key("store/order_lines", record.line_id) or {}
-    price = Decimal(str(line.get("price_eur", 0)))
+    price = paid_price(serving, record.line_id)  # what was paid: the base of a claim (H2)
     found = await store.latest_view(conn, return_id, as_of, line_price=lambda _: price)
     if found is None:
         return None

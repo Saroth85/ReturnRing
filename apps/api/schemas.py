@@ -167,8 +167,10 @@ from policy.types import CouponRuleApplication as PolicyCouponRule
 # round (no unapproved restriction announced, coupon blocks tied to their cluster, the facts of
 # the llm_case on every draft, the deduction stated with its reason, error scenarios, tone gone);
 # 1.4.1: the LLM layer's closing rounds merged (no lever fact, validator code TERMS_TOPIC; ADR-15
-# section 14)
-API_CONTRACT_VERSION = "1.4.1"
+# section 14); 1.5.0: the review of the API (ADR-15 section 15: GET /api/demo/cases, the demo
+# clock in /readyz, refund deadlines in the queue, the coupon block in the terms shown and stored,
+# a claim per return, the stale_proposal recompute, the write_request refusal, read-only mode)
+API_CONTRACT_VERSION = "1.5.0"
 MODE_HEADER = "X-ReturnRing-Mode"  # every response: "live" or "cached" (US-901)
 REQUEST_ID_HEADER = "X-Request-Id"  # every response; also in the audit log (NFR-12)
 CachedLabel = Literal["Precomputed on AMD MI300X"]
@@ -733,8 +735,14 @@ class SensitivityScenario(ApiModel):
 
 QuadrantFilter = Literal["Q1", "Q2", "Q3", "Q4", "none"]  # none: guarantee or insufficient
 QueueSort = Literal[
-    "-expected_net_benefit", "expected_net_benefit", "-requested_at", "requested_at", "-risk"
+    "-expected_net_benefit",
+    "expected_net_benefit",
+    "-requested_at",
+    "requested_at",
+    "-risk",
+    "refund_due_by",
 ]
+MAX_PAGE = 100_000  # pages are bounded (H25): an offset never leaves the int64 of the database
 DraftStatus = Literal["ready", "pending"]
 
 
@@ -754,7 +762,7 @@ class QueueQuery(ApiModel):
     review_due: bool | None = None
     q: Annotated[str, StringConstraints(min_length=1, max_length=64)] | None = None
     sort: QueueSort = "-expected_net_benefit"
-    page: int = Field(default=1, ge=1)
+    page: int = Field(default=1, ge=1, le=MAX_PAGE)
     page_size: int = Field(default=25, ge=1, le=100)
 
     def matches(self, item: QueueItem) -> bool:
@@ -806,6 +814,10 @@ class QueueItem(ApiModel):
     lever_ids: list[LeverIdText]  # "id:value" of the decision's current levers
     review_at: date | None  # review date of the decision's restriction (US-607)
     review_due: bool  # an approved or overridden restriction at or past its review date
+    # 1.5.0 (H1): the day the refund is due (notice + 14 days, rule 3), and whether that day is
+    # past while the latest version is still proposed, so no message has stated the refund yet
+    refund_due_by: date
+    refund_overdue: bool
     risk: Metric | None  # probability; null on the guarantee path or with insufficient evidence
     value: Metric | None  # eur, 12-month net margin
     expected_net_benefit: Metric  # eur, simulated: the recommended alternative of the case card
@@ -855,6 +867,11 @@ class QueueResponse(ApiModel):
             )
             if item.review_due != due:
                 raise ValueError(f"{item.return_id}: review_due is a restriction past review_at")
+            overdue = item.state == "proposed" and item.refund_due_by < today
+            if item.refund_overdue != overdue:
+                raise ValueError(
+                    f"{item.return_id}: refund_overdue is a proposed case past refund_due_by"
+                )
         return self
 
 
@@ -1217,14 +1234,29 @@ class OrderHistory(ApiModel):
 
 
 def _check_terms_source(
-    terms: Terms, base_terms: Terms, source: str, review_at: date | None, shown_at: datetime
+    terms: Terms,
+    base_terms: Terms,
+    source: str,
+    review_at: date | None,
+    shown_at: datetime,
+    coupon_review_at: date | None = None,
 ) -> None:
     """Terms shown at checkout (US-403, US-607): base terms are exactly the merchant base with no
     review date; terms less generous than the base come from a decision with a review date; and
-    a decision's terms are shown only before its review date, when the restriction lapses."""
-    if source == "base" and (terms != base_terms or review_at is not None):
+    a decision's terms are shown only before its review date, when the restriction lapses. A
+    coupon block (its review date `coupon_review_at`) turns the coupons of the terms off, base
+    terms included, and lapses at its own review date (1.5.0, H12)."""
+    blocked = coupon_review_at is not None
+    if blocked and terms.coupons_enabled:
+        raise ValueError("a coupon block turns the coupons of the terms shown off (US-402)")
+    own = (
+        terms.model_copy(update={"coupons_enabled": base_terms.coupons_enabled})
+        if blocked
+        else terms
+    )
+    if source == "base" and (own != base_terms or review_at is not None):
         raise ValueError("terms from base are the merchant base terms, with no review date")
-    if terms.to_policy().is_less_generous_than(base_terms.to_policy()) and (
+    if own.to_policy().is_less_generous_than(base_terms.to_policy()) and (
         source == "base" or review_at is None
     ):
         raise ValueError("terms less generous than the base come from a decision with a review")
@@ -1237,13 +1269,23 @@ def _check_terms_source(
         raise ValueError(
             "a review date is at most MAX_REVIEW_DAYS days after the day the terms are shown"
         )
+    if coupon_review_at is not None and coupon_review_at <= utc_day(shown_at):
+        raise ValueError(
+            "a coupon block lapses at its review date: it is shown only before it (US-607)"
+        )
+    if coupon_review_at is not None and coupon_review_at > utc_day(shown_at) + timedelta(
+        days=MAX_REVIEW_DAYS
+    ):
+        raise ValueError("a coupon block has a review date within MAX_REVIEW_DAYS days")
 
 
 class TermsSnapshotView(ApiModel):
     """Terms shown at checkout and stored with the order (ADR-05). order_id is null while the
     snapshot is shown and not confirmed (POST /api/checkout/evaluate). base_terms are the
     merchant base terms when the snapshot was shown; review_at is the review date of the
-    restriction in force that produced the terms, if any."""
+    restriction in force that produced the terms, if any. coupon_application_id and
+    coupon_review_at name the cluster coupon block shown with the terms, which turned their
+    coupons off (1.5.0, H12; null without a block)."""
 
     terms_snapshot_id: Id
     order_id: Id | None
@@ -1253,6 +1295,8 @@ class TermsSnapshotView(ApiModel):
     terms: Terms
     base_terms: Terms
     review_at: date | None
+    coupon_application_id: Id | None
+    coupon_review_at: date | None
     shown_at: AwareDatetime
     confirmed_at: AwareDatetime | None
 
@@ -1271,9 +1315,27 @@ class TermsSnapshotView(ApiModel):
                 "a restriction lapses at its review date: an order is bound to its terms only "
                 "before the review date (/confirm answers 409, the client evaluates again)"
             )
-        if (self.source == "base") != (self.quadrant_at_purchase is None):
-            raise ValueError("base terms have no quadrant; terms from a decision have one")
-        _check_terms_source(self.terms, self.base_terms, self.source, self.review_at, self.shown_at)
+        if self.source == "base" and self.quadrant_at_purchase is not None:
+            raise ValueError(
+                "base terms have no quadrant; terms from a decision have the engine's while its "
+                "levers stand, none after a person's override (1.5.0, H3)"
+            )
+        if (self.coupon_application_id is None) != (self.coupon_review_at is None):
+            raise ValueError("a coupon block shown carries its review date, and only it")
+        _check_terms_source(
+            self.terms,
+            self.base_terms,
+            self.source,
+            self.review_at,
+            self.shown_at,
+            self.coupon_review_at,
+        )
+        if (
+            self.confirmed_at is not None
+            and self.coupon_review_at is not None
+            and utc_day(self.confirmed_at) >= self.coupon_review_at
+        ):
+            raise ValueError("an order is bound to a coupon block only before its review date")
         return self
 
 
@@ -1337,7 +1399,9 @@ class ClaimView(ApiModel):
 
     inspection_id: Id
     amount: Metric  # eur, withheld from the refund
-    line_price: Metric  # eur: the price of the returned line, the base of the claim and refund
+    # eur: the price paid for the returned line (its list price less its share of the order's
+    # coupon, 1.5.0, H2), the base of the claim and of the refund
+    line_price: Metric
     photo_evidence_ids: list[Id] = Field(min_length=1)
     confirmed_by: HumanActor
     rule_id: Id
@@ -1966,6 +2030,8 @@ def check_generation_path(
         raise ValueError("decision_echo: a call answered with another decision")
     if fallback == "invalid_twice" and (calls != MAX_MODEL_CALLS or not codes):
         raise ValueError("invalid_twice: both calls failed the validator")
+    if fallback == "write_request" and (calls or codes):
+        raise ValueError("write_request: the agent's refusal written by code, before any call")
 
 
 class GenerationInfo(ApiModel):
@@ -2146,6 +2212,8 @@ class ProductAnomaly(ApiModel):
     status: AnomalyStatus
     catalog_task_id: Id | None
     return_ids: list[Id]
+    # 1.5.0 (H14): the return_ids in the queue, the ones a catalogue task can name
+    queued_return_ids: list[Id]
     trend: list[WeeklyReturnRate]  # the variant's weekly returns for this reason
 
     @model_validator(mode="after")
@@ -2160,6 +2228,10 @@ class ProductAnomaly(ApiModel):
             raise ValueError("z must be (observed - expected) / sqrt(expected), 2 decimals")
         if (self.status == "open") != (self.catalog_task_id is None):
             raise ValueError("an open anomaly has no task; task_opened and resolved have one")
+        if not set(self.queued_return_ids) <= set(self.return_ids):
+            raise ValueError("queued_return_ids are return_ids of the anomaly")
+        if self.queued_return_ids != sorted(set(self.queued_return_ids)):
+            raise ValueError("queued_return_ids are sorted, each once")
         return self
 
 
@@ -3559,7 +3631,9 @@ class CheckoutEvaluateResponse(ApiModel):
     order (E2E-02: terms shown = snapshot stored)."""
 
     customer_id: Id
-    quadrant: Quadrant | None  # of the decision in force for the customer; null: base terms
+    # the engine's quadrant of the decision in force while its levers stand; null with base
+    # terms or a person's override (1.5.0, H3)
+    quadrant: Quadrant | None
     lines: list[CheckoutLine] = Field(min_length=1)
     terms: Terms
     base_terms: Terms  # the merchant base terms: terms_source base shows exactly these
@@ -3579,20 +3653,20 @@ class CheckoutEvaluateResponse(ApiModel):
             raise ValueError("a coupon block makes coupons ineligible")
         if not self.terms.coupons_enabled and self.coupon_eligible:
             raise ValueError("coupons disabled by the terms make them ineligible")
-        if (self.terms_source == "base") != (self.quadrant is None):
-            raise ValueError("base terms have no quadrant; decision terms have one")
-        _check_terms_source(
-            self.terms, self.base_terms, self.terms_source, self.review_at, self.shown_at
-        )
-        block = self.coupon_block
-        if block is not None and block.review_at <= utc_day(self.shown_at):
+        if self.terms_source == "base" and self.quadrant is not None:
             raise ValueError(
-                "a coupon block lapses at its review date: it is shown only before it (US-607)"
+                "base terms have no quadrant; decision terms have the engine's while its levers "
+                "stand, none after a person's override (1.5.0, H3)"
             )
-        if block is not None and block.review_at > utc_day(self.shown_at) + timedelta(
-            days=MAX_REVIEW_DAYS
-        ):
-            raise ValueError("a coupon block has a review date within MAX_REVIEW_DAYS days")
+        block = self.coupon_block
+        _check_terms_source(
+            self.terms,
+            self.base_terms,
+            self.terms_source,
+            self.review_at,
+            self.shown_at,
+            None if block is None else block.review_at,
+        )
         for line in self.lines:
             if (line.size_advice is not None) != (line.p_return >= self.p_return_threshold):
                 raise ValueError("size advice is shown exactly above the threshold (F2)")
@@ -3930,7 +4004,8 @@ CohortId = Literal["all", "new_customers", "households", "low_data", "high_value
 
 
 class KpiQuery(ApiModel):
-    week_start: Week | None = None  # default: the last complete week
+    # default: the week of the latest decision (1.5.0, H31), else the last complete week
+    week_start: Week | None = None
 
 
 class CohortRate(ApiModel):
@@ -4072,7 +4147,7 @@ class AuditQuery(ApiModel):
     since: AwareDatetime | None = None
     until: AwareDatetime | None = None
     format: Literal["json", "csv"] = "json"
-    page: int = Field(default=1, ge=1)
+    page: int = Field(default=1, ge=1, le=MAX_PAGE)
     page_size: int = Field(default=50, ge=1, le=500)
 
 
@@ -4085,7 +4160,7 @@ class AuditPage(ApiModel):
 
 class OutboxQuery(ApiModel):
     return_id: Id | None = None
-    page: int = Field(default=1, ge=1)
+    page: int = Field(default=1, ge=1, le=MAX_PAGE)
     page_size: int = Field(default=25, ge=1, le=100)
 
 
@@ -4364,6 +4439,14 @@ class AgentStream(RootModel[list[AgentEvent]]):
         done = events[-1]
         if isinstance(done, DoneEvent) and done.steps_used != step:
             raise ValueError("done.steps_used counts the tool calls")
+        refused = any(isinstance(e, RefusalEvent) and e.reason == "write_request" for e in events)
+        if isinstance(done, DoneEvent) and refused != (
+            done.generation.fallback_reason == "write_request"
+        ):
+            raise ValueError(
+                "a write request is refused by code before any model call (fallback "
+                "write_request), and only it (1.5.0, H8)"
+            )
         return self
 
 
@@ -4491,27 +4574,134 @@ class ComponentCheck(ApiModel):
     detail: ShortText | None
 
 
+ClockKind = Literal["demo", "system", "fixed"]
+
+
+class ClockView(ApiModel):
+    """The one clock of the API (1.5.0, ADR-15 section 15). demo (DEMO_CLOCK=on): 'now' is the
+    instant of the serving snapshot plus the time elapsed since the demo reset started the
+    clock, so the deadlines of the decisions the reset made stay ahead; system: the wall clock;
+    fixed: a clock that stands still (tests). Every 'now' of the API (as_of, the time of an act,
+    the period of a figure that ends now) is this clock's."""
+
+    kind: ClockKind
+    now: AwareDatetime
+    snapshot_as_of: AwareDatetime | None  # demo: the instant the clock starts from
+    started_at: AwareDatetime | None  # demo: the wall time it started (the end of the reset)
+    note: ShortText
+
+    @model_validator(mode="after")
+    def _demo(self) -> Self:
+        demo = self.kind == "demo"
+        if demo != (self.snapshot_as_of is not None) or demo != (self.started_at is not None):
+            raise ValueError("a demo clock, and only it, names its snapshot instant and start")
+        if self.snapshot_as_of is not None and self.now < self.snapshot_as_of:
+            raise ValueError("the demo clock never runs before the snapshot instant")
+        return self
+
+
 class ReadyzResponse(ApiModel):
     status: Literal["ready", "degraded", "not_ready"]
     mode: ServedFrom
-    llm_mode: LlmMode
+    llm_mode: LlmMode  # the mode of the outputs served: vllm in cached mode (MI300X outputs)
     device: Literal["cpu", "gpu"]
-    label: CachedLabel | None  # shown on every page in cached mode
+    # shown on every page in cached mode, while the precomputed outputs are there (1.5.0, H6)
+    label: CachedLabel | None
     checks: list[ComponentCheck] = Field(min_length=1)
     contract_version: Version
     rules_version: Version
     assumptions_version: Version
     model_versions: dict[str, Version]
+    clock: ClockView  # 1.5.0: the API's clock (H11)
+    public_read_only: bool  # 1.5.0: the public demo refuses the writes (H21)
 
     @model_validator(mode="after")
     def _status(self) -> Self:
-        if (self.mode == "cached") != (self.label is not None):
-            raise ValueError("cached mode carries its label, live mode none")
         statuses = {c.component: c.status for c in self.checks}
+        cache_ok = statuses.get("demo_cache") == "ok"
+        if (self.mode == "cached" and cache_ok) != (self.label is not None):
+            raise ValueError(
+                "the cached label is shown in cached mode while the precomputed outputs are "
+                "there, and only then"
+            )
+        if self.mode == "cached" and self.llm_mode != "vllm":
+            raise ValueError("cached mode serves the outputs vLLM made on the MI300X")
         if self.status == "ready" and "unavailable" in statuses.values():
             raise ValueError("ready means no component is unavailable")
-        if (self.status == "not_ready") != (statuses.get("database") != "ok"):
-            raise ValueError("not_ready exactly when the database is not ok")
+        required: tuple[ComponentName, ...] = ("database", "scores", "models")
+        if (self.status == "not_ready") != any(statuses.get(c) != "ok" for c in required):
+            raise ValueError("not_ready exactly when the database, scores or models are not ok")
+        return self
+
+
+# ---- The golden cases of the demo (1.5.0, ADR-15 section 15, H9) ------------------------------
+
+DemoCaseKey = Literal["giulia", "marco", "rossi", "rossi_card", "elena", "insufficient"]
+DEMO_CASE_KEYS: tuple[DemoCaseKey, ...] = get_args(DemoCaseKey)
+DemoCartKey = Literal["giulia", "ring"]
+DEMO_CART_KEYS: tuple[DemoCartKey, ...] = get_args(DemoCartKey)
+
+
+class DemoCase(ApiModel):
+    """A golden case of the demo with its live ids, found by the reset from the golden customer
+    ids of the store (pipeline.generator.golden): the open return of the customer, the version
+    the reset decided and the cluster the engine was given."""
+
+    key: DemoCaseKey
+    return_id: Id
+    customer_id: Id
+    decision_id: Id  # version 1, decided by the reset
+    cluster_id: Id | None
+
+
+class DemoDispute(ApiModel):
+    """A link whose dispute changes the cluster of the case named (US-310): the customer's
+    cluster has cluster_size_before accounts, and cluster_size_after once the link is out (1:
+    the account alone)."""
+
+    link_id: Id
+    return_id: Id
+    decision_id: Id
+    cluster_id: Id
+    cluster_size_before: int = Field(ge=2)
+    cluster_size_after: int = Field(ge=1)
+
+    @model_validator(mode="after")
+    def _changes(self) -> Self:
+        split_link_id(self.link_id)
+        if self.cluster_size_after >= self.cluster_size_before:
+            raise ValueError("the dispute shown makes the customer's cluster smaller")
+        return self
+
+
+class DemoCart(ApiModel):
+    """A checkout cart of the demo: Giulia's sizes, and an account of the Marco ring."""
+
+    key: DemoCartKey
+    request: CheckoutEvaluateRequest
+
+
+class DemoCasesResponse(ApiModel):
+    """GET /api/demo/cases: the ids the UI's demo flows open, built by the reset (US-903). A
+    golden case the store does not hold (a small --scale) is missing from the list."""
+
+    snapshot_as_of: AwareDatetime  # the instant the reset decided at
+    as_of: AwareDatetime  # when served (the API's clock)
+    cases: list[DemoCase]
+    dispute: DemoDispute | None
+    carts: list[DemoCart]
+    provenance: Provenance  # covers the cluster sizes of the dispute
+
+    @model_validator(mode="after")
+    def _order(self) -> Self:
+        keys = [c.key for c in self.cases]
+        if keys != [k for k in DEMO_CASE_KEYS if k in keys]:
+            raise ValueError("one case per key, in the order of DEMO_CASE_KEYS")
+        carts = [c.key for c in self.carts]
+        if carts != [k for k in DEMO_CART_KEYS if k in carts]:
+            raise ValueError("one cart per key, in the order of DEMO_CART_KEYS")
+        if self.as_of < self.snapshot_as_of:
+            raise ValueError("served after the reset")
         return self
 
 
@@ -4565,6 +4755,7 @@ API_MODELS: dict[str, type[BaseModel]] = {
     "agent_stream": AgentStream,
     "benchmarks": BenchmarksResponse,
     "telemetry": TelemetryResponse,
+    "demo_cases": DemoCasesResponse,
 }
 
 HttpMethod = Literal["GET", "POST", "PUT", "PATCH"]
@@ -4689,7 +4880,7 @@ ENDPOINTS: tuple[Endpoint, ...] = (
         ("US-401", "US-402", "US-403"),
         "checkout_evaluate_response",
         request="checkout_evaluate_request",
-        errors=(404,),
+        errors=(404, 429),
     ),
     Endpoint(
         "POST",
@@ -4699,7 +4890,7 @@ ENDPOINTS: tuple[Endpoint, ...] = (
         "checkout_confirm_response",
         request="checkout_confirm_request",
         status=201,
-        errors=(404, 409),
+        errors=(403, 404, 409),
     ),
     Endpoint(
         "POST",
@@ -4746,8 +4937,10 @@ ENDPOINTS: tuple[Endpoint, ...] = (
         errors=(403, 409),
         roles=MANAGER,
     ),
-    Endpoint("GET", "/api/kpi", "KPIs of a week", ("US-603",), "kpi", query="kpi_query"),
-    Endpoint("GET", "/api/fairness", "Fairness report", ("US-605",), "fairness"),
+    Endpoint(
+        "GET", "/api/kpi", "KPIs of a week", ("US-603",), "kpi", query="kpi_query", errors=(404,)
+    ),
+    Endpoint("GET", "/api/fairness", "Fairness report", ("US-605",), "fairness", errors=(404,)),
     Endpoint(
         "GET",
         "/api/audit",
@@ -4829,4 +5022,12 @@ ENDPOINTS: tuple[Endpoint, ...] = (
     ),
     Endpoint("GET", "/api/benchmarks", "Benchmarks B1-B4", ("US-902",), "benchmarks"),
     Endpoint("GET", "/api/telemetry", "GPU, LLM and API telemetry", ("US-905",), "telemetry"),
+    Endpoint(
+        "GET",
+        "/api/demo/cases",
+        "The golden cases of the demo with their live ids, built by the reset",
+        ("US-903",),
+        "demo_cases",
+        errors=(404,),
+    ),
 )

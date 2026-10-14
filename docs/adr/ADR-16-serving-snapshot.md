@@ -1,7 +1,8 @@
 # ADR-16: Serving snapshot and API core
 
-Status: accepted, 13 Oct 2026. Covers the data access of the API (CLAUDE.md rules 7, 11 and 12,
-NFR-03, DATA-03), the API core the three route builders extend (ADR-15 sections 2, 4 and 5), the
+Status: accepted, 13 Oct 2026; amended on 14 Oct 2026 by the phase 4 integration (section 9)
+and the review of the running API (section 10). Covers the data access of the API (CLAUDE.md
+rules 7, 11 and 12, NFR-03, DATA-03), the API core the three route builders extend (ADR-15 sections 2, 4 and 5), the
 demo reset (US-903) and the cached mode (US-901, ADR-03). Changes `contracts/sql.py` (one nullable
 column, below) and adds `pipeline/serving/`, `ml/reference/persist.py` and the API core under
 `apps/api/`.
@@ -229,6 +230,53 @@ and walked end to end on a full-scale store (`scripts/demo_walk.py`). What chang
 - **Data root.** The export reads a data root written by the current pipeline: a store, features
   and scores written before the phase 2 review (provenance origins over 300 characters, scores
   without their thresholds) are refused by `contracts.io`. Rebuild it with `make pipeline`.
+
+### 10. Review of the running API (14 Oct 2026, ADR-15 section 15)
+
+The review of the API (H1 to H40) changed the core of section 5 and the reset of section 3:
+
+- **One clock, anchored at the reset.** `apps.api.clock.DemoClock` (`DEMO_CLOCK=on`, the
+  default): 'now' is the snapshot instant plus the wall time elapsed since the demo reset. The
+  reset still writes every row at the snapshot instant (two resets write the same rows), then
+  stores the snapshot instant, the wall time the clock starts (its end) and the golden cases in
+  the one row of `demo_reset`. `Runtime` anchors its clock there at startup and checks the row
+  at most every 5 s before a transaction, so a reset made while the API runs restarts the
+  clock; before any reset the clock starts at the snapshot instant when the service starts.
+  `Runtime.wall_now()` keeps the wall clock for what is measured in real time (amd-smi samples).
+  Tests inject a `FixedClock`, as before.
+- **The reset in three phases.** `services.cases.admit` decides every open return (one
+  transaction each, golden first); `Generator.generate_each` makes the drafts outside any
+  transaction with `LLM_CONCURRENCY` (32) model calls in flight; `services.generation.store`
+  writes them in the same order, each with its id from the counters, so the ids stay
+  deterministic. A case llm/ refuses is reported and stays draft_status pending; the others go
+  on. Then `services.demo.record_reset` finds the golden cases (a link whose dispute changes a
+  cluster is computed with `GraphView`, in the Rossi families first) and starts the clock. The
+  summary adds `generation` (the paths and fallback reasons); the command exits 2 with the
+  remedy when the snapshot cannot be read, and 1 when vLLM was unavailable for some drafts in
+  `LLM_MODE=vllm`.
+- **batch_generate** sends the cases with `LLM_CONCURRENCY` calls in flight and exits 2 when the
+  vLLM configuration is refused (nothing could be cached).
+- **Model calls** run on the runtime's own thread pool (`Runtime.model_call`, `LLM_CONCURRENCY`
+  workers), never in a transaction and never on asyncio's default executor; `VLLM_TIMEOUT_S`
+  (20 s) bounds a call; a vLLM configuration the client refuses is an unavailable client
+  (`Generator.client_error`), so the template answers.
+- **The price paid** (`services.prices`): the list price of a line less its share of the order's
+  coupon, cached with the snapshot; the base of a claim and of the refund.
+- **Readiness and logs.** `/readyz` is `not_ready` while the database, the scores or the models
+  are missing, shows the clock and `public_read_only`, never a server path (the reason of a
+  missing snapshot is a WARNING of the startup log), and checks that vLLM serves
+  `GEMMA_MODEL` without following a redirect. The middleware logs one line per request
+  (`returnring.api.access`: request id, method, path, status, duration) and refuses a body over
+  8 MiB (413); `apps.api.main` configures logging with time and level; the engine hides SQL
+  parameters from its errors.
+- **Settings.** `DEMO_CLOCK`, `PUBLIC_READ_ONLY`, `LLM_CONCURRENCY`, `VLLM_TIMEOUT_S` (ADR-15
+  section 15); `Settings.served_llm_mode` is `vllm` in cached mode.
+
+Measured on the full synthetic store is reported with the commit of this round. The
+infrastructure the round needs (the serving mount, the reset job, the healthcheck reading the
+body of `/readyz`, `GEMMA_MODEL` and `PUBLIC_READ_ONLY` in compose, basic auth and the body
+limit in Caddy, the telemetry sampler) is listed in ADR-15 section 15 for the infrastructure
+round.
 
 ## Consequences
 

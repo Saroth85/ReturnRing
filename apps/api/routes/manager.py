@@ -22,7 +22,7 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 
 from apps.api import schemas as s
-from apps.api.errors import not_found, request_id_of
+from apps.api.errors import ApiError, request_id_of
 from apps.api.roles import authorize, endpoint
 from apps.api.routes.stubs import add_stubs, response_model, responses
 from apps.api.runtime import runtime
@@ -34,7 +34,7 @@ from apps.api.services.manager.coupons import (
     reverse_application,
 )
 from apps.api.services.manager.evaluation import ReportUnavailable, fairness, load_report
-from apps.api.services.manager.kpi import default_week, kpi
+from apps.api.services.manager.kpi import default_week, kpi, latest_decision_at
 from apps.api.services.manager.matrix import portfolio_matrix
 from apps.api.services.manager.records import audit_csv, audit_page, outbox_page
 
@@ -140,9 +140,10 @@ async def get_kpi(request: Request, query: Annotated[s.KpiQuery, Query()]) -> JS
     try:
         report = load_report(serving)
     except ReportUnavailable as exc:
-        raise not_found(str(exc)) from None
+        raise ApiError(404, "not_found", str(exc)) from None
     async with rt.transaction() as conn:
-        body = await kpi(conn, report, query.week_start or default_week(now), now)
+        week = query.week_start or default_week(now, await latest_decision_at(conn))
+        body = await kpi(conn, report, week, now)
     return answer(body)
 
 
@@ -153,7 +154,7 @@ async def get_fairness(request: Request) -> JSONResponse:
     try:
         body = fairness(load_report(serving))
     except ReportUnavailable as exc:
-        raise not_found(str(exc)) from None
+        raise ApiError(404, "not_found", str(exc)) from None
     return answer(body)
 
 

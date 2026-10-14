@@ -17,6 +17,7 @@ from jsonschema import Draft202012Validator
 from pydantic import BaseModel, ValidationError
 
 from apps.api import schemas as s
+from apps.api.roles import PUBLIC_WRITES
 from contracts.io import NATURES
 from contracts.levers import lever_json_schema, lever_list_json_schema
 from contracts.parquet import ANOMALY_STATUSES, COUPON_KINDS, IDENTIFIER_KINDS
@@ -277,7 +278,8 @@ def test_llm_vocabularies_are_the_llm_layer_ones() -> None:
             MockClient([{**load_llm_output(), **bad}]),
         ).fallback_reason,
     }
-    assert reasons == set(FALLBACK_REASONS)
+    # the reasons of llm.generate, and the agent's refusal written by code (1.5.0, H8)
+    assert reasons | {"write_request"} == set(FALLBACK_REASONS)
     assert GenerationBlocked  # a blocked generation has no record: it is a code bug
 
 
@@ -876,9 +878,10 @@ def test_queue_filters_restrictions_due_for_review() -> None:
 
 def test_every_revision_trigger_has_a_producer() -> None:
     """Initial: the intake function. evidence_added, link_disputed: the recompute. review: a lift
-    or a renewal. Nothing produced scores_refreshed, so it is gone (ADR-15 section 10)."""
+    or a renewal. stale_proposal: the recompute of a proposal that reached its review date
+    (1.5.0, H16). Nothing produced scores_refreshed, so it is gone (ADR-15 section 10)."""
     assert set(get_args(s.RevisionTrigger)) == {
-        "initial", "evidence_added", "link_disputed", "review"
+        "initial", "evidence_added", "link_disputed", "review", "stale_proposal"
     }  # fmt: skip
     assert "restriction_renewed" in DECISION_AUDIT_ACTIONS & HUMAN_ONLY_ACTIONS
     assert "restriction_renewed" not in REASON_REQUIRED_ACTIONS  # like approve
@@ -1259,7 +1262,9 @@ def test_role_and_llm_errors_are_declared() -> None:
         assert 403 in by_key[("POST", path)].errors, path
         assert "warehouse" not in by_key[("POST", path)].roles, path
     for ep in s.ENDPOINTS:
-        assert (403 in ep.errors) == (set(ep.roles) != set(s.DEMO_ROLES)), ep.path
+        # 403: a role restriction, or a write the public read-only demo refuses (1.5.0, H21)
+        public_write = ep.method != "GET" and (ep.method, ep.path) not in PUBLIC_WRITES
+        assert (403 in ep.errors) == (set(ep.roles) != set(s.DEMO_ROLES) or public_write), ep.path
         llm = ep.path in ("/api/returns/{return_id}/regenerate", "/api/agent/ask")
         assert (503 in ep.errors) == llm, ep.path
     openapi = json.loads((SCHEMAS / "openapi.json").read_text())

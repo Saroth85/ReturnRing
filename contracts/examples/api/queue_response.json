@@ -23,6 +23,8 @@
       ],
       "review_at": "2026-12-27",
       "review_due": false,
+      "refund_due_by": "2026-10-12",
+      "refund_overdue": false,
       "risk": {
         "value": 0.87,
         "unit": "probability",
@@ -73,6 +75,8 @@
       "lever_ids": [],
       "review_at": null,
       "review_due": false,
+      "refund_due_by": "2026-10-10",
+      "refund_overdue": false,
       "risk": null,
       "value": {
         "value": 68.05,
@@ -121,6 +125,8 @@
       ],
       "review_at": "2026-12-28",
       "review_due": false,
+      "refund_due_by": "2026-10-13",
+      "refund_overdue": false,
       "risk": {
         "value": 0.82,
         "unit": "probability",
@@ -174,6 +180,8 @@
       ],
       "review_at": null,
       "review_due": false,
+      "refund_due_by": "2026-10-11",
+      "refund_overdue": false,
       "risk": {
         "value": 0.12,
         "unit": "probability",
@@ -227,6 +235,8 @@
       ],
       "review_at": "2026-09-27",
       "review_due": true,
+      "refund_due_by": "2026-07-13",
+      "refund_overdue": false,
       "risk": {
         "value": 0.68,
         "unit": "probability",
@@ -280,6 +290,8 @@
       ],
       "review_at": null,
       "review_due": false,
+      "refund_due_by": "2026-10-12",
+      "refund_overdue": false,
       "risk": {
         "value": 0.22,
         "unit": "probability",
@@ -333,6 +345,8 @@
       ],
       "review_at": "2026-12-28",
       "review_due": false,
+      "refund_due_by": "2026-10-13",
+      "refund_overdue": false,
       "risk": {
         "value": 0.71,
         "unit": "probability",
@@ -386,6 +400,8 @@
       ],
       "review_at": "2026-12-28",
       "review_due": false,
+      "refund_due_by": "2026-10-13",
+      "refund_overdue": false,
       "risk": {
         "value": 0.66,
         "unit": "probability",
@@ -436,6 +452,8 @@
       "lever_ids": [],
       "review_at": null,
       "review_due": false,
+      "refund_due_by": "2026-10-14",
+      "refund_overdue": false,
       "risk": null,
       "value": {
         "value": 78.45,
@@ -477,6 +495,8 @@
       "lever_ids": [],
       "review_at": null,
       "review_due": false,
+      "refund_due_by": "2026-10-09",
+      "refund_overdue": false,
       "risk": {
         "value": 0.18,
         "unit": "probability",
@@ -527,6 +547,8 @@
       "lever_ids": [],
       "review_at": null,
       "review_due": false,
+      "refund_due_by": "2026-10-10",
+      "refund_overdue": false,
       "risk": {
         "value": 0.34,
         "unit": "probability",
@@ -577,6 +599,8 @@
       "lever_ids": [],
       "review_at": null,
       "review_due": false,
+      "refund_due_by": "2026-10-13",
+      "refund_overdue": false,
       "risk": null,
       "value": {
         "value": 18.95,
@@ -618,6 +642,8 @@
       "lever_ids": [],
       "review_at": null,
       "review_due": false,
+      "refund_due_by": "2026-10-10",
+      "refund_overdue": false,
       "risk": {
         "value": 0.31,
         "unit": "probability",
@@ -668,6 +694,8 @@
       "lever_ids": [],
       "review_at": null,
       "review_due": false,
+      "refund_due_by": "2026-10-11",
+      "refund_overdue": false,
       "risk": {
         "value": 0.28,
         "unit": "probability",

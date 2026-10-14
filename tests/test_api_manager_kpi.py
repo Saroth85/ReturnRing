@@ -89,7 +89,7 @@ def test_the_default_week_is_the_last_complete_week() -> None:
 
 
 def test_a_week_without_decisions(evaluated_api: Api) -> None:
-    body = _kpi(evaluated_api)
+    body = _kpi(evaluated_api, "2026-09-21")
     assert (body["period_start"], body["period_end"]) == ("2026-09-21", "2026-09-27")
     assert body["decisions"]["total"]["value"] == 0
     assert body["abstention_rate"]["value"] == 0
@@ -245,7 +245,8 @@ def test_open_catalogue_tasks_of_the_week(evaluated_api: Api) -> None:
     )
     assert created.status_code == 201, created.text
     assert _kpi(api, RESET_WEEK)["open_catalog_tasks"]["value"] == 1
-    assert _kpi(api)["open_catalog_tasks"]["value"] == 0  # created after that week
+    assert _kpi(api)["open_catalog_tasks"]["value"] == 1  # the default: the reset week (H31)
+    assert _kpi(api, "2026-09-21")["open_catalog_tasks"]["value"] == 0  # created after it
 
 
 def test_invalid_weeks_are_refused(evaluated_api: Api) -> None:
@@ -260,6 +261,10 @@ def test_kpi_without_the_report_is_not_found(unevaluated_api: Api) -> None:
     response = unevaluated_api.client.get("/api/kpi")
     assert response.status_code == 404
     assert response.json()["code"] == "not_found"
+    # declared in the contract, and the reason without a stray "not found" (1.5.0, H17)
+    assert not response.json()["message"].endswith("not found")
+    for path in ("/api/kpi", "/api/fairness"):
+        assert 404 in next(ep for ep in s.ENDPOINTS if ep.path == path).errors
 
 
 def test_a_recomputed_proposal_counts_once(evaluated_api: Api) -> None:

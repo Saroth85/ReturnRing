@@ -12,11 +12,13 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import Table, func, select
+from sqlalchemy import Table, select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from apps.api import schemas as s
 from apps.api.services import decisions as store
+from apps.api.services.ids import allocate
+from apps.api.services.prices import paid_price
 from apps.api.serving import Serving
 from contracts.sql import return_requests
 
@@ -24,8 +26,9 @@ from contracts.sql import return_requests
 async def line_prices(
     conn: AsyncConnection, serving: Serving, return_ids: Iterable[str]
 ) -> dict[str, Decimal]:
-    """The price of the returned line of each return (EUR), from the store line it names; the
-    base of a diminished-value claim (ClaimView.line_price)."""
+    """The price paid for the returned line of each return (EUR: its list price less its share
+    of the order's coupon, services.prices, H2), the base of a diminished-value claim and of the
+    refund (ClaimView.line_price)."""
     wanted = sorted(set(return_ids))
     if not wanted:
         return {}
@@ -38,9 +41,8 @@ async def line_prices(
     ).all()
     prices: dict[str, Decimal] = {}
     for return_id, line_id in rows:
-        line = serving.by_key("store/order_lines", str(line_id))
-        if line is not None:
-            prices[str(return_id)] = Decimal(str(line["price_eur"]))
+        if serving.by_key("store/order_lines", str(line_id)) is not None:
+            prices[str(return_id)] = paid_price(serving, str(line_id))
     return prices
 
 
@@ -60,10 +62,8 @@ async def view_at(
     return await store.view_of(conn, row, at, line_price=prices.get)
 
 
-async def next_number(conn: AsyncConnection, table: Table, *where: Any) -> int:
-    """1 + the number of rows of `table` (matching `where`): the next sequential id number.
-    Deterministic, like the ids of the API core (apps.api.services.ids)."""
-    query = select(func.count()).select_from(table)
-    for clause in where:
-        query = query.where(clause)
-    return int(await conn.scalar(query) or 0) + 1
+async def next_number(conn: AsyncConnection, kind: str, table: Table, *where: Any) -> int:
+    """The next sequential number of the ids of `kind` (apps.api.services.ids.allocate: a
+    counter row incremented in the caller's transaction, safe under concurrent writers on
+    PostgreSQL, H10). A missing counter starts after the rows of `table` matching `where`."""
+    return await allocate(conn, kind, table, *where)

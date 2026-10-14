@@ -10,7 +10,10 @@
 
 Every route checks the role of the actor first (403 forbidden_role, ADR-15 section 5), then runs
 its service in one transaction: the decision, its audit entries and its outbox message are
-written together or not at all. Every error is an ErrorResponse (apps.api.errors).
+written together or not at all. A draft is made with no transaction open, on the runtime's
+model-call pool, and stored in a second transaction (1.5.0, H20): regenerate, the recompute of
+evidence and disputes, and the recompute of a stale restriction proposal, which answers 409
+once the case is decided again (H16). Every error is an ErrorResponse (apps.api.errors).
 """
 
 from __future__ import annotations
@@ -29,11 +32,18 @@ from apps.api.routes.stubs import add_stubs, responses
 from apps.api.runtime import runtime
 from apps.api.services import decisions as store
 from apps.api.services.cases import case_card
-from apps.api.services.operator.actions import act
+from apps.api.services.operator.actions import StaleProposal, act, recompute_stale
 from apps.api.services.operator.drafts import regenerate
 from apps.api.services.operator.graph import view_for
 from apps.api.services.operator.queue import decision_record, queue
-from apps.api.services.operator.recompute import add_evidence, dispute
+from apps.api.services.operator.recompute import (
+    add_evidence,
+    dispute,
+    finish,
+    finish_dispute,
+    make_drafts,
+    store_draft,
+)
 
 router = APIRouter()
 _BY_ROUTE: Final = {(ep.method, ep.path): ep for ep in s.ENDPOINTS}
@@ -95,8 +105,24 @@ async def post_decision(
     authorize(request, DECISION.method, DECISION.path, body)
     rt = runtime(request)
     serving = rt.require_serving()
-    async with rt.transaction() as conn:
-        result = await act(conn, serving, return_id, body, rt.now(), request_id_of(request))
+    request_id = request_id_of(request)
+    try:
+        async with rt.transaction() as conn:
+            result = await act(conn, serving, return_id, body, rt.now(), request_id)
+    except StaleProposal as stale:
+        # The proposal reached its review date before anyone acted on it: decide the case again
+        # (trigger stale_proposal), store its draft, then answer the 409 (H16).
+        now = rt.now()
+        async with rt.transaction() as conn:
+            pending = await recompute_stale(
+                conn, serving, return_id, stale.decision_id, now, request_id
+            )
+        if pending is not None:
+            outcomes = await rt.model_call(make_drafts, rt.generator, [pending], now)
+            async with rt.transaction() as conn:
+                await store_draft(conn, pending, outcomes[0], now, request_id)
+            stale.recomputed(pending.new.decision_id)
+        raise stale from None
     return _json(result)
 
 
@@ -131,10 +157,12 @@ async def post_evidence(
     authorize(request, EVIDENCE.method, EVIDENCE.path, body)
     rt = runtime(request)
     serving = rt.require_serving()
+    now, request_id = rt.now(), request_id_of(request)
     async with rt.transaction() as conn:
-        result = await add_evidence(
-            conn, serving, rt.generator, return_id, body, rt.now(), request_id_of(request)
-        )
+        pending = await add_evidence(conn, serving, return_id, body, now, request_id)
+    outcomes = await rt.model_call(make_drafts, rt.generator, [pending], now)
+    async with rt.transaction() as conn:
+        result = await finish(conn, serving, pending, outcomes[0], now, request_id)
     return _json(result)
 
 
@@ -147,10 +175,12 @@ async def post_dispute(
     authorize(request, DISPUTE.method, DISPUTE.path, body)
     rt = runtime(request)
     serving = rt.require_serving()
+    now, request_id = rt.now(), request_id_of(request)
     async with rt.transaction() as conn:
-        result = await dispute(
-            conn, serving, rt.generator, link_id, body, rt.now(), request_id_of(request)
-        )
+        pending = await dispute(conn, serving, link_id, body, now, request_id)
+    outcomes = await rt.model_call(make_drafts, rt.generator, pending.recomputes, now)
+    async with rt.transaction() as conn:
+        result = await finish_dispute(conn, serving, pending, outcomes, now, request_id)
     return _json(result)
 
 

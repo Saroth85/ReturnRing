@@ -436,6 +436,8 @@ async def _dump(url: str) -> dict[str, list[dict[str, Any]]]:
                 query = select(table).order_by(*table.primary_key.columns)
                 rows = (await conn.execute(query)).mappings().all()
                 out[table.name] = [dict(r) for r in rows]
+            for row in out["demo_reset"]:  # the wall time the demo clock started: not a result
+                row["started_at"] = None
             return out
     finally:
         await engine.dispose()

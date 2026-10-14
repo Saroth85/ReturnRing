@@ -6,7 +6,9 @@ US-310, US-702, ECO-01, US-603, US-605, US-604).
 Run it once after `python -m apps.api.reset` (the walk approves cases, so a second run needs a
 new reset). It talks to the API only, never to data/ (rule 12), and walks the path of the pitch:
 
-1. readiness, then the queue (US-301: under 2 s; the whole queue page by page too);
+1. readiness (with the demo clock), the golden cases of the reset (GET /api/demo/cases: the
+   live ids of Giulia, a Marco ring account, the Rossi families, Elena, an insufficient case and
+   a link to dispute), then the queue (US-301: under 2 s; the whole queue page by page too);
 2. Giulia (Q1): the upgrade applies by itself; Sara confirms it, a message without a legal clause;
 3. a Marco ring account (Q4): Sara approves, with the review date of the version (rule 5), the
    cluster coupon block confirmed, the withdrawal clause in the message, the audit entries and
@@ -17,7 +19,8 @@ new reset). It talks to the API only, never to data/ (rule 12), and walks the pa
    catalogue task that changes no decision (E2E-04, US-606);
 6. a case with insufficient evidence: standard terms and the missing evidence (US-307);
 7. a link dispute from a case: before and after, a new version, the audit entry (US-310);
-8. the three questions of the agent on the ring case, streamed (US-702);
+8. the three questions of the agent on the ring case, streamed (US-702); in cached mode the
+   GPU is off and the agent answers 503 llm_unavailable, as the contract says (H35);
 9. the manager's matrix, the simulator (ECO-01: 368 EUR), the KPIs of the reset week, the
    fairness report, the audit log as CSV; telemetry and benchmarks.
 
@@ -157,6 +160,8 @@ class Walk:
         self.report = Report()
         self.step = "setup"
         self.ring: dict[str, Any] = {}
+        self.cases: dict[str, Any] = {}
+        self.mode = "live"
 
     # ---- HTTP -----------------------------------------------------------------------------------
 
@@ -237,12 +242,29 @@ class Walk:
         checks = {c["component"]: c["status"] for c in body["checks"]}
         check(checks["database"] == "ok", f"database not ready: {body['checks']}")
         check(body["status"] in ("ready", "degraded"), f"status {body['status']}")
+        self.mode = body["mode"]
         self.report.facts["mode"] = {
             "mode": body["mode"],
             "llm_mode": body["llm_mode"],
             "device": body["device"],
             "checks": checks,
             "model_versions": body["model_versions"],
+            "clock": body["clock"],
+        }
+
+    def demo_cases(self) -> None:
+        """GET /api/demo/cases: the live ids of the golden cases, each served by its card."""
+        body = self.get("/api/demo/cases", "demo_cases")
+        self.cases = {c["key"]: c for c in body["cases"]}
+        self.cases["_dispute"] = body["dispute"]
+        self.cases["_carts"] = {c["key"]: c["request"] for c in body["carts"]}
+        for case in body["cases"]:
+            card = self.card(case["return_id"])
+            check(card["customer_id"] == case["customer_id"], f"{case['key']}: the customer")
+            versions = [r["decision_id"] for r in card["revisions"]]
+            check(versions[:1] == [case["decision_id"]], f"{case['key']}: the reset's version")
+        self.report.facts["demo_cases"] = {c["key"]: c["return_id"] for c in body["cases"]} | {
+            "dispute": None if body["dispute"] is None else body["dispute"]["link_id"]
         }
 
     def queue_load(self) -> None:
@@ -265,6 +287,8 @@ class Walk:
 
     def giulia(self) -> None:
         (item,) = [i for i in self.queue(q=GIULIA) if i["customer_id"] == GIULIA]
+        if "giulia" in self.cases:
+            check(self.cases["giulia"]["return_id"] == item["return_id"], "the demo case")
         card = self.card(item["return_id"])
         d = card["decision"]
         check(d["quadrant"] == "Q1" and d["in_force"], f"Giulia is Q1 in force: {d['quadrant']}")
@@ -374,8 +398,9 @@ class Walk:
         if shown["terms_source"] != "base":
             check(shown["quadrant"] in RESTRICTED, "an own decision in force is a restriction")
             check(shown["review_at"] is not None, "restrictive terms carry their review date")
-        else:
-            check(shown["terms"] == shown["base_terms"], "no decision of its own: base terms")
+        else:  # the base terms, with the coupons the block turns off (H12)
+            expected = {**shown["base_terms"], "coupons_enabled": False}
+            check(shown["terms"] == expected, "no decision of its own: base terms, no coupons")
         check(shown["terms"]["return_window_days"] >= 14, "never under 14 days (rule 3)")
         confirm = {
             "terms_snapshot_id": shown["terms_snapshot_id"],
@@ -387,6 +412,8 @@ class Walk:
         done = self.post("/api/checkout/confirm", "checkout_confirm_response", confirm, expect=201)
         snapshot = done["terms_snapshot"]
         check(snapshot["terms_snapshot_id"] == shown["terms_snapshot_id"], "the snapshot shown")
+        check(snapshot["coupon_application_id"] == block["application_id"], "the block stored")
+        check(snapshot["coupon_review_at"] == block["review_at"], "with its review date")
         check(snapshot["order_id"] == done["order_id"], "bound to the new order (E2E-02)")
         check(snapshot["terms"] == shown["terms"], "the terms shown are the terms stored")
         check(not done["coupon_applied"], "no coupon applied")
@@ -479,20 +506,29 @@ class Walk:
         }
 
     def dispute(self) -> None:
-        candidates = [
-            i
-            for i in self.queue(q="C-ROSSI-CARD")
-            if i["customer_id"] in ROSSI_CARD_ACCOUNTS and i["state"] == "proposed"
-        ]
+        """The link of the demo cases whose dispute changes a cluster (US-310), else a link of
+        the Rossi shared-card family."""
+        chosen = self.cases.get("_dispute")
         card = None
-        for item in candidates:
-            found = self.card(item["return_id"])
-            if found["linked_accounts"] is not None:
-                card = found
-                break
-        check(card is not None, "a case of the family with linked accounts to review")
-        assert card is not None
-        link = next(x for x in card["linked_accounts"]["links"] if not x["disputed"])
+        link_id = None
+        if chosen is not None:
+            found = self.card(chosen["return_id"])
+            if found["decision"]["decision_id"] == chosen["decision_id"]:
+                card, link_id = found, chosen["link_id"]
+        if card is None:
+            for item in self.queue(q="C-ROSSI-CARD"):
+                if item["customer_id"] in ROSSI_CARD_ACCOUNTS and item["state"] == "proposed":
+                    found = self.card(item["return_id"])
+                    if found["linked_accounts"] is not None:
+                        card = found
+                        link_id = next(
+                            x["link_id"] for x in found["linked_accounts"]["links"]
+                            if not x["disputed"]
+                        )  # fmt: skip
+                        break
+        check(card is not None and link_id is not None, "a link to dispute from a case")
+        assert card is not None and link_id is not None
+        link = {"link_id": link_id}
         body = {
             "reason": "The card is the parents' card: one household, confirmed by phone",
             "author": "sara",
@@ -507,7 +543,13 @@ class Walk:
         recompute = result["recompute"]
         check(recompute is not None and recompute["trigger"] == "link_disputed", "recomputed")
         before, after = recompute["before"], recompute["after"]
-        check(after["quadrant"] not in RESTRICTED, "the family is never restricted")
+        if card["customer_id"] in ROSSI_CARD_ACCOUNTS:
+            check(after["quadrant"] not in RESTRICTED, "the family is never restricted")
+        if chosen is not None and link_id == chosen["link_id"]:
+            check(
+                (after["cluster_size"] or 1) == chosen["cluster_size_after"],
+                "the cluster the demo cases announced",
+            )
         new = recompute["decision"]
         check(new["version"] == card["decision"]["version"] + 1, "a new version (F7)")
         check(new["supersedes"] == card["decision"]["decision_id"], "it supersedes the shown one")
@@ -524,6 +566,17 @@ class Walk:
 
     def agent(self) -> None:
         answers = []
+        if self.mode == "cached":  # the GPU is off: the contract's 503 (H35)
+            body = {
+                "return_id": self.ring["return_id"],
+                "question": QUESTIONS[0],
+                "lang": "en",
+                "asked_by": "sara",
+            }
+            off = self.call("POST", "/api/agent/ask", "error", json=body, expect=503, actor="sara")
+            check(off.json()["code"] == "llm_unavailable", "llm_unavailable in cached mode")
+            self.report.facts["agent"] = "503 llm_unavailable: the GPU is off in cached mode"
+            return
         for question in QUESTIONS:
             body = {
                 "return_id": self.ring["return_id"],
@@ -601,6 +654,7 @@ class Walk:
 
     def steps(self) -> Iterator[tuple[str, Callable[[], None]]]:
         yield "readiness", self.readiness
+        yield "demo_cases", self.demo_cases
         yield "queue", self.queue_load
         yield "giulia", self.giulia
         yield "marco", self.marco

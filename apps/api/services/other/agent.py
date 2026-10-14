@@ -19,7 +19,9 @@ method; the agent can change nothing.
   states a decision goes to the template at once). GenerationInfo records the path, the
   attempts and the llm.validator codes the public checks of llm/ find in the refused answer.
 - A refusal is decided by code (llm.agent.is_write_request) before any model call, in every
-  mode, and is labelled as the deterministic mock.
+  mode: path template, fallback write_request, no model call (1.5.0, H8).
+- No model call runs inside a database transaction (H20): the case is read in one, the agent
+  runs on the model-call pool of the runtime, the answer is stored in a second one.
 - Rate limit (spec 11, "Sicurezza"): AGENT_RATE_LIMIT questions per person per
   AGENT_RATE_WINDOW_S; the next one is a 429.
 - Every answer is kept in llm_generations (kind agent_answer) with the question, the evidence
@@ -28,14 +30,11 @@ method; the agent can change nothing.
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import json
 import re
-import threading
 import time
-from collections import deque
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any, Final, Literal, cast
@@ -46,7 +45,8 @@ from sqlalchemy import insert, select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from apps.api import schemas as s
-from apps.api.errors import llm_unavailable, not_found, rate_limited
+from apps.api.errors import llm_unavailable, rate_limited
+from apps.api.ratelimit import AGENT_RATE_LIMIT, AGENT_RATE_WINDOW_S, RateLimiter
 from apps.api.services import decisions as store
 from apps.api.services.cases import record_of
 from apps.api.services.generation import POLICY_TEXT
@@ -79,46 +79,17 @@ from policy.types import EvidenceQuality as Evidence
 from policy.types import Path as ReturnPath
 from policy.types import ReturnTerms
 
-AGENT_RATE_LIMIT: Final = 10  # questions per person per window (a design hypothesis)
-AGENT_RATE_WINDOW_S: Final = 60.0
 MAX_ANSWER_CHARS: Final = 4000  # AnswerEvent.text
 MAX_TOKEN_CHARS: Final = 400  # TokenEvent.text
 TOKEN_WORDS: Final = 12
 MOCK_MODEL: Final = "mock"
+TEMPLATE_MODEL: Final = "template"  # no model call: the refusal written by code
 SHORTENED: Final = "\n(shortened)"
 _LABEL: Final = re.compile(r"^(?P<name>\w+)\((?P<arg>.*)\)$")
 _REFUSED_TOOL: Final = re.compile(r"^(?P<name>.+): refused$")
 
 
 # ---- Rate limit (spec 11) ------------------------------------------------------------------------
-
-
-class RateLimiter:
-    """At most `limit` calls per key in any `window_s` seconds (a sliding window)."""
-
-    def __init__(
-        self,
-        limit: int = AGENT_RATE_LIMIT,
-        window_s: float = AGENT_RATE_WINDOW_S,
-        clock: Callable[[], float] = time.monotonic,
-    ) -> None:
-        self.limit = limit
-        self.window_s = window_s
-        self._clock = clock
-        self._calls: dict[str, deque[float]] = {}
-        self._lock = threading.Lock()
-
-    def retry_after(self, key: str) -> float | None:
-        """None when the call is allowed (and counted), else the seconds until it would be."""
-        now = self._clock()
-        with self._lock:
-            calls = self._calls.setdefault(key, deque())
-            while calls and calls[0] <= now - self.window_s:
-                calls.popleft()
-            if len(calls) >= self.limit:
-                return max(0.0, calls[0] + self.window_s - now)
-            calls.append(now)
-            return None
 
 
 def limiter_of(app: FastAPI) -> RateLimiter:
@@ -384,9 +355,16 @@ def answer_codes(
     return codes or ["SCHEMA"]
 
 
+def refusal_run(answer: AgentAnswer, llm_mode: Literal["mock", "vllm"]) -> Run:
+    """A refusal written by code (llm.agent.is_write_request) before any model call."""
+    return Run(answer, [], "template", "write_request", 0, [], llm_mode, TEMPLATE_MODEL, None)
+
+
 def run_mock(data: CaseData, question: str) -> Run:
     reader = ApiCaseReader(data)
     answer = MockAgent(reader, data.references).ask(data.case.case_id, question)
+    if answer.refused:
+        return refusal_run(answer, "mock")
     return Run(answer, reader.calls, "model", None, 1, [], "mock", MOCK_MODEL, None)
 
 
@@ -401,7 +379,7 @@ def run_vllm(client: ChatClient, model: str, data: CaseData, question: str) -> R
         reader = ApiCaseReader(data)
         answer = VllmAgent(watched, reader, data.references).ask(case_id, question)
         if answer.refused:
-            return Run(answer, [], "model", None, 1, [], "mock", MOCK_MODEL, None)
+            return refusal_run(answer, "vllm")
         if watched.unavailable:
             raise LlmUnavailable("the local vLLM did not answer the agent")
         latency = round((time.perf_counter() - started) * 1000)
@@ -617,52 +595,59 @@ def prompt_version(references: Mapping[str, str]) -> str:
     return "agent-" + hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:12]
 
 
-async def ask(
-    conn: AsyncConnection,
-    serving: Serving,
-    settings: Settings,
-    client_of: Callable[[], object],
-    body: s.AgentAskRequest,
-    at: datetime,
-) -> s.AgentStream:
-    """The whole stream of one question, stored in llm_generations; 404 for a return not in the
-    queue, 503 when no model can answer (cached mode, or vLLM down in vllm mode)."""
-    data = await case_data(conn, serving, body.return_id, at)
-    if data is None:
-        raise not_found(f"return {body.return_id}")
+def check_available(settings: Settings, client_error: str | None) -> None:
+    """503 llm_unavailable when no model can answer: the GPU is off in cached mode, or the
+    vLLM configuration is refused (rule 2, H15)."""
     if settings.cached:
         raise llm_unavailable(
             "the agent needs the model: the GPU is off in cached mode (US-901); the case card "
             "shows the precomputed explanation"
         )
+    if settings.llm_mode == "vllm" and client_error is not None:
+        raise llm_unavailable(f"the local vLLM is not configured: {client_error}")
+
+
+async def run(
+    settings: Settings,
+    client_of: Callable[[], object],
+    call: Callable[..., Awaitable[Run]],
+    data: CaseData,
+    question: str,
+) -> Run:
+    """The agent's answer, with no database transaction open: `call` runs a blocking function
+    on the runtime's model-call pool. 503 when vLLM does not answer."""
     if settings.llm_mode == "mock":
-        run = run_mock(data, body.question)
-    else:
-        try:
-            client = client_of()
-        except ValueError as exc:  # VLLM_BASE_URL or VLLM_API_KEY missing or not local
-            raise llm_unavailable(f"the local vLLM is not configured: {exc}") from None
-        if not hasattr(client, "chat"):
-            raise llm_unavailable("the configured model client has no chat (tool calling)")
-        chat = cast(ChatClient, client)
-        try:
-            run = await asyncio.to_thread(run_vllm, chat, settings.gemma_model, data, body.question)
-        except LlmUnavailable as exc:
-            raise llm_unavailable(f"the local vLLM did not answer: {exc}") from None
-    number = await next_number(conn, llm_generations, llm_generations.c.kind == "agent_answer")
+        return await call(run_mock, data, question)
+    client = client_of()
+    if not hasattr(client, "chat"):
+        raise llm_unavailable("the configured model client has no chat (tool calling)")
+    chat = cast(ChatClient, client)
+    try:
+        return await call(run_vllm, chat, settings.gemma_model, data, question)
+    except LlmUnavailable as exc:
+        raise llm_unavailable(f"the local vLLM did not answer: {exc}") from None
+
+
+async def save(
+    conn: AsyncConnection, body: s.AgentAskRequest, data: CaseData, answered: Run, at: datetime
+) -> s.AgentStream:
+    """The whole stream of one answer, stored in llm_generations (kind agent_answer)."""
+    number = await next_number(
+        conn, "GEN-AGENT", llm_generations, llm_generations.c.kind == "agent_answer"
+    )
     info = s.GenerationInfo(
         generation_id=f"GEN-AGENT-{number:06d}",
-        generation_path=run.path,
-        fallback_reason=run.fallback_reason,
-        llm_mode=run.llm_mode,
+        generation_path=answered.path,
+        fallback_reason=answered.fallback_reason,
+        llm_mode=answered.llm_mode,
         served_from="live",
-        model=run.model,
-        model_calls=run.model_calls,
-        validator_codes=run.validator_codes,
+        model=answered.model,
+        model_calls=answered.model_calls,
+        validator_codes=answered.validator_codes,
         created_at=at,
-        latency_ms=run.latency_ms,
+        latency_ms=answered.latency_ms,
     )
-    events = stream(run, data, info)
+    events = stream(answered, data, info)
     question = {
         "kind": "agent_question",
         "case_id": body.return_id,
@@ -671,7 +656,7 @@ async def ask(
         "asked_by": body.asked_by,
         "references": dict(data.references),
     }
-    answer = run.answer
+    answer = answered.answer
     await conn.execute(
         insert(llm_generations).values(
             generation_id=info.generation_id,

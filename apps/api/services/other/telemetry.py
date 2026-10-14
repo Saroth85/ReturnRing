@@ -364,12 +364,17 @@ async def component_check(
     return s.ComponentCheck(component="telemetry", status=status, detail=detail)
 
 
-async def telemetry(conn: AsyncConnection, settings: Settings, at: datetime) -> s.TelemetryResponse:
-    """GET /api/telemetry (see the module docstring)."""
+async def telemetry(
+    conn: AsyncConnection, settings: Settings, at: datetime, wall: datetime | None = None
+) -> s.TelemetryResponse:
+    """GET /api/telemetry (see the module docstring). `at` is the API's clock, which dates the
+    model calls of llm_generations; `wall` the wall clock of the amd-smi samples (ADR-15
+    section 15: the demo clock runs from the snapshot instant, the GPU in real time)."""
+    sampled = wall or at
     if settings.cached:
         return s.TelemetryResponse(
             mode="cached",
-            sampled_at=at,
+            sampled_at=sampled,
             device=None,
             gpu=None,
             gpu_history=[],
@@ -380,7 +385,7 @@ async def telemetry(conn: AsyncConnection, settings: Settings, at: datetime) -> 
     rows = await _samples(conn)
     history = [g for g in (_gpu_sample(r) for r in rows) if g is not None]
     latest = history[-1] if history else None
-    live = latest is not None and at - latest.sampled_at <= timedelta(seconds=STALE_S)
+    live = latest is not None and sampled - latest.sampled_at <= timedelta(seconds=STALE_S)
     llm = await llm_stats(conn, at) if settings.llm_mode == "vllm" else None
     if live and latest is not None:
         device = next(
@@ -399,7 +404,7 @@ async def telemetry(conn: AsyncConnection, settings: Settings, at: datetime) -> 
             )
     return s.TelemetryResponse(
         mode="live",
-        sampled_at=latest.sampled_at if live and latest is not None else at,
+        sampled_at=latest.sampled_at if live and latest is not None else sampled,
         device=device,
         gpu=latest if live else None,
         gpu_history=history,

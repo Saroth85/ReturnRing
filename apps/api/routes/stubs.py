@@ -44,6 +44,7 @@ GROUPS: Final[dict[str, tuple[str, ...]]] = {
         "/api/agent",
         "/api/benchmarks",
         "/api/telemetry",
+        "/api/demo",
     ),
 }
 
@@ -61,8 +62,9 @@ def endpoints_of(group: str) -> tuple[Endpoint, ...]:
 
 def responses(ep: Endpoint) -> dict[int | str, dict[str, Any]]:
     """The error responses of an endpoint (and its stream or CSV body) for the OpenAPI document."""
+    with_body = (413,) if ep.request is not None else ()  # a body over the limit (H24)
     out: dict[int | str, dict[str, Any]] = {
-        code: {"model": ErrorResponse} for code in (*ep.errors, 422, 501)
+        code: {"model": ErrorResponse} for code in (*ep.errors, *with_body, 422, 501)
     }
     if ep.media_type == SSE:
         out[ep.status] = {

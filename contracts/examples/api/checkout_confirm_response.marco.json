@@ -21,6 +21,8 @@
       "coupons_enabled": true
     },
     "review_at": "2026-12-27",
+    "coupon_application_id": "CRA-000031",
+    "coupon_review_at": "2026-12-27",
     "shown_at": "2026-09-30T18:35:00Z",
     "confirmed_at": "2026-09-30T18:37:00Z"
   },

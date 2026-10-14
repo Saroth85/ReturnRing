@@ -230,6 +230,8 @@ SEEDS: list[tuple[str, list[Row]]] = [
     ("coupon_rules", [coupon_rule("coupon-rule-v1", 1)]),
     ("decisions", [decision("DEC-000102-1", "RET-000102")]),
 ]
+# A confirmed cluster coupon application the terms snapshots of a coupon block name (1.5.0)
+SEED_APPLICATION = "CRA-000031"
 UNCONFIRMED: Row = {"confirmed_observations": None, "confirmed_by": None, "confirmed_at": None}
 NO_COMPENSATION: Row = {
     "compensation_applied": False,
@@ -404,6 +406,13 @@ def fresh_rows() -> dict[str, Row]:
             "done_at": T0 + timedelta(days=3),
             "return_id": "RET-000105",
         },
+        "demo_reset": {
+            "reset_id": 1,
+            "snapshot_as_of": T0,
+            "started_at": datetime(2026, 10, 18, 8, 0, tzinfo=UTC),
+            "cases": {"cases": [], "dispute": None, "carts": []},
+        },
+        "id_counters": {"kind": "MSG", "value": 3},
         "telemetry_samples": {
             "sampled_at": T0,
             "device": "AMD Instinct MI300X",
@@ -416,6 +425,14 @@ def fresh_rows() -> dict[str, Row]:
             "error": None,
         },
     }
+
+
+SEEDS.append(
+    (
+        "coupon_rule_applications",
+        [{**fresh_rows()["coupon_rule_applications"], "application_id": SEED_APPLICATION}],
+    )
+)
 
 
 # ---- Database harness ----------------------------------------------------------------------------
@@ -755,7 +772,43 @@ VIOLATIONS: list[tuple[str, dict[str, Any], str]] = [
     ("terms_snapshots", {"order_id": None}, "confirmed_with_order"),
     ("terms_snapshots", {"confirmed_at": T0 - timedelta(hours=1)}, "confirmed_after_shown"),
     ("terms_snapshots", {"source_decision_id": None}, "source"),
-    ("terms_snapshots", {"quadrant_at_purchase": None}, "source"),
+    ("terms_snapshots", {**BASE_SNAPSHOT, "quadrant_at_purchase": "Q2"}, "source"),
+    # 1.5.0 (H12): a coupon block shown turns the coupons off and carries its review date
+    ("terms_snapshots", {"coupon_review_at": DAY + timedelta(days=90)}, "coupon_block_review"),
+    (
+        "terms_snapshots",
+        {
+            **BASE_SNAPSHOT,
+            "coupon_application_id": SEED_APPLICATION,
+            "coupon_review_at": DAY + timedelta(days=90),
+            "coupons_enabled": True,
+        },
+        "coupon_block_off",
+    ),
+    (
+        "terms_snapshots",
+        {
+            **BASE_SNAPSHOT,
+            **UNBOUND_SNAPSHOT,
+            "coupon_application_id": SEED_APPLICATION,
+            "coupon_review_at": T0.date(),
+            "coupons_enabled": False,
+        },
+        "coupon_review_after_shown",
+    ),
+    (
+        "terms_snapshots",
+        {
+            **BASE_SNAPSHOT,
+            "coupon_application_id": SEED_APPLICATION,
+            "coupon_review_at": date(2099, 1, 1),
+            "coupons_enabled": False,
+        },
+        "coupon_review_within_max",
+    ),
+    # the demo reset has one row; a counter never goes below 0
+    ("demo_reset", {"reset_id": 2}, "single"),
+    ("id_counters", {"value": -1}, "non_negative"),
     ("terms_snapshots", {"quadrant_at_purchase": "Q9"}, "quadrant"),
     ("terms_snapshots", {**BASE_SNAPSHOT, "return_window_days": 60}, "base_terms"),
     (
@@ -1125,7 +1178,8 @@ def snapshot_row(view: s.TermsSnapshotView) -> Row:
         **view.terms.model_dump(),
         **{f"base_{k}": v for k, v in view.base_terms.model_dump().items()},
         "review_at": view.review_at,
-        "coupon_application_id": None,
+        "coupon_application_id": view.coupon_application_id,
+        "coupon_review_at": view.coupon_review_at,
         "cart": [],
         "shown_at": view.shown_at,
         "confirmed_at": view.confirmed_at,
@@ -1203,6 +1257,7 @@ def test_every_example_decision_snapshot_and_message_fits_its_table(database_url
 
     async def action(engine: AsyncEngine) -> None:
         async with engine.begin() as conn:
+            await conn.execute(sql.coupon_rule_applications.delete())
             await conn.execute(sql.decisions.delete())
             known = {r["return_id"] for _, rows in SEEDS[:1] for r in rows}
             missing = sorted({v.return_id for v in views} - known)
@@ -1211,6 +1266,10 @@ def test_every_example_decision_snapshot_and_message_fits_its_table(database_url
             )
         for view in views:
             await insert(engine, "decisions", decision_row(view))
+        for name, rows in SEEDS:  # the coupon application a snapshot's block names
+            if name == "coupon_rule_applications":
+                for row in rows:
+                    await insert(engine, name, row)
         for snapshot in snapshots:
             await insert(engine, "terms_snapshots", snapshot_row(snapshot))
         for message in messages:

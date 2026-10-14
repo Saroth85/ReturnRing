@@ -644,6 +644,8 @@ def base_snapshot(order: Order, customer_id: str) -> s.TermsSnapshotView:
         terms=s.Terms.from_policy(BASE),
         base_terms=s.Terms.from_policy(BASE),
         review_at=None,
+        coupon_application_id=None,
+        coupon_review_at=None,
         shown_at=shown,
         confirmed_at=shown + timedelta(minutes=1),
     )
@@ -1299,6 +1301,8 @@ def queue_item(card: s.CaseCard) -> s.QueueItem:
             and d.review_at is not None
             and d.review_at <= AS_OF.date()
         ),
+        refund_due_by=d.refund_due_by,
+        refund_overdue=d.state == "proposed" and d.refund_due_by < AS_OF.date(),
         risk=card.risk.score if card.risk else None,
         value=card.value.value_eur if card.value else None,
         expected_net_benefit=recommended.net_benefit.total,
@@ -1737,6 +1741,7 @@ def jacket_anomaly(task_id: str | None = "CT-000012") -> s.ProductAnomaly:
         status="open" if task_id is None else "task_opened",
         catalog_task_id=task_id,
         return_ids=["RET-000097", "RET-000099", "RET-000105"],
+        queued_return_ids=["RET-000105"],
         trend=trend,
     )
 
@@ -2984,6 +2989,8 @@ def checkout_examples(giulia_case: Case, marco_approved: s.DecisionView) -> dict
             terms=giulia_view.future_terms,
             base_terms=base_terms,
             review_at=None,
+            coupon_application_id=None,
+            coupon_review_at=None,
             shown_at=shown,
             confirmed_at=shown + timedelta(minutes=2),
         ),
@@ -3030,6 +3037,8 @@ def checkout_examples(giulia_case: Case, marco_approved: s.DecisionView) -> dict
             terms=marco_approved.future_terms,
             base_terms=base_terms,
             review_at=marco_approved.review_at,
+            coupon_application_id=MARCO_APPLICATION,
+            coupon_review_at=marco_approved.review_at,
             shown_at=m_response.shown_at,
             confirmed_at=m_response.shown_at + timedelta(minutes=2),
         ),
@@ -3748,6 +3757,7 @@ def anomalies_and_tasks() -> dict[str, BaseModel]:
         status="resolved",
         catalog_task_id="CT-000007",
         return_ids=["RET-000071", "RET-000074"],
+        queued_return_ids=[],
         trend=[
             s.WeeklyReturnRate(week=dress_week + timedelta(weeks=i), sales=n, returns=r,
                                return_rate=round(r / n, 4))
@@ -3770,6 +3780,7 @@ def anomalies_and_tasks() -> dict[str, BaseModel]:
         status="open",
         catalog_task_id=None,
         return_ids=["RET-000094", "RET-000098"],
+        queued_return_ids=[],
         trend=[],
     )
     anomalies = s.ProductAnomaliesResponse(
@@ -4003,12 +4014,25 @@ def agent_examples() -> dict[str, BaseModel | str]:
         [],
         "GEN-AGENT-000003",
     )  # fmt: skip
+    refused_by_code = s.GenerationInfo(
+        generation_id="GEN-AGENT-000004",
+        generation_path="template",
+        fallback_reason="write_request",
+        llm_mode="mock",
+        served_from="live",
+        model="template",
+        model_calls=0,
+        validator_codes=[],
+        created_at=gen_at,
+        latency_ms=None,
+    )  # 1.5.0, H8: the refusal is written by code before any model call
     refusal = s.AgentStream.model_validate(
         [
             {"type": "refusal", "seq": 0, "reason": "write_request",
              "text": "I can only read the case. Approvals and changes are made by an operator "
              "on the case card."},
-            done(1, 0, "GEN-AGENT-000004"),
+            {"type": "done", "seq": 1, "steps_used": 0,
+             "generation": refused_by_code.model_dump(mode="json")},
         ]
     )  # fmt: skip
     return {
@@ -4048,6 +4072,77 @@ PENDING_BENCHMARKS: tuple[tuple[s.BenchmarkId, str, str], ...] = (
     ),
     ("B4", "Nightly pipeline duration and GPU utilisation", "Navigli synthetic shop"),
 )
+
+
+RESET_WALL = datetime(2026, 10, 18, 8, 0, tzinfo=UTC)  # the demo reset, wall clock (illustrative)
+
+
+def demo_clock(now: datetime) -> s.ClockView:
+    """The demo clock of the examples: the snapshot instant (AS_OF) plus the time since the
+    reset, which ran on the morning of the demo (ADR-15 section 15)."""
+    return s.ClockView(
+        kind="demo",
+        now=now,
+        snapshot_as_of=AS_OF,
+        started_at=RESET_WALL,
+        note="Demo clock: the instant of the serving snapshot plus the time elapsed since the "
+        "demo reset",
+    )
+
+
+def demo_cases_example(
+    cases: Sequence[Case], dispute: s.LinkDisputeResponse
+) -> s.DemoCasesResponse:
+    """GET /api/demo/cases with the ids of the examples (stable: RET-000101..., H9)."""
+    by_key = {c.key: c for c in cases}
+    found = []
+    for key in s.DEMO_CASE_KEYS:
+        card = by_key[key].card
+        linked = card.linked_accounts
+        found.append(
+            s.DemoCase(
+                key=key,
+                return_id=card.return_id,
+                customer_id=card.customer_id,
+                decision_id=card.decision.decision_id,
+                cluster_id=None if linked is None else linked.cluster_id,
+            )
+        )
+    chiara = by_key["chiara"].card
+    recompute = dispute.recompute
+    assert recompute is not None and chiara.linked_accounts is not None
+    before, after = recompute.before.cluster_size, recompute.after.cluster_size
+    assert before is not None
+    giulia_cart = s.CheckoutEvaluateRequest(
+        customer_id="C-GIULIA",
+        lines=[
+            s.CartLine(variant_id="V-DRS-2500", size="M"),
+            s.CartLine(variant_id="V-DRS-2500", size="L"),
+        ],
+    )
+    ring_cart = s.CheckoutEvaluateRequest(
+        customer_id="C-MARCO-1",
+        lines=[s.CartLine(variant_id="V-JKT-2207", size="M")],
+        coupon_code="WELCOME-Z9K3",
+    )
+    return s.DemoCasesResponse(
+        snapshot_as_of=AS_OF,
+        as_of=AS_OF + timedelta(hours=1),
+        cases=found,
+        dispute=s.DemoDispute(
+            link_id=ESPOSITO_LINK,
+            return_id=chiara.return_id,
+            decision_id=chiara.decision.decision_id,
+            cluster_id=chiara.linked_accounts.cluster_id,
+            cluster_size_before=before,
+            cluster_size_after=after or 1,
+        ),
+        carts=[
+            s.DemoCart(key="giulia", request=giulia_cart),
+            s.DemoCart(key="ring", request=ring_cart),
+        ],
+        provenance=GRAPH,
+    )
 
 
 def ops_examples() -> dict[str, BaseModel]:
@@ -4209,17 +4304,21 @@ def ops_examples() -> dict[str, BaseModel]:
         checks=[check_("database", "ok"), check_("scores", "ok"), check_("models", "ok"),
                 check_("vllm", "ok"), check_("demo_cache", "disabled"), check_("telemetry", "ok")],
         **versions,
+        clock=demo_clock(AS_OF + timedelta(hours=1)),
+        public_read_only=False,
     )  # fmt: skip
     ready_cached = s.ReadyzResponse(
         status="ready",
         mode="cached",
-        llm_mode="mock",
+        llm_mode="vllm",
         device="cpu",
         label=s.CACHED_LABEL,
         checks=[check_("database", "ok"), check_("scores", "ok"), check_("models", "ok"),
                 check_("vllm", "disabled", "GPU off in cached mode"), check_("demo_cache", "ok"),
                 check_("telemetry", "disabled")],
         **versions,
+        clock=demo_clock(AS_OF + timedelta(hours=1)),
+        public_read_only=True,
     )  # fmt: skip
     return {
         "healthz_response": s.HealthzResponse(status="ok"),
@@ -4278,6 +4377,43 @@ def error_examples() -> dict[str, BaseModel]:
         ),
         "error.internal": s.ErrorResponse(
             code="internal", message="Unexpected error: see the API logs", request_id="req-000130"
+        ),
+        # 1.5.0 (ADR-15 section 15)
+        "error.read_only": s.ErrorResponse(
+            code="forbidden_role",
+            message="the public demo is read-only (PUBLIC_READ_ONLY): POST /api/checkout/confirm "
+            "changes the demo and is refused; the demo views, the agent and the checkout "
+            "evaluation stay open",
+            request_id="req-000131",
+        ),
+        "error.rate_limited_public": s.ErrorResponse(
+            code="rate_limited",
+            message="at most 30 requests of the public demo per client every 60 s: try again "
+            "in 12 s",
+            request_id="req-000132",
+        ),
+        "error.report_unavailable": s.ErrorResponse(
+            code="not_found",
+            message="the offline evaluation report (FAIR-02) is not in the serving snapshot: "
+            "false positives need labels, which only the offline evaluation reads (rule 12)",
+            request_id="req-000133",
+        ),
+        "error.no_demo_reset": s.ErrorResponse(
+            code="not_found",
+            message="no demo reset yet: run python -m apps.api.reset",
+            request_id="req-000134",
+        ),
+        "error.conflict_stale_proposal": s.ErrorResponse(
+            code="conflict",
+            message="DEC-000104-1 was stale (its review date passed before anyone acted on it): "
+            "the case is decided again as DEC-000104-2; act on that version (US-607)",
+            request_id="req-000135",
+        ),
+        "error.conflict_refund_overdue": s.ErrorResponse(
+            code="conflict",
+            message="the refund of RET-000102 was due by 2026-10-10 (14 days from the notice, "
+            "rule 3): it is overdue; no message states a past deadline",
+            request_id="req-000136",
         ),
         "error.not_found": s.ErrorResponse(
             code="not_found", message="Return RET-999999 not found", request_id="req-000121"
@@ -4389,6 +4525,7 @@ def build() -> tuple[Files, list[dict[str, Any]]]:
         )
     )
     files.update(checkout_examples(by_key["giulia"], approve_result.decision))
+    files["demo_cases"] = demo_cases_example(cases, dispute_response)
     files.update(inspections)
     files["portfolio_matrix"] = matrix(cases)
     files.update(simulator_examples())
@@ -4539,6 +4676,12 @@ def mock_routes(cases: Sequence[Case]) -> list[dict[str, Any]]:
           "/api/returns/RET-000102/decision", "decision_request.marco_approve.json"),
         r("POST", decide, "error.conflict.json", "/api/returns/RET-000102/decision",
           "decision_request.marco_approve.json", 409, scenario="conflict"),
+        r("POST", decide, "error.conflict_stale_proposal.json",
+          "/api/returns/RET-000102/decision", "decision_request.marco_approve.json", 409,
+          scenario="stale_proposal"),
+        r("POST", decide, "error.conflict_refund_overdue.json",
+          "/api/returns/RET-000102/decision", "decision_request.marco_approve.json", 409,
+          scenario="refund_overdue"),
         r("POST", decide, "error.forbidden_role.json", "/api/returns/RET-000102/decision",
           "decision_request.forbidden_role.json", 403),
         r("POST", decide, "error.conflict_early_renewal.json",
@@ -4595,6 +4738,11 @@ def mock_routes(cases: Sequence[Case]) -> list[dict[str, Any]]:
           request="checkout_confirm_request.marco.json", status=201),
         r("POST", "/api/checkout/confirm", "error.conflict_terms_lapsed.json",
           request="checkout_confirm_request.marco.json", status=409, scenario="conflict"),
+        r("POST", "/api/checkout/confirm", "error.read_only.json",
+          request="checkout_confirm_request.giulia.json", status=403, scenario="read_only"),
+        r("POST", "/api/checkout/evaluate", "error.rate_limited_public.json",
+          request="checkout_evaluate_request.giulia.json", status=429,
+          scenario="rate_limited"),
         r("POST", "/api/inspections", "inspection.awaiting.json",
           request="inspection_create_request.json", status=201),
         r("POST", "/api/inspections", "inspection.manual_review.json",
@@ -4606,7 +4754,11 @@ def mock_routes(cases: Sequence[Case]) -> list[dict[str, Any]]:
         r("PUT", "/api/simulator/assumptions", "simulator_assumptions.v2.json",
           request="simulator_assumptions_update.json"),
         r("GET", "/api/kpi", "kpi.json", query="kpi_query.json"),
+        r("GET", "/api/kpi", "error.report_unavailable.json", query="kpi_query.json",
+          status=404, scenario="no_report"),
         r("GET", "/api/fairness", "fairness.json"),
+        r("GET", "/api/fairness", "error.report_unavailable.json", status=404,
+          scenario="no_report"),
         r("GET", "/api/audit", "audit_page.json"),
         r("GET", "/api/outbox", "outbox.json"),
         r("GET", "/api/products/anomalies", "product_anomalies.json"),
@@ -4639,6 +4791,8 @@ def mock_routes(cases: Sequence[Case]) -> list[dict[str, Any]]:
         r("GET", "/api/benchmarks", "benchmarks.json"),
         r("GET", "/api/telemetry", "telemetry.live.json"),
         r("GET", "/api/telemetry", "telemetry.cached.json", scenario="cached"),
+        r("GET", "/api/demo/cases", "demo_cases.json"),
+        r("GET", "/api/demo/cases", "error.no_demo_reset.json", status=404, scenario="empty"),
     ]  # fmt: skip
     return routes
 
@@ -4660,8 +4814,9 @@ def render() -> dict[str, str]:
         "$comment": "Generated by scripts/build_api_examples.py: do not edit. Mock server table "
         "of the UI: which example answers which request (ADR-15). A route is chosen by method, "
         "path, query, request body and scenario; the scenario is 'default' unless the request "
-        "names another one in the X-Mock-Scenario header (cached, conflict, invalid_request, "
-        "rate_limited, renewed, stale_decision, task_opened); some errors are chosen by their "
+        "names another one in the X-Mock-Scenario header (cached, conflict, empty, "
+        "invalid_request, no_report, rate_limited, read_only, refund_overdue, renewed, "
+        "stale_decision, stale_proposal, task_opened); some errors are chosen by their "
         "body or path in the default scenario (403, 404, legal_guard, an early renewal). "
         "media_type is the type of the response: an error is application/json; "
         "a text/event-stream route serves its .sse file as it is (sse_frame of each event of "

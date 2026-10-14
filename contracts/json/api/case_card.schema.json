@@ -1201,7 +1201,8 @@
             "initial",
             "evidence_added",
             "link_disputed",
-            "review"
+            "review",
+            "stale_proposal"
           ],
           "title": "Revision Trigger",
           "type": "string"
@@ -2496,7 +2497,8 @@
               "enum": [
                 "decision_echo",
                 "invalid_twice",
-                "unavailable"
+                "unavailable",
+                "write_request"
               ],
               "type": "string"
             },
@@ -3099,6 +3101,16 @@
           "title": "Return Ids",
           "type": "array"
         },
+        "queued_return_ids": {
+          "items": {
+            "maxLength": 96,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:~-]*$",
+            "type": "string"
+          },
+          "title": "Queued Return Ids",
+          "type": "array"
+        },
         "trend": {
           "items": {
             "$ref": "#/$defs/WeeklyReturnRate"
@@ -3122,6 +3134,7 @@
         "status",
         "catalog_task_id",
         "return_ids",
+        "queued_return_ids",
         "trend"
       ],
       "title": "ProductAnomaly",
@@ -3366,7 +3379,8 @@
             "initial",
             "evidence_added",
             "link_disputed",
-            "review"
+            "review",
+            "stale_proposal"
           ],
           "title": "Trigger",
           "type": "string"
@@ -3679,7 +3693,7 @@
     },
     "TermsSnapshotView": {
       "additionalProperties": false,
-      "description": "Terms shown at checkout and stored with the order (ADR-05). order_id is null while the\nsnapshot is shown and not confirmed (POST /api/checkout/evaluate). base_terms are the\nmerchant base terms when the snapshot was shown; review_at is the review date of the\nrestriction in force that produced the terms, if any.",
+      "description": "Terms shown at checkout and stored with the order (ADR-05). order_id is null while the\nsnapshot is shown and not confirmed (POST /api/checkout/evaluate). base_terms are the\nmerchant base terms when the snapshot was shown; review_at is the review date of the\nrestriction in force that produced the terms, if any. coupon_application_id and\ncoupon_review_at name the cluster coupon block shown with the terms, which turned their\ncoupons off (1.5.0, H12; null without a block).",
       "properties": {
         "terms_snapshot_id": {
           "maxLength": 96,
@@ -3744,6 +3758,32 @@
           ],
           "title": "Review At"
         },
+        "coupon_application_id": {
+          "anyOf": [
+            {
+              "maxLength": 96,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:~-]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Coupon Application Id"
+        },
+        "coupon_review_at": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Coupon Review At"
+        },
         "shown_at": {
           "format": "date-time",
           "title": "Shown At",
@@ -3771,6 +3811,8 @@
         "terms",
         "base_terms",
         "review_at",
+        "coupon_application_id",
+        "coupon_review_at",
         "shown_at",
         "confirmed_at"
       ],

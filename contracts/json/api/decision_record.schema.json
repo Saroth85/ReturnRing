@@ -813,7 +813,8 @@
             "initial",
             "evidence_added",
             "link_disputed",
-            "review"
+            "review",
+            "stale_proposal"
           ],
           "title": "Revision Trigger",
           "type": "string"

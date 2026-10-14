@@ -60,6 +60,9 @@
         "RET-000099",
         "RET-000105"
       ],
+      "queued_return_ids": [
+        "RET-000105"
+      ],
       "trend": [
         {
           "week": "2026-08-03",
@@ -165,6 +168,7 @@
         "RET-000094",
         "RET-000098"
       ],
+      "queued_return_ids": [],
       "trend": []
     },
     {
@@ -221,6 +225,7 @@
         "RET-000071",
         "RET-000074"
       ],
+      "queued_return_ids": [],
       "trend": [
         {
           "week": "2026-07-27",

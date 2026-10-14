@@ -169,6 +169,16 @@
           "title": "Return Ids",
           "type": "array"
         },
+        "queued_return_ids": {
+          "items": {
+            "maxLength": 96,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:~-]*$",
+            "type": "string"
+          },
+          "title": "Queued Return Ids",
+          "type": "array"
+        },
         "trend": {
           "items": {
             "$ref": "#/$defs/WeeklyReturnRate"
@@ -192,6 +202,7 @@
         "status",
         "catalog_task_id",
         "return_ids",
+        "queued_return_ids",
         "trend"
       ],
       "title": "ProductAnomaly",

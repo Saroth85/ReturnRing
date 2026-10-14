@@ -552,6 +552,8 @@
       "coupons_enabled": true
     },
     "review_at": null,
+    "coupon_application_id": null,
+    "coupon_review_at": null,
     "shown_at": "2026-09-15T20:14:00Z",
     "confirmed_at": "2026-09-15T20:15:00Z"
   },

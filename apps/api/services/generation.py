@@ -16,6 +16,19 @@ given; then llm.generate.generate with:
 The validated output becomes a DraftView (DraftView.build composes the messages with
 llm.phrasebook), stored in llm_generations with the llm_case it answered, and logged
 (draft_generated or draft_regenerated, GenerationAuditState).
+
+Contract 1.5.0 (ADR-15 section 15):
+
+- a model call never runs inside an open database transaction (H20): a draft is generated
+  first, with the provisional id PENDING_ID, and store() gives it its id (the id_counters of
+  the return) in the transaction that writes it;
+- a vLLM configuration the client refuses (VLLM_API_KEY missing, a URL that is not local) is
+  an unavailable model: the template answers, labelled, never a 500 (H15, H33);
+- a template written with no model call is labelled with the model "template", never with a
+  model that did not run (H30, H34); in cached mode the outputs are labelled vllm (the mode of
+  the MI300X run), a cache miss being the template served live;
+- generate_many() runs the drafts of many cases with at most LLM_CONCURRENCY model calls in
+  flight, in their order (the reset and batch_generate, H32).
 """
 
 from __future__ import annotations
@@ -23,26 +36,28 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import logging
 import time
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Final
 
-from sqlalchemy import func, insert, select, update
+from sqlalchemy import insert, select, update
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from apps.api import schemas as s
 from apps.api.services.audit import record
-from apps.api.services.ids import generation_id
+from apps.api.services.ids import allocate, generation_id
 from apps.api.settings import Settings
 from contracts.sql import decisions, llm_generations
 from contracts.vocab import LLM_MODES, AuditAction, GenerationKind, Lang
 from llm.case import ClusterSummary, ScoreFactor, build_case, factor_entity
 from llm.client import Completion, LlmClient, LlmUnavailable, MockClient, VllmClient, VllmConfig
 from llm.decision import ExpectedDecision, serialize_decision
-from llm.generate import Generation, generate
+from llm.generate import Generation, GenerationBlocked, generate
 from llm.prompts import SYSTEM_PROMPT
 from llm.text import LANGS
 from llm.validator import LlmOutput, validate
@@ -52,6 +67,9 @@ from policy.types import Path as ReturnPath
 CACHE_FORMAT: Final = "returnring.llm_cache.v1"
 PROMPT_VERSION: Final = "prompts-" + hashlib.sha256(SYSTEM_PROMPT.encode("utf-8")).hexdigest()[:12]
 MOCK_MODEL: Final = "mock"
+TEMPLATE_MODEL: Final = "template"  # the label of an output no model call produced
+PENDING_ID: Final = "GEN-PENDING"  # a draft's id until store() gives it its own
+LOG: Final = logging.getLogger("returnring.api.generation")
 # The merchant's return policy, given to the model as data (spec 8.7; get_policy_text of 8.8).
 POLICY_TEXT: Final = (
     "Navigli Fashion return policy (demo): returns within the window of the order terms, refund "
@@ -139,12 +157,24 @@ class Outcome:
     def info(self) -> s.GenerationInfo:
         return self.draft.generation
 
+    def with_id(self, generation_id: str) -> Outcome:
+        """The same generation under its stored id."""
+        info = self.draft.generation.model_copy(update={"generation_id": generation_id})
+        return replace(self, draft=self.draft.model_copy(update={"generation": info}))
+
 
 class _Unavailable:
-    """The model is off: llm.generate falls back to the template (cached mode, cache miss)."""
+    """The model is off: llm.generate falls back to the template (cached mode, cache miss, or a
+    vLLM configuration the client refuses)."""
+
+    def __init__(self, reason: str = "no cached output for this case and no model in cached mode"):
+        self.reason = reason
 
     def complete(self, case: Mapping[str, Any], *, retry_codes: Sequence[str] = ()) -> Completion:
-        raise LlmUnavailable("no cached output for this case and no model in cached mode")
+        raise LlmUnavailable(self.reason)
+
+    def chat(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        raise LlmUnavailable(self.reason)
 
 
 class _Recording:
@@ -193,22 +223,31 @@ class Generator:
         self.settings = settings
         self._client = client
         self._vllm: VllmClient | None = None
+        self.client_error: str | None = None  # why the vLLM client cannot be built, if it cannot
         self.cache_dir = settings.serving_dir / "llm_cache"
 
     def client(self) -> LlmClient:
         """The injected client, else one VllmClient (LLM_MODE=vllm, kept for the process), else
-        a fresh MockClient (stateless: its default answer is derived from the case)."""
+        a fresh MockClient (stateless: its default answer is derived from the case). A vLLM
+        configuration the client refuses gives an unavailable client: the template answers."""
         if self._client is not None:
             return self._client
         if self.settings.llm_mode == "vllm":
             if self._vllm is None:
-                self._vllm = VllmClient(
-                    VllmConfig(
-                        base_url=self.settings.vllm_base_url or "",
-                        api_key=self.settings.vllm_api_key or "",
-                        model=self.settings.gemma_model,
+                try:
+                    self._vllm = VllmClient(
+                        VllmConfig(
+                            base_url=self.settings.vllm_base_url or "",
+                            api_key=self.settings.vllm_api_key or "",
+                            model=self.settings.gemma_model,
+                            timeout_s=self.settings.vllm_timeout_s,
+                        )
                     )
-                )
+                except ValueError as exc:
+                    if self.client_error is None:
+                        LOG.warning("vLLM is not configured, drafts use the template: %s", exc)
+                    self.client_error = str(exc)
+                    return _Unavailable(f"the local vLLM is not configured: {exc}")
             return self._vllm
         return MockClient()
 
@@ -222,7 +261,7 @@ class Generator:
         self,
         inputs: DraftInputs,
         *,
-        generation_id: str,
+        generation_id: str = PENDING_ID,
         created_at: datetime,
         kind: GenerationKind = "case_draft",
     ) -> Outcome:
@@ -233,6 +272,50 @@ class Generator:
                 return cached
             return self._run(item, inputs, _Unavailable(), generation_id, created_at, kind)
         return self._run(item, inputs, self.client(), generation_id, created_at, kind)
+
+    def generate_many(
+        self,
+        items: Sequence[DraftInputs],
+        *,
+        created_at: datetime,
+        kind: GenerationKind = "case_draft",
+        on_done: Any = None,
+    ) -> list[Outcome]:
+        """The drafts of `items`, in their order, with at most LLM_CONCURRENCY model calls in
+        flight (vLLM batches concurrent requests: ADR-03). `on_done(n)` reports progress."""
+        made = self.generate_each(items, created_at=created_at, kind=kind, on_done=on_done)
+        for outcome in made:
+            if isinstance(outcome, Exception):
+                raise outcome
+        return [o for o in made if isinstance(o, Outcome)]
+
+    def generate_each(
+        self,
+        items: Sequence[DraftInputs],
+        *,
+        created_at: datetime,
+        kind: GenerationKind = "case_draft",
+        on_done: Any = None,
+    ) -> list[Outcome | Exception]:
+        """generate_many that keeps going: a case llm/ refuses (a CaseError, a blocked
+        generation) is its exception in the list, in its place (the reset reports it)."""
+        if not items:
+            return []
+        workers = min(self.settings.llm_concurrency, len(items))
+
+        def one(item: DraftInputs) -> Outcome | Exception:
+            try:
+                return self.generate(item, created_at=created_at, kind=kind)
+            except (GenerationBlocked, ValueError) as exc:  # CaseError is a ValueError
+                return exc
+
+        out: list[Outcome | Exception] = []
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="draft") as pool:
+            for n, outcome in enumerate(pool.map(one, items), start=1):
+                out.append(outcome)
+                if on_done is not None:
+                    on_done(n)
+        return out
 
     def _run(
         self,
@@ -252,9 +335,9 @@ class Generator:
         info = s.GenerationInfo.from_generation(
             result,
             generation_id=gen_id,
-            llm_mode=self.settings.llm_mode,
+            llm_mode=self.settings.served_llm_mode,
             served_from="live",
-            model=self.model_name,
+            model=self.model_name if result.model_calls > 0 else TEMPLATE_MODEL,
             created_at=created_at,
             latency_ms=latency,
         )
@@ -318,12 +401,12 @@ class Generator:
 
 
 async def next_generation_id(conn: AsyncConnection, return_id: str) -> str:
-    count = await conn.scalar(
-        select(func.count())
-        .select_from(llm_generations)
-        .where(llm_generations.c.return_id == return_id)
+    """The id of the next generation of a return's drafts (GEN-<return>-<n>), from its counter
+    (apps.api.services.ids.allocate), in the caller's transaction."""
+    number = await allocate(
+        conn, f"GEN:{return_id}", llm_generations, llm_generations.c.return_id == return_id
     )
-    return generation_id(return_id, int(count or 0) + 1)
+    return generation_id(return_id, number)
 
 
 async def store(
@@ -333,8 +416,10 @@ async def store(
     *,
     actor: str = "system",
     request_id: str | None = None,
-) -> s.AuditEntry:
-    """Store a generation, make it the draft of its version and log it."""
+) -> tuple[s.AuditEntry, Outcome]:
+    """Store a generation under its own id, make it the draft of its version and log it;
+    returns the audit entry and the generation as stored."""
+    outcome = outcome.with_id(await next_generation_id(conn, view.return_id))
     info = outcome.info
     tokens = outcome.completion_tokens
     latency = info.latency_ms
@@ -367,7 +452,7 @@ async def store(
         .where(decisions.c.decision_id == view.decision_id)
         .values(generation_id=info.generation_id, generation_path=info.generation_path)
     )
-    return await record(
+    entry = await record(
         conn,
         at=info.created_at,
         actor=actor,
@@ -382,6 +467,7 @@ async def store(
         assumptions_version=view.assumptions_version,
         request_id=request_id,
     )
+    return entry, outcome
 
 
 def info_of(row: Mapping[str, Any]) -> s.GenerationInfo:

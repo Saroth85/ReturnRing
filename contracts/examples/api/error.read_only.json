@@ -1,0 +1,6 @@
+{
+  "code": "forbidden_role",
+  "message": "the public demo is read-only (PUBLIC_READ_ONLY): POST /api/checkout/confirm changes the demo and is refused; the demo views, the agent and the checkout evaluation stay open",
+  "violations": [],
+  "request_id": "req-000131"
+}

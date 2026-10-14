@@ -2,7 +2,8 @@
 
 1. The case must match the engine decision, otherwise GenerationBlocked (a code bug, BLOCK).
 2. The model answers; the validator checks the answer.
-3. REGENERATE errors: one more answer, with the error codes as feedback.
+3. REGENERATE errors: one more answer, with the error codes as feedback, each with the words the
+   validator matched in the model's own answer (round 5, finding V17).
 4. TEMPLATE errors (decision echo), a second failure or an unavailable model: the fixed template.
 The result says which path was taken (model, regenerated, template) for the audit log and KPIs.
 The model only ever sees a copy of the case, so it cannot change what the validator checks.
@@ -19,7 +20,14 @@ from typing import Any
 from llm.client import LlmClient, LlmUnavailable
 from llm.decision import ExpectedDecision
 from llm.templates import template_output
-from llm.validator import Action, LlmOutput, ValidationIssue, check_case, validate
+from llm.validator import (
+    Action,
+    LlmOutput,
+    ValidationIssue,
+    check_case,
+    retry_feedback,
+    validate,
+)
 
 MAX_MODEL_CALLS = 2
 
@@ -80,5 +88,5 @@ def generate(case: Mapping[str, Any], expected: ExpectedDecision, client: LlmCli
             raise GenerationBlocked(result.errors)
         if result.action is Action.TEMPLATE:
             return _template(case, expected, call, issues, "decision_echo")
-        retry_codes = tuple(result.codes)
+        retry_codes = retry_feedback(result.errors)
     return _template(case, expected, MAX_MODEL_CALLS, issues, "invalid_twice")

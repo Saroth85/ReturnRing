@@ -203,9 +203,12 @@ The catalogue also sets these rules:
 - **`size_advice:false` is now a visible difference.** It is standard on, and no quadrant turns it
   off today.
 
-The lever object schema in `llm_case.schema.json` and `decision_request.schema.json` is generated
-from the catalogue, and a test keeps the files equal to it. It rejects unknown ids, wrong scopes,
-wrong value types and windows below 14 days. `llm_case` also gains these rules:
+The lever object schema in `llm_case.schema.json` and in
+`contracts/json/api/decision_request.schema.json` is generated from the catalogue, and a test keeps
+the files equal to it. Since ADR-15 the decision request schema is exported by
+`scripts/export_api_schemas.py`, its lever array from `contracts.levers.lever_list_json_schema()`;
+the hand-written `contracts/json/decision_request.schema.json` is gone. It rejects unknown ids,
+wrong scopes, wrong value types and windows below 14 days. `llm_case` also gains these rules:
 
 - `missing_evidence` (US-307), a list of strings, is required and non-empty when evidence is
   insufficient;
@@ -396,3 +399,38 @@ Offline evaluation outputs (graph `evaluation.json`, risk `metrics.json`, FAIR-0
 customer or a cluster listed with its ground truth (review F2). A running service needs only
 `artifacts/risk/models`; narrowing its mount is an infra change (`tests/test_infra.py` holds the
 check as a strict expected failure until then).
+
+## Amendment 6 (14 Oct 2026): GraphSAGE customer embeddings (US-202, A4 of US-204)
+
+The contract version stays `2.0.0`: one new as-of table, no change to any existing schema or
+check, and no `features/customer_embeddings` file had been written. Code: `ml/gnn/` (writer),
+`ml/risk/embeddings.py` (reader); method and results in `docs/graphsage.md` and
+`docs/results/us-202-graphsage.md`.
+
+| Table | Content |
+| --- | --- |
+| features/customer_embeddings | customer_id, graphsage_0..graphsage_15 (float64, not null), encoder_version (not blank), as_of. One row per account known at as_of (rule 7); 16 components, the size of spec 8.1 (`contracts.parquet.EMBEDDING_DIM`, `EMBEDDING_COLUMNS`) |
+
+Checks: unique (customer_id, as_of), encoder_version not blank, every timestamp <= as_of and no
+NaN or infinite value, as in every as-of table. The embedding columns pass
+`forbidden_features` and `label_or_key_features`, so A4 may use them (FAIR-01).
+
+**Time.** The encoder is trained by link prediction on the customer-identifier graph of the store
+known at its fit time (default: the risk job's train end) and applied, frozen, at each embedding
+instant, never one before the fit time: an encoder fitted later would carry later facts into an
+earlier row. The embeddings at the train end feed A4's training rows, those at the evaluation time
+its test rows, the same instants as A0..A3.
+
+**Provenance.** The file derives from the store's `store/identifiers` (`Provenance.derive`): its
+origin names the method, the encoder version, the device and backend and the instants; its
+lineage ends with the store's chain, so `ml.risk.embeddings.FileEmbeddingSource` refuses a file
+computed from another store (`require_derived`, review F22). The out-of-distribution store gets its
+own file, from the encoder fitted on the main store (US-105: never trained on).
+
+**Rule 12.** No label enters: link prediction needs none, and the job reads `store/` tables only
+(`pipeline.graph.snapshot`). The `trainer-graphsage` container does not even mount `data/truth`.
+
+**Reader.** `ml.risk` runs A4 when `<root>/features/customer_embeddings.parquet` exists (root:
+`--embeddings`, default `--data`; the OOD file under `<root>/ood/`), and reports A4 as not run
+otherwise. A file without rows at the train end or the evaluation time is an error, never a silent
+skip.

@@ -3,7 +3,9 @@ ADR-14, docs/spec.md 8.7 and 19.B).
 
 The case is already decided: path, quadrant and levers come from the engine through the one
 serializer of llm/decision.py. Every number the operator explanation may use is a code-built fact
-{id, entity, metric, value, period, nature}. Scores never reach a guarantee case (rule 4) or a case
+{id, entity, metric, value, period, nature} about the customer, the return, the order or the
+cluster; the levers are not facts, because a statement does not talk about them (ADR-14, round 3).
+Scores never reach a guarantee case (rule 4) or a case
 with insufficient evidence (US-307: neither safe nor suspicious). The customer's free text is data:
 it travels between <customer_text> delimiters, escaped so it cannot close them.
 """
@@ -20,13 +22,25 @@ from typing import Any, Literal
 
 from contracts.parquet import IDENTIFIER_KINDS, is_forbidden_feature
 from llm.decision import serialize_decision
-from llm.text import LANGS, Lang
+from llm.text import (
+    LANGS,
+    PRONOUN_NUMBERS,
+    Lang,
+    banned_terms,
+    grounding_problems,
+    number_words,
+    operator_topics,
+    other_numeric_characters,
+    roman_numerals,
+)
 from policy.types import CaseScores, Decision, EvidenceQuality, Path, ReturnRequest, ReturnTerms
 
 Nature = Literal["real", "synthetic", "simulated"]
-Entity = Literal["customer", "return", "order", "cluster", "policy"]
+# No "policy" entity: operator statements do not talk about levers or terms, so the levers are not
+# facts (round 3, finding T7; ADR-14).
+Entity = Literal["customer", "return", "order", "cluster"]
 NATURES: tuple[Nature, ...] = ("real", "synthetic", "simulated")
-ENTITIES: tuple[Entity, ...] = ("customer", "return", "order", "cluster", "policy")
+ENTITIES: tuple[Entity, ...] = ("customer", "return", "order", "cluster")
 
 MAX_FACTORS = 3
 MAX_MISSING_EVIDENCE = 10
@@ -41,6 +55,30 @@ _CONTROL_CATEGORIES = frozenset({"Cc", "Cf", "Co", "Cs", "Cn"})
 
 class CaseError(ValueError):
     """Inputs that cannot form a valid llm_case: a bug in the caller."""
+
+
+# Score features measured on the cluster of linked accounts (pipeline.graph.clusters; a test keeps
+# them equal). An account without linked accounts has them computed on itself (cluster_size 1):
+# their facts are then about the customer, never about a cluster (rule 11, round 4 of the API
+# review, finding E3).
+CLUSTER_FEATURES: frozenset[str] = frozenset(
+    {
+        "cluster_size",
+        "shared_strong_ids",
+        "welcome_coupons",
+        "n_distinct_cards",
+        "creation_spread_days",
+        "welcome_coupons_per_account",
+        "cluster_return_rate",
+        "strong_id_share",
+    }
+)
+
+
+def factor_entity(feature: str, clustered: bool) -> Entity:
+    """The entity of the fact of a score factor: the cluster for a cluster feature of a customer
+    in a cluster, the customer otherwise."""
+    return "cluster" if clustered and feature in CLUSTER_FEATURES else "customer"
 
 
 @dataclass(frozen=True)
@@ -84,6 +122,17 @@ def wrap_customer_text(text: str) -> str:
     )[:MAX_CUSTOMER_CHARS]
     escaped = clean.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     return f"<customer_text>{_TAG_RE.sub('customer text', escaped)}</customer_text>"
+
+
+def missing_evidence_problems(item: str) -> list[str]:
+    """Why a missing-evidence item could not be restated in an operator statement, as the prompt
+    asks ("say what is missing"): a number in digits, words or Roman numerals (no fact grounds
+    it), a topic of the statement check or a banned term (round 5, finding V14). Empty when the
+    item can be copied into a statement as it is."""
+    problems = grounding_problems(item, [])
+    problems += other_numeric_characters(item) + roman_numerals(item)
+    problems += number_words(item, "en", skip=PRONOUN_NUMBERS)
+    return problems + operator_topics(item) + banned_terms(item)
 
 
 def _text(value: str, what: str, limit: int) -> str:
@@ -162,9 +211,11 @@ def build_case(
     if missing_evidence:
         if len(missing_evidence) > MAX_MISSING_EVIDENCE:
             raise CaseError(f"At most {MAX_MISSING_EVIDENCE} missing evidence items")
-        case["missing_evidence"] = [
-            _text(item, "missing evidence", MAX_ITEM_CHARS) for item in missing_evidence
-        ]
+        for item in missing_evidence:
+            problems = missing_evidence_problems(_text(item, "missing evidence", MAX_ITEM_CHARS))
+            if problems:
+                raise CaseError(f"Missing evidence {item!r} fails the statement checks: {problems}")
+        case["missing_evidence"] = list(missing_evidence)
     case["quadrant"] = expected.quadrant
     case["levers"] = levers
     case["placeholders"] = {
@@ -182,6 +233,11 @@ def build_case(
         for factor in factors:
             if is_forbidden_feature(factor.feature):
                 raise CaseError(f"Forbidden feature {factor.feature!r} (rule 6)")
+            if factor.entity == "cluster" and cluster is None:
+                raise CaseError(
+                    f"{factor.feature} is a fact of a cluster, and the case has none: an account "
+                    "without linked accounts has customer facts"
+                )
             facts.add(factor.entity, factor.feature, factor.value, f"as of {day}")
         if cluster is not None:
             if cluster.id != scores.cluster_id:
@@ -191,9 +247,6 @@ def build_case(
             facts.add("cluster", "cluster_size", cluster.size, f"as of {day}")
     days = (request.notice_on - request.delivered_on).days
     facts.add("return", "days_since_delivery", days, f"{request.delivered_on}/{request.notice_on}")
-    for lever in levers:
-        if lever["id"] == "return_window_days":
-            facts.add("policy", "return_window_days", lever["value"], f"orders from {day}")
     if scored and scores is not None:
         case["risk"] = {
             "score": _number(scores.risk),

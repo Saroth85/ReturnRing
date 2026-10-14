@@ -47,7 +47,9 @@ EXAMPLES = ROOT / "contracts" / "examples" / "api"
 BASE = NAVIGLI_BASE_TERMS
 CASES = ("giulia", "marco", "rossi", "rossi_card", "elena", "insufficient")
 # Every other queued return has a card too (ADR-15 section 7): the mock queue opens every case.
-OTHER_CASES = ("chiara", "andrea", "martina", "valentina", "simone", "francesca", "lorenzo")
+OTHER_CASES = (
+    "chiara", "andrea", "martina", "valentina", "simone", "francesca", "lorenzo", "earlier"
+)  # fmt: skip
 ALL_CASES = CASES + OTHER_CASES
 
 
@@ -221,8 +223,17 @@ def test_elena_follows_the_guarantee_path_with_a_catalogue_anomaly() -> None:
     assert c.risk is None and d.inputs.risk is None
     assert c.item.variant_id == "V-JKT-DEF"
     anomaly = c.product_anomaly
-    assert anomaly is not None and anomaly.status == "task_opened" and anomaly.catalog_task_id
+    # E23: at the demo clock the anomaly is open; Luca opens CT-000012 from it at 18:45
+    assert anomaly is not None and anomaly.status == "open" and anomaly.catalog_task_id is None
     assert c.return_id in anomaly.return_ids
+    task = s.CatalogTask.model_validate(load("catalog_task.elena.json"))
+    assert task.anomaly_id == anomaly.anomaly_id and task.created_at > c.as_of
+    listed = s.ProductAnomaliesResponse.model_validate(load("product_anomalies.json"))
+    assert listed.as_of == c.as_of and anomaly in listed.items
+    after = s.ProductAnomaliesResponse.model_validate(load("product_anomalies.task_opened.json"))
+    opened = next(a for a in after.items if a.anomaly_id == anomaly.anomaly_id)
+    assert (opened.status, opened.catalog_task_id) == ("task_opened", task.task_id)
+    assert after.as_of >= task.created_at
     recommended = next(a for a in c.alternatives if a.recommended)
     assert recommended.kind == "product_report"
     assert c.draft is not None
@@ -427,16 +438,18 @@ def test_example_drafts_take_every_path_of_llm_generate() -> None:
     insufficient = s.CaseCard.model_validate(load("case_card.insufficient.json")).draft
     assert insufficient is not None
     g = insufficient.generation
+    # The answer that misreads the decision also states a level in words (TERMS_TOPIC, ADR-14
+    # decision 11): both codes are recorded, and the echo sends it to the template at once.
     assert (g.generation_path, g.fallback_reason, g.model_calls, g.validator_codes) == (
         "template",
         "decision_echo",
         1,
-        ["DECISION_ECHO"],
+        ["DECISION_ECHO", "TERMS_TOPIC"],
     )
     marco = s.CaseCard.model_validate(load("case_card.marco.json")).draft
     assert marco is not None and marco.generation.generation_path == "model"
     audit = s.AuditPage.model_validate(load("audit_page.json"))
-    record = next(e.after for e in audit.items if e.action == "draft_generated")
+    record = next(e.after for e in audit.items if e.entity_id == marco.generation.generation_id)
     assert record == s.GenerationAuditState.from_info(
         marco.generation, "case_draft", "DEC-000102-1"
     )
@@ -542,8 +555,11 @@ def test_mock_routes_are_unambiguous_and_open_every_queued_case() -> None:
             group = (r["method"], r["path"], r["query"], r["request"])
             defaults[group] = defaults.get(group, 0) + 1
     assert all(n == 1 for n in defaults.values())
-    stale = [r for r in routes if r["status"] == 409]
-    assert stale and all(r["scenario"] == "stale_decision" for r in stale)
+    stale = [r for r in routes if r["status"] == 409 and r["scenario"] == "stale_decision"]
+    assert stale and all(r["response"] == "error.stale_decision.json" for r in stale)
+    for r in routes:  # an error answers JSON, whatever the endpoint streams
+        assert (r["media_type"] == "application/json") == (r["status"] >= 400 or not
+                r["response"].endswith(".sse")), r  # fmt: skip
     queue = s.QueueResponse.model_validate(load("queue_response.json"))
     cards = {
         r["path"]: r["response"] for r in routes if r["endpoint"] == "/api/returns/{return_id}"

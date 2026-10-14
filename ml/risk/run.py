@@ -6,8 +6,11 @@ FAIR-01 to FAIR-03). An offline job: it reads the ground truth (rule 12 as amend
 2. Customer unit, time-ordered: the models learn from the customer rows computed at the train end
    (the first nine months) of the train groups; early stopping, isotonic calibration and the risk
    threshold use the validation groups at the same instant; the test groups are evaluated on their
-   rows computed at the evaluation time (the end of the last three months). The ablation A0..A3
-   runs on exactly these rows; A4 is a hook for phase 6 (GPU).
+   rows computed at the evaluation time (the end of the last three months). The ablation A0..A4
+   runs on exactly these rows; A4 adds the GraphSAGE embeddings of features/customer_embeddings
+   (`python -m ml.gnn embed`, US-202) at the same instants, and is reported as not run when that
+   file is absent (RunConfig.embeddings: its data root, default the main data root; the OOD file
+   under <root>/ood).
 3. Request unit: the withdrawal-path requests that arrived before the train end train and validate
    the request model; the test groups' requests of the last three months evaluate it. Each request
    is scored as known when it arrived (ml.risk.features.request_frame).
@@ -46,13 +49,17 @@ import pandas as pd
 from contracts.files import atomic_write
 from contracts.io import Provenance
 from ml.risk.data import instants, read_features, request_design, utc
+from ml.risk.embeddings import FileEmbeddingSource, embedding_source
 from ml.risk.explain import FactorCheck, check_factors, top_factors
 from ml.risk.fairness import RESTRICTIVE, counterfactual_quadrants, evaluate_scores, fair03
 from ml.risk.features import (
     ABLATION,
+    EMBEDDING_PREFIX,
     REQUEST_MODEL_FEATURES,
+    FeatureSet,
     customer_frame,
     matrix,
+    with_embeddings,
 )
 from ml.risk.labels import ABUSIVE, has_labels, ood_truth_root, read_labels
 from ml.risk.metrics import RiskMetrics, evaluate
@@ -91,6 +98,9 @@ class RunConfig:
     eval_end: datetime | None = None  # default: the last snapshot of customer_features
     split: SplitConfig = field(default_factory=SplitConfig)
     train: TrainConfig = field(default_factory=TrainConfig)
+    # Root of features/customer_embeddings for A4 (default: the main data root); the OOD
+    # embeddings are under <root>/ood, like the OOD store under <data>/ood.
+    embeddings: Path | None = None
 
 
 def months_before(moment: datetime, months: int) -> datetime:
@@ -237,6 +247,16 @@ def run(
         else None
     )
 
+    emb_root = cfg.embeddings or data
+    emb_main = embedding_source(emb_root, main.inputs.graph.provenance["store/identifiers"])
+    emb_ood = (
+        embedding_source(emb_root / "ood", ood.inputs.graph.provenance["store/identifiers"])
+        if ood is not None
+        else None
+    )
+    if emb_main is not None:
+        log(f"A4: GraphSAGE embeddings from {emb_main.describe()['file']}")
+
     # ---- split (MOD-07) ----
     clusters_eval = main.inputs.graph.clusters_at(eval_end)
     keys = split_keys(clusters_eval, main.labels)
@@ -276,7 +296,23 @@ def run(
             "features": list(fs.features),
         }
         if fs.needs_embeddings:
-            row["status"] = "not run: needs GraphSAGE embeddings (phase 6, GPU; EmbeddingSource)"
+            if emb_main is None:
+                row["status"] = (
+                    "not run: no features/customer_embeddings (python -m ml.gnn embed, US-202)"
+                )
+                ablation.append(row)
+                continue
+            log(f"training {fs.name} with GraphSAGE embeddings")
+            a4, a4_frames = _fit_a4(
+                fs, emb_main, (train, val, test), (y_train, y_val), (train_end, eval_end), cfg
+            )
+            models[fs.name] = a4
+            _a4_row(row, a4, a4_frames, emb_main)
+            _with_behaviours(row, "test", a4, a4_frames[2], main, cut_main)
+            if ood is not None and ood_frame is not None and emb_ood is not None:
+                ood4, _ = with_embeddings(ood_frame, emb_ood, eval_end)
+                row["embedding_coverage"]["ood"] = _coverage(ood4, a4.features)
+                _with_behaviours(row, "ood", a4, ood4, ood, cut_ood)
             ablation.append(row)
             continue
         log(f"training {fs.name}")
@@ -413,6 +449,10 @@ def run(
             "high_value_cut_eur": {"test": cut_main, "ood": cut_ood if ood is not None else None},
         },
         "ablation": ablation,
+        "embeddings": {
+            "main": None if emb_main is None else emb_main.describe(),
+            "ood": None if emb_ood is None else emb_ood.describe(),
+        },
         "request_rows": {
             "train": {"rows": len(r_train), "positives": int(_labels_of(main, r_train).sum())},
             "validation": {"rows": len(r_val), "positives": int(_labels_of(main, r_val).sum())},
@@ -436,6 +476,52 @@ def run(
     }
     _write_json(metrics_path(out), doc)
     return doc
+
+
+def _coverage(frame: pd.DataFrame, features: Sequence[str]) -> dict[str, int]:
+    """Rows, and rows without an embedding (a customer the embedding file does not hold)."""
+    columns = [f for f in features if f.startswith(EMBEDDING_PREFIX)]
+    missing = frame[columns].isna().any(axis=1)
+    return {"rows": len(frame), "without_embedding": int(missing.sum())}
+
+
+def _fit_a4(
+    fs: FeatureSet,
+    source: FileEmbeddingSource,
+    frames: tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame],
+    labels: tuple[npt.NDArray[np.int8], npt.NDArray[np.int8]],
+    moments: tuple[datetime, datetime],
+    cfg: RunConfig,
+) -> tuple[RiskModel, tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]]:
+    """A4 on the rows of A0..A3: the train and validation rows (computed at the train end) take
+    the embeddings at the train end, the test rows those at the evaluation time (rule 7)."""
+    train, val, test = frames
+    train_end, eval_end = moments
+    train4, names = with_embeddings(train, source, train_end)
+    val4, _ = with_embeddings(val, source, train_end)
+    test4, _ = with_embeddings(test, source, eval_end)
+    model = fit_xgboost(fs.name, names, train4, labels[0], val4, labels[1], train_end, cfg.train)
+    return model, (train4, val4, test4)
+
+
+def _a4_row(
+    row: dict[str, Any],
+    model: RiskModel,
+    frames: tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame],
+    source: FileEmbeddingSource,
+) -> None:
+    """The A4 entry of the ablation: like A1..A3, plus the embeddings' provenance and coverage."""
+    row["features"] = list(model.features)
+    row["status"] = "run"
+    row["version"] = model.version
+    row["threshold"] = model.threshold
+    row["rounds"] = model.best_iteration + 1
+    row["gain_shares"] = gain_shares(model)
+    row["embeddings"] = source.describe()
+    row["embedding_coverage"] = {
+        side: _coverage(frame, model.features)
+        for side, frame in zip(("train", "validation", "test"), frames, strict=True)
+    }
 
 
 GOLDEN_IDS: Final = (

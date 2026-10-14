@@ -1,0 +1,11 @@
+{
+  "mode": "cached",
+  "sampled_at": "2026-09-30T18:00:00Z",
+  "interval_s": 5,
+  "device": null,
+  "gpu": null,
+  "gpu_history": [],
+  "llm": null,
+  "api_latency_p95": null,
+  "note": "GPU off: cached mode serves results precomputed on the AMD MI300X"
+}

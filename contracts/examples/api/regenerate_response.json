@@ -126,7 +126,6 @@
       "created_at": "2026-09-30T18:05:00Z",
       "latency_ms": 11
     },
-    "tone": "formal",
     "decision_echo": {
       "path": "withdrawal",
       "quadrant": "Q1",
@@ -135,6 +134,56 @@
         "priority_size_exchange:true"
       ]
     },
+    "case_facts": [
+      {
+        "id": "F1",
+        "entity": "customer",
+        "metric": "risk_score",
+        "value": 0.12,
+        "period": "as of 2026-09-27",
+        "nature": "synthetic"
+      },
+      {
+        "id": "F2",
+        "entity": "customer",
+        "metric": "value_eur_12m",
+        "value": 211.85,
+        "period": "12 months to 2026-09-27",
+        "nature": "synthetic"
+      },
+      {
+        "id": "F3",
+        "entity": "customer",
+        "metric": "size_share",
+        "value": 0.83,
+        "period": "as of 2026-09-27",
+        "nature": "synthetic"
+      },
+      {
+        "id": "F4",
+        "entity": "customer",
+        "metric": "residual_z",
+        "value": 0.4,
+        "period": "as of 2026-09-27",
+        "nature": "synthetic"
+      },
+      {
+        "id": "F5",
+        "entity": "customer",
+        "metric": "cluster_size",
+        "value": 1,
+        "period": "as of 2026-09-27",
+        "nature": "synthetic"
+      },
+      {
+        "id": "F6",
+        "entity": "return",
+        "metric": "days_since_delivery",
+        "value": 3,
+        "period": "2026-09-24/2026-09-27",
+        "nature": "synthetic"
+      }
+    ],
     "explanation": [
       {
         "label": "SCORE",
@@ -196,7 +245,7 @@
         "facts": [
           {
             "id": "F5",
-            "entity": "cluster",
+            "entity": "customer",
             "metric": "cluster_size",
             "value": 1,
             "period": "as of 2026-09-27",
@@ -223,25 +272,8 @@
       },
       {
         "label": "OBSERVED",
-        "fact_ids": [
-          "F5"
-        ],
-        "text": "Linked accounts in the cluster: 1.",
-        "facts": [
-          {
-            "id": "F5",
-            "entity": "cluster",
-            "metric": "cluster_size",
-            "value": 1,
-            "period": "as of 2026-09-27",
-            "nature": "synthetic"
-          }
-        ]
-      },
-      {
-        "label": "OBSERVED",
         "fact_ids": [],
-        "text": "The rules engine placed the case in Q1; the levers are listed with the decision.",
+        "text": "The rules engine placed the case in Q1; the case view shows the decision.",
         "facts": []
       },
       {
@@ -274,7 +306,8 @@
           "fields": {
             "terms": "returns within 60 days of delivery; priority size exchange",
             "amount": null,
-            "deadline": "11 October 2026"
+            "deadline": "11 October 2026",
+            "deduction": null
           },
           "text": "Hello, thank you for writing to us. We have registered your return request and your refund is due by 11 October 2026. For your next orders we are glad to offer you better return terms: returns within 60 days of delivery; priority size exchange. We are happy to have you with us."
         }

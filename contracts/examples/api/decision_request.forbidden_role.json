@@ -1,0 +1,43 @@
+{
+  "decision_id": "DEC-000102-1",
+  "action": "approve",
+  "levers": [
+    {
+      "id": "return_window_days",
+      "value": 14,
+      "scope": "future_orders"
+    },
+    {
+      "id": "free_return_shipping",
+      "value": false,
+      "scope": "future_orders"
+    },
+    {
+      "id": "instant_refund",
+      "value": false,
+      "scope": "future_orders"
+    },
+    {
+      "id": "coupons_enabled",
+      "value": false,
+      "scope": "future_orders"
+    },
+    {
+      "id": "cluster_coupons_disabled",
+      "value": true,
+      "scope": "future_orders_cluster"
+    },
+    {
+      "id": "transparency_notice",
+      "value": true,
+      "scope": "communication"
+    }
+  ],
+  "message": {
+    "lang": "it",
+    "sentence_ids": null
+  },
+  "override_reason": null,
+  "override_category": null,
+  "approver": "ahmed"
+}

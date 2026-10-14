@@ -15,7 +15,10 @@
       "size_advice": {
         "kind": "specific",
         "suggested_size": "M",
-        "text": "Customers with your measurements kept size M of this dress"
+        "text": {
+          "it": "Chi ha le tue misure ha tenuto la taglia M di questo capo.",
+          "en": "Customers with your measurements kept size M of this item."
+        }
       }
     }
   ],

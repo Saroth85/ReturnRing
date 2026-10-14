@@ -1,0 +1,277 @@
+{
+  "mode": "live",
+  "sampled_at": "2026-10-13T21:03:00Z",
+  "interval_s": 5,
+  "device": "AMD Instinct MI300X",
+  "gpu": {
+    "sampled_at": "2026-10-13T21:03:00Z",
+    "utilization": {
+      "value": 71.0,
+      "unit": "percent",
+      "provenance": {
+        "origin": "Contract example: Illustrative mock for UI development, not measured",
+        "period_start": "2026-10-13",
+        "period_end": "2026-10-13",
+        "nature": "simulated"
+      }
+    },
+    "memory_used": {
+      "value": 143.0,
+      "unit": "gib",
+      "provenance": {
+        "origin": "Contract example: Illustrative mock for UI development, not measured",
+        "period_start": "2026-10-13",
+        "period_end": "2026-10-13",
+        "nature": "simulated"
+      }
+    },
+    "memory_total": {
+      "value": 192.0,
+      "unit": "gib",
+      "provenance": {
+        "origin": "Contract example: Illustrative mock for UI development, not measured",
+        "period_start": "2026-10-13",
+        "period_end": "2026-10-13",
+        "nature": "simulated"
+      }
+    },
+    "power": {
+      "value": 535.0,
+      "unit": "watts",
+      "provenance": {
+        "origin": "Contract example: Illustrative mock for UI development, not measured",
+        "period_start": "2026-10-13",
+        "period_end": "2026-10-13",
+        "nature": "simulated"
+      }
+    }
+  },
+  "gpu_history": [
+    {
+      "sampled_at": "2026-10-13T21:00:00Z",
+      "utilization": {
+        "value": 12.0,
+        "unit": "percent",
+        "provenance": {
+          "origin": "Contract example: Illustrative mock for UI development, not measured",
+          "period_start": "2026-10-13",
+          "period_end": "2026-10-13",
+          "nature": "simulated"
+        }
+      },
+      "memory_used": {
+        "value": 118.4,
+        "unit": "gib",
+        "provenance": {
+          "origin": "Contract example: Illustrative mock for UI development, not measured",
+          "period_start": "2026-10-13",
+          "period_end": "2026-10-13",
+          "nature": "simulated"
+        }
+      },
+      "memory_total": {
+        "value": 192.0,
+        "unit": "gib",
+        "provenance": {
+          "origin": "Contract example: Illustrative mock for UI development, not measured",
+          "period_start": "2026-10-13",
+          "period_end": "2026-10-13",
+          "nature": "simulated"
+        }
+      },
+      "power": {
+        "value": 240.0,
+        "unit": "watts",
+        "provenance": {
+          "origin": "Contract example: Illustrative mock for UI development, not measured",
+          "period_start": "2026-10-13",
+          "period_end": "2026-10-13",
+          "nature": "simulated"
+        }
+      }
+    },
+    {
+      "sampled_at": "2026-10-13T21:01:00Z",
+      "utilization": {
+        "value": 64.0,
+        "unit": "percent",
+        "provenance": {
+          "origin": "Contract example: Illustrative mock for UI development, not measured",
+          "period_start": "2026-10-13",
+          "period_end": "2026-10-13",
+          "nature": "simulated"
+        }
+      },
+      "memory_used": {
+        "value": 141.2,
+        "unit": "gib",
+        "provenance": {
+          "origin": "Contract example: Illustrative mock for UI development, not measured",
+          "period_start": "2026-10-13",
+          "period_end": "2026-10-13",
+          "nature": "simulated"
+        }
+      },
+      "memory_total": {
+        "value": 192.0,
+        "unit": "gib",
+        "provenance": {
+          "origin": "Contract example: Illustrative mock for UI development, not measured",
+          "period_start": "2026-10-13",
+          "period_end": "2026-10-13",
+          "nature": "simulated"
+        }
+      },
+      "power": {
+        "value": 500.0,
+        "unit": "watts",
+        "provenance": {
+          "origin": "Contract example: Illustrative mock for UI development, not measured",
+          "period_start": "2026-10-13",
+          "period_end": "2026-10-13",
+          "nature": "simulated"
+        }
+      }
+    },
+    {
+      "sampled_at": "2026-10-13T21:02:00Z",
+      "utilization": {
+        "value": 88.0,
+        "unit": "percent",
+        "provenance": {
+          "origin": "Contract example: Illustrative mock for UI development, not measured",
+          "period_start": "2026-10-13",
+          "period_end": "2026-10-13",
+          "nature": "simulated"
+        }
+      },
+      "memory_used": {
+        "value": 147.9,
+        "unit": "gib",
+        "provenance": {
+          "origin": "Contract example: Illustrative mock for UI development, not measured",
+          "period_start": "2026-10-13",
+          "period_end": "2026-10-13",
+          "nature": "simulated"
+        }
+      },
+      "memory_total": {
+        "value": 192.0,
+        "unit": "gib",
+        "provenance": {
+          "origin": "Contract example: Illustrative mock for UI development, not measured",
+          "period_start": "2026-10-13",
+          "period_end": "2026-10-13",
+          "nature": "simulated"
+        }
+      },
+      "power": {
+        "value": 620.0,
+        "unit": "watts",
+        "provenance": {
+          "origin": "Contract example: Illustrative mock for UI development, not measured",
+          "period_start": "2026-10-13",
+          "period_end": "2026-10-13",
+          "nature": "simulated"
+        }
+      }
+    },
+    {
+      "sampled_at": "2026-10-13T21:03:00Z",
+      "utilization": {
+        "value": 71.0,
+        "unit": "percent",
+        "provenance": {
+          "origin": "Contract example: Illustrative mock for UI development, not measured",
+          "period_start": "2026-10-13",
+          "period_end": "2026-10-13",
+          "nature": "simulated"
+        }
+      },
+      "memory_used": {
+        "value": 143.0,
+        "unit": "gib",
+        "provenance": {
+          "origin": "Contract example: Illustrative mock for UI development, not measured",
+          "period_start": "2026-10-13",
+          "period_end": "2026-10-13",
+          "nature": "simulated"
+        }
+      },
+      "memory_total": {
+        "value": 192.0,
+        "unit": "gib",
+        "provenance": {
+          "origin": "Contract example: Illustrative mock for UI development, not measured",
+          "period_start": "2026-10-13",
+          "period_end": "2026-10-13",
+          "nature": "simulated"
+        }
+      },
+      "power": {
+        "value": 535.0,
+        "unit": "watts",
+        "provenance": {
+          "origin": "Contract example: Illustrative mock for UI development, not measured",
+          "period_start": "2026-10-13",
+          "period_end": "2026-10-13",
+          "nature": "simulated"
+        }
+      }
+    }
+  ],
+  "llm": {
+    "window_s": 300,
+    "requests": {
+      "value": 64,
+      "unit": "count",
+      "provenance": {
+        "origin": "Contract example: Illustrative mock for UI development, not measured",
+        "period_start": "2026-10-13",
+        "period_end": "2026-10-13",
+        "nature": "simulated"
+      }
+    },
+    "latency_p50": {
+      "value": 3900.0,
+      "unit": "milliseconds",
+      "provenance": {
+        "origin": "Contract example: Illustrative mock for UI development, not measured",
+        "period_start": "2026-10-13",
+        "period_end": "2026-10-13",
+        "nature": "simulated"
+      }
+    },
+    "latency_p95": {
+      "value": 9100.0,
+      "unit": "milliseconds",
+      "provenance": {
+        "origin": "Contract example: Illustrative mock for UI development, not measured",
+        "period_start": "2026-10-13",
+        "period_end": "2026-10-13",
+        "nature": "simulated"
+      }
+    },
+    "tokens_per_second": {
+      "value": 1450.0,
+      "unit": "tokens_per_second",
+      "provenance": {
+        "origin": "Contract example: Illustrative mock for UI development, not measured",
+        "period_start": "2026-10-13",
+        "period_end": "2026-10-13",
+        "nature": "simulated"
+      }
+    }
+  },
+  "api_latency_p95": {
+    "value": 84.0,
+    "unit": "milliseconds",
+    "provenance": {
+      "origin": "Contract example: Illustrative mock for UI development, not measured",
+      "period_start": "2026-10-13",
+      "period_end": "2026-10-13",
+      "nature": "simulated"
+    }
+  },
+  "note": null
+}

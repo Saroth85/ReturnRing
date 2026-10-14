@@ -1,0 +1,53 @@
+{
+  "inspection_id": "INS-000015",
+  "return_id": "RET-000111",
+  "decision_id": "DEC-000111-1",
+  "path": "withdrawal",
+  "inspector": "ahmed",
+  "photo_id": "PH-000015",
+  "created_at": "2026-09-30T18:53:00Z",
+  "state": "manual_review",
+  "checklist": [
+    {
+      "item": "tag_attached",
+      "suggestion": "not_observable",
+      "model_confidence": 0.35,
+      "note": null
+    },
+    {
+      "item": "visible_damage",
+      "suggestion": "not_observable",
+      "model_confidence": 0.3,
+      "note": null
+    },
+    {
+      "item": "photo_quality",
+      "suggestion": "no",
+      "model_confidence": 0.88,
+      "note": "Too dark"
+    }
+  ],
+  "confidence_is_calibrated": false,
+  "manual_review_reason": "Photo too dark to check the tag and the fabric: verify by hand",
+  "proposal": null,
+  "confirmed_observations": null,
+  "confirmed_by": null,
+  "confirmed_at": null,
+  "generation": {
+    "generation_id": "GEN-INS-000015",
+    "generation_path": "llm",
+    "llm_mode": "mock",
+    "served_from": "live",
+    "model": "mock",
+    "attempts": 1,
+    "validator_errors": [],
+    "created_at": "2026-09-30T18:41:00Z",
+    "latency_ms": 19
+  },
+  "provenance": {
+    "origin": "Contract example: vision checklist of the mock model on a synthetic photo (declared confidences)",
+    "period_start": "2025-10-01",
+    "period_end": "2026-09-30",
+    "nature": "synthetic"
+  }
+}

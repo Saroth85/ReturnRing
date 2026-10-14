@@ -279,6 +279,8 @@
       "coupons_enabled": true
     },
     "review_at": null,
+    "coupon_application_id": null,
+    "coupon_review_at": null,
     "shown_at": "2026-09-21T20:14:00Z",
     "confirmed_at": "2026-09-21T20:15:00Z"
   },
@@ -668,17 +670,26 @@
       "created_at": "2026-09-30T13:06:00Z",
       "latency_ms": 14
     },
-    "tone": "warm",
     "decision_echo": {
       "path": "guarantee",
       "quadrant": null,
       "lever_ids": []
     },
+    "case_facts": [
+      {
+        "id": "F1",
+        "entity": "return",
+        "metric": "days_since_delivery",
+        "value": 5,
+        "period": "2026-09-25/2026-09-30",
+        "nature": "synthetic"
+      }
+    ],
     "explanation": [
       {
         "label": "OBSERVED",
         "fact_ids": [],
-        "text": "The return reason is a defect or a non-conformity: the case follows the legal guarantee path, with no risk score and no restrictive levers.",
+        "text": "The return reason is a defect or a non-conformity: the case follows the legal guarantee path, with no risk score.",
         "facts": []
       },
       {
@@ -711,7 +722,8 @@
           "fields": {
             "terms": null,
             "amount": null,
-            "deadline": null
+            "deadline": null,
+            "deduction": null
           },
           "text": "Ciao, ci dispiace per il problema con il prodotto che hai ricevuto. Abbiamo registrato la tua segnalazione e ti scriveremo presto con i prossimi passi. Grazie per la pazienza e per averci avvisato.\n\nIl prodotto è coperto dalla garanzia legale di conformità. Puoi chiedere prima di tutto la riparazione o la sostituzione, senza spese ed entro un periodo ragionevole. Nei casi previsti dalla legge, per esempio se la riparazione o la sostituzione non sono possibili o non eliminano il difetto, puoi chiedere una riduzione del prezzo oppure, se il difetto non è di lieve entità, la risoluzione del contratto con la restituzione del prezzo."
         },
@@ -720,7 +732,8 @@
           "fields": {
             "terms": null,
             "amount": null,
-            "deadline": null
+            "deadline": null,
+            "deduction": null
           },
           "text": "Hello, we are sorry about the problem with the item you received. We have registered your report and we will write to you soon with the next steps. Thank you for your patience and for letting us know.\n\nThe item is covered by the legal guarantee of conformity. You can first ask for a repair or a replacement, free of charge and within a reasonable time. Where the law provides for it, for example if a repair or a replacement is not possible or does not remove the defect, you can ask for a price reduction or, unless the defect is minor, end the contract and get the price back."
         }

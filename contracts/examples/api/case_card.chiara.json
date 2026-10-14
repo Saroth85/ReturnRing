@@ -589,6 +589,8 @@
       "coupons_enabled": true
     },
     "review_at": null,
+    "coupon_application_id": null,
+    "coupon_review_at": null,
     "shown_at": "2026-09-21T20:14:00Z",
     "confirmed_at": "2026-09-21T20:15:00Z"
   },
@@ -1155,7 +1157,6 @@
       "created_at": "2026-09-29T12:03:00Z",
       "latency_ms": 14
     },
-    "tone": "warm",
     "decision_echo": {
       "path": "withdrawal",
       "quadrant": "Q3",
@@ -1164,6 +1165,64 @@
         "transparency_notice:true"
       ]
     },
+    "case_facts": [
+      {
+        "id": "F1",
+        "entity": "customer",
+        "metric": "risk_score",
+        "value": 0.66,
+        "period": "as of 2026-09-29",
+        "nature": "synthetic"
+      },
+      {
+        "id": "F2",
+        "entity": "customer",
+        "metric": "value_eur_12m",
+        "value": 433.75,
+        "period": "12 months to 2026-09-29",
+        "nature": "synthetic"
+      },
+      {
+        "id": "F3",
+        "entity": "cluster",
+        "metric": "strong_id_share",
+        "value": 0.5,
+        "period": "as of 2026-09-29",
+        "nature": "synthetic"
+      },
+      {
+        "id": "F4",
+        "entity": "cluster",
+        "metric": "cluster_return_rate",
+        "value": 0.71,
+        "period": "as of 2026-09-29",
+        "nature": "synthetic"
+      },
+      {
+        "id": "F5",
+        "entity": "customer",
+        "metric": "residual_z",
+        "value": 0.6,
+        "period": "as of 2026-09-29",
+        "nature": "synthetic"
+      },
+      {
+        "id": "F6",
+        "entity": "cluster",
+        "metric": "cluster_size",
+        "value": 3,
+        "period": "as of 2026-09-29",
+        "nature": "synthetic"
+      },
+      {
+        "id": "F7",
+        "entity": "return",
+        "metric": "days_since_delivery",
+        "value": 4,
+        "period": "2026-09-25/2026-09-29",
+        "nature": "synthetic"
+      }
+    ],
     "explanation": [
       {
         "label": "SCORE",
@@ -1255,7 +1314,7 @@
         "fact_ids": [
           "F6"
         ],
-        "text": "Linked accounts in the cluster: 3.",
+        "text": "Accounts in the cluster of linked accounts, this customer included: 3.",
         "facts": [
           {
             "id": "F6",
@@ -1270,7 +1329,7 @@
       {
         "label": "OBSERVED",
         "fact_ids": [],
-        "text": "The rules engine placed the case in Q3; the levers are listed with the decision.",
+        "text": "The rules engine placed the case in Q3; the case view shows the decision.",
         "facts": []
       },
       {
@@ -1304,18 +1363,20 @@
           "fields": {
             "terms": "rimborso nei tempi di legge, non istantaneo",
             "amount": null,
-            "deadline": "13 ottobre 2026"
+            "deadline": "il 13 ottobre 2026",
+            "deduction": null
           },
-          "text": "Ciao, grazie per averci scritto. Abbiamo registrato la tua richiesta di reso e il rimborso è previsto per il 13 ottobre 2026. I tuoi prossimi ordini avranno nuove condizioni di reso, mostrate prima di ogni acquisto: rimborso nei tempi di legge, non istantaneo. Queste condizioni tengono conto dei resi dei tuoi ordini precedenti. Per qualsiasi domanda, rispondi pure a questo messaggio. Teniamo molto a te.\n\nTi ricordiamo che puoi sempre esercitare il diritto di recesso entro 14 giorni dalla consegna, senza indicarne il motivo. Ti rimborseremo entro 14 giorni dalla tua comunicazione, al ricevimento dei prodotti o della prova della loro spedizione."
+          "text": "Ciao, grazie per averci scritto. Abbiamo registrato la tua richiesta di reso e il rimborso è previsto al più tardi per il 13 ottobre 2026. Questo reso mantiene le condizioni del tuo ordine. I tuoi prossimi ordini avranno queste condizioni di reso, mostrate prima dell'acquisto: rimborso nei tempi di legge, non istantaneo. Queste condizioni tengono conto dei tuoi resi precedenti. Per qualsiasi domanda, rispondi pure a questo messaggio. Teniamo molto a te.\n\nTi ricordiamo che puoi sempre esercitare il diritto di recesso entro 14 giorni dalla consegna, senza indicarne il motivo. Ti rimborseremo entro 14 giorni dalla tua comunicazione, al ricevimento dei prodotti o della prova della loro spedizione."
         },
         {
           "lang": "en",
           "fields": {
             "terms": "refund within the legal time limit, not instant",
             "amount": null,
-            "deadline": "13 October 2026"
+            "deadline": "13 October 2026",
+            "deduction": null
           },
-          "text": "Hello, thank you for writing to us. We have registered your return request and your refund is due by 13 October 2026. Your next orders will have new return terms, shown before each purchase: refund within the legal time limit, not instant. These terms take into account the returns on your previous orders. For any questions, just reply to this message. You matter to us.\n\nYou can always withdraw from your purchase within 14 days of delivery without giving any reason. We will refund you within 14 days of your notice, once we receive the items or proof that you have sent them back."
+          "text": "Hello, thank you for writing to us. We have registered your return request and your refund is due by 13 October 2026. This return keeps the terms of your order. Your next orders will have these return terms, shown before each purchase: refund within the legal time limit, not instant. These terms take into account your previous returns. For any questions, just reply to this message. You matter to us.\n\nYou can always withdraw from your purchase within 14 days of delivery without giving any reason. We will refund you within 14 days of your notice, once we receive the items or proof that you have sent them back."
         }
       ]
     },

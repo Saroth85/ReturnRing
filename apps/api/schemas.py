@@ -29,6 +29,7 @@ the examples pass both.
 from __future__ import annotations
 
 import math
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
@@ -101,9 +102,9 @@ from contracts.vocab import (
     Role,
     ServedFrom,
     SizeAdviceKind,
-    Tone,
     ValidatorCode,
 )
+from llm.case import MAX_FACTORS, CaseError, ClusterSummary, ScoreFactor, build_case, factor_entity
 from llm.case import Entity as FactEntity
 from llm.decision import serialize_decision
 from llm.generate import MAX_MODEL_CALLS, Generation
@@ -111,6 +112,7 @@ from llm.legal_clause import LegalClauseError, assert_clause
 from llm.legal_clause import required_clause as llm_required_clause
 from llm.messages import template_fields
 from llm.phrasebook import (
+    COUPON_BLOCK_TEXT,
     MAX_SENTENCES,
     MIN_SENTENCES,
     PHRASEBOOK,
@@ -118,6 +120,8 @@ from llm.phrasebook import (
     context_of,
     render_selection,
     selection_problems,
+    size_advice_text,
+    subject,
 )
 from llm.templates import default_selection
 from llm.text import banned_terms
@@ -126,7 +130,6 @@ from llm.validator import (
     MAX_LEVER_IDS,
     MAX_STATEMENT_CHARS,
     MAX_STATEMENTS,
-    SCORE_METRICS,
     LlmOutput,
     validate,
 )
@@ -160,8 +163,14 @@ from policy.types import CouponRuleApplication as PolicyCouponRule
 # 1.1.0: first review round of ADR-15 (lift, versions, history); 1.2.0: second review round
 # (lapse at checkout and of coupon applications, renew, typed links, input provenance, labels);
 # 1.3.0: third round (the LLM contract of llm/ in drafts and messages, decision day, bounded
-# review dates, typed generation records, payload metrics, realized KPI sets)
-API_CONTRACT_VERSION = "1.3.0"
+# review dates, typed generation records, payload metrics, realized KPI sets); 1.4.0: fourth
+# round (no unapproved restriction announced, coupon blocks tied to their cluster, the facts of
+# the llm_case on every draft, the deduction stated with its reason, error scenarios, tone gone);
+# 1.4.1: the LLM layer's closing rounds merged (no lever fact, validator code TERMS_TOPIC; ADR-15
+# section 14); 1.5.0: the review of the API (ADR-15 section 15: GET /api/demo/cases, the demo
+# clock in /readyz, refund deadlines in the queue, the coupon block in the terms shown and stored,
+# a claim per return, the stale_proposal recompute, the write_request refusal, read-only mode)
+API_CONTRACT_VERSION = "1.5.0"
 MODE_HEADER = "X-ReturnRing-Mode"  # every response: "live" or "cached" (US-901)
 REQUEST_ID_HEADER = "X-Request-Id"  # every response; also in the audit log (NFR-12)
 CachedLabel = Literal["Precomputed on AMD MI300X"]
@@ -726,8 +735,14 @@ class SensitivityScenario(ApiModel):
 
 QuadrantFilter = Literal["Q1", "Q2", "Q3", "Q4", "none"]  # none: guarantee or insufficient
 QueueSort = Literal[
-    "-expected_net_benefit", "expected_net_benefit", "-requested_at", "requested_at", "-risk"
+    "-expected_net_benefit",
+    "expected_net_benefit",
+    "-requested_at",
+    "requested_at",
+    "-risk",
+    "refund_due_by",
 ]
+MAX_PAGE = 100_000  # pages are bounded (H25): an offset never leaves the int64 of the database
 DraftStatus = Literal["ready", "pending"]
 
 
@@ -747,7 +762,7 @@ class QueueQuery(ApiModel):
     review_due: bool | None = None
     q: Annotated[str, StringConstraints(min_length=1, max_length=64)] | None = None
     sort: QueueSort = "-expected_net_benefit"
-    page: int = Field(default=1, ge=1)
+    page: int = Field(default=1, ge=1, le=MAX_PAGE)
     page_size: int = Field(default=25, ge=1, le=100)
 
     def matches(self, item: QueueItem) -> bool:
@@ -799,6 +814,10 @@ class QueueItem(ApiModel):
     lever_ids: list[LeverIdText]  # "id:value" of the decision's current levers
     review_at: date | None  # review date of the decision's restriction (US-607)
     review_due: bool  # an approved or overridden restriction at or past its review date
+    # 1.5.0 (H1): the day the refund is due (notice + 14 days, rule 3), and whether that day is
+    # past while the latest version is still proposed, so no message has stated the refund yet
+    refund_due_by: date
+    refund_overdue: bool
     risk: Metric | None  # probability; null on the guarantee path or with insufficient evidence
     value: Metric | None  # eur, 12-month net margin
     expected_net_benefit: Metric  # eur, simulated: the recommended alternative of the case card
@@ -848,6 +867,11 @@ class QueueResponse(ApiModel):
             )
             if item.review_due != due:
                 raise ValueError(f"{item.return_id}: review_due is a restriction past review_at")
+            overdue = item.state == "proposed" and item.refund_due_by < today
+            if item.refund_overdue != overdue:
+                raise ValueError(
+                    f"{item.return_id}: refund_overdue is a proposed case past refund_due_by"
+                )
         return self
 
 
@@ -1144,8 +1168,6 @@ class LinkedAccountsView(ApiModel):
             raise ValueError("link ids are unique")
         if any(x.customer_a not in ids or x.customer_b not in ids for x in self.links):
             raise ValueError("every link joins two accounts of the cluster")
-        if self.features.n_distinct_cards.value > self.cluster_size:
-            raise ValueError("more distinct cards than accounts is not a cluster feature")
         return self
 
 
@@ -1212,14 +1234,29 @@ class OrderHistory(ApiModel):
 
 
 def _check_terms_source(
-    terms: Terms, base_terms: Terms, source: str, review_at: date | None, shown_at: datetime
+    terms: Terms,
+    base_terms: Terms,
+    source: str,
+    review_at: date | None,
+    shown_at: datetime,
+    coupon_review_at: date | None = None,
 ) -> None:
     """Terms shown at checkout (US-403, US-607): base terms are exactly the merchant base with no
     review date; terms less generous than the base come from a decision with a review date; and
-    a decision's terms are shown only before its review date, when the restriction lapses."""
-    if source == "base" and (terms != base_terms or review_at is not None):
+    a decision's terms are shown only before its review date, when the restriction lapses. A
+    coupon block (its review date `coupon_review_at`) turns the coupons of the terms off, base
+    terms included, and lapses at its own review date (1.5.0, H12)."""
+    blocked = coupon_review_at is not None
+    if blocked and terms.coupons_enabled:
+        raise ValueError("a coupon block turns the coupons of the terms shown off (US-402)")
+    own = (
+        terms.model_copy(update={"coupons_enabled": base_terms.coupons_enabled})
+        if blocked
+        else terms
+    )
+    if source == "base" and (own != base_terms or review_at is not None):
         raise ValueError("terms from base are the merchant base terms, with no review date")
-    if terms.to_policy().is_less_generous_than(base_terms.to_policy()) and (
+    if own.to_policy().is_less_generous_than(base_terms.to_policy()) and (
         source == "base" or review_at is None
     ):
         raise ValueError("terms less generous than the base come from a decision with a review")
@@ -1232,13 +1269,23 @@ def _check_terms_source(
         raise ValueError(
             "a review date is at most MAX_REVIEW_DAYS days after the day the terms are shown"
         )
+    if coupon_review_at is not None and coupon_review_at <= utc_day(shown_at):
+        raise ValueError(
+            "a coupon block lapses at its review date: it is shown only before it (US-607)"
+        )
+    if coupon_review_at is not None and coupon_review_at > utc_day(shown_at) + timedelta(
+        days=MAX_REVIEW_DAYS
+    ):
+        raise ValueError("a coupon block has a review date within MAX_REVIEW_DAYS days")
 
 
 class TermsSnapshotView(ApiModel):
     """Terms shown at checkout and stored with the order (ADR-05). order_id is null while the
     snapshot is shown and not confirmed (POST /api/checkout/evaluate). base_terms are the
     merchant base terms when the snapshot was shown; review_at is the review date of the
-    restriction in force that produced the terms, if any."""
+    restriction in force that produced the terms, if any. coupon_application_id and
+    coupon_review_at name the cluster coupon block shown with the terms, which turned their
+    coupons off (1.5.0, H12; null without a block)."""
 
     terms_snapshot_id: Id
     order_id: Id | None
@@ -1248,6 +1295,8 @@ class TermsSnapshotView(ApiModel):
     terms: Terms
     base_terms: Terms
     review_at: date | None
+    coupon_application_id: Id | None
+    coupon_review_at: date | None
     shown_at: AwareDatetime
     confirmed_at: AwareDatetime | None
 
@@ -1266,9 +1315,27 @@ class TermsSnapshotView(ApiModel):
                 "a restriction lapses at its review date: an order is bound to its terms only "
                 "before the review date (/confirm answers 409, the client evaluates again)"
             )
-        if (self.source == "base") != (self.quadrant_at_purchase is None):
-            raise ValueError("base terms have no quadrant; terms from a decision have one")
-        _check_terms_source(self.terms, self.base_terms, self.source, self.review_at, self.shown_at)
+        if self.source == "base" and self.quadrant_at_purchase is not None:
+            raise ValueError(
+                "base terms have no quadrant; terms from a decision have the engine's while its "
+                "levers stand, none after a person's override (1.5.0, H3)"
+            )
+        if (self.coupon_application_id is None) != (self.coupon_review_at is None):
+            raise ValueError("a coupon block shown carries its review date, and only it")
+        _check_terms_source(
+            self.terms,
+            self.base_terms,
+            self.source,
+            self.review_at,
+            self.shown_at,
+            self.coupon_review_at,
+        )
+        if (
+            self.confirmed_at is not None
+            and self.coupon_review_at is not None
+            and utc_day(self.confirmed_at) >= self.coupon_review_at
+        ):
+            raise ValueError("an order is bound to a coupon block only before its review date")
         return self
 
 
@@ -1311,30 +1378,44 @@ class DecisionInputs(ApiModel):
 
 
 class CouponRuleRef(ApiModel):
-    """A proposed or confirmed application of the general coupon rule to a cluster (US-402)."""
+    """The application of the general coupon rule to the cluster of the decision (US-402): the
+    cluster given to the engine and its linked accounts, the case customer among them. state and
+    in_force are those of the application when the decision is served (round 4, E26): proposed
+    with a proposed decision; confirmed by the person who acted, or reversed afterwards; in force
+    while confirmed, before the review date and while the decision is in force."""
 
     rule_version: Version
     application_id: Id
     cluster_id: Id
     affected_customer_ids: list[Id] = Field(min_length=1)  # excluded accounts are visible
     confirmed_by: HumanActor | None
+    state: CouponApplicationState
+    in_force: bool
 
 
 class ClaimView(ApiModel):
-    """A diminished-value claim (art. 14(2)): only from confirmed observations and a rule."""
+    """A diminished-value claim (art. 14(2)): only from confirmed observations and a rule. The
+    refund the customer gets is the price of the returned line less the claim (round 4, E12)."""
 
     inspection_id: Id
-    amount: Metric  # eur
+    amount: Metric  # eur, withheld from the refund
+    # eur: the price paid for the returned line (its list price less its share of the order's
+    # coupon, 1.5.0, H2), the base of the claim and of the refund
+    line_price: Metric
     photo_evidence_ids: list[Id] = Field(min_length=1)
     confirmed_by: HumanActor
     rule_id: Id
 
     @model_validator(mode="after")
     def _amount(self) -> Self:
-        _same_unit(self.amount, unit="eur")
-        if self.amount.value <= 0:
-            raise ValueError("a claim amount is positive")
+        _same_unit(self.amount, self.line_price, unit="eur")
+        if not 0 < self.amount.value <= self.line_price.value:
+            raise ValueError("a claim amount is positive and at most the price of the line")
         return self
+
+    def refund_eur(self) -> Decimal:
+        """The refund left after the claim: the price of the line less the claim."""
+        return _dec(float(self.line_price.value)) - _dec(float(self.amount.value))
 
 
 class DecisionView(ApiModel):
@@ -1352,7 +1433,12 @@ class DecisionView(ApiModel):
     A version created by a review (trigger review) is policy.engine.decide() on the latest
     scores at the day of the review (inputs, decided_on, quadrant, proposed_levers), with the
     person's outcome: action lift overrides it to the standard levers; action renew approves the
-    fresh restriction, with a new review date.
+    fresh restriction, with a new review date. Every later version (a review or a recompute) is
+    decided on the UTC day it is created, and a restriction is approved only before its review
+    date: a stale proposal is recomputed (409, round 4, E4).
+
+    A cluster coupon block applies to the cluster given to the engine, and its linked accounts
+    include the case customer (LEG-09, round 4, E2).
 
     Every view passes policy.legal_guard under to_policy_decision (ADR-15 section 8)."""
 
@@ -1441,6 +1527,7 @@ class DecisionView(ApiModel):
         blocks = any(x.id == "cluster_coupons_disabled" and x.value for x in self.levers)
         if blocks != (self.coupon_rule is not None):
             raise ValueError("a cluster coupon block carries its coupon rule application")
+        self._check_coupon_rule()
         if self.diminished_value_claim is not None and self.path is Path.GUARANTEE:
             raise ValueError("no diminished-value claim on a defect")
         violations = legal_guard_check(*to_policy_decision(self), base)
@@ -1449,12 +1536,53 @@ class DecisionView(ApiModel):
             raise ValueError(f"policy.legal_guard refuses this decision: {found}")
         return self
 
+    def _check_coupon_rule(self) -> None:
+        """E2, E26: the block is about the cluster of the engine inputs and the case customer;
+        its state and in_force are those of the application when the view is served."""
+        rule, inputs = self.coupon_rule, self.inputs
+        if rule is None:
+            return
+        if inputs.cluster_id is None or rule.cluster_id != inputs.cluster_id:
+            raise ValueError(
+                "a cluster coupon block applies to the cluster given to the engine (LEG-09)"
+            )
+        ids = rule.affected_customer_ids
+        if inputs.customer_id not in ids or len(set(ids)) != len(ids):
+            raise ValueError(
+                "the linked accounts of a coupon block include the case customer, each once"
+            )
+        if (rule.state == "proposed") != (self.state == "proposed"):
+            raise ValueError(
+                "a coupon application is proposed with its decision, then confirmed by the person "
+                "who acts and possibly reversed"
+            )
+        in_force = (
+            rule.state == "confirmed"
+            and self.in_force
+            and self.review_at is not None
+            and utc_day(self.as_of) < self.review_at
+        )
+        if rule.in_force != in_force:
+            raise ValueError(
+                "a coupon application is in force while confirmed, before its review date and "
+                "while its decision is in force"
+            )
+
     def _check_state(self) -> None:
         acted = self.state != "proposed"
         if acted != (self.approver is not None) or acted != (self.approved_at is not None):
             raise ValueError("approver and approved_at are set exactly when a person acted")
         if self.approved_at is not None and not (self.created_at <= self.approved_at <= self.as_of):
             raise ValueError("approved_at is between created_at and as_of")
+        if (
+            self.approved_at is not None
+            and self.review_at is not None
+            and utc_day(self.approved_at) >= self.review_at
+        ):
+            raise ValueError(
+                "a restriction is approved before its review date: a stale proposal is recomputed "
+                "(409, US-607)"
+            )
         departs = self.state in ("overridden", "rejected")
         if departs != (self.override_reason is not None) or departs != (
             self.override_category is not None
@@ -1490,12 +1618,14 @@ class DecisionView(ApiModel):
         created_day = utc_day(self.created_at)
         if self.decided_on > created_day:
             raise ValueError("decided_on is no later than the UTC day of created_at")
-        if self.revision_trigger == "review" and (
-            self.decided_on != created_day or self.approved_at != self.created_at
-        ):
+        if self.revision_trigger != "initial" and self.decided_on != created_day:
             raise ValueError(
-                "a review version is decided at the review: decided_on is the UTC day of "
-                "created_at, and the person's act (approved_at) creates it"
+                "decided_on of a later version (a review or a recompute) is the UTC day of its "
+                "created_at"
+            )
+        if self.revision_trigger == "review" and self.approved_at != self.created_at:
+            raise ValueError(
+                "a review version is created by the person's act: approved_at is created_at"
             )
         lapsed = self.review_at is not None and utc_day(self.as_of) >= self.review_at
         expected = (
@@ -1585,7 +1715,11 @@ def to_policy_decision(view: DecisionView) -> tuple[Decision, ReturnRequest]:
             else None
         ),
         coupon_rule=(
-            PolicyCouponRule(rule_version=rule.rule_version, confirmed_by=rule.confirmed_by)
+            PolicyCouponRule(
+                rule_version=rule.rule_version,
+                confirmed_by=rule.confirmed_by,
+                cluster_id=rule.cluster_id,
+            )
             if rule is not None
             else None
         ),
@@ -1624,6 +1758,13 @@ class DecisionAuditState(ApiModel):
         _same_unit(self.risk, unit="probability")
         if (self.review_at is not None) != self.requires_approval:
             raise ValueError("a restriction, and only a restriction, has a review date (US-607)")
+        if (self.state != "proposed") != (self.approver is not None):
+            raise ValueError("a person acted exactly when the state is not proposed (rule 5)")
+        departs = self.state in ("overridden", "rejected")
+        if departs != (self.override_category is not None):
+            raise ValueError("an override and a rejection, and only they, have a category")
+        if self.state == "rejected" and self.lever_ids:
+            raise ValueError("a rejected proposal leaves no lever in force")
         blocks = "cluster_coupons_disabled:true" in self.lever_ids
         if blocks != (self.coupon_application_id is not None):
             raise ValueError(
@@ -1732,11 +1873,14 @@ class ExplanationStatement(ApiModel):
 class TemplateFields(ApiModel):
     """The values code fills into the placeholders of one language (ADR-08, rule 10):
     llm.messages.template_fields of the decision. A placeholder the decision does not have
-    ({amount} without a known refund, {terms} when the future terms do not change) is null."""
+    ({amount} without a known refund, {terms} when the future terms do not change, {deduction}
+    without a diminished-value claim) is null. {deadline} carries its article in Italian ("il
+    12 ottobre 2026", "l'11 ottobre 2026")."""
 
     terms: ShortText | None
     amount: ShortText | None
     deadline: ShortText | None
+    deduction: ShortText | None  # the amount withheld for a diminished value (round 4, E17)
 
     @classmethod
     def of(
@@ -1744,11 +1888,15 @@ class TemplateFields(ApiModel):
     ) -> TemplateFields:
         values = template_fields(decision, base, lang, refund_eur)
         return cls(
-            terms=values.get("terms"), amount=values.get("amount"), deadline=values.get("deadline")
+            terms=values.get("terms"),
+            amount=values.get("amount"),
+            deadline=values.get("deadline"),
+            deduction=values.get("deduction"),
         )
 
     def filled(self) -> list[str]:
-        return [x for x in (self.terms, self.amount, self.deadline) if x is not None]
+        values = (self.terms, self.amount, self.deadline, self.deduction)
+        return [x for x in values if x is not None]
 
 
 MessageText = Annotated[str, StringConstraints(min_length=1, max_length=4000)]
@@ -1882,6 +2030,8 @@ def check_generation_path(
         raise ValueError("decision_echo: a call answered with another decision")
     if fallback == "invalid_twice" and (calls != MAX_MODEL_CALLS or not codes):
         raise ValueError("invalid_twice: both calls failed the validator")
+    if fallback == "write_request" and (calls or codes):
+        raise ValueError("write_request: the agent's refusal written by code, before any call")
 
 
 class GenerationInfo(ApiModel):
@@ -1938,18 +2088,31 @@ class GenerationInfo(ApiModel):
         )
 
 
+MAX_CASE_FACTS = 20  # maxItems of facts in contracts/json/llm_case.schema.json
+
+
 class DraftView(ApiModel):
     """The draft of a decision version (US-304, US-305, ADR-14): the output of llm.generate for
     the engine's decision of the version (path, quadrant, proposed levers), validated by
-    llm.validator, stored with the facts each statement cites and the messages composed by
-    llm.phrasebook. Generated at intake, or again on request (regenerate)."""
+    llm.validator, stored with the facts of the llm_case it answered (`case_facts`, round 4,
+    E10 and E11: the models validate the stored draft against exactly the facts llm.generate
+    used), the facts each statement cites and the messages composed by llm.phrasebook.
+    Generated at intake, or again on request (regenerate)."""
 
     generation: GenerationInfo
-    tone: Tone
     decision_echo: DecisionEchoView
+    case_facts: list[CitedFact] = Field(min_length=1, max_length=MAX_CASE_FACTS)
     explanation: list[ExplanationStatement] = Field(min_length=1, max_length=MAX_STATEMENTS)
     message: CustomerMessageView
-    provenance: Provenance  # the engine inputs the cited facts were built from (rule 11)
+    provenance: Provenance  # the engine inputs the facts were built from (rule 11)
+
+    @model_validator(mode="after")
+    def _cited(self) -> Self:
+        facts = {fact.id: fact for fact in self.case_facts}
+        for statement in self.explanation:
+            if any(facts.get(fact.id) != fact for fact in statement.facts):
+                raise ValueError("a statement cites facts of the llm_case, as stored with it")
+        return self
 
     def llm_output(self) -> dict[str, Any]:
         """The output as the model gave it (contracts/json/llm_output.schema.json)."""
@@ -1976,11 +2139,11 @@ class DraftView(ApiModel):
         decision: Decision,
         base: ReturnTerms,
         provenance: Provenance,
-        tone: Tone = "warm",
     ) -> DraftView:
         """The draft of a validated output for the llm_case it answers (llm.case.build_case of
-        `decision`): the cited facts copied from the case, the messages in the case languages,
-        and the provenance of the engine inputs the facts were built from."""
+        `decision`): the facts of the case and the facts each statement cites, the messages in
+        the case languages, and the provenance of the engine inputs the facts were built
+        from."""
         facts = {fact["id"]: fact for fact in case["facts"]}
         ids = list(output.customer_message.sentence_ids)
         texts = [
@@ -1994,8 +2157,8 @@ class DraftView(ApiModel):
         return cls.model_validate(
             {
                 "generation": generation,
-                "tone": tone,
                 "decision_echo": output.decision_echo.model_dump(),
+                "case_facts": list(case["facts"]),
                 "explanation": [
                     {
                         "label": x.label,
@@ -2049,6 +2212,8 @@ class ProductAnomaly(ApiModel):
     status: AnomalyStatus
     catalog_task_id: Id | None
     return_ids: list[Id]
+    # 1.5.0 (H14): the return_ids in the queue, the ones a catalogue task can name
+    queued_return_ids: list[Id]
     trend: list[WeeklyReturnRate]  # the variant's weekly returns for this reason
 
     @model_validator(mode="after")
@@ -2063,6 +2228,10 @@ class ProductAnomaly(ApiModel):
             raise ValueError("z must be (observed - expected) / sqrt(expected), 2 decimals")
         if (self.status == "open") != (self.catalog_task_id is None):
             raise ValueError("an open anomaly has no task; task_opened and resolved have one")
+        if not set(self.queued_return_ids) <= set(self.return_ids):
+            raise ValueError("queued_return_ids are return_ids of the anomaly")
+        if self.queued_return_ids != sorted(set(self.queued_return_ids)):
+            raise ValueError("queued_return_ids are sorted, each once")
         return self
 
 
@@ -2106,58 +2275,161 @@ def proposal_decision(view: DecisionView) -> Decision:
     )
 
 
-# Facts of a scored case only (llm/case.py): never on the guarantee path (rule 4) or with
-# insufficient evidence (US-307).
-SCORED_METRICS = frozenset({*SCORE_METRICS, "value_eur_12m", "cluster_size"})
-
-
 def _fact_number(value: float | int) -> Decimal:
     """A number as llm.case writes it in a fact: rounded half-up to 2 decimals."""
     return Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
-def _check_cited_facts(draft: DraftView, view: DecisionView) -> list[CitedFact]:
-    """The facts a draft cites are code-built facts of its version: one content per id, the
-    nature of the engine inputs, no score where the case is not scored, and the risk, the value
-    and the days since delivery given to the engine."""
-    facts: dict[str, CitedFact] = {}
-    for statement in draft.explanation:
-        for fact in statement.facts:
-            if facts.setdefault(fact.id, fact) != fact:
-                raise ValueError(f"fact {fact.id} is cited with two different contents")
-    inputs = view.inputs
+# The facts llm.case.build_case writes in this order: risk, value, the score factors, the cluster,
+# the days since delivery. A factor named like the cluster or the days fact takes its place (the
+# first fact of a metric is kept). The levers are not facts (ADR-14, round 3, finding T7): a
+# window lever is never a fact, nor a score factor.
+_FACT_RANKS = {"risk_score": 0, "value_eur_12m": 1, "days_since_delivery": 3}
+_NEVER_FACTORS = frozenset({"risk_score", "value_eur_12m", "return_window_days"})
+
+
+def _scored(view: DecisionView) -> bool:
+    return view.path is Path.WITHDRAWAL and view.evidence_quality is EvidenceQuality.SUFFICIENT
+
+
+def _check_case_facts(draft: DraftView, view: DecisionView) -> None:  # noqa: C901 - one per rule
+    """The facts of the llm_case stored with a draft are the facts llm.case.build_case writes for
+    the engine's decision of its version (round 4, E3 and E10): ids F1, F2... in order, one fact
+    per metric, the nature of the engine inputs, and each metric with the entity, the period
+    and, where the version holds it, the value build_case gives it ("as of {decided_on}", "12
+    months to {decided_on}", "{delivered_on}/{notice_on}"); a lever is never a fact. A case
+    that is not scored has only the days since delivery (rule 4, US-307); the cluster is a fact
+    only of a customer in a cluster; a score factor is a feature that may be shown and never
+    customer value (rule 6). The values of the factors and of the cluster size are checked
+    where the response shows them (CaseCard, RecomputeResponse)."""
+    inputs, facts = view.inputs, draft.case_facts
     if draft.provenance != inputs.provenance:
         raise ValueError("the facts of a draft are built from the engine inputs of its version")
-    scored = view.path is Path.WITHDRAWAL and view.evidence_quality is EvidenceQuality.SUFFICIENT
-    if not scored and any(s.label == "SCORE" for s in draft.explanation):
-        raise ValueError("a case that is not scored has no SCORE statement (rule 4, US-307)")
-    known: dict[str, float | int | None] = {
-        "days_since_delivery": (inputs.notice_on - inputs.delivered_on).days
+    if [f.id for f in facts] != [f"F{i}" for i in range(1, len(facts) + 1)]:
+        raise ValueError("the facts of the llm_case are F1, F2... in order")
+    metrics = [f.metric for f in facts]
+    if len(set(metrics)) != len(metrics):
+        raise ValueError("the llm_case has one fact per metric")
+    if any(f.nature != inputs.provenance.nature for f in facts):
+        raise ValueError("a fact has the nature of the engine inputs (rule 11)")
+    day = view.decided_on.isoformat()
+    as_of = f"as of {day}"
+    scored = _scored(view)
+    clustered = scored and inputs.cluster_id is not None
+    delivered = f"{inputs.delivered_on.isoformat()}/{inputs.notice_on.isoformat()}"
+    fixed: dict[str, tuple[str, str, float | int | None]] = {
+        "days_since_delivery": ("return", delivered, (inputs.notice_on - inputs.delivered_on).days)
     }
     if scored:
-        known.update(risk_score=inputs.risk, value_eur_12m=inputs.value_eur)
-    for fact in facts.values():
-        if fact.nature != inputs.provenance.nature:
-            raise ValueError("a cited fact has the nature of the engine inputs (rule 11)")
-        if not scored and fact.metric in SCORED_METRICS:
+        fixed["risk_score"] = ("customer", as_of, inputs.risk)
+        fixed["value_eur_12m"] = ("customer", f"12 months to {day}", inputs.value_eur)
+    if clustered:
+        fixed["cluster_size"] = ("cluster", as_of, None)
+    ranks: list[int] = []
+    factors = 0
+    for fact in facts:
+        expected = fixed.get(fact.metric)
+        if expected is not None and (fact.entity, fact.period) == expected[:2]:
+            value = expected[2]
+            if value is not None and _fact_number(value) != Decimal(str(fact.value)):
+                raise ValueError(f"fact {fact.id} ({fact.metric}) is not the value of the version")
+            ranks.append(_FACT_RANKS.get(fact.metric, 2 if fact.metric == "cluster_size" else 4))
+            continue
+        if not scored:
             raise ValueError(
-                "a case on the guarantee path or with insufficient evidence is not scored"
+                f"fact {fact.metric}: a case on the guarantee path or with insufficient evidence "
+                "is not scored (rule 4, US-307)"
             )
-        value = known.get(fact.metric)
-        if value is not None and _fact_number(value) != Decimal(str(fact.value)):
-            raise ValueError(f"fact {fact.id} ({fact.metric}) is not the value given to the engine")
-    return list(facts.values())
+        if fact.metric in _NEVER_FACTORS:
+            raise ValueError(f"fact {fact.id} ({fact.metric}) is not written as llm.case writes it")
+        if is_forbidden_feature(fact.metric) or fact.metric in VALUE_FEATURES:
+            raise ValueError(f"{fact.metric} is never a score factor (rule 6)")
+        if (fact.entity, fact.period) != (factor_entity(fact.metric, clustered), as_of):
+            raise ValueError(
+                f"fact {fact.id} ({fact.metric}): a score factor is a fact of the customer, or of "
+                "its cluster for a cluster feature, as of the decision day"
+            )
+        factors += 1
+        ranks.append(2)
+    if ranks != sorted(ranks) or factors > MAX_FACTORS:
+        raise ValueError("the facts are in the order of llm.case, with at most three factors")
+    if not set(fixed) <= set(metrics):
+        raise ValueError(f"the llm_case of the version has the facts {sorted(fixed)}")
+    if not scored and any(s.label == "SCORE" for s in draft.explanation):
+        raise ValueError("a case that is not scored has no SCORE statement (rule 4, US-307)")
 
 
-def _check_draft(draft: DraftView, view: DecisionView) -> None:
+def expected_case_facts(
+    view: DecisionView, factors: Sequence[ScoreContribution], cluster_size: int | None
+) -> list[dict[str, Any]]:
+    """The facts llm.case.build_case writes for the engine's decision of a version, with the
+    score factors and the cluster size the response shows with it (as the API builds the case of
+    a draft: each factor with factor_entity, the cluster of the engine inputs)."""
+    inputs = view.inputs
+    scored = _scored(view)
+    clustered = scored and inputs.cluster_id is not None
+    score_factors: list[ScoreFactor] = []
+    for factor in factors if scored else ():
+        value = factor.feature_value
+        if isinstance(value, bool) or not isinstance(value, int | float):
+            raise ValueError(f"the score factor {factor.feature} of a draft is a number")
+        entity = factor_entity(factor.feature, clustered)
+        score_factors.append(ScoreFactor(factor.feature, value, factor.phrase, entity))
+    cluster = None
+    if clustered:
+        if inputs.cluster_id is None or cluster_size is None:
+            raise ValueError("a customer in a cluster is shown with the size of the cluster")
+        cluster = ClusterSummary(inputs.cluster_id, cluster_size, ())
+    request = ReturnRequest(
+        return_id=view.return_id,
+        order_id=inputs.order_id,
+        customer_id=inputs.customer_id,
+        reason=inputs.reason,
+        delivered_on=inputs.delivered_on,
+        notice_on=inputs.notice_on,
+        order_terms=inputs.order_terms.to_policy(),
+    )
+    try:
+        case = build_case(
+            proposal_decision(view),
+            request,
+            inputs.base_terms.to_policy(),
+            policy_text="",
+            scores=inputs.scores() if scored else None,
+            factors=score_factors,
+            cluster=cluster,
+            missing_evidence=view.missing_evidence,
+            nature=inputs.provenance.nature,
+        )
+    except CaseError as exc:
+        raise ValueError(f"llm.case.build_case refuses the version: {exc}") from None
+    facts: list[dict[str, Any]] = case["facts"]
+    return facts
+
+
+def _check_draft(
+    draft: DraftView,
+    view: DecisionView,
+    shown: tuple[Sequence[ScoreContribution], int | None] | None = None,
+) -> None:
     """A draft is the validated output of llm/ for the engine's decision of its version (rule 1):
-    llm.validator accepts it against the facts it cites (echo, labels, grounding of every
-    number, banned terms, script, phrasebook ids), and each message is
-    llm.phrasebook.render_selection of its ids, with the fields and the clause of the decision."""
+    its case facts are those llm.case.build_case writes (equal to a rebuild when the response
+    shows the score factors and the cluster size: `shown`), llm.validator accepts it against
+    the same case llm.generate validated (echo, labels, grounding of every number, banned
+    terms, script, phrasebook ids: one verdict, round 4, E11), and each message is
+    llm.phrasebook.render_selection of its ids, with the fields and the clause of the
+    decision."""
+    _check_case_facts(draft, view)
+    if shown is not None:
+        rebuilt = expected_case_facts(view, *shown)
+        if [fact.model_dump() for fact in draft.case_facts] != rebuilt:
+            raise ValueError(
+                "the facts of the draft are the facts llm.case.build_case writes for the version, "
+                "its score factors and its cluster as shown"
+            )
     decision = proposal_decision(view)
     base = view.inputs.base_terms.to_policy()
     levers, expected = serialize_decision(decision, base)
-    facts = _check_cited_facts(draft, view)
     case: dict[str, Any] = {
         "case_id": view.return_id,
         "path": expected.path,
@@ -2168,10 +2440,9 @@ def _check_draft(draft: DraftView, view: DecisionView) -> None:
             "available": sorted(expected.placeholders),
             "required": ["terms"] if expected.requires_terms else [],
         },
-        "facts": [fact.model_dump() for fact in facts],
+        "facts": [fact.model_dump() for fact in draft.case_facts],
     }
-    scored = view.path is Path.WITHDRAWAL and view.evidence_quality is EvidenceQuality.SUFFICIENT
-    if scored and view.inputs.cluster_id is not None:
+    if _scored(view) and view.inputs.cluster_id is not None:
         case["cluster"] = {"id": view.inputs.cluster_id}  # an identifier, never a value
     result = validate(draft.llm_output(), expected, case)
     if result.errors:
@@ -2188,18 +2459,32 @@ def _check_draft(draft: DraftView, view: DecisionView) -> None:
 def check_outbox_message(message: OutboxMessage, view: DecisionView) -> None:
     """An outbox message about a decision version: its return and customer, and the text
     llm.phrasebook.render_selection composes for the decision as it stands (the levers a person
-    approved or chose), with the refund it states, if any."""
+    approved or chose). It states a refund exactly when a diminished-value claim leaves one: the
+    price of the line less the claim, with the provenance of the claim (round 4, E12)."""
     if (message.decision_id, message.return_id, message.customer_id) != (
         view.decision_id,
         view.return_id,
         view.inputs.customer_id,
     ):
         raise ValueError("the message is about this decision, its return and its customer")
+    claim, refund = view.diminished_value_claim, message.refund
+    if (refund is None) != (claim is None):
+        raise ValueError("a message states a refund exactly when a diminished-value claim sets one")
+    if (
+        refund is not None
+        and claim is not None
+        and (
+            refund.provenance != claim.amount.provenance or _dec(refund.value) != claim.refund_eur()
+        )
+    ):
+        raise ValueError(
+            "the refund stated is the price of the line less the claim, with its provenance"
+        )
     decision, _ = to_policy_decision(view)
-    refund = _dec(float(message.refund.value)) if message.refund is not None else None
+    stated = _dec(float(refund.value)) if refund is not None else None
     check_rendering(
         message.sentence_ids, message.fields, message.legal_clause_kind, message.lang,
-        message.body, decision, view.inputs.base_terms.to_policy(), refund,
+        message.body, decision, view.inputs.base_terms.to_policy(), stated,
     )  # fmt: skip
 
 
@@ -2271,14 +2556,25 @@ class CaseCard(ApiModel):
             )
         ):
             raise ValueError("the value shown is the value given to the engine")
-        cluster = self.linked_accounts.cluster_id if self.linked_accounts else None
+        linked = self.linked_accounts
+        cluster = linked.cluster_id if linked else None
         if cluster != inputs.cluster_id:
             raise ValueError("the cluster shown is the cluster given to the engine")
+        rule = d.coupon_rule
+        if rule is not None and (
+            linked is None
+            or not set(rule.affected_customer_ids) <= {a.customer_id for a in linked.accounts}
+        ):
+            raise ValueError("a coupon block applies only to the linked accounts shown (LEG-09)")
+        claim = d.diminished_value_claim
+        if claim is not None and not _same_amount(claim.line_price.value, self.item.price_eur):
+            raise ValueError("a claim is computed on the price of the returned line")
         _check_alternatives(self.alternatives, d)
         if (self.draft_status == "ready") != (self.draft is not None):
             raise ValueError("a ready draft is present, a pending one is not")
         if self.draft is not None:
-            _check_draft(self.draft, d)
+            factors = self.risk.top_factors if self.risk is not None else []
+            _check_draft(self.draft, d, (factors, linked.cluster_size if linked else None))
         if self.product_anomaly is not None and (
             self.product_anomaly.variant_id != self.item.variant_id
         ):
@@ -2370,9 +2666,10 @@ class DecisionRequest(ApiModel):
     proposal is not a restriction: lift it).
 
     approve, override and reject send one message to the outbox (`message` required). lift and
-    renew send none (`message` null): the phrasebook has no reviewed sentence about a review yet,
-    and its return registration would state the refund deadline of a return closed long ago; the
-    customer sees the terms of a lift or a renewal at checkout, before each purchase (US-403)."""
+    renew send none (`message` null), as decided on 13 Oct 2026 (ADR-15 section 12, spec 19.B):
+    the customer sees the terms of a lift or a renewal at checkout, before each purchase
+    (US-403). A restriction is approved before its review date: a stale proposal answers 409
+    and the case is recomputed."""
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -2452,9 +2749,13 @@ _REVIEW_ACTIONS = ("restriction_lifted", "restriction_renewed")  # a person's re
 _NEW_VERSION_ACTIONS = (*_REVIEW_ACTIONS, "case_recomputed")
 
 
+_NUMBER_TEXT_RE = re.compile(r"\s*[-+]?(?:[0-9]+(?:[.,][0-9]*)?|[.,][0-9]+)\s*")
+
+
 def _check_payload_numbers(node: Any) -> None:
     """Rule 11 in the untyped payload of an audit entry: a number is a Metric {value, unit,
-    provenance} (a compensation in euros, for example), never a plain number (finding D7)."""
+    provenance} (a compensation in euros, for example), never a plain number (finding D7), a
+    Decimal or a number written as text (round 4, E7)."""
     if isinstance(node, dict):
         if set(node) == {"value", "unit", "provenance"}:
             Metric.model_validate(node)
@@ -2464,7 +2765,9 @@ def _check_payload_numbers(node: Any) -> None:
     elif isinstance(node, list):
         for value in node:
             _check_payload_numbers(value)
-    elif isinstance(node, int | float) and not isinstance(node, bool):
+    elif (isinstance(node, int | float | Decimal) and not isinstance(node, bool)) or (
+        isinstance(node, str) and _NUMBER_TEXT_RE.fullmatch(node)
+    ):
         raise ValueError(
             "a number in an audit payload is a Metric {value, unit, provenance} (rule 11)"
         )
@@ -2660,6 +2963,12 @@ class AuditEntry(ApiModel):
         expected = _AUDIT_STATES.get(self.action)
         if expected is not None and after.state != expected:
             raise ValueError(f"{self.action} leaves the version {expected}")
+        if self.action in HUMAN_ONLY_ACTIONS and after.approver != self.actor:
+            raise ValueError("the person who acts is the approver of the version (rule 5)")
+        if after.review_at is not None and after.review_at > utc_day(self.at) + timedelta(
+            days=MAX_REVIEW_DAYS
+        ):
+            raise ValueError("a review date is at most MAX_REVIEW_DAYS days after the entry")
         if self.action == "decision_proposed":
             if before is not None or after.version != 1:
                 raise ValueError("decision_proposed records a new case: version 1, no before")
@@ -2677,12 +2986,16 @@ class AuditEntry(ApiModel):
                 raise ValueError(
                     "a lift or a renewal reviews an approved or overridden restriction"
                 )
-            if self.action == "restriction_lifted" and after.lever_ids:
+            if self.action == "restriction_lifted" and (after.lever_ids or after.requires_approval):
                 raise ValueError("a lift ends the restriction with the standard levers")
             if self.action == "restriction_renewed":
                 self._check_renewal(before, after)
-        elif before.decision_id != after.decision_id or before.state != "proposed":
-            raise ValueError(f"{self.action} acts on a proposed version")
+        elif (
+            before.decision_id != after.decision_id
+            or before.version != after.version
+            or before.state != "proposed"
+        ):
+            raise ValueError(f"{self.action} acts on a proposed version, which keeps its number")
 
 
 AUDIT_CSV_COLUMNS: tuple[str, ...] = (
@@ -2707,10 +3020,11 @@ AUDIT_CSV_COLUMNS: tuple[str, ...] = (
 
 class OutboxMessage(ApiModel):
     """A message in the simulated outbox (spec 4: no real email), sent after a person acted: the
-    phrasebook ids, the template fields of its language, the refund the {amount} field states
-    (null when the refund amount is not known), and the body llm.phrasebook.render_selection
-    composed for the decision acted on, ending with the fixed legal clause it requires. The
-    models that hold the decision check the body against it (check_outbox_message)."""
+    subject (llm.phrasebook.subject), the phrasebook ids, the template fields of its language,
+    the refund the {amount} field states with the {deduction} that leaves it (both null without
+    a diminished-value claim), and the body llm.phrasebook.render_selection composed for the
+    decision acted on, ending with the fixed legal clause it requires. The models that hold the
+    decision check the body against it (check_outbox_message)."""
 
     message_id: Id
     return_id: Id
@@ -2736,6 +3050,10 @@ class OutboxMessage(ApiModel):
             raise ValueError("a refund is not negative")
         if self.fields.amount is not None and self.refund is None:
             raise ValueError("the {amount} field states the refund the message carries")
+        if (self.refund is None) != (self.fields.deduction is None):
+            raise ValueError("a refund is stated with the deduction that leaves it (E17)")
+        if self.subject != subject(self.return_id, self.lang):
+            raise ValueError("the subject is the fixed subject of llm.phrasebook (rule 10)")
         _check_rendered(
             self.sentence_ids, self.fields, self.legal_clause_kind, self.lang, self.body
         )
@@ -2748,7 +3066,6 @@ class OutboxMessage(ApiModel):
         *,
         message_id: str,
         lang: Lang,
-        subject: str,
         sentence_ids: Sequence[str],
         created_by: str,
         created_at: datetime,
@@ -2765,7 +3082,7 @@ class OutboxMessage(ApiModel):
             decision_id=view.decision_id,
             customer_id=view.inputs.customer_id,
             lang=lang,
-            subject=subject,
+            subject=subject(view.return_id, lang),
             sentence_ids=list(sentence_ids),
             fields=TemplateFields.of(decision, base, lang, amount),
             refund=refund,
@@ -2821,6 +3138,13 @@ class CouponRuleApplication(ApiModel):
         times = [x for x in (self.proposed_at, self.confirmed_at, self.reversed_at) if x]
         if times != sorted(times) or times[-1] > self.as_of:
             raise ValueError("proposed, confirmed and reversed in this order, before as_of")
+        if self.review_at <= utc_day(self.proposed_at):
+            raise ValueError("the review date of an application is after the day it is proposed")
+        if self.confirmed_at is not None and utc_day(self.confirmed_at) >= self.review_at:
+            raise ValueError(
+                "an application is confirmed before its review date: a stale proposal is "
+                "recomputed (409, US-607)"
+            )
         start = utc_day(self.confirmed_at or self.proposed_at)
         if self.review_at > start + timedelta(days=MAX_REVIEW_DAYS):
             raise ValueError(
@@ -2851,14 +3175,18 @@ def result_action(decision: DecisionView) -> AuditAction:
 
 class DecisionResult(ApiModel):
     """The outcome of POST .../decision: the version acted on (for a lift or a renewal, the new
-    version), its audit entry, its outbox message (approve, override and reject; none for a
-    lift or a renewal), and the cluster coupon application the act changed: confirmed by
-    approve, override or renew of levers that block the cluster's coupons (the decision's own
-    application), or reversed by a lift of a version that had one (US-402, US-607). The entry
-    and the message are about this decision, its return and its customer; the message is
-    llm.phrasebook.render_selection for the decision as it stands (check_outbox_message)."""
+    version, and `superseded`, the restriction it supersedes as served after the act), its audit
+    entry, its outbox message (approve, override and reject; none for a lift or a renewal: the
+    customer sees the terms at checkout), and the cluster coupon application the act changed:
+    confirmed by approve, override or renew of levers that block the cluster's coupons (the
+    decision's own application), or reversed by a lift of a version that had one (US-402,
+    US-607). The entry and the message are about this decision, its return and its customer;
+    the message is llm.phrasebook.render_selection for the decision as it stands
+    (check_outbox_message). The before of a lift or a renewal is the superseded version, so the
+    early-renewal rule rests on a verified review date (round 4, E5)."""
 
     decision: DecisionView
+    superseded: DecisionView | None  # the restriction a lift or a renewal supersedes
     audit_entry: AuditEntry
     outbox_message: OutboxMessage | None
     coupon_application: CouponRuleApplication | None
@@ -2901,14 +3229,38 @@ class DecisionResult(ApiModel):
                     "quadrant, risk, levers, approval and review date, no person yet"
                 )
         if action in _REVIEW_ACTIONS:
-            if not isinstance(before, DecisionAuditState) or before.decision_id != d.supersedes:
-                raise ValueError("a lift or a renewal records the version it supersedes as before")
-            if action == "restriction_renewed" and (
-                before.review_at is None or d.decided_on < before.review_at
-            ):
-                raise ValueError("a restriction is renewed at or after its review date (US-607)")
+            self._check_superseded(action, before)
+        elif self.superseded is not None:
+            raise ValueError("only a lift or a renewal supersedes a version")
         self._check_coupon_application(action, before)
         return self
+
+    def _check_superseded(
+        self,
+        action: AuditAction,
+        before: DecisionAuditState | GenerationAuditState | dict[str, Any] | None,
+    ) -> None:
+        d, old = self.decision, self.superseded
+        if old is None:
+            raise ValueError("a lift or a renewal carries the version it supersedes")
+        if (old.decision_id, old.return_id, old.version, old.superseded_by, old.as_of) != (
+            d.supersedes,
+            d.return_id,
+            d.version - 1,
+            d.decision_id,
+            d.as_of,
+        ):
+            raise ValueError(
+                "the superseded version is the one before, superseded by this one, served as of it"
+            )
+        if old.state not in ("approved", "overridden") or not old.requires_approval:
+            raise ValueError("a lift or a renewal reviews an approved or overridden restriction")
+        if before != DecisionAuditState.from_view(old):
+            raise ValueError("a lift or a renewal records the version it supersedes as before")
+        if action == "restriction_renewed" and (
+            old.review_at is None or d.decided_on < old.review_at
+        ):
+            raise ValueError("a restriction is renewed at or after its review date (US-607)")
 
     def _check_coupon_application(
         self,
@@ -2932,7 +3284,14 @@ class DecisionResult(ApiModel):
         if app.as_of != d.as_of:
             raise ValueError("the coupon application is served as of the decision")
         if action == "restriction_lifted":
-            if app.state != "reversed" or app.decision_id != d.supersedes:
+            old = self.superseded.coupon_rule if self.superseded is not None else None
+            if (
+                app.state != "reversed"
+                or app.decision_id != d.supersedes
+                or old is None
+                or (old.state, old.rule_version, old.cluster_id, old.affected_customer_ids)
+                != ("reversed", app.rule_version, app.cluster_id, app.affected_customer_ids)
+            ):
                 raise ValueError("a lift reverses the coupon application of the restriction")
             assert app.reversed_at is not None and d.approved_at is not None
             by_this_lift = (app.reversed_at, app.reversed_by, app.reversal_reason) == (
@@ -2948,11 +3307,12 @@ class DecisionResult(ApiModel):
             return
         rule = d.coupon_rule
         assert rule is not None
-        confirmed = (app.state, app.confirmed_by, app.confirmed_at) == (
-            "confirmed",
+        confirmed = (app.state, app.confirmed_by, app.confirmed_at, app.in_force) == (
+            rule.state,
             d.approver,
             d.approved_at,
-        )
+            rule.in_force,
+        ) and rule.state == "confirmed"
         same = (
             app.decision_id,
             app.rule_version,
@@ -2977,13 +3337,12 @@ class DecisionResult(ApiModel):
 
 
 class RegenerateRequest(ApiModel):
-    """A new draft in other languages or another tone. No free-text instruction: the prompt
-    only takes data (NFR-11). The response is plain JSON, not a stream: the validator checks the
-    whole output before it reaches the UI."""
+    """A new draft in other languages. No free-text instruction: the prompt only takes data
+    (NFR-11). The response is plain JSON, not a stream: the validator checks the whole output
+    before it reaches the UI. There is no tone: llm/ has none to apply (round 4, E14)."""
 
     decision_id: Id
     languages: list[Lang] = Field(default_factory=lambda: list(LANGS), min_length=1, max_length=2)
-    tone: Tone = "warm"
     requested_by: HumanActor
 
     @model_validator(mode="after")
@@ -3094,9 +3453,33 @@ class RecomputeResponse(ApiModel):
             raise ValueError("after shows the levers of the new decision")
         if (self.after.state, self.after.quadrant) != (self.decision.state, self.decision.quadrant):
             raise ValueError("after shows the state and the quadrant of the new decision")
-        _check_draft(self.draft, self.decision)
+        self._check_after()
+        _check_draft(self.draft, self.decision, (self.after.top_factors, self.after.cluster_size))
         self._check_coupon_application()
         return self
+
+    def _check_after(self) -> None:
+        """Round 4, E6: the after panel shows the figures the engine used for the new version:
+        its risk with the provenance of the inputs, the approval flag, the evidence quality and
+        the cluster; a dispute removes an active link, and evidence never adds one."""
+        d, before, after = self.decision, self.before, self.after
+        inputs = d.inputs
+        risk = after.risk
+        if (risk is None) != (inputs.risk is None) or (
+            risk is not None and (risk.value != inputs.risk or risk.provenance != inputs.provenance)
+        ):
+            raise ValueError("after shows the risk given to the engine, with its provenance")
+        if (after.requires_approval, after.evidence_quality) != (
+            d.requires_approval,
+            d.evidence_quality,
+        ):
+            raise ValueError("after shows the approval flag and the evidence of the new version")
+        if (after.cluster_size is None) != (inputs.cluster_id is None):
+            raise ValueError("after shows a cluster size exactly when the engine had a cluster")
+        if self.trigger == "link_disputed" and not after.active_links < before.active_links:
+            raise ValueError("a dispute removes an active link")
+        if after.active_links > before.active_links:
+            raise ValueError("evidence never adds an active link")
 
     def _check_coupon_application(self) -> None:
         before, app = self.before, self.coupon_application
@@ -3182,19 +3565,36 @@ class CheckoutEvaluateRequest(ApiModel):
     coupon_code: Id | None = None
 
 
+class CustomerText(ApiModel):
+    """A fixed customer text in Italian and English (rule 14), written by llm/phrasebook.py:
+    the simulated shop shows the language of the customer (round 4, E25)."""
+
+    it: MessageText
+    en: MessageText
+
+
 class SizeAdvice(ApiModel):
     """US-401: a specific size only with measurement and exchange data; otherwise the size guide
-    or a plain statement that no reliable recommendation exists."""
+    or a plain statement that no reliable recommendation exists. The text is the fixed text of
+    llm.phrasebook.size_advice_text."""
 
     kind: SizeAdviceKind
     suggested_size: Annotated[str, StringConstraints(min_length=1, max_length=16)] | None
-    text: ShortText
+    text: CustomerText
 
     @model_validator(mode="after")
     def _size(self) -> Self:
         if (self.kind == "specific") != (self.suggested_size is not None):
             raise ValueError("only a specific advice suggests a size")
+        expected = {lang: size_advice_text(self.kind, lang, self.suggested_size) for lang in LANGS}
+        if self.text.model_dump() != expected:
+            raise ValueError("the size advice is the fixed text of llm.phrasebook")
         return self
+
+    @classmethod
+    def of(cls, kind: SizeAdviceKind, suggested_size: str | None = None) -> SizeAdvice:
+        texts = {lang: size_advice_text(kind, lang, suggested_size) for lang in LANGS}
+        return cls(kind=kind, suggested_size=suggested_size, text=CustomerText(**texts))
 
 
 class CheckoutLine(ApiModel):
@@ -3204,14 +3604,25 @@ class CheckoutLine(ApiModel):
     size_advice: SizeAdvice | None  # present exactly when p_return >= p_return_threshold
 
 
+COUPON_BLOCK = CustomerText(**COUPON_BLOCK_TEXT)
+
+
 class CouponBlock(ApiModel):
     """Why coupons are off for this customer: a confirmed cluster rule application in force
-    (US-402), shown only before its review date (US-607)."""
+    (US-402), shown only before its review date (US-607). The text is the fixed, neutral text
+    of llm.phrasebook (the wording of the transparency notice): it never names the linked
+    accounts or the cluster to the customer (rule 11, round 4, E25)."""
 
     rule_version: Version
     application_id: Id
     review_at: date
-    text: ShortText
+    text: CustomerText
+
+    @model_validator(mode="after")
+    def _text(self) -> Self:
+        if self.text != COUPON_BLOCK:
+            raise ValueError("the coupon block shows the fixed text of llm.phrasebook")
+        return self
 
 
 class CheckoutEvaluateResponse(ApiModel):
@@ -3220,7 +3631,9 @@ class CheckoutEvaluateResponse(ApiModel):
     order (E2E-02: terms shown = snapshot stored)."""
 
     customer_id: Id
-    quadrant: Quadrant | None  # of the decision in force for the customer; null: base terms
+    # the engine's quadrant of the decision in force while its levers stand; null with base
+    # terms or a person's override (1.5.0, H3)
+    quadrant: Quadrant | None
     lines: list[CheckoutLine] = Field(min_length=1)
     terms: Terms
     base_terms: Terms  # the merchant base terms: terms_source base shows exactly these
@@ -3240,20 +3653,20 @@ class CheckoutEvaluateResponse(ApiModel):
             raise ValueError("a coupon block makes coupons ineligible")
         if not self.terms.coupons_enabled and self.coupon_eligible:
             raise ValueError("coupons disabled by the terms make them ineligible")
-        if (self.terms_source == "base") != (self.quadrant is None):
-            raise ValueError("base terms have no quadrant; decision terms have one")
-        _check_terms_source(
-            self.terms, self.base_terms, self.terms_source, self.review_at, self.shown_at
-        )
-        block = self.coupon_block
-        if block is not None and block.review_at <= utc_day(self.shown_at):
+        if self.terms_source == "base" and self.quadrant is not None:
             raise ValueError(
-                "a coupon block lapses at its review date: it is shown only before it (US-607)"
+                "base terms have no quadrant; decision terms have the engine's while its levers "
+                "stand, none after a person's override (1.5.0, H3)"
             )
-        if block is not None and block.review_at > utc_day(self.shown_at) + timedelta(
-            days=MAX_REVIEW_DAYS
-        ):
-            raise ValueError("a coupon block has a review date within MAX_REVIEW_DAYS days")
+        block = self.coupon_block
+        _check_terms_source(
+            self.terms,
+            self.base_terms,
+            self.terms_source,
+            self.review_at,
+            self.shown_at,
+            None if block is None else block.review_at,
+        )
         for line in self.lines:
             if (line.size_advice is not None) != (line.p_return >= self.p_return_threshold):
                 raise ValueError("size advice is shown exactly above the threshold (F2)")
@@ -3383,10 +3796,17 @@ class InspectionConfirmRequest(ApiModel):
 
 
 class InspectionConfirmResponse(ApiModel):
+    """The confirmed inspection, the claim attached to the decision and the message to the
+    customer. The message states the refund left after the claim ({amount}) and the amount
+    withheld with its reason ({deduction}, round 4, E17). It is sent exactly when a claim
+    applies and no restriction awaits a person's approval: an unapproved Q3 or Q4 proposal is
+    never announced to the customer (rule 5, round 4, E1); the refund and the deduction are then
+    stated by the message of the approval, override or rejection (DecisionResult)."""
+
     inspection: InspectionView
     claim: ClaimView | None
     decision: DecisionView
-    outbox_message: OutboxMessage | None  # the message with the motivation, when a claim applies
+    outbox_message: OutboxMessage | None
 
     @model_validator(mode="after")
     def _claim(self) -> Self:
@@ -3403,10 +3823,24 @@ class InspectionConfirmResponse(ApiModel):
                 raise ValueError("a claim rests on confirmed visible damage, never on vision alone")
             if self.claim.confirmed_by != self.inspection.confirmed_by:
                 raise ValueError("the inspector who confirmed signs the claim")
-            if self.outbox_message is None or self.outbox_message.refund is None:
-                raise ValueError("a claim is communicated with the refund it leaves")
+        awaiting = d.state == "proposed" and d.requires_approval
         message = self.outbox_message
+        if awaiting and message is not None:
+            raise ValueError(
+                "a restriction no person has approved is never announced to the customer (rule "
+                "5): the refund and the deduction are sent with the approval"
+            )
+        if (message is not None) != (self.claim is not None and not awaiting):
+            raise ValueError(
+                "a claim is communicated with the refund it leaves, unless the decision awaits "
+                "a person's approval; no claim, no message"
+            )
         if message is not None:
+            if (message.created_by, message.created_at) != (
+                self.inspection.confirmed_by,
+                self.inspection.confirmed_at,
+            ):
+                raise ValueError("the inspector sends the message at the confirmation")
             check_outbox_message(message, d)
         return self
 
@@ -3570,7 +4004,8 @@ CohortId = Literal["all", "new_customers", "households", "low_data", "high_value
 
 
 class KpiQuery(ApiModel):
-    week_start: Week | None = None  # default: the last complete week
+    # default: the week of the latest decision (1.5.0, H31), else the last complete week
+    week_start: Week | None = None
 
 
 class CohortRate(ApiModel):
@@ -3712,7 +4147,7 @@ class AuditQuery(ApiModel):
     since: AwareDatetime | None = None
     until: AwareDatetime | None = None
     format: Literal["json", "csv"] = "json"
-    page: int = Field(default=1, ge=1)
+    page: int = Field(default=1, ge=1, le=MAX_PAGE)
     page_size: int = Field(default=50, ge=1, le=500)
 
 
@@ -3725,7 +4160,7 @@ class AuditPage(ApiModel):
 
 class OutboxQuery(ApiModel):
     return_id: Id | None = None
-    page: int = Field(default=1, ge=1)
+    page: int = Field(default=1, ge=1, le=MAX_PAGE)
     page_size: int = Field(default=25, ge=1, le=100)
 
 
@@ -4004,6 +4439,14 @@ class AgentStream(RootModel[list[AgentEvent]]):
         done = events[-1]
         if isinstance(done, DoneEvent) and done.steps_used != step:
             raise ValueError("done.steps_used counts the tool calls")
+        refused = any(isinstance(e, RefusalEvent) and e.reason == "write_request" for e in events)
+        if isinstance(done, DoneEvent) and refused != (
+            done.generation.fallback_reason == "write_request"
+        ):
+            raise ValueError(
+                "a write request is refused by code before any model call (fallback "
+                "write_request), and only it (1.5.0, H8)"
+            )
         return self
 
 
@@ -4131,27 +4574,134 @@ class ComponentCheck(ApiModel):
     detail: ShortText | None
 
 
+ClockKind = Literal["demo", "system", "fixed"]
+
+
+class ClockView(ApiModel):
+    """The one clock of the API (1.5.0, ADR-15 section 15). demo (DEMO_CLOCK=on): 'now' is the
+    instant of the serving snapshot plus the time elapsed since the demo reset started the
+    clock, so the deadlines of the decisions the reset made stay ahead; system: the wall clock;
+    fixed: a clock that stands still (tests). Every 'now' of the API (as_of, the time of an act,
+    the period of a figure that ends now) is this clock's."""
+
+    kind: ClockKind
+    now: AwareDatetime
+    snapshot_as_of: AwareDatetime | None  # demo: the instant the clock starts from
+    started_at: AwareDatetime | None  # demo: the wall time it started (the end of the reset)
+    note: ShortText
+
+    @model_validator(mode="after")
+    def _demo(self) -> Self:
+        demo = self.kind == "demo"
+        if demo != (self.snapshot_as_of is not None) or demo != (self.started_at is not None):
+            raise ValueError("a demo clock, and only it, names its snapshot instant and start")
+        if self.snapshot_as_of is not None and self.now < self.snapshot_as_of:
+            raise ValueError("the demo clock never runs before the snapshot instant")
+        return self
+
+
 class ReadyzResponse(ApiModel):
     status: Literal["ready", "degraded", "not_ready"]
     mode: ServedFrom
-    llm_mode: LlmMode
+    llm_mode: LlmMode  # the mode of the outputs served: vllm in cached mode (MI300X outputs)
     device: Literal["cpu", "gpu"]
-    label: CachedLabel | None  # shown on every page in cached mode
+    # shown on every page in cached mode, while the precomputed outputs are there (1.5.0, H6)
+    label: CachedLabel | None
     checks: list[ComponentCheck] = Field(min_length=1)
     contract_version: Version
     rules_version: Version
     assumptions_version: Version
     model_versions: dict[str, Version]
+    clock: ClockView  # 1.5.0: the API's clock (H11)
+    public_read_only: bool  # 1.5.0: the public demo refuses the writes (H21)
 
     @model_validator(mode="after")
     def _status(self) -> Self:
-        if (self.mode == "cached") != (self.label is not None):
-            raise ValueError("cached mode carries its label, live mode none")
         statuses = {c.component: c.status for c in self.checks}
+        cache_ok = statuses.get("demo_cache") == "ok"
+        if (self.mode == "cached" and cache_ok) != (self.label is not None):
+            raise ValueError(
+                "the cached label is shown in cached mode while the precomputed outputs are "
+                "there, and only then"
+            )
+        if self.mode == "cached" and self.llm_mode != "vllm":
+            raise ValueError("cached mode serves the outputs vLLM made on the MI300X")
         if self.status == "ready" and "unavailable" in statuses.values():
             raise ValueError("ready means no component is unavailable")
-        if (self.status == "not_ready") != (statuses.get("database") != "ok"):
-            raise ValueError("not_ready exactly when the database is not ok")
+        required: tuple[ComponentName, ...] = ("database", "scores", "models")
+        if (self.status == "not_ready") != any(statuses.get(c) != "ok" for c in required):
+            raise ValueError("not_ready exactly when the database, scores or models are not ok")
+        return self
+
+
+# ---- The golden cases of the demo (1.5.0, ADR-15 section 15, H9) ------------------------------
+
+DemoCaseKey = Literal["giulia", "marco", "rossi", "rossi_card", "elena", "insufficient"]
+DEMO_CASE_KEYS: tuple[DemoCaseKey, ...] = get_args(DemoCaseKey)
+DemoCartKey = Literal["giulia", "ring"]
+DEMO_CART_KEYS: tuple[DemoCartKey, ...] = get_args(DemoCartKey)
+
+
+class DemoCase(ApiModel):
+    """A golden case of the demo with its live ids, found by the reset from the golden customer
+    ids of the store (pipeline.generator.golden): the open return of the customer, the version
+    the reset decided and the cluster the engine was given."""
+
+    key: DemoCaseKey
+    return_id: Id
+    customer_id: Id
+    decision_id: Id  # version 1, decided by the reset
+    cluster_id: Id | None
+
+
+class DemoDispute(ApiModel):
+    """A link whose dispute changes the cluster of the case named (US-310): the customer's
+    cluster has cluster_size_before accounts, and cluster_size_after once the link is out (1:
+    the account alone)."""
+
+    link_id: Id
+    return_id: Id
+    decision_id: Id
+    cluster_id: Id
+    cluster_size_before: int = Field(ge=2)
+    cluster_size_after: int = Field(ge=1)
+
+    @model_validator(mode="after")
+    def _changes(self) -> Self:
+        split_link_id(self.link_id)
+        if self.cluster_size_after >= self.cluster_size_before:
+            raise ValueError("the dispute shown makes the customer's cluster smaller")
+        return self
+
+
+class DemoCart(ApiModel):
+    """A checkout cart of the demo: Giulia's sizes, and an account of the Marco ring."""
+
+    key: DemoCartKey
+    request: CheckoutEvaluateRequest
+
+
+class DemoCasesResponse(ApiModel):
+    """GET /api/demo/cases: the ids the UI's demo flows open, built by the reset (US-903). A
+    golden case the store does not hold (a small --scale) is missing from the list."""
+
+    snapshot_as_of: AwareDatetime  # the instant the reset decided at
+    as_of: AwareDatetime  # when served (the API's clock)
+    cases: list[DemoCase]
+    dispute: DemoDispute | None
+    carts: list[DemoCart]
+    provenance: Provenance  # covers the cluster sizes of the dispute
+
+    @model_validator(mode="after")
+    def _order(self) -> Self:
+        keys = [c.key for c in self.cases]
+        if keys != [k for k in DEMO_CASE_KEYS if k in keys]:
+            raise ValueError("one case per key, in the order of DEMO_CASE_KEYS")
+        carts = [c.key for c in self.carts]
+        if carts != [k for k in DEMO_CART_KEYS if k in carts]:
+            raise ValueError("one cart per key, in the order of DEMO_CART_KEYS")
+        if self.as_of < self.snapshot_as_of:
+            raise ValueError("served after the reset")
         return self
 
 
@@ -4205,6 +4755,7 @@ API_MODELS: dict[str, type[BaseModel]] = {
     "agent_stream": AgentStream,
     "benchmarks": BenchmarksResponse,
     "telemetry": TelemetryResponse,
+    "demo_cases": DemoCasesResponse,
 }
 
 HttpMethod = Literal["GET", "POST", "PUT", "PATCH"]
@@ -4295,7 +4846,7 @@ ENDPOINTS: tuple[Endpoint, ...] = (
     Endpoint(
         "POST",
         "/api/returns/{return_id}/regenerate",
-        "New draft in other languages or another tone",
+        "New draft in other languages",
         ("US-304", "US-305"),
         "regenerate_response",
         request="regenerate_request",
@@ -4329,7 +4880,7 @@ ENDPOINTS: tuple[Endpoint, ...] = (
         ("US-401", "US-402", "US-403"),
         "checkout_evaluate_response",
         request="checkout_evaluate_request",
-        errors=(404,),
+        errors=(404, 429),
     ),
     Endpoint(
         "POST",
@@ -4339,7 +4890,7 @@ ENDPOINTS: tuple[Endpoint, ...] = (
         "checkout_confirm_response",
         request="checkout_confirm_request",
         status=201,
-        errors=(404, 409),
+        errors=(403, 404, 409),
     ),
     Endpoint(
         "POST",
@@ -4386,8 +4937,10 @@ ENDPOINTS: tuple[Endpoint, ...] = (
         errors=(403, 409),
         roles=MANAGER,
     ),
-    Endpoint("GET", "/api/kpi", "KPIs of a week", ("US-603",), "kpi", query="kpi_query"),
-    Endpoint("GET", "/api/fairness", "Fairness report", ("US-605",), "fairness"),
+    Endpoint(
+        "GET", "/api/kpi", "KPIs of a week", ("US-603",), "kpi", query="kpi_query", errors=(404,)
+    ),
+    Endpoint("GET", "/api/fairness", "Fairness report", ("US-605",), "fairness", errors=(404,)),
     Endpoint(
         "GET",
         "/api/audit",
@@ -4469,4 +5022,12 @@ ENDPOINTS: tuple[Endpoint, ...] = (
     ),
     Endpoint("GET", "/api/benchmarks", "Benchmarks B1-B4", ("US-902",), "benchmarks"),
     Endpoint("GET", "/api/telemetry", "GPU, LLM and API telemetry", ("US-905",), "telemetry"),
+    Endpoint(
+        "GET",
+        "/api/demo/cases",
+        "The golden cases of the demo with their live ids, built by the reset",
+        ("US-903",),
+        "demo_cases",
+        errors=(404,),
+    ),
 )

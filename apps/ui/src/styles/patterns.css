@@ -1,0 +1,61 @@
+/* Patterns (docs/ui-design.md 4.3). A hatch always comes with an icon and words: colour is never
+   the only carrier. */
+
+.hatch-attn {
+  background: repeating-linear-gradient(135deg, var(--attn-bg) 0 10px, var(--attn-hatch) 10px 20px);
+  color: var(--attn-fg);
+}
+
+.hatch-cached {
+  background: repeating-linear-gradient(135deg, var(--cached-bg) 0 10px, var(--cached-stripe) 10px 20px);
+  color: var(--cached-fg);
+}
+
+.hatch-sim {
+  background: repeating-linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--ink-3) 18%, transparent) 0 6px,
+    transparent 6px 12px
+  );
+}
+
+/* Nature glyph of an illustrative figure: a hatched square (NatureMark). */
+.nature-hatch {
+  background: repeating-linear-gradient(135deg, currentColor 0 1px, transparent 1px 3px);
+}
+
+@media (forced-colors: active) {
+  .hatch-attn,
+  .hatch-cached,
+  .hatch-sim {
+    background: Canvas;
+    color: CanvasText;
+    border: 1px solid CanvasText;
+  }
+}
+
+/* Shimmer for skeletons; still under reduced motion. */
+@keyframes rr-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, var(--surface-2) 25%, var(--border) 50%, var(--surface-2) 75%);
+  background-size: 200% 100%;
+  animation: rr-shimmer 1.4s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

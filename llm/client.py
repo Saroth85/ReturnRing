@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any, Protocol
 from urllib.parse import urlsplit
 
-from llm.phrasebook import allowed_sentences, context_of_case
+from llm.phrasebook import MIN_SENTENCES, allowed_sentences, context_of_case, max_extras
 from llm.prompts import case_messages
 from llm.templates import output_from_case
 
@@ -102,10 +102,13 @@ def output_schema() -> dict[str, Any]:
 
 def case_output_schema(case: Mapping[str, Any], schema: Mapping[str, Any]) -> dict[str, Any]:
     """The output schema for one case: the sentence id enum narrowed to the phrasebook ids
-    allowed for its decision; everything else, decision_echo included, unchanged."""
+    allowed for its decision, and the number of ids to its extras (two in Q3 and Q4);
+    everything else, decision_echo included, unchanged."""
     narrowed: dict[str, Any] = copy.deepcopy(dict(schema))
     ids = narrowed["properties"]["customer_message"]["properties"]["sentence_ids"]
-    ids["items"]["enum"] = [s.id for s in allowed_sentences(context_of_case(case))]
+    ctx = context_of_case(case)
+    ids["items"]["enum"] = [s.id for s in allowed_sentences(ctx)]
+    ids["maxItems"] = MIN_SENTENCES + max_extras(ctx)
     return narrowed
 
 

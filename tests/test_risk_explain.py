@@ -12,10 +12,10 @@ from contracts.parquet import is_forbidden_feature
 from llm.text import (
     banned_terms,
     decision_wording,
-    foreign_letters,
-    quadrant_axes,
+    foreign_characters,
+    level_mentions,
+    operator_topics,
     quadrant_labels,
-    restriction_words,
 )
 from ml.risk.explain import (
     ALONE_LABELS,
@@ -73,9 +73,9 @@ def test_phrases_hold_no_number_no_verdict_and_no_decision() -> None:
         assert not any(ch.isdigit() for ch in text), text
         assert banned_terms(text) == [], text
         assert decision_wording(text) == [], text
-        assert quadrant_labels(text) == [] and quadrant_axes(text) == [], text
-        assert restriction_words(text) == [], text
-        assert foreign_letters(text) == [], text
+        assert quadrant_labels(text) == [] and level_mentions(text) == [], text
+        assert operator_topics(text) == [], text
+        assert foreign_characters(text) == [], text
 
 
 def test_top_factors_rank_by_absolute_contribution_among_known_values() -> None:

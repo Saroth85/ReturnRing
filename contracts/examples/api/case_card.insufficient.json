@@ -99,8 +99,8 @@
       }
     ],
     "missing_evidence": [
-      "Fewer than 4 order lines observed for this customer",
-      "One identifier kind on file: email only (no device, address or card)"
+      "Too few order lines with a settled outcome for this customer",
+      "Only an email on file: no device, address or card"
     ]
   },
   "risk": null,
@@ -251,6 +251,8 @@
       "coupons_enabled": true
     },
     "review_at": null,
+    "coupon_application_id": null,
+    "coupon_review_at": null,
     "shown_at": "2026-09-20T20:14:00Z",
     "confirmed_at": "2026-09-20T20:15:00Z"
   },
@@ -269,8 +271,8 @@
     "evidence_quality": "insufficient",
     "quadrant": null,
     "missing_evidence": [
-      "Fewer than 4 order lines observed for this customer",
-      "One identifier kind on file: email only (no device, address or card)"
+      "Too few order lines with a settled outcome for this customer",
+      "Only an email on file: no device, address or card"
     ],
     "proposed_levers": [],
     "levers": [],
@@ -640,22 +642,32 @@
       "model": "mock",
       "model_calls": 1,
       "validator_codes": [
-        "DECISION_ECHO"
+        "DECISION_ECHO",
+        "TERMS_TOPIC"
       ],
       "created_at": "2026-09-29T13:06:00Z",
       "latency_ms": 14
     },
-    "tone": "warm",
     "decision_echo": {
       "path": "withdrawal",
       "quadrant": null,
       "lever_ids": []
     },
+    "case_facts": [
+      {
+        "id": "F1",
+        "entity": "return",
+        "metric": "days_since_delivery",
+        "value": 5,
+        "period": "2026-09-24/2026-09-29",
+        "nature": "synthetic"
+      }
+    ],
     "explanation": [
       {
         "label": "OBSERVED",
         "fact_ids": [],
-        "text": "Evidence is insufficient for a risk estimate: standard terms apply, no quadrant is assigned, and the missing evidence is listed with the case.",
+        "text": "Evidence is insufficient for a risk estimate: no quadrant is assigned, and the missing evidence is listed with the case.",
         "facts": []
       },
       {
@@ -689,18 +701,20 @@
           "fields": {
             "terms": null,
             "amount": null,
-            "deadline": "13 ottobre 2026"
+            "deadline": "il 13 ottobre 2026",
+            "deduction": null
           },
-          "text": "Ciao, grazie per averci scritto. Abbiamo registrato la tua richiesta di reso e il rimborso è previsto per il 13 ottobre 2026. Le condizioni di reso dei tuoi ordini restano quelle di sempre. Per qualsiasi domanda, rispondi pure a questo messaggio. Un caro saluto dal nostro team."
+          "text": "Ciao, grazie per averci scritto. Abbiamo registrato la tua richiesta di reso e il rimborso è previsto al più tardi per il 13 ottobre 2026. I tuoi prossimi ordini hanno le nostre condizioni di reso standard. Per qualsiasi domanda, rispondi pure a questo messaggio. Un caro saluto dal nostro team."
         },
         {
           "lang": "en",
           "fields": {
             "terms": null,
             "amount": null,
-            "deadline": "13 October 2026"
+            "deadline": "13 October 2026",
+            "deduction": null
           },
-          "text": "Hello, thank you for writing to us. We have registered your return request and your refund is due by 13 October 2026. The return terms of your orders stay the same as always. For any questions, just reply to this message. Warm regards from our team."
+          "text": "Hello, thank you for writing to us. We have registered your return request and your refund is due by 13 October 2026. Your next orders have our standard return terms. For any questions, just reply to this message. Warm regards from our team."
         }
       ]
     },

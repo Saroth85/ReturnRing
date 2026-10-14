@@ -491,12 +491,20 @@ def _python_strings(path: Path) -> Iterator[str]:
             yield node.value
 
 
+def _not_service_code(path: Path) -> bool:
+    """Files that are not code a running service executes: installed npm packages, the UI's
+    pinned copy of the API contract (apps/ui/contract-pin) and the TypeScript types generated from
+    the contract schemas, whose descriptions state rule 12 in words ("never reads data/truth/")."""
+    parts = set(path.parts)
+    return "node_modules" in parts or "contract-pin" in parts or path.name.endswith(".gen.ts")
+
+
 def test_data03_running_services_never_reference_truth() -> None:
     """Rule 12: api, ui and demo code never read data/truth/ (only offline jobs do)."""
     checked = 0
     for folder in ("apps", "llm", "policy"):
         for path in (ROOT / folder).rglob("*"):
-            if not path.is_file():
+            if not path.is_file() or _not_service_code(path):
                 continue
             if path.suffix == ".py":
                 strings = list(_python_strings(path))

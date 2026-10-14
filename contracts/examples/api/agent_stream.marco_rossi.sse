@@ -1,0 +1,52 @@
+event: tool_call
+id: 0
+data: {"type":"tool_call","seq":0,"step":1,"tool":"get_cluster","arguments":{"customer_id":"C-MARCO-1"}}
+
+event: tool_result
+id: 1
+data: {"type":"tool_result","seq":1,"step":1,"tool":"get_cluster","ok":true,"summary":"Cluster CL-000417: 7 accounts created within 9 days, 2 distinct cards","refs":[{"kind":"cluster","id":"CL-000417"}]}
+
+event: tool_call
+id: 2
+data: {"type":"tool_call","seq":2,"step":2,"tool":"get_cluster","arguments":{"customer_id":"C-ROSSI-2"}}
+
+event: tool_result
+id: 3
+data: {"type":"tool_result","seq":3,"step":2,"tool":"get_cluster","ok":true,"summary":"Cluster CL-000233: 3 accounts created more than a year apart, 3 distinct cards, 1 welcome coupon used","refs":[{"kind":"cluster","id":"CL-000233"}]}
+
+event: tool_call
+id: 4
+data: {"type":"tool_call","seq":4,"step":3,"tool":"get_score_factors","arguments":{"return_id":"RET-000102"}}
+
+event: tool_result
+id: 5
+data: {"type":"tool_result","seq":5,"step":3,"tool":"get_score_factors","ok":true,"summary":"Top contributions: welcome coupons per account, creation spread, change of mind","refs":[{"kind":"return","id":"RET-000102"}]}
+
+event: token
+id: 6
+data: {"type":"token","seq":6,"text":"The Rossi family (cluster CL-000233) shares an address and a device, but its "}
+
+event: token
+id: 7
+data: {"type":"token","seq":7,"text":"3 accounts were created more than a year apart, use 3 distinct cards "}
+
+event: token
+id: 8
+data: {"type":"token","seq":8,"text":"and only 1 used a welcome coupon. The 7 linked accounts of this "}
+
+event: token
+id: 9
+data: {"type":"token","seq":9,"text":"case (cluster CL-000417) were created within 9 days and each used a welcome "}
+
+event: token
+id: 10
+data: {"type":"token","seq":10,"text":"coupon."}
+
+event: answer
+id: 11
+data: {"type":"answer","seq":11,"text":"The Rossi family (cluster CL-000233) shares an address and a device, but its 3 accounts were created more than a year apart, use 3 distinct cards and only 1 used a welcome coupon. The 7 linked accounts of this case (cluster CL-000417) were created within 9 days and each used a welcome coupon.","evidence_consulted":[{"kind":"cluster","id":"CL-000417"},{"kind":"cluster","id":"CL-000233"},{"kind":"return","id":"RET-000102"}],"evidence_missing":[],"refs":[{"kind":"cluster","id":"CL-000417"},{"kind":"cluster","id":"CL-000233"},{"kind":"return","id":"RET-000102"}]}
+
+event: done
+id: 12
+data: {"type":"done","seq":12,"steps_used":3,"generation":{"generation_id":"GEN-AGENT-000002","generation_path":"model","fallback_reason":null,"llm_mode":"mock","served_from":"live","model":"mock","model_calls":1,"validator_codes":[],"created_at":"2026-09-30T18:10:00Z","latency_ms":27}}
+

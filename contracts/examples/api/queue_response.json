@@ -23,6 +23,8 @@
       ],
       "review_at": "2026-12-27",
       "review_due": false,
+      "refund_due_by": "2026-10-12",
+      "refund_overdue": false,
       "risk": {
         "value": 0.87,
         "unit": "probability",
@@ -73,6 +75,8 @@
       "lever_ids": [],
       "review_at": null,
       "review_due": false,
+      "refund_due_by": "2026-10-10",
+      "refund_overdue": false,
       "risk": null,
       "value": {
         "value": 68.05,
@@ -99,6 +103,65 @@
       "draft_status": "ready"
     },
     {
+      "return_id": "RET-000077",
+      "order_id": "ORD-004977",
+      "customer_id": "C-12007",
+      "display_name": "Nicola Serra",
+      "requested_at": "2026-09-29T13:12:00Z",
+      "reason": "changed_mind",
+      "path": "withdrawal",
+      "evidence_quality": "sufficient",
+      "quadrant": "Q4",
+      "decision_id": "DEC-000077-1",
+      "state": "approved",
+      "requires_approval": true,
+      "lever_ids": [
+        "return_window_days:14",
+        "free_return_shipping:false",
+        "instant_refund:false",
+        "coupons_enabled:false",
+        "cluster_coupons_disabled:true",
+        "transparency_notice:true"
+      ],
+      "review_at": "2026-12-28",
+      "review_due": false,
+      "refund_due_by": "2026-10-13",
+      "refund_overdue": false,
+      "risk": {
+        "value": 0.82,
+        "unit": "probability",
+        "provenance": {
+          "origin": "Contract example: risk model risk-xgb-0.1.0 on decision-time features of the synthetic shop",
+          "period_start": "2025-10-01",
+          "period_end": "2026-09-30",
+          "nature": "synthetic"
+        }
+      },
+      "value": {
+        "value": 19.75,
+        "unit": "eur",
+        "provenance": {
+          "origin": "Contract example: customer value, 12-month net margin (spec 8.5) of the synthetic shop",
+          "period_start": "2025-10-01",
+          "period_end": "2026-09-30",
+          "nature": "synthetic"
+        }
+      },
+      "expected_net_benefit": {
+        "value": 55.5,
+        "unit": "eur",
+        "provenance": {
+          "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+          "period_start": "2026-10-01",
+          "period_end": "2027-09-30",
+          "nature": "simulated"
+        }
+      },
+      "linked_account_count": 2,
+      "variant_anomaly": false,
+      "draft_status": "ready"
+    },
+    {
       "return_id": "RET-000101",
       "order_id": "ORD-004811",
       "customer_id": "C-GIULIA",
@@ -117,6 +180,8 @@
       ],
       "review_at": null,
       "review_due": false,
+      "refund_due_by": "2026-10-11",
+      "refund_overdue": false,
       "risk": {
         "value": 0.12,
         "unit": "probability",
@@ -170,6 +235,8 @@
       ],
       "review_at": "2026-09-27",
       "review_due": true,
+      "refund_due_by": "2026-07-13",
+      "refund_overdue": false,
       "risk": {
         "value": 0.68,
         "unit": "probability",
@@ -223,6 +290,8 @@
       ],
       "review_at": null,
       "review_due": false,
+      "refund_due_by": "2026-10-12",
+      "refund_overdue": false,
       "risk": {
         "value": 0.22,
         "unit": "probability",
@@ -276,6 +345,8 @@
       ],
       "review_at": "2026-12-28",
       "review_due": false,
+      "refund_due_by": "2026-10-13",
+      "refund_overdue": false,
       "risk": {
         "value": 0.71,
         "unit": "probability",
@@ -329,6 +400,8 @@
       ],
       "review_at": "2026-12-28",
       "review_due": false,
+      "refund_due_by": "2026-10-13",
+      "refund_overdue": false,
       "risk": {
         "value": 0.66,
         "unit": "probability",
@@ -379,6 +452,8 @@
       "lever_ids": [],
       "review_at": null,
       "review_due": false,
+      "refund_due_by": "2026-10-14",
+      "refund_overdue": false,
       "risk": null,
       "value": {
         "value": 78.45,
@@ -420,6 +495,8 @@
       "lever_ids": [],
       "review_at": null,
       "review_due": false,
+      "refund_due_by": "2026-10-09",
+      "refund_overdue": false,
       "risk": {
         "value": 0.18,
         "unit": "probability",
@@ -470,6 +547,8 @@
       "lever_ids": [],
       "review_at": null,
       "review_due": false,
+      "refund_due_by": "2026-10-10",
+      "refund_overdue": false,
       "risk": {
         "value": 0.34,
         "unit": "probability",
@@ -520,6 +599,8 @@
       "lever_ids": [],
       "review_at": null,
       "review_due": false,
+      "refund_due_by": "2026-10-13",
+      "refund_overdue": false,
       "risk": null,
       "value": {
         "value": 18.95,
@@ -561,6 +642,8 @@
       "lever_ids": [],
       "review_at": null,
       "review_due": false,
+      "refund_due_by": "2026-10-10",
+      "refund_overdue": false,
       "risk": {
         "value": 0.31,
         "unit": "probability",
@@ -611,6 +694,8 @@
       "lever_ids": [],
       "review_at": null,
       "review_due": false,
+      "refund_due_by": "2026-10-11",
+      "refund_overdue": false,
       "risk": {
         "value": 0.28,
         "unit": "probability",
@@ -646,7 +731,7 @@
       "draft_status": "ready"
     }
   ],
-  "total": 13,
+  "total": 14,
   "page": 1,
   "page_size": 25,
   "sort": "-expected_net_benefit",

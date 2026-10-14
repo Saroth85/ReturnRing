@@ -1,0 +1,25 @@
+# Build context of the images built from the repository root (apps/api, infra/docker/*): code
+# only. Data, models, the serving snapshot and the demo package are mounted at run time, never
+# copied into an image (rule 12, ADR-12); secrets never reach a layer. apps/ui has its own
+# .dockerignore (its build context is apps/ui).
+.git
+.github
+.env
+.env.*
+!.env.example
+data
+artifacts
+serving
+demo-cache
+demo-cache.tar.gz
+bench-work
+**/node_modules
+**/dist
+**/__pycache__
+**/*.py[cod]
+.venv
+.mypy_cache
+.ruff_cache
+.pytest_cache
+.hypothesis
+.coverage

@@ -36,13 +36,14 @@ from contracts.vocab import (
     DEMO_USERS,
     AuditAction,
     AuditEntityType,
+    CouponApplicationState,
     DecisionStatus,
+    GenerationKind,
     Lang,
     OverrideCategory,
     RevisionTrigger,
-    Tone,
 )
-from llm.case import ClusterSummary, ScoreFactor, build_case
+from llm.case import ClusterSummary, ScoreFactor, build_case, factor_entity
 from llm.client import MockClient
 from llm.decision import ExpectedDecision, serialize_decision
 from llm.generate import generate
@@ -643,6 +644,8 @@ def base_snapshot(order: Order, customer_id: str) -> s.TermsSnapshotView:
         terms=s.Terms.from_policy(BASE),
         base_terms=s.Terms.from_policy(BASE),
         review_at=None,
+        coupon_application_id=None,
+        coupon_review_at=None,
         shown_at=shown,
         confirmed_at=shown + timedelta(minutes=1),
     )
@@ -666,7 +669,10 @@ def run_engine(
     value: Decimal | None,
     evidence: EvidenceQuality = EvidenceQuality.SUFFICIENT,
     cluster_id: str | None = None,
+    decided_on: date | None = None,
 ) -> Engine:
+    """policy.engine.decide on a return request; the decision day is the notice day (the
+    intake), or `decided_on` for a later version (a recompute is decided on its own day)."""
     request = ReturnRequest(
         return_id=return_id,
         order_id=order_id,
@@ -682,7 +688,8 @@ def run_engine(
         evidence_quality=evidence,
         cluster_id=cluster_id,
     )
-    decision = decide(request, scores, BASE, THRESHOLDS, notice_on, COUPON_RULE)
+    day = decided_on or notice_on
+    decision = decide(request, scores, BASE, THRESHOLDS, day, COUPON_RULE)
     return Engine(request, scores, decision)
 
 
@@ -729,24 +736,32 @@ def decision_view(
     affected: Sequence[str] = (),
     approved_at: datetime | None = None,
     claim: s.ClaimView | None = None,
+    coupon_state: CouponApplicationState | None = None,
     **outcome: Any,
 ) -> s.DecisionView:
     """The view of the engine's decision. `outcome` replaces fields before the view is validated:
-    a person's outcome that is not policy.engine's (an override, a lift; see acted_fields)."""
+    a person's outcome that is not policy.engine's (an override, a lift; see acted_fields).
+    `coupon_state` is the state of the coupon application when it is not the decision's own
+    (reversed after the approval)."""
     d, req, sc = engine.decision, engine.request, engine.scores
     levers = s.levers_from_policy(d.levers, BASE)
+    state = _STATES[d.state]
+    standing = in_force(state, d.requires_approval, d.review_on, as_of, superseded_by)
     coupon_rule = None
     if d.coupon_rule is not None and "coupon_rule" not in outcome:
         assert d.coupon_rule.rule_version and sc.cluster_id and coupon_application_id
+        assert d.coupon_rule.cluster_id == sc.cluster_id and d.review_on is not None
+        rule_state = coupon_state or ("confirmed" if d.coupon_rule.confirmed_by else "proposed")
         coupon_rule = s.CouponRuleRef(
             rule_version=d.coupon_rule.rule_version,
             application_id=coupon_application_id,
             cluster_id=sc.cluster_id,
             affected_customer_ids=list(affected),
             confirmed_by=d.coupon_rule.confirmed_by,
+            state=rule_state,
+            in_force=rule_state == "confirmed" and standing and s.utc_day(as_of) < d.review_on,
         )
     scored = d.path is ReturnPath.WITHDRAWAL
-    state = _STATES[d.state]
     fields: dict[str, Any] = dict(
         decision_id=f"DEC-{req.return_id.removeprefix('RET-')}-{version}",
         return_id=req.return_id,
@@ -766,7 +781,7 @@ def decision_view(
         levers=levers,
         lever_ids=d.levers.lever_ids(BASE),
         requires_approval=d.requires_approval,
-        in_force=in_force(state, d.requires_approval, d.review_on, as_of, superseded_by),
+        in_force=standing,
         current_return_terms=s.Terms.from_policy(d.current_return_terms),
         future_terms=s.Terms.from_policy(d.levers.future_terms),
         refund_due_by=d.refund_due_by,
@@ -800,6 +815,26 @@ def decision_view(
         generation_id=generation_id,
     )
     return s.DecisionView.model_validate({**fields, **outcome})
+
+
+def serve(
+    view: s.DecisionView,
+    as_of: datetime,
+    superseded_by: str | None = None,
+    coupon_state: CouponApplicationState | None = None,
+) -> s.DecisionView:
+    """The view as served at `as_of`: in_force of the decision and of its coupon application
+    (with `coupon_state`, for example reversed by a lift), and the version that superseded it."""
+    standing = in_force(view.state, view.requires_approval, view.review_at, as_of, superseded_by)
+    updates: dict[str, Any] = {"as_of": as_of, "superseded_by": superseded_by, "in_force": standing}
+    rule = view.coupon_rule
+    if rule is not None:
+        assert view.review_at is not None
+        state = coupon_state or rule.state
+        live = state == "confirmed" and standing and s.utc_day(as_of) < view.review_at
+        updates["coupon_rule"] = {**rule.model_dump(), "state": state, "in_force": live}
+    out: s.DecisionView = revalidate(view, **updates)
+    return out
 
 
 def acted_fields(
@@ -923,17 +958,6 @@ POLICY_TEXT = (
     "Navigli Fashion return policy (demo): returns within the window of the order terms, refund "
     "within 14 days of the notice, the legal guarantee for defects."
 )
-# Score factors measured on the cluster: their facts have the entity cluster (llm/case.py).
-CLUSTER_FEATURES = frozenset(
-    {
-        "welcome_coupons_per_account",
-        "creation_spread_days",
-        "strong_id_share",
-        "cluster_return_rate",
-        "n_distinct_cards",
-        "cluster_size",
-    }
-)
 
 
 @dataclass(frozen=True)
@@ -979,7 +1003,6 @@ def draft(
     customer_text: str | None = None,
     outputs: Outputs | None = None,
     languages: Sequence[Lang] = ("it", "en"),
-    tone: Tone = "warm",
     latency_ms: int = 14,
 ) -> s.DraftView:
     """A draft made by llm/ as the API makes it: llm.case.build_case of the engine decision of
@@ -991,13 +1014,14 @@ def draft(
     scored = (
         view.path is ReturnPath.WITHDRAWAL and view.evidence_quality is EvidenceQuality.SUFFICIENT
     )
+    clustered = scored and linked is not None
     case = build_case(
         decision,
         engine.request,
         BASE,
         policy_text=POLICY_TEXT,
         scores=engine.scores if scored else None,
-        factors=score_factors_of(factors) if scored else (),
+        factors=score_factors_of(factors, clustered) if scored else (),
         cluster=cluster_summary(linked) if scored and linked is not None else None,
         missing_evidence=view.missing_evidence,
         customer_text=customer_text,
@@ -1016,20 +1040,19 @@ def draft(
         latency_ms=latency_ms,
     )
     DRAFT_SOURCES[generation_id] = DraftSource(view.decision_id, case, expected, decision)
-    return s.DraftView.build(
-        info, result.output, case, decision, BASE, view.inputs.provenance, tone
-    )
+    return s.DraftView.build(info, result.output, case, decision, BASE, view.inputs.provenance)
 
 
-def score_factors_of(factors: Sequence[s.ScoreContribution] | None) -> list[ScoreFactor]:
+def score_factors_of(
+    factors: Sequence[s.ScoreContribution] | None, clustered: bool
+) -> list[ScoreFactor]:
+    """The score factors of a case as the API gives them to llm.case: the entity of each fact is
+    llm.case.factor_entity (a cluster feature of an account alone is a fact of the customer)."""
     out: list[ScoreFactor] = []
     for c in factors or ():
         value = c.feature_value
         assert isinstance(value, int | float) and not isinstance(value, bool), c.feature
-        entity: Literal["customer", "cluster"] = (
-            "cluster" if c.feature in CLUSTER_FEATURES else "customer"
-        )
-        out.append(ScoreFactor(c.feature, value, c.phrase, entity))
+        out.append(ScoreFactor(c.feature, value, c.phrase, factor_entity(c.feature, clustered)))
     return out
 
 
@@ -1074,10 +1097,6 @@ def model_generation(generation_id: str, created_at: datetime, latency_ms: int) 
     )
 
 
-def subject(lang: Lang, return_id: str) -> str:
-    return f"{'Il tuo reso' if lang == 'it' else 'Your return'} {return_id}"
-
-
 def outbox_message(
     message_id: str,
     decision: s.DecisionView,
@@ -1100,7 +1119,6 @@ def outbox_message(
         decision,
         message_id=message_id,
         lang=lang,
-        subject=subject(lang, decision.return_id),
         sentence_ids=ids,
         created_by=created_by,
         created_at=created_at,
@@ -1283,6 +1301,8 @@ def queue_item(card: s.CaseCard) -> s.QueueItem:
             and d.review_at is not None
             and d.review_at <= AS_OF.date()
         ),
+        refund_due_by=d.refund_due_by,
+        refund_overdue=d.state == "proposed" and d.refund_due_by < AS_OF.date(),
         risk=card.risk.score if card.risk else None,
         value=card.value.value_eur if card.value else None,
         expected_net_benefit=recommended.net_benefit.total,
@@ -1392,12 +1412,11 @@ def giulia() -> Case:
                 case,
                 [
                     ("SCORE", ["risk_score", "size_share"],
-                     f"Risk score {fact_value(case, 'risk_score')}; size_share at "
-                     f"{fact_value(case, 'size_share')} lowers it: a contribution to the score, "
-                     "not a cause."),
+                     f"Risk score {fact_value(case, 'risk_score')}: an estimate, not a cause. "
+                     f"size_share ({fact_value(case, 'size_share')}) lowers it."),
                     ("OBSERVED", ["value_eur_12m"],
                      f"Customer net margin over the period: {fact_value(case, 'value_eur_12m')} "
-                     "EUR, above the value threshold."),
+                     "EUR."),
                     ("OBSERVED", ["days_since_delivery"],
                      "The size return came "
                      f"{fact_value(case, 'days_since_delivery')} days after delivery."),
@@ -1528,15 +1547,16 @@ def marco() -> Case:
                 case,
                 [
                     ("SCORE", ["risk_score", "welcome_coupons_per_account"],
-                     f"Risk score {fact_value(case, 'risk_score')}; the largest contribution is "
-                     "welcome_coupons_per_account: each linked account used the welcome "
-                     "coupon."),
+                     f"Risk score {fact_value(case, 'risk_score')}: an estimate, not a cause. "
+                     "welcome_coupons_per_account "
+                     f"({fact_value(case, 'welcome_coupons_per_account')}) contributes most to "
+                     "it: each linked account used the welcome coupon."),
                     ("OBSERVED", ["cluster_size", "creation_spread_days"],
                      f"The cluster has {fact_value(case, 'cluster_size')} linked accounts, "
                      f"created within {fact_value(case, 'creation_spread_days')} days."),
                     ("HYPOTHESIS", [],
-                     "The linked accounts may be managed together: verify the shared payment "
-                     "cards before approving."),
+                     "The shared device and payment cards of the linked accounts are worth "
+                     "checking in the order log."),
                 ],
                 ["OPEN_THANKS", "INFO_TERMS", "CLOSE_REGARDS"],
             )
@@ -1721,6 +1741,7 @@ def jacket_anomaly(task_id: str | None = "CT-000012") -> s.ProductAnomaly:
         status="open" if task_id is None else "task_opened",
         catalog_task_id=task_id,
         return_ids=["RET-000097", "RET-000099", "RET-000105"],
+        queued_return_ids=["RET-000105"],
         trend=trend,
     )
 
@@ -1790,7 +1811,7 @@ def elena() -> Case:
             outputs=answer,
             latency_ms=31,
         ),  # fmt: skip
-        anomaly=jacket_anomaly(),
+        anomaly=jacket_anomaly(None),  # open at the demo clock: the task is created at 18:45
     )
     return Case("elena", card, engine, queue_item(card))
 
@@ -1805,13 +1826,18 @@ ESPOSITO_FACTORS = (
 
 
 def esposito_engine(after_dispute: bool) -> Engine:
+    """Chiara's case at intake, or recomputed on the day of the dispute (E4)."""
     order = ORDERS_ESPOSITO[-1]
     return run_engine(
         "RET-000106", order.order_id, "C-10233", ReturnReason.CHANGED_MIND,
         order.placed + timedelta(days=4), date(2026, 9, 29),
         0.41 if after_dispute else 0.66, value_parts(ORDERS_ESPOSITO)[3],
         cluster_id=None if after_dispute else ESPOSITO_CLUSTER,
+        decided_on=DISPUTE_AT.date() if after_dispute else None,
     )  # fmt: skip
+
+
+DISPUTE_AT = AS_OF + timedelta(minutes=40)
 
 
 def chiara() -> Case:
@@ -2139,9 +2165,11 @@ def simple_case(c: Simple) -> Case:
     return Case(c.key, card, engine, queue_item(card))
 
 
+# Number-free, as llm.case requires (ADR-14 decision 11): the counts are shown from the
+# evidence_quality columns with their provenance, not inside the sentence.
 MISSING_EVIDENCE = [
-    "Fewer than 4 order lines observed for this customer",
-    "One identifier kind on file: email only (no device, address or card)",
+    "Too few order lines with a settled outcome for this customer",
+    "Only an email on file: no device, address or card",
 ]
 ORDERS_DAVIDE = (
     Order(
@@ -2332,8 +2360,9 @@ def marco_approval(case: Case) -> tuple[s.DecisionRequest, s.DecisionResult, Dec
     )
     result = s.DecisionResult(
         decision=view,
+        superseded=None,
         audit_entry=decision_entry(
-            3, approved_at, "sara", "decision_approved", view, before=proposed
+            1, approved_at, "sara", "decision_approved", view, before=proposed
         ),  # fmt: skip
         outbox_message=outbox_message(
             "MSG-000102-1",
@@ -2367,8 +2396,9 @@ def override_example(case: Case) -> tuple[s.DecisionRequest, s.DecisionResult]:
     )
     result = s.DecisionResult(
         decision=overridden,
+        superseded=None,
         audit_entry=decision_entry(
-            11, when, "sara", "decision_overridden", overridden, reason, before=view
+            1, when, "sara", "decision_overridden", overridden, reason, before=view
         ),  # fmt: skip
         outbox_message=outbox_message(
             "MSG-000108-1", overridden, "it", "sara", when, sentence_ids=chosen
@@ -2394,8 +2424,9 @@ def reject_example(case: Case) -> tuple[s.DecisionRequest, s.DecisionResult]:
     )
     result = s.DecisionResult(
         decision=rejected,
+        superseded=None,
         audit_entry=decision_entry(
-            12, when, "sara", "decision_rejected", rejected, reason, before=view
+            1, when, "sara", "decision_rejected", rejected, reason, before=view
         ),  # fmt: skip
         outbox_message=outbox_message(
             "MSG-000107-1",
@@ -2438,6 +2469,13 @@ def review_result(
         "supersedes": before.decision_id,
     }
     application: s.CouponRuleApplication | None = None
+    reversed_by_lift = action == "lift" and before.coupon_rule is not None
+    superseded = serve(
+        before,
+        when,
+        f"DEC-{before.return_id.removeprefix('RET-')}-{before.version + 1}",
+        "reversed" if reversed_by_lift else None,
+    )
     if action == "lift":
         assert reason is not None and category is not None
         outcome = acted_fields(fresh.decided_on, None, "overridden", [], person, when, reason,
@@ -2475,8 +2513,10 @@ def review_result(
         approver=person,
     )
     audit_action: AuditAction = "restriction_lifted" if action == "lift" else "restriction_renewed"
+    assert superseded.superseded_by == after.decision_id
     result = s.DecisionResult(
         decision=after,
+        superseded=superseded,
         audit_entry=decision_entry(entry_id, when, person, audit_action, after, reason, before),
         outbox_message=None,
         coupon_application=application,
@@ -2492,9 +2532,15 @@ def lift_example(case: Case) -> tuple[s.DecisionRequest, s.DecisionResult]:
     """US-607: Luca reviews a Q3 restriction after its review date and lifts it. The approved
     version stays in the log; the new version has the standard levers."""
     return review_result(
-        case.engine, case.card.decision, "lift", "luca", LIFT_AT, entry_id=14,
+        case.engine, case.card.decision, "lift", "luca", LIFT_AT, entry_id=1,
         reason=LIFT_REASON, category="periodic_review",
     )  # fmt: skip
+
+
+def renew_example(case: Case) -> tuple[s.DecisionRequest, s.DecisionResult]:
+    """US-607, the other outcome of the same review (scenario "renewed"): Luca renews Lorenzo's
+    Q3 restriction at the same time; the new version has the same id as the lift's."""
+    return review_result(case.engine, case.card.decision, "renew", "luca", LIFT_AT, entry_id=1)
 
 
 def legal_guard_error(elena_case: Case) -> tuple[s.DecisionRequest, s.ErrorResponse]:
@@ -2531,12 +2577,12 @@ def legal_guard_error(elena_case: Case) -> tuple[s.DecisionRequest, s.ErrorRespo
 
 
 def regenerate_example(giulia_case: Case) -> tuple[s.RegenerateRequest, s.RegenerateResponse]:
-    """A new English draft of Giulia's case in a formal tone: llm/ runs again on the same case,
-    in the languages asked for."""
+    """A new English draft of Giulia's case: llm/ runs again on the same case, in the languages
+    asked for."""
     view = giulia_case.card.decision
     created = AS_OF + timedelta(minutes=5)
     request = s.RegenerateRequest(
-        decision_id=view.decision_id, languages=["en"], tone="formal", requested_by="sara"
+        decision_id=view.decision_id, languages=["en"], requested_by="sara"
     )
     assert giulia_case.card.risk is not None
     response = s.RegenerateResponse(
@@ -2550,7 +2596,6 @@ def regenerate_example(giulia_case: Case) -> tuple[s.RegenerateRequest, s.Regene
             risk=giulia_case.card.risk,
             customer_text=giulia_case.card.request.customer_text,
             languages=request.languages,
-            tone=request.tone,
             latency_ms=11,
         ),  # fmt: skip
     )
@@ -2559,18 +2604,19 @@ def regenerate_example(giulia_case: Case) -> tuple[s.RegenerateRequest, s.Regene
 
 def snapshot(
     view: s.DecisionView,
-    risk: float | None,
     factors: Sequence[s.ScoreContribution],
     cluster_size: int | None,
     active_links: int,
 ) -> s.CaseSnapshot:
+    """The figures of a version shown before and after a recompute: the risk given to the
+    engine, with the provenance of its inputs (round 4, E6)."""
     return s.CaseSnapshot(
         decision_id=view.decision_id,
         version=view.version,
         state=view.state,
         quadrant=view.quadrant,
         evidence_quality=view.evidence_quality,
-        risk=metric_or_none(risk, "probability", SCORES),
+        risk=metric_or_none(view.inputs.risk, "probability", view.inputs.provenance),
         top_factors=list(factors),
         lever_ids=view.lever_ids,
         requires_approval=view.requires_approval,
@@ -2589,12 +2635,12 @@ def evidence_example(case: Case) -> tuple[s.EvidenceRequest, s.RecomputeResponse
         target_link_ids=[link],
         author="sara",
     )
+    when = AS_OF + timedelta(minutes=30)
     after_engine = run_engine(
         "RET-000104", "ORD-005344", "C-ROSSI-CARD-2", ReturnReason.SIZE,
         date(2026, 9, 20), date(2026, 9, 26), 0.21, value_parts(ORDERS_ROSSI_CARD)[3],
-        cluster_id="CL-000588",
+        cluster_id="CL-000588", decided_on=when.date(),
     )  # fmt: skip
-    when = AS_OF + timedelta(minutes=30)
     after_view = decision_view(
         after_engine,
         version=2,
@@ -2623,8 +2669,8 @@ def evidence_example(case: Case) -> tuple[s.EvidenceRequest, s.RecomputeResponse
         trigger="evidence_added",
         evidence_id="EV-000004",
         dispute_id=None,
-        before=snapshot(before_view, 0.34, before_factors, 3, 3),
-        after=snapshot(after_view, 0.21, after_factors, 3, 2),
+        before=snapshot(before_view, before_factors, 3, 3),
+        after=snapshot(after_view, after_factors, 3, 2),
         decision=after_view,
         draft=draft(
             after_view,
@@ -2643,7 +2689,7 @@ def evidence_example(case: Case) -> tuple[s.EvidenceRequest, s.RecomputeResponse
 
 def dispute_example(case: Case) -> tuple[s.LinkDisputeRequest, s.LinkDisputeResponse]:
     reason = "Card used once for a gift; the accounts are in different households"
-    when = AS_OF + timedelta(minutes=40)
+    when = DISPUTE_AT
     info = s.LinkDisputeInfo(dispute_id="LD-000002", reason=reason, author="sara", created_at=when)
     before = case.card.decision
     request = s.LinkDisputeRequest(
@@ -2688,8 +2734,8 @@ def dispute_example(case: Case) -> tuple[s.LinkDisputeRequest, s.LinkDisputeResp
         trigger="link_disputed",
         evidence_id=None,
         dispute_id=info.dispute_id,
-        before=snapshot(before, 0.66, [factor(*f) for f in ESPOSITO_FACTORS], 3, 3),
-        after=snapshot(after, 0.41, after_factors, None, 0),
+        before=snapshot(before, [factor(*f) for f in ESPOSITO_FACTORS], 3, 3),
+        after=snapshot(after, after_factors, None, 0),
         decision=after,
         draft=draft(
             after,
@@ -2732,28 +2778,86 @@ def recompute_alternatives(view: s.DecisionView) -> list[s.Alternative]:
 
 
 EARLIER_CLUSTER = "CL-000655"
-EARLIER_ACCOUNTS = ("C-12007", "C-12930", "C-15561")
+EARLIER_APPLICATION = "CRA-000027"
+EARLIER_REVERSAL = "The linked accounts share a pickup point only: application reversed"
+EARLIER_REVERSED_AT = AS_OF - timedelta(hours=1)
+PICKUP_29 = {"addr:PICKUP-29": 35}  # a pickup point shared by 35 accounts of the shop
 
 
-def earlier_cluster_decision() -> tuple[s.DecisionView, list[s.Alternative]]:
-    """DEC-000077-1: an earlier Q4 case of cluster CL-000655, approved by Sara on 29 September
-    with the coupon block of its 3 linked accounts (application CRA-000027, which Luca later
-    reversed on request: coupon_rules.json). Served by GET /api/decisions/DEC-000077-1."""
+def earlier_accounts() -> list[Account]:
+    """Cluster CL-000655: three accounts linked only by a pickup point (spec 8.3)."""
+    people = (
+        ("C-12007", "Nicola Serra", date(2025, 4, 2), 3, 3),
+        ("C-12930", "Irene Galli", date(2025, 7, 19), 2, 1),
+        ("C-15561", "Paolo Riva", date(2026, 1, 8), 2, 2),
+    )
+    return [
+        Account(
+            customer_id=cid,
+            display_name=name,
+            created_at=at(created),
+            welcome_coupon_at=at(created + timedelta(days=2), 18),
+            orders_12m=orders,
+            returns_12m=returns,
+            identifiers=(("address", "addr:PICKUP-29"),),
+        )
+        for cid, name, created, orders, returns in people
+    ]
+
+
+ORDERS_EARLIER = (
+    Order(
+        "ORD-002340",
+        date(2025, 11, 12),
+        (
+            Line("V-KNT-0533", "Knitwear", "M", "79.00", ReturnReason.CHANGED_MIND, "RET-000049"),
+            Line("V-TSH-0811", "T-shirts", "M", "29.00"),
+        ),
+        "WELCOME-N3S5",
+    ),
+    Order(
+        "ORD-003550",
+        date(2026, 4, 1),
+        (
+            Line("V-DRS-1745", "Dresses", "42", "149.00", ReturnReason.CHANGED_MIND, "RET-000061"),
+            Line("V-SKR-0222", "Skirts", "42", "55.00"),
+        ),
+    ),
+    Order(
+        "ORD-004977",
+        date(2026, 9, 20),
+        (
+            Line("V-COA-1305", "Coats", "42", "219.00", ReturnReason.CHANGED_MIND, "RET-000077"),
+            Line("V-SCF-0120", "Accessories", None, "25.00"),
+        ),
+    ),
+)  # fmt: skip
+
+
+def earlier() -> Case:
+    """RET-000077 (DEC-000077-1): an earlier Q4 case of cluster CL-000655, approved by Sara on
+    29 September with the coupon block of its 3 linked accounts (application CRA-000027, which
+    Luca reversed on request at 17:00: coupon_rules.json). The decision stays in force; the
+    block does not (round 4, E18, E19, E26)."""
+    orders, order = ORDERS_EARLIER, ORDERS_EARLIER[-1]
     notice = date(2026, 9, 29)
+    accounts = earlier_accounts()
     engine = run_engine(
-        "RET-000077", "ORD-004977", EARLIER_ACCOUNTS[0], ReturnReason.CHANGED_MIND,
-        notice - timedelta(days=5), notice, 0.82, Decimal("40.00"), cluster_id=EARLIER_CLUSTER,
+        "RET-000077", order.order_id, accounts[0].customer_id, ReturnReason.CHANGED_MIND,
+        order.placed + timedelta(days=4), notice, 0.82, value_parts(orders)[3],
+        cluster_id=EARLIER_CLUSTER,
     )  # fmt: skip
-    approved_at = at(notice, 15)
+    created, approved_at = at(notice, 14), at(notice, 15)
     approved = approve(engine.decision, engine.request, BASE, "sara")
     view = decision_view(
         replace(engine, decision=approved),
         version=1,
-        created_at=at(notice, 14),
-        as_of=approved_at,
-        coupon_application_id="CRA-000027",
-        affected=EARLIER_ACCOUNTS,
+        created_at=created,
+        generation_id="GEN-000077-1",
+        coupon_application_id=EARLIER_APPLICATION,
+        affected=[a.customer_id for a in accounts],
         approved_at=approved_at,
+        coupon_state="reversed",
     )
     period = f"12 months after the decision, cluster {EARLIER_CLUSTER} (3 linked accounts)"
     did = view.decision_id
@@ -2765,7 +2869,58 @@ def earlier_cluster_decision() -> tuple[s.DecisionView, list[s.Alternative]]:
         ),
         alternative("current_terms", "Keep the current terms", did, period),
     ]  # fmt: skip
-    return view, alternatives
+    risk = risk_view(
+        0.82,
+        [
+            factor("changed_mind_share", 1.0, 0.52, "3 of 3 returns were for change of mind"),
+            factor("return_value_share", 0.61, 0.33,
+                   "The returned items are the most expensive ones"),
+            factor("cluster_return_rate", 0.58, 0.21,
+                   "The linked accounts returned 58% of delivered lines"),
+        ],
+        1.6,
+        [point("OBSERVED", "Kept 3 of 6 items in 12 months", ("customer", "C-12007"))],
+        [point("OBSERVED", "3 linked accounts share a pickup point", ("cluster", EARLIER_CLUSTER))],
+    )  # fmt: skip
+    linked = cluster_view(
+        EARLIER_CLUSTER,
+        accounts,
+        "C-12007",
+        build_links(accounts, PICKUP_29),
+        cards=3,
+        welcome_per_account=1.0,
+        return_rate=0.58,
+        strong_share=0.0,
+    )
+    customer_text = "Il cappotto non mi convince."
+    card = _card(
+        return_id="RET-000077",
+        order=order,
+        line_no=1,
+        customer_id="C-12007",
+        display_name="Nicola Serra",
+        orders=orders,
+        product="P-COA-1305",
+        brand="Navigli Studio",
+        notice_on=notice,
+        hour=13,
+        customer_text=customer_text,
+        evidence=evidence_view(6, 1.0, 0.83),
+        risk=risk,
+        linked=linked,
+        decision=view,
+        alternatives=alternatives,
+        draft_view=draft(
+            view,
+            engine,
+            "GEN-000077-1",
+            created + timedelta(minutes=1),
+            risk=risk,
+            linked=linked,
+            customer_text=customer_text,
+        ),  # fmt: skip
+    )
+    return Case("earlier", card, engine, queue_item(card))
 
 
 def decision_records(
@@ -2778,13 +2933,7 @@ def decision_records(
     served = AS_OF + timedelta(hours=2)
     out: dict[str, BaseModel] = {}
     for key, view, alternatives, next_id in versions:
-        state, approval, review = view.state, view.requires_approval, view.review_at
-        later = revalidate(
-            view,
-            superseded_by=next_id,
-            as_of=served,
-            in_force=in_force(state, approval, review, served, next_id),
-        )
+        later = serve(view, served, next_id)
         out[f"decision_record.{key}"] = s.DecisionRecord(decision=later, alternatives=alternatives)
     return out
 
@@ -2811,11 +2960,7 @@ def checkout_examples(giulia_case: Case, marco_approved: s.DecisionView) -> dict
                 variant_id="V-DRS-2500",
                 size="L",
                 p_return=0.47,
-                size_advice=s.SizeAdvice(
-                    kind="specific",
-                    suggested_size="M",
-                    text="Customers with your measurements kept size M of this dress",
-                ),
+                size_advice=s.SizeAdvice.of("specific", "M"),
             ),
         ],
         terms=giulia_view.future_terms,
@@ -2844,6 +2989,8 @@ def checkout_examples(giulia_case: Case, marco_approved: s.DecisionView) -> dict
             terms=giulia_view.future_terms,
             base_terms=base_terms,
             review_at=None,
+            coupon_application_id=None,
+            coupon_review_at=None,
             shown_at=shown,
             confirmed_at=shown + timedelta(minutes=2),
         ),
@@ -2866,7 +3013,7 @@ def checkout_examples(giulia_case: Case, marco_approved: s.DecisionView) -> dict
             rule_version=COUPON_RULE,
             application_id=MARCO_APPLICATION,
             review_at=marco_approved.review_at,
-            text="Coupons are paused for the linked accounts of this cluster until the review date",
+            text=s.COUPON_BLOCK,
         ),
         terms_snapshot_id="TS-CHK-000982",
         terms_source=marco_approved.decision_id,
@@ -2876,6 +3023,27 @@ def checkout_examples(giulia_case: Case, marco_approved: s.DecisionView) -> dict
         model_version=MODEL_VERSIONS["propensity"],
         provenance=model,
     )
+    m_confirm_request = s.CheckoutConfirmRequest(
+        terms_snapshot_id="TS-CHK-000982", customer_id="C-MARCO-1", lines=m_request.lines
+    )
+    m_confirm_response = s.CheckoutConfirmResponse(
+        order_id="ORD-CHK-000002",
+        terms_snapshot=s.TermsSnapshotView(
+            terms_snapshot_id="TS-CHK-000982",
+            order_id="ORD-CHK-000002",
+            customer_id="C-MARCO-1",
+            source=marco_approved.decision_id,
+            quadrant_at_purchase=marco_approved.quadrant,
+            terms=marco_approved.future_terms,
+            base_terms=base_terms,
+            review_at=marco_approved.review_at,
+            coupon_application_id=MARCO_APPLICATION,
+            coupon_review_at=marco_approved.review_at,
+            shown_at=m_response.shown_at,
+            confirmed_at=m_response.shown_at + timedelta(minutes=2),
+        ),
+        coupon_applied=False,
+    )
     return {
         "checkout_evaluate_request.giulia": g_request,
         "checkout_evaluate_response.giulia": g_response,
@@ -2883,6 +3051,8 @@ def checkout_examples(giulia_case: Case, marco_approved: s.DecisionView) -> dict
         "checkout_confirm_response.giulia": confirm_response,
         "checkout_evaluate_request.marco": m_request,
         "checkout_evaluate_response.marco": m_response,
+        "checkout_confirm_request.marco": m_confirm_request,
+        "checkout_confirm_response.marco": m_confirm_response,
     }
 
 
@@ -2972,6 +3142,7 @@ def inspection_examples(valentina: Case, simone: Case) -> dict[str, BaseModel]:
     claim = s.ClaimView(
         inspection_id="INS-000014",
         amount=m(amount, "eur", claim_prov),
+        line_price=m(valentina.card.item.price_eur, "eur", SHOP),
         photo_evidence_ids=["PH-000014"],
         confirmed_by="ahmed",
         rule_id="DV-RULE-1",
@@ -3098,6 +3269,12 @@ def matrix(cases: Sequence[Case]) -> s.PortfolioMatrix:
         if a.customer_id not in carded:
             add(a.customer_id, a.display_name, round(0.81 + 0.01 * i, 2), eur(18 + 4.5 * i),
                 cluster=MARCO_CLUSTER, returns=a.returns_12m, coupons=1)  # fmt: skip
+    for (cid, risk_value, value), a in zip(
+        (("C-12930", 0.79, 31.5), ("C-15561", 0.84, 22.0)), earlier_accounts()[1:], strict=True
+    ):
+        assert a.customer_id == cid and cid not in carded
+        add(cid, a.display_name, risk_value, value, cluster=EARLIER_CLUSTER,
+            returns=a.returns_12m, coupons=1)  # fmt: skip
     for shared, cluster in ((False, "CL-000233"), (True, "CL-000588")):
         for i, a in enumerate(rossi_accounts(shared), start=1):
             if a.customer_id not in carded:
@@ -3363,56 +3540,204 @@ def fairness() -> s.FairnessResponse:
     )
 
 
-def audit_page(
-    marco_proposed: s.DecisionView,
-    marco_draft: s.DraftView,
-    results: Sequence[s.DecisionResult],
-    recomputes: Sequence[tuple[s.DecisionView, s.DecisionView]],
-) -> s.AuditPage:
-    """The log of the demo session. Entries about a decision carry typed before and after."""
+@dataclass
+class Log:
+    """The audit log of the demo, in the order the acts happen: every act the examples show
+    (round 4, E20). Entries get their ids once sorted by time; `ids` finds them by key."""
+
+    entries: list[tuple[str, s.AuditEntry]] = field(default_factory=list)
+    ids: dict[str, int] = field(default_factory=dict)
+
+    def add(self, key: str, entry: s.AuditEntry) -> None:
+        assert all(k != key for k, _ in self.entries), key
+        self.entries.append((key, entry))
+
+    def number(self) -> list[s.AuditEntry]:
+        order = sorted(range(len(self.entries)), key=lambda i: (self.entries[i][1].at, i))
+        out = []
+        for entry_id, index in enumerate(order, start=1):
+            key, entry = self.entries[index]
+            self.ids[key] = entry_id
+            out.append(revalidate(entry, entry_id=entry_id))
+        return out
+
+
+def proposal_entry(view: s.DecisionView) -> s.AuditEntry:
+    """The intake of a return: the engine's proposal of version 1, by the system."""
+    app = view.coupon_rule.application_id if view.coupon_rule else None
+    return audit_entry(
+        1, view.created_at, "system", "decision_proposed", "decision", view.decision_id,
+        view.return_id, view.decision_id, None, None, s.proposal_audit_state(view, app),
+    )  # fmt: skip
+
+
+def approval_entry(view: s.DecisionView) -> s.AuditEntry:
+    """A person's approval of the proposal of a version (Lorenzo in June, DEC-000077-1)."""
+    assert view.approver is not None and view.approved_at is not None
+    app = view.coupon_rule.application_id if view.coupon_rule else None
+    return audit_entry(
+        1, view.approved_at, view.approver, "decision_approved", "decision", view.decision_id,
+        view.return_id, view.decision_id, None, s.proposal_audit_state(view, app),
+        s.DecisionAuditState.from_view(view),
+    )  # fmt: skip
+
+
+def generation_entry(
+    action: AuditAction, actor: str, draft_view: s.DraftView, view: s.DecisionView
+) -> s.AuditEntry:
+    info = draft_view.generation
+    kind: GenerationKind = "case_draft" if action == "draft_generated" else "regenerate"
+    record = s.GenerationAuditState.from_info(info, kind, view.decision_id)
+    return audit_entry(
+        1, info.created_at, actor, action, "llm_generation", info.generation_id, view.return_id,
+        view.decision_id, None, None, record,
+    )  # fmt: skip
+
+
+def message_entry(message: s.OutboxMessage) -> s.AuditEntry:
+    return audit_entry(
+        1, message.created_at, "system", "message_queued", "outbox_message", message.message_id,
+        message.return_id, message.decision_id, None, None, {"lang": message.lang},
+    )  # fmt: skip
+
+
+def audit_log(
+    cases: Sequence[Case],
+    results: Mapping[str, s.DecisionResult],
+    evidence: tuple[s.EvidenceRequest, s.RecomputeResponse],
+    dispute: tuple[s.LinkDisputeRequest, s.LinkDisputeResponse],
+    regenerated: s.RegenerateResponse,
+    files: Files,
+    messages: Sequence[s.OutboxMessage],
+) -> Log:
+    """Every act of the examples: the intake and the draft of every case, the acts of people on
+    decisions, recomputes, regenerations, messages, checkouts, inspections, catalogue tasks,
+    coupon rules and their applications, and assumption versions."""
+    log = Log()
+    for case in cases:
+        view, card_draft = case.card.decision, case.card.draft
+        log.add(f"proposed:{view.decision_id}", proposal_entry(view))
+        if card_draft is not None:
+            entry = generation_entry("draft_generated", "system", card_draft, view)
+            log.add(f"draft:{card_draft.generation.generation_id}", entry)
+        if view.state == "approved" and view.revision_trigger == "initial":
+            log.add(f"act:{view.decision_id}", approval_entry(view))
+    for key, result in results.items():
+        log.add(f"result:{key}", result.audit_entry)
     a = audit_entry
-    marco_result, override, reject, lift = results
-    (rossi_v1, rossi_v2), (chiara_v1, chiara_v2) = recomputes
-    entries = [
-        decision_entry(1, at(date(2026, 9, 28), 9, 16), "system", "decision_proposed",
-                       marco_proposed),
-        a(2, at(date(2026, 9, 28), 9, 17), "system", "draft_generated", "llm_generation",
-          "GEN-000102-1", "RET-000102", "DEC-000102-1", None, None,
-          s.GenerationAuditState.from_info(marco_draft.generation, "case_draft",
-                                           marco_proposed.decision_id)),
-        marco_result.audit_entry,
-        a(4, AS_OF + timedelta(minutes=20), "system", "message_queued", "outbox_message",
-          "MSG-000102-1", "RET-000102", "DEC-000102-1", None, None, {"lang": "it"}),
-        a(5, AS_OF + timedelta(minutes=30), "sara", "evidence_added", "evidence_addition",
-          "EV-000004", "RET-000104", "DEC-000104-1",
-          "The card belongs to the parents: mother and daughter in one household (phone call)",
-          None, {"kind": "shared_payment_explained",
-                 "target_link_ids": ["C-ROSSI-CARD-1~C-ROSSI-CARD-2"]}),
-        decision_entry(6, AS_OF + timedelta(minutes=30), "system", "case_recomputed", rossi_v2,
-                       before=rossi_v1),
-        a(7, AS_OF + timedelta(minutes=40), "sara", "link_disputed", "link_dispute", "LD-000002",
-          "RET-000106", "DEC-000106-1",
-          "Card used once for a gift; the accounts are in different households",
-          {"disputed": False}, {"disputed": True, "link_id": ESPOSITO_LINK}),
-        decision_entry(8, AS_OF + timedelta(minutes=40), "system", "case_recomputed", chiara_v2,
-                       before=chiara_v1),
-        a(9, AS_OF + timedelta(minutes=45), "luca", "catalog_task_opened", "catalog_task",
-          "CT-000012", "RET-000105", None, None, None,
-          {"kind": "batch_check", "anomaly_id": "V-JKT-DEF~defective~2026-09-21"}),
-        a(10, AS_OF + timedelta(minutes=47), "ahmed",
-          "inspection_confirmed", "inspection", "INS-000014", "RET-000110", "DEC-000110-1", None,
-          {"state": "awaiting_confirmation"},
-          {"state": "confirmed", "compensation": m(17.98, "eur", CLAIM).model_dump(mode="json"),
-           "rule_id": "DV-RULE-1"}),
-        override.audit_entry,
-        reject.audit_entry,
-        a(13, AS_OF + timedelta(hours=1), "luca", "assumptions_updated",
-          "simulator_assumptions", "assumptions-v2", None, None, None,
-          {"version": "assumptions-v1"}, {"version": "assumptions-v2"}),
-        lift.audit_entry,
-    ]  # fmt: skip
-    entries.sort(key=lambda e: (e.at, e.entry_id), reverse=True)
-    return s.AuditPage(items=entries, total=len(entries), page=1, page_size=50)
+    for name, (request, response) in (("evidence", evidence), ("dispute", dispute)):
+        recompute = response if isinstance(response, s.RecomputeResponse) else response.recompute
+        assert recompute is not None
+        new, when = recompute.decision, recompute.decision.created_at
+        if isinstance(request, s.EvidenceRequest):
+            assert recompute.evidence_id is not None
+            act = a(1, when, request.author, "evidence_added", "evidence_addition",
+                    recompute.evidence_id, new.return_id, request.decision_id, request.note, None,
+                    {"kind": request.kind, "target_link_ids": request.target_link_ids})  # fmt: skip
+        else:
+            assert isinstance(response, s.LinkDisputeResponse) and recompute.dispute_id
+            act = a(1, when, request.author, "link_disputed", "link_dispute", recompute.dispute_id,
+                    new.return_id, request.decision_id, request.reason, {"disputed": False},
+                    {"disputed": True, "link_id": response.link.link_id})  # fmt: skip
+        log.add(f"{name}:act", act)
+        log.add(f"{name}:recompute", a(
+            1, when, "system", "case_recomputed", "decision", new.decision_id, new.return_id,
+            new.decision_id, None, s.DecisionAuditState.from_view(cases_view(cases, new.return_id)),
+            s.DecisionAuditState.from_view(new),
+        ))  # fmt: skip
+        draft_entry = generation_entry("draft_generated", "system", recompute.draft, new)
+        log.add(f"{name}:draft", draft_entry)
+    log.add("regenerate", generation_entry("draft_regenerated", "sara", regenerated.draft,
+                                           regenerated.decision))  # fmt: skip
+    for name in ("giulia", "marco"):
+        evaluate = files[f"checkout_evaluate_response.{name}"]
+        confirm = files[f"checkout_confirm_response.{name}"]
+        assert isinstance(evaluate, s.CheckoutEvaluateResponse)
+        assert isinstance(confirm, s.CheckoutConfirmResponse)
+        snap = confirm.terms_snapshot
+        assert snap.confirmed_at is not None
+        log.add(f"shown:{name}", a(
+            1, evaluate.shown_at, "system", "checkout_terms_shown", "terms_snapshot",
+            evaluate.terms_snapshot_id, None, None, None, None,
+            {"customer_id": evaluate.customer_id, "terms_source": evaluate.terms_source},
+        ))  # fmt: skip
+        log.add(f"confirmed:{name}", a(
+            1, snap.confirmed_at, "system", "checkout_confirmed", "terms_snapshot",
+            snap.terms_snapshot_id, None, None, None, None,
+            {"order_id": snap.order_id},
+        ))  # fmt: skip
+    for name in ("inspection.awaiting", "inspection.manual_review"):
+        inspection = files[name]
+        assert isinstance(inspection, s.InspectionView)
+        log.add(name, a(
+            1, inspection.created_at, inspection.inspector, "inspection_created", "inspection",
+            inspection.inspection_id, inspection.return_id, inspection.decision_id, None, None,
+            {"state": inspection.state},
+        ))  # fmt: skip
+    confirmed = files["inspection_confirm_response"]
+    assert isinstance(confirmed, s.InspectionConfirmResponse) and confirmed.claim is not None
+    done = confirmed.inspection
+    assert done.confirmed_by is not None and done.confirmed_at is not None
+    log.add("inspection.confirmed", a(
+        1, done.confirmed_at, done.confirmed_by, "inspection_confirmed", "inspection",
+        done.inspection_id, done.return_id, done.decision_id, None,
+        {"state": "awaiting_confirmation"},
+        {"state": "confirmed", "compensation": confirmed.claim.amount.model_dump(mode="json"),
+         "rule_id": confirmed.claim.rule_id},
+    ))  # fmt: skip
+    tasks = files["catalog_tasks"]
+    assert isinstance(tasks, s.CatalogTasksResponse)
+    for task in tasks.items:
+        log.add(f"task:{task.task_id}", a(
+            1, task.created_at, task.created_by, "catalog_task_opened", "catalog_task",
+            task.task_id, task.return_id, None, None, None,
+            {"kind": task.kind, "anomaly_id": task.anomaly_id},
+        ))  # fmt: skip
+        if task.status != "open":
+            log.add(f"task:{task.task_id}:{task.status}", a(
+                1, task.updated_at, task.created_by, "catalog_task_updated", "catalog_task",
+                task.task_id, task.return_id, None, None, {"status": "open"},
+                {"status": task.status},
+            ))  # fmt: skip
+    moved = files["catalog_task.in_progress"]
+    assert isinstance(moved, s.CatalogTask)
+    log.add("task:moved", a(
+        1, moved.updated_at, moved.created_by, "catalog_task_updated", "catalog_task",
+        moved.task_id, moved.return_id, None, None, {"status": "open"}, {"status": moved.status},
+    ))  # fmt: skip
+    rules = files["coupon_rules.after_create"]
+    assert isinstance(rules, s.CouponRulesResponse)
+    for rule in reversed(rules.history):
+        log.add(f"rule:{rule.rule_version}", a(
+            1, rule.approved_at, rule.approved_by, "coupon_rule_approved", "coupon_rule",
+            rule.rule_version, None, None, None,
+            {"rule_version": rule.supersedes} if rule.supersedes else None,
+            {"rule_version": rule.rule_version},
+        ))  # fmt: skip
+    reversal = files["coupon_rule_application.reversed"]
+    assert isinstance(reversal, s.CouponRuleApplication)
+    assert reversal.reversed_at is not None and reversal.reversed_by is not None
+    log.add("reversal", a(
+        1, reversal.reversed_at, reversal.reversed_by, "coupon_rule_application_reversed",
+        "coupon_rule_application", reversal.application_id, "RET-000077", reversal.decision_id,
+        reversal.reversal_reason, {"state": "confirmed"}, {"state": "reversed"},
+    ))  # fmt: skip
+    assumptions = files["simulator_assumptions.v2"]
+    assert isinstance(assumptions, s.SimulatorAssumptionsResponse)
+    current = assumptions.current
+    log.add("assumptions", a(
+        1, current.created_at, current.created_by, "assumptions_updated",
+        "simulator_assumptions", current.version, None, None, None,
+        {"version": current.supersedes}, {"version": current.version},
+    ))  # fmt: skip
+    for message in messages:  # queued once the act that sends it is logged
+        log.add(f"message:{message.message_id}", message_entry(message))
+    return log
+
+
+def cases_view(cases: Sequence[Case], return_id: str) -> s.DecisionView:
+    """The decision of the card of a return (the version a recompute supersedes)."""
+    return next(c.card.decision for c in cases if c.card.return_id == return_id)
 
 
 def anomalies_and_tasks() -> dict[str, BaseModel]:
@@ -3432,6 +3757,7 @@ def anomalies_and_tasks() -> dict[str, BaseModel]:
         status="resolved",
         catalog_task_id="CT-000007",
         return_ids=["RET-000071", "RET-000074"],
+        queued_return_ids=[],
         trend=[
             s.WeeklyReturnRate(week=dress_week + timedelta(weeks=i), sales=n, returns=r,
                                return_rate=round(r / n, 4))
@@ -3454,17 +3780,23 @@ def anomalies_and_tasks() -> dict[str, BaseModel]:
         status="open",
         catalog_task_id=None,
         return_ids=["RET-000094", "RET-000098"],
+        queued_return_ids=[],
         trend=[],
     )
     anomalies = s.ProductAnomaliesResponse(
         as_of=AS_OF,
         thresholds=s.AnomalyThresholds(z=3.0, min_sales=20),
-        items=[jacket_anomaly(), sneaker, dress],
+        items=[jacket_anomaly(None), sneaker, dress],
         provenance=ANOMALIES,
     )
     created = AS_OF + timedelta(minutes=45)
+    task_opened = revalidate(
+        anomalies,
+        as_of=created + timedelta(minutes=5),
+        items=[jacket_anomaly("CT-000012"), sneaker, dress],
+    )
     create = s.CatalogTaskCreate(
-        anomaly_id=jacket_anomaly().anomaly_id,
+        anomaly_id=jacket_anomaly(None).anomaly_id,
         kind="batch_check",
         note="Check the sleeve length of the September batch against the size guide",
         author="luca",
@@ -3510,6 +3842,7 @@ def anomalies_and_tasks() -> dict[str, BaseModel]:
     )  # noqa: E501
     return {
         "product_anomalies": anomalies,
+        "product_anomalies.task_opened": task_opened,
         "catalog_task_create": create,
         "catalog_task.elena": task,
         "catalog_task_update": update,
@@ -3642,19 +3975,25 @@ def agent_examples() -> dict[str, BaseModel | str]:
         ["No contact with the customer about the shared card"],
         "GEN-AGENT-000001",
     )  # fmt: skip
+    rossi_ref = {"kind": "cluster", "id": "CL-000233"}
     rossi_question = stream(
         [
             ("get_cluster", {"customer_id": "C-MARCO-1"},
              f"Cluster {MARCO_CLUSTER}: 7 accounts created within 9 days, 2 distinct cards",
              [cluster_ref]),
+            ("get_cluster", {"customer_id": "C-ROSSI-2"},
+             "Cluster CL-000233: 3 accounts created more than a year apart, 3 distinct cards, "
+             "1 welcome coupon used",
+             [rossi_ref]),
             ("get_score_factors", {"return_id": "RET-000102"},
              "Top contributions: welcome coupons per account, creation spread, change of mind",
              [{"kind": "return", "id": "RET-000102"}]),
         ],
-        "The Rossi family shares an address and a device, but its 3 accounts were created more "
-        "than a year apart, use 3 distinct cards and only 1 used a welcome coupon. The 7 linked "
-        "accounts of this case were created within 9 days and each used a welcome coupon.",
-        [cluster_ref, {"kind": "return", "id": "RET-000102"}],
+        "The Rossi family (cluster CL-000233) shares an address and a device, but its 3 accounts "
+        "were created more than a year apart, use 3 distinct cards and only 1 used a welcome "
+        "coupon. The 7 linked accounts of this case (cluster CL-000417) were created within 9 "
+        "days and each used a welcome coupon.",
+        [cluster_ref, rossi_ref, {"kind": "return", "id": "RET-000102"}],
         [],
         "GEN-AGENT-000002",
     )  # fmt: skip
@@ -3675,12 +4014,25 @@ def agent_examples() -> dict[str, BaseModel | str]:
         [],
         "GEN-AGENT-000003",
     )  # fmt: skip
+    refused_by_code = s.GenerationInfo(
+        generation_id="GEN-AGENT-000004",
+        generation_path="template",
+        fallback_reason="write_request",
+        llm_mode="mock",
+        served_from="live",
+        model="template",
+        model_calls=0,
+        validator_codes=[],
+        created_at=gen_at,
+        latency_ms=None,
+    )  # 1.5.0, H8: the refusal is written by code before any model call
     refusal = s.AgentStream.model_validate(
         [
             {"type": "refusal", "seq": 0, "reason": "write_request",
              "text": "I can only read the case. Approvals and changes are made by an operator "
              "on the case card."},
-            done(1, 0, "GEN-AGENT-000004"),
+            {"type": "done", "seq": 1, "steps_used": 0,
+             "generation": refused_by_code.model_dump(mode="json")},
         ]
     )  # fmt: skip
     return {
@@ -3720,6 +4072,77 @@ PENDING_BENCHMARKS: tuple[tuple[s.BenchmarkId, str, str], ...] = (
     ),
     ("B4", "Nightly pipeline duration and GPU utilisation", "Navigli synthetic shop"),
 )
+
+
+RESET_WALL = datetime(2026, 10, 18, 8, 0, tzinfo=UTC)  # the demo reset, wall clock (illustrative)
+
+
+def demo_clock(now: datetime) -> s.ClockView:
+    """The demo clock of the examples: the snapshot instant (AS_OF) plus the time since the
+    reset, which ran on the morning of the demo (ADR-15 section 15)."""
+    return s.ClockView(
+        kind="demo",
+        now=now,
+        snapshot_as_of=AS_OF,
+        started_at=RESET_WALL,
+        note="Demo clock: the instant of the serving snapshot plus the time elapsed since the "
+        "demo reset",
+    )
+
+
+def demo_cases_example(
+    cases: Sequence[Case], dispute: s.LinkDisputeResponse
+) -> s.DemoCasesResponse:
+    """GET /api/demo/cases with the ids of the examples (stable: RET-000101..., H9)."""
+    by_key = {c.key: c for c in cases}
+    found = []
+    for key in s.DEMO_CASE_KEYS:
+        card = by_key[key].card
+        linked = card.linked_accounts
+        found.append(
+            s.DemoCase(
+                key=key,
+                return_id=card.return_id,
+                customer_id=card.customer_id,
+                decision_id=card.decision.decision_id,
+                cluster_id=None if linked is None else linked.cluster_id,
+            )
+        )
+    chiara = by_key["chiara"].card
+    recompute = dispute.recompute
+    assert recompute is not None and chiara.linked_accounts is not None
+    before, after = recompute.before.cluster_size, recompute.after.cluster_size
+    assert before is not None
+    giulia_cart = s.CheckoutEvaluateRequest(
+        customer_id="C-GIULIA",
+        lines=[
+            s.CartLine(variant_id="V-DRS-2500", size="M"),
+            s.CartLine(variant_id="V-DRS-2500", size="L"),
+        ],
+    )
+    ring_cart = s.CheckoutEvaluateRequest(
+        customer_id="C-MARCO-1",
+        lines=[s.CartLine(variant_id="V-JKT-2207", size="M")],
+        coupon_code="WELCOME-Z9K3",
+    )
+    return s.DemoCasesResponse(
+        snapshot_as_of=AS_OF,
+        as_of=AS_OF + timedelta(hours=1),
+        cases=found,
+        dispute=s.DemoDispute(
+            link_id=ESPOSITO_LINK,
+            return_id=chiara.return_id,
+            decision_id=chiara.decision.decision_id,
+            cluster_id=chiara.linked_accounts.cluster_id,
+            cluster_size_before=before,
+            cluster_size_after=after or 1,
+        ),
+        carts=[
+            s.DemoCart(key="giulia", request=giulia_cart),
+            s.DemoCart(key="ring", request=ring_cart),
+        ],
+        provenance=GRAPH,
+    )
 
 
 def ops_examples() -> dict[str, BaseModel]:
@@ -3881,17 +4304,21 @@ def ops_examples() -> dict[str, BaseModel]:
         checks=[check_("database", "ok"), check_("scores", "ok"), check_("models", "ok"),
                 check_("vllm", "ok"), check_("demo_cache", "disabled"), check_("telemetry", "ok")],
         **versions,
+        clock=demo_clock(AS_OF + timedelta(hours=1)),
+        public_read_only=False,
     )  # fmt: skip
     ready_cached = s.ReadyzResponse(
         status="ready",
         mode="cached",
-        llm_mode="mock",
+        llm_mode="vllm",
         device="cpu",
         label=s.CACHED_LABEL,
         checks=[check_("database", "ok"), check_("scores", "ok"), check_("models", "ok"),
                 check_("vllm", "disabled", "GPU off in cached mode"), check_("demo_cache", "ok"),
                 check_("telemetry", "disabled")],
         **versions,
+        clock=demo_clock(AS_OF + timedelta(hours=1)),
+        public_read_only=True,
     )  # fmt: skip
     return {
         "healthz_response": s.HealthzResponse(status="ok"),
@@ -3913,7 +4340,81 @@ def query_examples() -> dict[str, BaseModel]:
 
 
 def error_examples() -> dict[str, BaseModel]:
+    """An ErrorResponse for every error code; index.json routes one for every declared status."""
     return {
+        "error.forbidden_role": s.ErrorResponse(
+            code="forbidden_role",
+            message="ahmed (warehouse) cannot act on a decision: operator or manager only",
+            request_id="req-000124",
+        ),
+        "error.conflict": s.ErrorResponse(
+            code="conflict",
+            message="DEC-000102-1 is already approved: only a proposed version can be approved, "
+            "overridden or rejected",
+            request_id="req-000125",
+        ),
+        "error.conflict_early_renewal": s.ErrorResponse(
+            code="conflict",
+            message="DEC-000102-1 cannot be renewed before its review date, 2026-12-27 (US-607)",
+            request_id="req-000126",
+        ),
+        "error.conflict_terms_lapsed": s.ErrorResponse(
+            code="conflict",
+            message="TS-CHK-000982 can no longer be confirmed: its terms come from DEC-000102-1, "
+            "which is no longer in force; evaluate the cart again",
+            request_id="req-000127",
+        ),
+        "error.rate_limited": s.ErrorResponse(
+            code="rate_limited",
+            message="Too many questions to the agent: try again in a minute",
+            request_id="req-000128",
+        ),
+        "error.llm_unavailable": s.ErrorResponse(
+            code="llm_unavailable",
+            message="The language model is off in cached mode: no new draft or answer can be "
+            "generated (US-901)",
+            request_id="req-000129",
+        ),
+        "error.internal": s.ErrorResponse(
+            code="internal", message="Unexpected error: see the API logs", request_id="req-000130"
+        ),
+        # 1.5.0 (ADR-15 section 15)
+        "error.read_only": s.ErrorResponse(
+            code="forbidden_role",
+            message="the public demo is read-only (PUBLIC_READ_ONLY): POST /api/checkout/confirm "
+            "changes the demo and is refused; the demo views, the agent and the checkout "
+            "evaluation stay open",
+            request_id="req-000131",
+        ),
+        "error.rate_limited_public": s.ErrorResponse(
+            code="rate_limited",
+            message="at most 30 requests of the public demo per client every 60 s: try again "
+            "in 12 s",
+            request_id="req-000132",
+        ),
+        "error.report_unavailable": s.ErrorResponse(
+            code="not_found",
+            message="the offline evaluation report (FAIR-02) is not in the serving snapshot: "
+            "false positives need labels, which only the offline evaluation reads (rule 12)",
+            request_id="req-000133",
+        ),
+        "error.no_demo_reset": s.ErrorResponse(
+            code="not_found",
+            message="no demo reset yet: run python -m apps.api.reset",
+            request_id="req-000134",
+        ),
+        "error.conflict_stale_proposal": s.ErrorResponse(
+            code="conflict",
+            message="DEC-000104-1 was stale (its review date passed before anyone acted on it): "
+            "the case is decided again as DEC-000104-2; act on that version (US-607)",
+            request_id="req-000135",
+        ),
+        "error.conflict_refund_overdue": s.ErrorResponse(
+            code="conflict",
+            message="the refund of RET-000102 was due by 2026-10-10 (14 days from the notice, "
+            "rule 3): it is overdue; no message states a past deadline",
+            request_id="req-000136",
+        ),
         "error.not_found": s.ErrorResponse(
             code="not_found", message="Return RET-999999 not found", request_id="req-000121"
         ),
@@ -3942,6 +4443,7 @@ def error_examples() -> dict[str, BaseModel]:
 def build() -> tuple[Files, list[dict[str, Any]]]:
     cases = [giulia(), marco(), rossi(False), rossi(True), elena(), chiara(), insufficient()]
     cases += [simple_case(c) for c in SIMPLE]
+    cases.append(earlier())
     by_key = {c.key: c for c in cases}
     files: Files = {f"case_card.{c.key}": c.card for c in cases}
     files.update(queue_examples(cases))
@@ -4008,54 +4510,127 @@ def build() -> tuple[Files, list[dict[str, Any]]]:
                     None,
                 ),
                 ("valentina_v1", *valentina_record, None),
-                ("earlier_q4_v1", *earlier_cluster_decision(), None),
+                (
+                    "earlier_q4_v1",
+                    by_key["earlier"].card.decision,
+                    by_key["earlier"].card.alternatives,
+                    None,
+                ),
+                # E18: the latest version of every other card
+                *[
+                    (f"{key}_v1", by_key[key].card.decision, by_key[key].card.alternatives, None)
+                    for key in ("giulia", "rossi", "elena", "insufficient", "simone", "francesca")
+                ],
             ]
         )
     )
     files.update(checkout_examples(by_key["giulia"], approve_result.decision))
+    files["demo_cases"] = demo_cases_example(cases, dispute_response)
     files.update(inspections)
     files["portfolio_matrix"] = matrix(cases)
     files.update(simulator_examples())
     files["kpi"] = kpi()
     files["fairness"] = fairness()
-    assert by_key["marco"].card.draft is not None
-    files["audit_page"] = audit_page(
-        by_key["marco"].card.decision,
-        by_key["marco"].card.draft,
-        (approve_result, override_result, reject_result, lift_result),
-        (
-            (by_key["rossi_card"].card.decision, evidence_response.decision),
-            (by_key["chiara"].card.decision, dispute_response.recompute.decision),
-        ),
-    )
-    confirm = files["inspection_confirm_response"]
-    assert isinstance(confirm, s.InspectionConfirmResponse) and confirm.outbox_message
-    messages = [
-        message
-        for message in (
-            reject_result.outbox_message,
-            override_result.outbox_message,
-            confirm.outbox_message,
-            approve_result.outbox_message,
-        )
-        if message is not None
-    ]
-    files["outbox"] = s.OutboxResponse(items=messages, total=len(messages))
     files.update(anomalies_and_tasks())
     files.update(coupon_examples(approve_result.decision))
     files.update(agent_examples())
     files.update(ops_examples())
     files.update(query_examples())
-    stream = files["agent_stream.marco_link"]
-    assert isinstance(stream, s.AgentStream)
-    files["agent_stream.marco_link.sse"] = "".join(s.sse_frame(e) for e in stream.root)
+    # US-607, scenario "renewed": the other outcome of Lorenzo's review (E16)
+    renew_request, renew_result = renew_example(by_key["lorenzo"])
+    files["decision_request.renew"] = renew_request
+    files["decision_request.renew_early"] = s.DecisionRequest(
+        decision_id=approve_result.decision.decision_id, action="renew", approver="luca"
+    )
+    files["decision_request.forbidden_role"] = revalidate(approve_request, approver="ahmed")
+    files.update(
+        decision_records(
+            [
+                (
+                    "lorenzo_v2_renewed",
+                    renew_result.decision,
+                    simple_alternatives(SIMPLE_BY_KEY["lorenzo"], renew_result.decision),
+                    None,
+                )
+            ]
+        )
+    )
+    # The outbox and the audit log hold every message and every act of the examples (E20)
+    confirm = files["inspection_confirm_response"]
+    assert isinstance(confirm, s.InspectionConfirmResponse) and confirm.outbox_message
+    earlier_draft, lorenzo_draft = by_key["earlier"].card.draft, lorenzo_v1.draft
+    assert earlier_draft is not None and lorenzo_draft is not None
+    approvals = [
+        outbox_message(
+            f"MSG-{view.return_id.removeprefix('RET-')}-1", view, "it", view.approver or "",
+            view.approved_at or AS_OF, preferred=card_draft.message.sentence_ids,
+            generation_id=card_draft.generation.generation_id,
+        )
+        for view, card_draft in (
+            (lorenzo_v1.decision, lorenzo_draft),
+            (by_key["earlier"].card.decision, earlier_draft),
+        )
+    ]  # fmt: skip
+    messages = sorted(
+        [
+            m
+            for m in (
+                reject_result.outbox_message,
+                override_result.outbox_message,
+                confirm.outbox_message,
+                approve_result.outbox_message,
+                *approvals,
+            )
+            if m is not None
+        ],
+        key=lambda m: m.created_at,
+        reverse=True,
+    )
+    files["outbox"] = s.OutboxResponse(items=messages, total=len(messages))
+    results = {
+        "approve": approve_result,
+        "override": override_result,
+        "reject": reject_result,
+        "lift": lift_result,
+    }
+    log = audit_log(
+        cases,
+        results,
+        (evidence_request, evidence_response),
+        (dispute_request, dispute_response),
+        regen_response,
+        files,
+        messages,
+    )
+    entries = log.number()
+    by_entry = {entry.entry_id: entry for entry in entries}
+    names = {"approve": "marco_approved", "override": "override", "reject": "reject"}
+    for key, result in results.items():
+        entry = by_entry[log.ids[f"result:{key}"]]
+        files[f"decision_result.{names.get(key, key)}"] = revalidate(result, audit_entry=entry)
+    renew_entry = revalidate(renew_result.audit_entry, entry_id=log.ids["result:lift"])
+    files["decision_result.renew"] = revalidate(renew_result, audit_entry=renew_entry)
+    evidence_ids = [log.ids[f"evidence:{k}"] for k in ("act", "recompute", "draft")]
+    files["recompute_response.rossi_card"] = revalidate(
+        evidence_response, audit_entry_ids=evidence_ids
+    )
+    dispute_ids = [log.ids[f"dispute:{k}"] for k in ("act", "recompute", "draft")]
+    recompute = revalidate(dispute_response.recompute, audit_entry_ids=dispute_ids)
+    files["link_dispute_response"] = revalidate(dispute_response, recompute=recompute)
+    newest = sorted(entries, key=lambda e: (e.at, e.entry_id), reverse=True)
+    files["audit_page"] = s.AuditPage(items=newest, total=len(newest), page=1, page_size=100)
+    for name in ("marco_link", "marco_rossi", "marco_terms", "write_refused"):
+        stream = files[f"agent_stream.{name}"]
+        assert isinstance(stream, s.AgentStream)
+        files[f"agent_stream.{name}.sse"] = "".join(s.sse_frame(e) for e in stream.root)
     return files, mock_routes(cases)
 
 
 def mock_routes(cases: Sequence[Case]) -> list[dict[str, Any]]:
     """The mock server table: which example answers which request (index.json). A route is
     chosen by method, concrete path, query example, body example and scenario: "default" unless
-    the request asks for another one (for example with an X-Mock-Scenario header)."""
+    the request asks for another one (for example with an X-Mock-Scenario header). An error
+    answers application/json; the agent's answer is the framed stream (.sse)."""
 
     def r(
         method: str,
@@ -4076,10 +4651,12 @@ def mock_routes(cases: Sequence[Case]) -> list[dict[str, Any]]:
             "request": request,
             "scenario": scenario,
             "status": status,
-            "media_type": ep.media_type,
+            "media_type": s.JSON if status >= 400 else ep.media_type,
             "response": response,
         }
 
+    decide = "/api/returns/{return_id}/decision"
+    agent = ("marco_link", "marco_rossi", "marco_terms", "write_refused")
     routes = [
         r("GET", "/healthz", "healthz_response.json"),
         r("GET", "/readyz", "readyz_response.live.json"),
@@ -4095,32 +4672,55 @@ def mock_routes(cases: Sequence[Case]) -> list[dict[str, Any]]:
         ],
         r("GET", "/api/returns/{return_id}", "error.not_found.json", "/api/returns/RET-999999",
           status=404),
-        r("POST", "/api/returns/{return_id}/decision", "decision_result.marco_approved.json",
+        r("POST", decide, "decision_result.marco_approved.json",
           "/api/returns/RET-000102/decision", "decision_request.marco_approve.json"),
-        r("POST", "/api/returns/{return_id}/decision", "decision_result.override.json",
+        r("POST", decide, "error.conflict.json", "/api/returns/RET-000102/decision",
+          "decision_request.marco_approve.json", 409, scenario="conflict"),
+        r("POST", decide, "error.conflict_stale_proposal.json",
+          "/api/returns/RET-000102/decision", "decision_request.marco_approve.json", 409,
+          scenario="stale_proposal"),
+        r("POST", decide, "error.conflict_refund_overdue.json",
+          "/api/returns/RET-000102/decision", "decision_request.marco_approve.json", 409,
+          scenario="refund_overdue"),
+        r("POST", decide, "error.forbidden_role.json", "/api/returns/RET-000102/decision",
+          "decision_request.forbidden_role.json", 403),
+        r("POST", decide, "error.conflict_early_renewal.json",
+          "/api/returns/RET-000102/decision", "decision_request.renew_early.json", 409),
+        r("POST", decide, "decision_result.override.json",
           "/api/returns/RET-000108/decision", "decision_request.override.json"),
-        r("POST", "/api/returns/{return_id}/decision", "decision_result.reject.json",
+        r("POST", decide, "decision_result.reject.json",
           "/api/returns/RET-000107/decision", "decision_request.reject.json"),
-        r("POST", "/api/returns/{return_id}/decision", "decision_result.lift.json",
+        r("POST", decide, "decision_result.lift.json",
           "/api/returns/RET-000088/decision", "decision_request.lift.json"),
-        r("POST", "/api/returns/{return_id}/decision", "error.legal_guard.json",
+        r("POST", decide, "decision_result.renew.json",
+          "/api/returns/RET-000088/decision", "decision_request.renew.json", scenario="renewed"),
+        r("POST", decide, "error.legal_guard.json",
           "/api/returns/RET-000105/decision", "decision_request.elena_shipping.json", 422),
-        r("POST", "/api/returns/{return_id}/decision", "error.invalid_request.json",
+        r("POST", decide, "error.invalid_request.json",
           "/api/returns/RET-000111/decision", None, 422, scenario="invalid_request"),
         *[
             r("GET", "/api/decisions/{decision_id}", f"decision_record.{key}.json",
               f"/api/decisions/{decision_id}")
             for key, decision_id in (
-                ("lorenzo_v1", "DEC-000088-1"), ("lorenzo_v2", "DEC-000088-2"),
-                ("rossi_card_v1", "DEC-000104-1"), ("rossi_card_v2", "DEC-000104-2"),
-                ("chiara_v1", "DEC-000106-1"), ("chiara_v2", "DEC-000106-2"),
-                ("marco_v1", "DEC-000102-1"), ("andrea_v1", "DEC-000107-1"),
-                ("martina_v1", "DEC-000108-1"), ("valentina_v1", "DEC-000110-1"),
                 ("earlier_q4_v1", "DEC-000077-1"),
+                ("lorenzo_v1", "DEC-000088-1"), ("lorenzo_v2", "DEC-000088-2"),
+                ("giulia_v1", "DEC-000101-1"), ("marco_v1", "DEC-000102-1"),
+                ("rossi_v1", "DEC-000103-1"),
+                ("rossi_card_v1", "DEC-000104-1"), ("rossi_card_v2", "DEC-000104-2"),
+                ("elena_v1", "DEC-000105-1"),
+                ("chiara_v1", "DEC-000106-1"), ("chiara_v2", "DEC-000106-2"),
+                ("andrea_v1", "DEC-000107-1"), ("martina_v1", "DEC-000108-1"),
+                ("insufficient_v1", "DEC-000109-1"), ("valentina_v1", "DEC-000110-1"),
+                ("simone_v1", "DEC-000111-1"), ("francesca_v1", "DEC-000112-1"),
             )
         ],
+        r("GET", "/api/decisions/{decision_id}", "decision_record.lorenzo_v2_renewed.json",
+          "/api/decisions/DEC-000088-2", scenario="renewed"),
         r("POST", "/api/returns/{return_id}/regenerate", "regenerate_response.json",
           "/api/returns/RET-000101/regenerate", "regenerate_request.json"),
+        r("POST", "/api/returns/{return_id}/regenerate", "error.llm_unavailable.json",
+          "/api/returns/RET-000101/regenerate", "regenerate_request.json", 503,
+          scenario="cached"),
         r("POST", "/api/returns/{return_id}/evidence", "recompute_response.rossi_card.json",
           "/api/returns/RET-000104/evidence", "evidence_request.rossi_card.json"),
         r("POST", "/api/returns/{return_id}/evidence", "error.stale_decision.json",
@@ -4134,6 +4734,15 @@ def mock_routes(cases: Sequence[Case]) -> list[dict[str, Any]]:
           request="checkout_evaluate_request.marco.json"),
         r("POST", "/api/checkout/confirm", "checkout_confirm_response.giulia.json",
           request="checkout_confirm_request.giulia.json", status=201),
+        r("POST", "/api/checkout/confirm", "checkout_confirm_response.marco.json",
+          request="checkout_confirm_request.marco.json", status=201),
+        r("POST", "/api/checkout/confirm", "error.conflict_terms_lapsed.json",
+          request="checkout_confirm_request.marco.json", status=409, scenario="conflict"),
+        r("POST", "/api/checkout/confirm", "error.read_only.json",
+          request="checkout_confirm_request.giulia.json", status=403, scenario="read_only"),
+        r("POST", "/api/checkout/evaluate", "error.rate_limited_public.json",
+          request="checkout_evaluate_request.giulia.json", status=429,
+          scenario="rate_limited"),
         r("POST", "/api/inspections", "inspection.awaiting.json",
           request="inspection_create_request.json", status=201),
         r("POST", "/api/inspections", "inspection.manual_review.json",
@@ -4145,10 +4754,16 @@ def mock_routes(cases: Sequence[Case]) -> list[dict[str, Any]]:
         r("PUT", "/api/simulator/assumptions", "simulator_assumptions.v2.json",
           request="simulator_assumptions_update.json"),
         r("GET", "/api/kpi", "kpi.json", query="kpi_query.json"),
+        r("GET", "/api/kpi", "error.report_unavailable.json", query="kpi_query.json",
+          status=404, scenario="no_report"),
         r("GET", "/api/fairness", "fairness.json"),
+        r("GET", "/api/fairness", "error.report_unavailable.json", status=404,
+          scenario="no_report"),
         r("GET", "/api/audit", "audit_page.json"),
         r("GET", "/api/outbox", "outbox.json"),
         r("GET", "/api/products/anomalies", "product_anomalies.json"),
+        r("GET", "/api/products/anomalies", "product_anomalies.task_opened.json",
+          scenario="task_opened"),
         r("GET", "/api/catalog-tasks", "catalog_tasks.json"),
         r("POST", "/api/catalog-tasks", "catalog_task.elena.json",
           request="catalog_task_create.json", status=201),
@@ -4161,13 +4776,23 @@ def mock_routes(cases: Sequence[Case]) -> list[dict[str, Any]]:
           "coupon_rule_application.reversed.json",
           "/api/coupon-rules/applications/CRA-000027/reverse", "coupon_application_reverse.json"),
         *[
-            r("POST", "/api/agent/ask", f"agent_stream.{k}.json",
+            r("POST", "/api/agent/ask", f"agent_stream.{k}.sse",
               request=f"agent_ask_request.{k.replace('_refused', '')}.json")
-            for k in ("marco_link", "marco_rossi", "marco_terms", "write_refused")
+            for k in agent
         ],
+        *[
+            r("POST", "/api/agent/ask", "error.llm_unavailable.json",
+              request=f"agent_ask_request.{k.replace('_refused', '')}.json", status=503,
+              scenario="cached")
+            for k in agent
+        ],
+        r("POST", "/api/agent/ask", "error.rate_limited.json",
+          request="agent_ask_request.marco_link.json", status=429, scenario="rate_limited"),
         r("GET", "/api/benchmarks", "benchmarks.json"),
         r("GET", "/api/telemetry", "telemetry.live.json"),
         r("GET", "/api/telemetry", "telemetry.cached.json", scenario="cached"),
+        r("GET", "/api/demo/cases", "demo_cases.json"),
+        r("GET", "/api/demo/cases", "error.no_demo_reset.json", status=404, scenario="empty"),
     ]  # fmt: skip
     return routes
 
@@ -4189,7 +4814,13 @@ def render() -> dict[str, str]:
         "$comment": "Generated by scripts/build_api_examples.py: do not edit. Mock server table "
         "of the UI: which example answers which request (ADR-15). A route is chosen by method, "
         "path, query, request body and scenario; the scenario is 'default' unless the request "
-        "names another one in the X-Mock-Scenario header.",
+        "names another one in the X-Mock-Scenario header (cached, conflict, empty, "
+        "invalid_request, no_report, rate_limited, read_only, refund_overdue, renewed, "
+        "stale_decision, stale_proposal, task_opened); some errors are chosen by their "
+        "body or path in the default scenario (403, 404, legal_guard, an early renewal). "
+        "media_type is the type of the response: an error is application/json; "
+        "a text/event-stream route serves its .sse file as it is (sse_frame of each event of "
+        "the .json file with the same name).",
         "as_of": AS_OF.isoformat().replace("+00:00", "Z"),
         "routes": routes,
     }

@@ -1,0 +1,97 @@
+{
+  "snapshot_as_of": "2026-09-30T18:00:00Z",
+  "as_of": "2026-09-30T19:00:00Z",
+  "cases": [
+    {
+      "key": "giulia",
+      "return_id": "RET-000101",
+      "customer_id": "C-GIULIA",
+      "decision_id": "DEC-000101-1",
+      "cluster_id": null
+    },
+    {
+      "key": "marco",
+      "return_id": "RET-000102",
+      "customer_id": "C-MARCO-1",
+      "decision_id": "DEC-000102-1",
+      "cluster_id": "CL-000417"
+    },
+    {
+      "key": "rossi",
+      "return_id": "RET-000103",
+      "customer_id": "C-ROSSI-2",
+      "decision_id": "DEC-000103-1",
+      "cluster_id": "CL-000233"
+    },
+    {
+      "key": "rossi_card",
+      "return_id": "RET-000104",
+      "customer_id": "C-ROSSI-CARD-2",
+      "decision_id": "DEC-000104-1",
+      "cluster_id": "CL-000588"
+    },
+    {
+      "key": "elena",
+      "return_id": "RET-000105",
+      "customer_id": "C-ELENA",
+      "decision_id": "DEC-000105-1",
+      "cluster_id": null
+    },
+    {
+      "key": "insufficient",
+      "return_id": "RET-000109",
+      "customer_id": "C-19921",
+      "decision_id": "DEC-000109-1",
+      "cluster_id": null
+    }
+  ],
+  "dispute": {
+    "link_id": "C-10233~C-20871",
+    "return_id": "RET-000106",
+    "decision_id": "DEC-000106-1",
+    "cluster_id": "CL-000731",
+    "cluster_size_before": 3,
+    "cluster_size_after": 1
+  },
+  "carts": [
+    {
+      "key": "giulia",
+      "request": {
+        "customer_id": "C-GIULIA",
+        "lines": [
+          {
+            "variant_id": "V-DRS-2500",
+            "size": "M",
+            "quantity": 1
+          },
+          {
+            "variant_id": "V-DRS-2500",
+            "size": "L",
+            "quantity": 1
+          }
+        ],
+        "coupon_code": null
+      }
+    },
+    {
+      "key": "ring",
+      "request": {
+        "customer_id": "C-MARCO-1",
+        "lines": [
+          {
+            "variant_id": "V-JKT-2207",
+            "size": "M",
+            "quantity": 1
+          }
+        ],
+        "coupon_code": "WELCOME-Z9K3"
+      }
+    }
+  ],
+  "provenance": {
+    "origin": "Contract example: account graph graph-0.1.0 (spec 8.3) of the synthetic shop",
+    "period_start": "2025-10-01",
+    "period_end": "2026-09-30",
+    "nature": "synthetic"
+  }
+}

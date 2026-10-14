@@ -15,11 +15,14 @@ from jsonschema import Draft202012Validator
 
 from contracts.levers import format_lever_id
 from llm.case import (
+    CLUSTER_FEATURES,
+    ENTITIES,
     MAX_CUSTOMER_CHARS,
     CaseError,
     ClusterSummary,
     ScoreFactor,
     build_case,
+    factor_entity,
     wrap_customer_text,
 )
 from llm.decision import serialize_decision
@@ -85,12 +88,23 @@ def test_golden_q4_facts() -> None:
         ("F3", "cluster", "cluster_welcome_coupons", 7),
         ("F4", "cluster", "cluster_size", 7),
         ("F5", "return", "days_since_delivery", 6),
-        ("F6", "policy", "return_window_days", 14),
     ]
     assert {f["nature"] for f in facts} == {"synthetic"}
     assert facts[0]["period"] == "as of 2026-10-14"
     assert facts[1]["period"] == "12 months to 2026-10-14"
     assert facts[4]["period"] == "2026-10-08/2026-10-14"
+
+
+@pytest.mark.parametrize("name", sorted(SCENARIOS))
+def test_levers_are_never_facts(name: str) -> None:
+    """Round 3, finding T7: operator statements do not talk about levers, so no lever (the return
+    window of the former policy fact included) is a fact, and the schema has no policy entity."""
+    case = make(name).case
+    lever_ids = {lever["id"] for lever in case["levers"]}
+    assert not lever_ids & {f["metric"] for f in case["facts"]}
+    assert {f["entity"] for f in case["facts"]} <= set(ENTITIES)
+    entity = SCHEMA["properties"]["facts"]["items"]["properties"]["entity"]
+    assert entity["enum"] == list(ENTITIES) and "policy" not in ENTITIES
 
 
 def test_a_factor_named_like_a_fixed_fact_appears_once() -> None:
@@ -210,6 +224,8 @@ def _kwargs(**overrides: Any) -> dict[str, Any]:
         {"missing_evidence": ["x" * 201]},
         {"factors": [ScoreFactor("returns_90d", 1, "")]},
         {"cluster": replace(MARCO, size=1)},
+        # E3: a fact of the cluster needs the cluster; an account alone has customer facts
+        {"cluster": None},
     ],
 )
 def test_build_case_rejects_inputs_that_cannot_form_a_valid_case(overrides: dict[str, Any]) -> None:
@@ -258,3 +274,30 @@ def test_cluster_summary_without_scores_cluster_is_rejected() -> None:
         cluster=summary,
     )
     assert case["cluster"]["shared"] == []
+
+
+# ---- Facts of the cluster (round 4 of the API review, findings E3 and E10) ---------------------
+
+
+def test_cluster_features_are_the_features_of_the_account_graph() -> None:
+    from pipeline.graph.clusters import CLUSTER_FEATURES as GRAPH_FEATURES
+
+    assert frozenset(GRAPH_FEATURES) == CLUSTER_FEATURES
+
+
+def test_a_score_factor_of_the_cluster_is_a_fact_of_the_cluster_only_in_a_cluster() -> None:
+    """An account without linked accounts has its cluster features computed on itself: their
+    facts are about the customer, never about a cluster it is not in (rule 11)."""
+    assert factor_entity("cluster_size", clustered=True) == "cluster"
+    assert factor_entity("cluster_size", clustered=False) == "customer"
+    assert factor_entity("creation_spread_days", clustered=True) == "cluster"
+    assert factor_entity("size_share", clustered=True) == "customer"
+    s = SCENARIOS["Q2"]
+    req = replace(s.request, return_id="RET-1")
+    decision = decide(req, s.scores, BASE, THRESHOLDS, TODAY)
+    entity = factor_entity("cluster_size", clustered=False)
+    alone = ScoreFactor("cluster_size", 1, "No linked accounts", entity)
+    case = build_case(decision, req, BASE, policy_text="", scores=s.scores, factors=[alone])
+    fact = next(f for f in case["facts"] if f["metric"] == "cluster_size")
+    assert (fact["entity"], fact["value"]) == ("customer", 1)
+    assert "cluster" not in case

@@ -516,7 +516,8 @@
               "enum": [
                 "decision_echo",
                 "invalid_twice",
-                "unavailable"
+                "unavailable",
+                "write_request"
               ],
               "type": "string"
             },
@@ -538,6 +539,7 @@
               "SCHEMA",
               "CASE_INVALID",
               "DECISION_ECHO",
+              "TERMS_TOPIC",
               "UNKNOWN_FACT",
               "MISSING_FACT",
               "LABEL_MISMATCH",

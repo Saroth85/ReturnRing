@@ -4,7 +4,7 @@ of 13 Oct, round 2, finding R1).
 Gemma does not write the customer message. It picks the ids of fixed sentences, and code writes
 the message in Italian and in English:
 
-    opening + mandatory body + up to three extras + closing (+ the fixed legal clause)
+    opening + mandatory body + up to three extras (see `max_extras`) + closing (+ legal clause)
 
 - Each sentence has a stable id, fixed Italian and English texts, a slot (opening, extra or
   closing) and the decision kinds where it is allowed (guarantee, insufficient, Q1 to Q4), with
@@ -13,29 +13,49 @@ the message in Italian and in English:
   deadline, term, legal wording or decision word: those come from code. The tests run every
   text check of llm/text.py on each sentence, in both languages (`phrase_problems`).
 - The mandatory body is built by code from the engine decision and is never chosen by the
-  model: the return registration with {deadline} (and {amount} when known), the {terms}
-  sentence when the terms of future orders change, the unchanged-terms sentence for
-  insufficient evidence, the transparency notice (Q3, Q4) and the guarantee registration.
+  model: the return registration with {deadline} (and {amount} when known), the amount withheld
+  for a diminished-value claim with its reason ({deduction}; round 4 of the API review, finding
+  E17), in Q3 and Q4 the
+  sentence that this return keeps the terms of its order (rule 3, spec 8.6; round 4, finding
+  U2), with the free size exchange when the decision grants it, since it holds for the current
+  return too (round 5, findings V7 and V8), the {terms} sentence when the terms of future orders
+  change, the standard-terms sentence for insufficient evidence, the transparency notice (Q3,
+  Q4) and the guarantee registration. In Q3 and Q4, {terms} lists only restrictions (the free
+  size exchange is in the current-return sentence), introduced as "these return terms", not
+  "new" ones: code compares with the merchant base, not with the customer's own order (finding
+  V9). The {terms} sentence presents new terms as a consequence of past returns only when a
+  restrictive lever has a phrase (round 4, finding U4). The notice always refers to future
+  orders: after the restrictive {terms} sentence it says "these terms", otherwise it names the
+  next orders, so it never reads as if the current refund depended on past returns (rule 3;
+  round 3, finding T1).
+- Other customer texts written by code live here too, reviewed like the sentences: the subject
+  of a message and the fixed checkout texts (coupon block, size advice), in both languages
+  (round 4 of the API review, findings E13 and E25).
 - `selection_problems` lists why a selection is refused: an unknown or repeated id, an id in the
-  wrong slot, or an id not allowed for the decision. The validator reports them as SENTENCE_ID.
+  wrong slot, an id not allowed for the decision, two sentences that ask for a reply, a "thanks
+  again" closing without a thanks opening (round 3, finding T4), or more extras than
+  `max_extras` allows: two in Q3 and Q4 (round 4, finding U2) and with a deduction (E17), one in
+  Q3 and Q4 with a deduction. The validator reports them as SENTENCE_ID.
 - `render_selection` composes the message and fills it through llm/messages.render, which
   appends the legal clause the decision requires and checks it.
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, Literal
 
 from contracts.levers import format_lever_id
+from contracts.vocab import SizeAdviceKind
 from llm.decision import ExpectedDecision, serialize_decision, template_key
 from llm.messages import MessageError, render, strip_placeholders
 from llm.text import (
     Lang,
     banned_terms,
-    foreign_letters,
+    foreign_characters,
     language_of,
     legal_wording,
     literal_numbers,
@@ -49,6 +69,15 @@ SLOTS: tuple[Slot, ...] = ("opening", "extra", "closing")
 MIN_SENTENCES = 2  # one opening and one closing
 MAX_EXTRAS = 3
 MAX_SENTENCES = MIN_SENTENCES + MAX_EXTRAS
+# Q3 and Q4 carry one more body sentence (this return keeps its terms), so they take at most two
+# extras and stay within 120 words before the clause (round 4, finding U2).
+RESTRICTIVE_KINDS = frozenset({"Q3", "Q4"})
+RESTRICTIVE_MAX_EXTRAS = 2
+# The deduction sentence makes the body longer too: with it, at most two extras keep every message
+# within the 120 words of spec 8.7 before the legal clause (round 4 of the API review, finding
+# E17), and one in Q3 and Q4, which carry both longer bodies.
+MAX_EXTRAS_WITH_DEDUCTION = 2
+RESTRICTIVE_MAX_EXTRAS_WITH_DEDUCTION = 1
 
 WITHDRAWAL_KINDS = frozenset({"insufficient", "Q1", "Q2", "Q3", "Q4"})
 GUARANTEE_KINDS = frozenset({"guarantee"})
@@ -64,6 +93,9 @@ class Sentence:
     kinds: frozenset[str] = ALL_KINDS
     unless_levers: frozenset[str] = frozenset()  # lever ids that rule the sentence out
     needs: frozenset[str] = frozenset()  # placeholders the decision must have
+    excludes: frozenset[str] = frozenset()  # placeholders that rule the sentence out
+    group: str = ""  # at most one sentence of a group in a selection
+    after: frozenset[str] = frozenset()  # one of these ids must come before the sentence
 
     def text(self, lang: Lang) -> str:
         return self.it if lang == "it" else self.en
@@ -78,8 +110,26 @@ def _sentence(
     *,
     unless: str = "",
     needs: str = "",
+    excludes: str = "",
+    group: str = "",
+    after: str = "",
 ) -> Sentence:
-    return Sentence(id, slot, it, en, kinds, frozenset(unless.split()), frozenset(needs.split()))
+    return Sentence(
+        id,
+        slot,
+        it,
+        en,
+        kinds,
+        frozenset(unless.split()),
+        frozenset(needs.split()),
+        frozenset(excludes.split()),
+        group,
+        frozenset(after.split()),
+    )
+
+
+REPLY = "reply"  # the group of the sentences that ask the customer to reply
+THANKS_OPENINGS = "OPEN_THANKS OPEN_MESSAGE OPEN_CHOICE"
 
 
 SENTENCES: tuple[Sentence, ...] = (
@@ -125,6 +175,8 @@ SENTENCES: tuple[Sentence, ...] = (
         "If you need a different size, just reply to this message.",
         WITHDRAWAL_KINDS,
         unless="free_size_exchange:false",
+        excludes="deduction",  # the item came back damaged: no other size is offered
+        group=REPLY,
     ),
     _sentence(
         "HELP_ADVICE",
@@ -139,6 +191,7 @@ SENTENCES: tuple[Sentence, ...] = (
         "extra",
         "Per qualsiasi domanda, rispondi pure a questo messaggio.",
         "For any questions, just reply to this message.",
+        group=REPLY,
     ),
     _sentence(
         "CONTACT_TEAM",
@@ -153,6 +206,7 @@ SENTENCES: tuple[Sentence, ...] = (
         "Questions about these terms? Just reply to this message.",
         WITHDRAWAL_KINDS,
         needs="terms",
+        group=REPLY,
     ),
     _sentence(
         "GUARANTEE_CARE",
@@ -167,6 +221,7 @@ SENTENCES: tuple[Sentence, ...] = (
         "Se puoi, rispondi con una foto del problema: ci aiuta a seguirti meglio.",
         "If you can, reply with a photo of the problem: it helps us assist you.",
         GUARANTEE_KINDS,
+        group=REPLY,
     ),
     _sentence(
         "THANKS_FEEDBACK",
@@ -191,6 +246,7 @@ SENTENCES: tuple[Sentence, ...] = (
         "closing",
         "Grazie ancora e buona giornata.",
         "Thanks again, and have a nice day.",
+        after=THANKS_OPENINGS,
     ),
     _sentence("CLOSE_SOON", "closing", "A presto!", "See you soon!", WITHDRAWAL_KINDS),
     _sentence(
@@ -206,18 +262,32 @@ SENTENCE_IDS: tuple[str, ...] = tuple(PHRASEBOOK)
 
 # ---- The mandatory body, written by code from the engine decision ------------------------------
 
+# The deadline is a limit in both languages: "al più tardi per", "by" (round 3, finding T2).
+# {deadline} carries its article in Italian ("il 12 ottobre 2026", "l'11 ottobre 2026"): see
+# llm/messages.format_deadline (round 4 of the API review, finding E22).
 _REGISTERED: dict[Lang, str] = {
-    "it": "Abbiamo registrato la tua richiesta di reso e il rimborso è previsto per il {deadline}.",
+    "it": (
+        "Abbiamo registrato la tua richiesta di reso e il rimborso è previsto al più tardi per "
+        "{deadline}."
+    ),
     "en": "We have registered your return request and your refund is due by {deadline}.",
 }
 _REGISTERED_AMOUNT: dict[Lang, str] = {
     "it": (
-        "Abbiamo registrato la tua richiesta di reso e il rimborso di {amount} è previsto per il "
-        "{deadline}."
+        "Abbiamo registrato la tua richiesta di reso e il rimborso di {amount} è previsto al più "
+        "tardi per {deadline}."
     ),
     "en": (
         "We have registered your return request and your refund of {amount} is due by {deadline}."
     ),
+}
+# The reason of a diminished-value deduction (art. 14(2) of Directive 2011/83/EU; spec 9 F3, spec
+# 3: "motivazione della trattenuta"); the amount is the {deduction} field (round 4, finding E17).
+# "Il minor valore" is the usual Italian for the diminished value, and keeps a Q4 message with a
+# deduction and one extra within 120 words with the longer Q3 and Q4 body of round 4 (U2).
+_DEDUCTION: dict[Lang, str] = {
+    "it": "Abbiamo trattenuto {deduction} per il minor valore rilevato al controllo.",
+    "en": "We have withheld {deduction} for the loss of value found at our check.",
 }
 _GUARANTEE_REGISTERED: dict[Lang, str] = {
     "it": "Abbiamo registrato la tua segnalazione e ti scriveremo presto con i prossimi passi.",
@@ -228,27 +298,70 @@ _TERMS: dict[str, dict[Lang, str]] = {
         "it": "Per i tuoi prossimi ordini ti offriamo condizioni di reso migliori: {terms}.",
         "en": "For your next orders we are glad to offer you better return terms: {terms}.",
     },
+    # The decision, without a comparison code does not make: {terms} is computed against the
+    # merchant base, not the customer's own order, so the terms are "these", not "new" (round 5,
+    # finding V9).
     "restrictive": {
         "it": (
-            "I tuoi prossimi ordini avranno nuove condizioni di reso, mostrate prima di ogni "
-            "acquisto: {terms}."
+            "I tuoi prossimi ordini avranno queste condizioni di reso, mostrate prima "
+            "dell'acquisto: {terms}."
         ),
-        "en": "Your next orders will have new return terms, shown before each purchase: {terms}.",
+        "en": "Your next orders will have these return terms, shown before each purchase: {terms}.",
     },
     "other": {
         "it": "Per i tuoi prossimi ordini le condizioni di reso sono queste: {terms}.",
         "en": "For your next orders the return terms are these: {terms}.",
     },
 }
-# US-307: insufficient evidence means standard terms, neither safe nor suspicious.
-_UNCHANGED: dict[Lang, str] = {
-    "it": "Le condizioni di reso dei tuoi ordini restano quelle di sempre.",
-    "en": "The return terms of your orders stay the same as always.",
+# US-307: insufficient evidence means standard terms, neither safe nor suspicious. The message
+# states the engine decision, not a comparison with the order's snapshot that code does not make:
+# "have", never "keep" (round 3, finding T3; round 4, finding U3).
+_STANDARD: dict[Lang, str] = {
+    "it": "I tuoi prossimi ordini hanno le nostre condizioni di reso standard.",
+    "en": "Your next orders have our standard return terms.",
 }
-# The transparency notice of spec 8.6 (Q3, Q4): neutral, never a judgement.
+# Q3 and Q4: the current return keeps the terms shown when the order was bought (rule 3, spec
+# 8.6, LEG-04), so the new terms are never read as applying to it (round 4, finding U2).
+_KEEPS: dict[Lang, str] = {
+    "it": "Questo reso mantiene le condizioni del tuo ordine.",
+    "en": "This return keeps the terms of your order.",
+}
+# The free size exchange of a Q3 or Q4 decision holds for every order, the current one included
+# (scope all_orders, policy/engine.with_all_orders_levers), so the current-return sentence says
+# so and {terms} leaves it out: it is never read as a next-order term caused by past returns, nor
+# as missing from this return (round 5, findings V7 and V8). This clause is code text, like a
+# template field: `phrase_problems` reads it as one.
+SIZE_EXCHANGE_NOW: dict[Lang, str] = {
+    "it": ", e il cambio taglia è gratuito",
+    "en": ", and the size exchange is free",
+}
+_KEEPS_EXCHANGE: dict[Lang, str] = {
+    lang: _KEEPS[lang].removesuffix(".") + SIZE_EXCHANGE_NOW[lang] + "." for lang in _KEEPS
+}
+_FREE_SIZE_EXCHANGE = "free_size_exchange:true"
+# Levers whose {terms} phrase restricts. In a decision that requires terms (Q3, Q4) the window
+# lever only shortens the window (policy/engine.levers_for); a free or priority size exchange is a
+# benefit that holds for every order (round 4, finding U4).
+_RESTRICTIVE_TERMS = (
+    "return_window_days:",
+    "free_return_shipping:false",
+    "instant_refund:false",
+    "coupons_enabled:false",
+    "cluster_coupons_disabled:true",
+)
+# The transparency notice of spec 8.6 (Q3, Q4): neutral, never a judgement, and about future
+# orders only. Right after the {terms} sentence, "these terms" are the terms of the next orders;
+# alone (the base already lacks what Q3 or Q4 would withdraw) it names the next orders, so it
+# never reads as if the current refund depended on past returns (rule 3; round 3, finding T1).
+# Round 5: "your previous returns", shorter, so Q3 and Q4 keep 120 words with the free size
+# exchange in the current-return sentence.
+_NOTICE_AFTER_TERMS: dict[Lang, str] = {
+    "it": "Queste condizioni tengono conto dei tuoi resi precedenti.",
+    "en": "These terms take into account your previous returns.",
+}
 _NOTICE: dict[Lang, str] = {
-    "it": "Queste condizioni tengono conto dei resi dei tuoi ordini precedenti.",
-    "en": "These terms take into account the returns on your previous orders.",
+    "it": "Le condizioni di reso dei tuoi prossimi ordini tengono conto dei tuoi resi precedenti.",
+    "en": "The return terms of your next orders take into account your previous returns.",
 }
 
 
@@ -263,10 +376,13 @@ class MessageContext:
 
 
 def context_of(expected: ExpectedDecision) -> MessageContext:
+    """The context of the engine decision; its placeholders are those of the llm_case plus
+    {deduction}, which only the body written by code uses."""
+    deduction = {"deduction"} if expected.deduction else set()
     return MessageContext(
         expected.template_key,
         frozenset(expected.lever_ids),
-        frozenset(expected.placeholders),
+        frozenset(expected.placeholders) | deduction,
         expected.requires_terms,
     )
 
@@ -287,6 +403,7 @@ def allowed(sentence: Sentence, ctx: MessageContext) -> bool:
         ctx.kind in sentence.kinds
         and not sentence.unless_levers & ctx.lever_ids
         and sentence.needs <= ctx.placeholders
+        and not sentence.excludes & ctx.placeholders
     )
 
 
@@ -301,11 +418,22 @@ def _slot_at(index: int, count: int) -> Slot:
     return "closing" if index == count - 1 else "extra"
 
 
+def max_extras(ctx: MessageContext) -> int:
+    """The number of extras a selection may have: two in Q3 and Q4 or with a deduction, one in
+    Q3 and Q4 with a deduction, three otherwise."""
+    deduction = "deduction" in ctx.placeholders
+    if ctx.kind in RESTRICTIVE_KINDS:
+        return RESTRICTIVE_MAX_EXTRAS_WITH_DEDUCTION if deduction else RESTRICTIVE_MAX_EXTRAS
+    return MAX_EXTRAS_WITH_DEDUCTION if deduction else MAX_EXTRAS
+
+
 def selection_problems(ids: Sequence[str], ctx: MessageContext) -> list[str]:
     """Why a selection of sentence ids cannot be used; empty when it can."""
     problems: list[str] = []
     if not MIN_SENTENCES <= len(ids) <= MAX_SENTENCES:
         problems.append(f"{len(ids)} ids, expected {MIN_SENTENCES} to {MAX_SENTENCES}")
+    elif len(ids) - MIN_SENTENCES > max_extras(ctx):
+        problems.append(f"{len(ids) - MIN_SENTENCES} extras, at most {max_extras(ctx)} here")
     for index, sentence_id in enumerate(ids):
         sentence = PHRASEBOOK.get(sentence_id)
         if sentence is None:
@@ -318,7 +446,51 @@ def selection_problems(ids: Sequence[str], ctx: MessageContext) -> list[str]:
             problems.append(f"{sentence_id}: a {sentence.slot}, used as the {slot}")
         if not allowed(sentence, ctx):
             problems.append(f"{sentence_id}: not allowed for this decision")
+        problems += _coherence_problems(sentence, ids[:index])
     return problems
+
+
+def _coherence_problems(sentence: Sentence, before: Sequence[str]) -> list[str]:
+    """At most one sentence of a group (one request to reply), and a sentence that needs another
+    one before it ("Thanks again" after a thanks opening): round 3, finding T4."""
+    problems: list[str] = []
+    if sentence.group:
+        same = [
+            i
+            for i in before
+            if i != sentence.id and i in PHRASEBOOK and PHRASEBOOK[i].group == sentence.group
+        ]
+        if same:
+            problems.append(
+                f"{sentence.id}: one {sentence.group} sentence only, {same[0]} is there"
+            )
+    if sentence.after and not sentence.after & set(before):
+        problems.append(f"{sentence.id}: needs {' or '.join(sorted(sentence.after))} before it")
+    return problems
+
+
+def selection_rules(ctx: MessageContext) -> list[str]:
+    """The coherence rules of `selection_problems` for the sentences allowed in a context, in
+    words, for the prompt."""
+    ids = [s.id for s in allowed_sentences(ctx)]
+    rules: list[str] = []
+    for group in sorted({PHRASEBOOK[i].group for i in ids} - {""}):
+        members = [i for i in ids if PHRASEBOOK[i].group == group]
+        if len(members) > 1:
+            rules.append(f"At most one of {', '.join(members)}.")
+    for sentence_id in ids:
+        after = [i for i in ids if i in PHRASEBOOK[sentence_id].after]
+        if PHRASEBOOK[sentence_id].after:
+            rules.append(f"{sentence_id} only after {' or '.join(after)}.")
+    return rules
+
+
+def _terms_style(ctx: MessageContext) -> str:
+    """The {terms} sentence: restrictive only when a restrictive lever has a phrase."""
+    restricts = any(lever.startswith(_RESTRICTIVE_TERMS) for lever in ctx.lever_ids)
+    if ctx.requires_terms and restricts:
+        return "restrictive"
+    return "Q1" if ctx.kind == "Q1" else "other"
 
 
 def mandatory_body(ctx: MessageContext, lang: Lang) -> list[str]:
@@ -328,13 +500,19 @@ def mandatory_body(ctx: MessageContext, lang: Lang) -> list[str]:
         return [_GUARANTEE_REGISTERED[lang]]
     registered = _REGISTERED_AMOUNT if "amount" in ctx.placeholders else _REGISTERED
     body = [registered[lang]]
-    if "terms" in ctx.placeholders:
-        style = "restrictive" if ctx.requires_terms else "Q1" if ctx.kind == "Q1" else "other"
+    if "deduction" in ctx.placeholders:
+        body.append(_DEDUCTION[lang])
+    if ctx.kind in RESTRICTIVE_KINDS:
+        keeps = _KEEPS_EXCHANGE if _FREE_SIZE_EXCHANGE in ctx.lever_ids else _KEEPS
+        body.append(keeps[lang])
+    style = _terms_style(ctx) if "terms" in ctx.placeholders else ""
+    if style:
         body.append(_TERMS[style][lang])
     elif ctx.kind == "insufficient":
-        body.append(_UNCHANGED[lang])
+        body.append(_STANDARD[lang])
     if "transparency_notice:true" in ctx.lever_ids:
-        body.append(_NOTICE[lang])
+        notice = _NOTICE_AFTER_TERMS if style == "restrictive" else _NOTICE
+        body.append(notice[lang])
     return body
 
 
@@ -361,22 +539,72 @@ def render_selection(
     return render(compose(ids, context_of(expected), lang), decision, base, lang, refund_eur)
 
 
+# ---- Other customer texts written by code (round 4 of the API review, E13 and E25) -------------
+
+_SUBJECT: dict[Lang, str] = {"it": "Il tuo reso {return_id}", "en": "Your return {return_id}"}
+_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:~-]{0,95}")
+
+
+def subject(return_id: str, lang: Lang) -> str:
+    """The subject of a message to the customer: a fixed text with the return id."""
+    if _ID_RE.fullmatch(return_id) is None:
+        raise ValueError(f"not a return id: {return_id!r}")
+    return _SUBJECT[lang].format(return_id=return_id)
+
+
+# The coupon block shown at checkout (US-402): neutral, with the wording of the transparency
+# notice that follows a stated term ("these terms": the block of this order); it never names the
+# linked accounts or the cluster to the customer (rule 11).
+COUPON_BLOCK_TEXT: dict[Lang, str] = {
+    "it": f"Su questo ordine i codici sconto non sono utilizzabili. {_NOTICE_AFTER_TERMS['it']}",
+    "en": f"Discount codes cannot be used on this order. {_NOTICE_AFTER_TERMS['en']}",
+}
+# The size advice of a checkout line (US-401): a size only with measurement and exchange data.
+SIZE_ADVICE_TEXTS: dict[SizeAdviceKind, dict[Lang, str]] = {
+    "specific": {
+        "it": "Chi ha le tue misure ha tenuto la taglia {size} di questo capo.",
+        "en": "Customers with your measurements kept size {size} of this item.",
+    },
+    "measurement_guide": {
+        "it": "Prima di scegliere la taglia, guarda la guida alle misure di questo capo.",
+        "en": "Before choosing your size, look at the size guide of this item.",
+    },
+    "no_reliable_recommendation": {
+        "it": "Per questo capo non abbiamo un consiglio di taglia affidabile.",
+        "en": "We have no reliable size advice for this item.",
+    },
+}
+_SIZE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ./-]{0,15}")
+
+
+def size_advice_text(kind: SizeAdviceKind, lang: Lang, size: str | None = None) -> str:
+    """The fixed text of a size advice; a specific advice states the suggested size."""
+    if (kind == "specific") != (size is not None):
+        raise ValueError("a specific advice, and only it, states a size")
+    if size is not None and _SIZE_RE.fullmatch(size) is None:
+        raise ValueError(f"not a size: {size!r}")
+    return SIZE_ADVICE_TEXTS[kind][lang].replace("{size}", size or "")
+
+
 # ---- The review gate: every text check of llm/text.py ------------------------------------------
 
 
 def phrase_problems(text: str, lang: Lang) -> list[tuple[str, str]]:
     """The checks a customer text must pass, as (check, found) pairs: no number or unit, no legal,
-    terms or decision wording, no banned term, no letter of another script, not the other
-    language. Placeholders are removed first. Run by the tests on every phrasebook sentence,
+    terms or decision wording, no banned term, no character outside the allowlist, not the other
+    language. Placeholders, and the code clause of the free size exchange of the current return
+    (`SIZE_EXCHANGE_NOW`), are removed first. Run by the tests on every phrasebook sentence,
     every body sentence and every pair of parts that can stand side by side in a message."""
     body = strip_placeholders(text)
+    for clause in SIZE_EXCHANGE_NOW.values():
+        body = body.replace(clause, " ")
     checks = (
         ("LITERAL_NUMBER", literal_numbers(body, lang)),
         ("LITERAL_UNIT", literal_units(body)),
         ("LEGAL_WORDING", legal_wording(body)),
         ("TERMS_WORDING", terms_wording(body)),
         ("BANNED_TERM", banned_terms(body)),
-        ("SCRIPT", foreign_letters(body)),
+        ("SCRIPT", foreign_characters(body)),
     )
     problems = [(check, ", ".join(found)) for check, found in checks if found]
     detected = language_of(body)

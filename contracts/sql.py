@@ -47,6 +47,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     MetaData,
@@ -98,7 +99,6 @@ from contracts.vocab import (
     ROLES,
     SERVED_FROM,
     SYSTEM_ACTOR,
-    TONES,
 )
 from policy.legal_guard import LEGAL_WITHDRAWAL_DAYS, MAX_REVIEW_DAYS
 from policy.types import EvidenceQuality, Path, Quadrant, ReturnReason
@@ -259,7 +259,6 @@ llm_generations = Table(
     Column("model_calls", Integer, nullable=False),
     Column("prompt_version", String(64), nullable=False),
     Column("input_digest", String(64), nullable=False),  # sha256 of the case sent to the model
-    Column("tone", String(16)),
     # the llm_case sent (with its code-built facts) and the validated or template output
     Column("llm_case", JSONDoc, nullable=False),
     Column("output", JSONDoc, nullable=False),
@@ -274,7 +273,6 @@ llm_generations = Table(
     _check(one_of("served_from", SERVED_FROM), "served_from"),
     _check(one_of("generation_path", GENERATION_PATHS), "generation_path"),
     _check(one_of("fallback_reason", FALLBACK_REASONS, nullable=True), "fallback_reason"),
-    _check(one_of("tone", TONES, nullable=True), "tone"),
     _check("model_calls >= 0 AND model_calls <= 2", "calls_range"),
     # spec 8.7, llm.generate: model is validated on the first call, regenerated on the second
     _check(
@@ -391,6 +389,10 @@ decisions = Table(
     # {origin, period_start, period_end, nature} of the scores and thresholds above (rule 11):
     # an earlier version is served with the provenance it had (US-604)
     Column("inputs_provenance", JSONDoc, nullable=False),
+    # the top 3 contributions to the risk above (ADR-16): [{feature, value, contribution,
+    # direction, phrase_en, phrase_it}] as ml.risk.explain writes shap_top3; the case card shows
+    # them and the draft's facts cite them. Null when the return is not scored (rule 4, US-307)
+    Column("score_factors", JSONDoc),
     Column("base_terms", JSONDoc, nullable=False),
     Column("order_terms", JSONDoc, nullable=False),
     # engine outputs
@@ -429,6 +431,8 @@ decisions = Table(
     Column("generation_path", String(16)),
     Column("created_at", TS, nullable=False),
     UniqueConstraint("return_id", "version", name="uq_decisions_return_version"),
+    # the key of the composite foreign key of coupon_rule_applications (round 4, E2)
+    UniqueConstraint("decision_id", "cluster_id"),
     _check("version >= 1", "version_positive"),
     _check(
         "(version <> 1 OR (supersedes_decision_id IS NULL AND revision_trigger = 'initial'))"
@@ -475,12 +479,28 @@ decisions = Table(
         column("decided_on", Date) <= utc_date(column("created_at")),
         name="decided_by_creation",
     ),
+    # round 4, E4: every later version (a review or a recompute) is decided on the day it is
+    # created, so the review rules count from the day of the act
     CheckConstraint(
         or_(
-            column("revision_trigger") != "review",
+            column("revision_trigger") == "initial",
             column("decided_on", Date) == utc_date(column("created_at")),
         ),
-        name="review_decided_on_creation",
+        name="new_version_decided_on_creation",
+    ),
+    # E4: a person acts on a version that exists; the act of a review creates its version
+    _check("approved_at IS NULL OR approved_at >= created_at", "approved_after_creation"),
+    _check(
+        "revision_trigger <> 'review' OR approved_at = created_at", "review_approved_at_creation"
+    ),
+    # E4: a restriction is approved only before its review date; a stale proposal is recomputed
+    CheckConstraint(
+        or_(
+            column("review_at").is_(None),
+            column("approved_at").is_(None),
+            utc_date(column("approved_at")) < column("review_at", Date),
+        ),
+        name="approved_before_review",
     ),
     # rule 5: a person acted exactly when the state is not proposed. With the two review CHECKs
     # above, an approved or overridden restriction has a person as approver and a review date.
@@ -511,6 +531,11 @@ decisions = Table(
         "coupon_application_id IS NULL OR coupon_rule_version IS NOT NULL",
         "coupon_application_has_rule",
     ),
+    # LEG-09, E2: a cluster coupon block is about the cluster given to the engine
+    _check(
+        "coupon_application_id IS NULL OR cluster_id IS NOT NULL",
+        "coupon_application_has_cluster",
+    ),
     _check(
         "(generation_id IS NULL AND generation_path IS NULL)"
         " OR (generation_id IS NOT NULL AND generation_path IS NOT NULL)",
@@ -526,7 +551,7 @@ coupon_rule_applications = Table(
     Column("application_id", Id, primary_key=True),
     Column("rule_version", String(64), ForeignKey("coupon_rules.rule_version"), nullable=False),
     Column("cluster_id", Id, nullable=False),
-    Column("decision_id", Id, ForeignKey("decisions.decision_id"), nullable=False),
+    Column("decision_id", Id, nullable=False),
     Column("affected_customer_ids", JSONDoc, nullable=False),  # excluded accounts, visible
     Column("state", String(16), nullable=False),
     Column("proposed_at", TS, nullable=False),
@@ -537,6 +562,10 @@ coupon_rule_applications = Table(
     Column("reversed_by", ActorColumn),
     Column("reversed_at", TS),
     Column("reversal_reason", Text),
+    # E2: the application blocks the cluster of the decision that applied it, never another
+    ForeignKeyConstraint(
+        ["decision_id", "cluster_id"], ["decisions.decision_id", "decisions.cluster_id"]
+    ),
     _check(one_of("state", COUPON_APPLICATION_STATES), "state"),
     _check("reversible", "always_reversible"),  # no permanent label (US-607)
     # D2: the review date is at most MAX_REVIEW_DAYS after the application is confirmed (or
@@ -548,6 +577,19 @@ coupon_rule_applications = Table(
             MAX_REVIEW_DAYS,
         ),
         name="review_within_max",
+    ),
+    # E4: confirmed before its review date (a lapsed block is never confirmed), and the review
+    # date is after the day of the proposal
+    CheckConstraint(
+        or_(
+            column("confirmed_at").is_(None),
+            utc_date(column("confirmed_at")) < column("review_at", Date),
+        ),
+        name="confirmed_before_review",
+    ),
+    CheckConstraint(
+        column("review_at", Date) > utc_date(column("proposed_at")),
+        name="review_after_proposed",
     ),
     # US-402, LEG-09: an application is a proposal an operator confirms
     _check(
@@ -671,6 +713,18 @@ LESS_GENEROUS = " OR ".join(
     ["return_window_days < base_return_window_days"]
     + [f"(base_{c} AND NOT {c})" for c in TERM_COLUMNS[1:]]
 )
+# Contract 1.5.0 (ADR-15 section 15, H12): a confirmed cluster coupon block in force turns the
+# coupons of the terms shown off, also on base terms; the block carries its own review date.
+_COUPON_BLOCKED = "(coupon_application_id IS NOT NULL AND NOT coupons_enabled)"
+SAME_AS_BASE_SHOWN = " AND ".join(
+    [f"{c} = base_{c}" for c in TERM_COLUMNS if c != "coupons_enabled"]
+    + [f"(coupons_enabled = base_coupons_enabled OR {_COUPON_BLOCKED})"]
+)
+LESS_GENEROUS_SHOWN = " OR ".join(
+    ["return_window_days < base_return_window_days"]
+    + [f"(base_{c} AND NOT {c})" for c in TERM_COLUMNS[1:] if c != "coupons_enabled"]
+    + ["(base_coupons_enabled AND NOT coupons_enabled AND coupon_application_id IS NULL)"]
+)
 
 terms_snapshots = Table(
     "terms_snapshots",
@@ -695,6 +749,7 @@ terms_snapshots = Table(
     Column("base_coupons_enabled", Boolean, nullable=False),
     Column("review_at", Date),
     Column("coupon_application_id", Id, ForeignKey("coupon_rule_applications.application_id")),
+    Column("coupon_review_at", Date),  # the review date of the coupon block shown (1.5.0)
     Column("cart", JSONDoc, nullable=False),
     Column("shown_at", TS, nullable=False),
     Column("confirmed_at", TS),
@@ -706,20 +761,45 @@ terms_snapshots = Table(
         "confirmed_with_order",
     ),
     _check("confirmed_at IS NULL OR confirmed_at >= shown_at", "confirmed_after_shown"),
+    # the quadrant is the engine's while its levers stand, none after a person's override (H3)
     _check(
         "(source = 'base' AND source_decision_id IS NULL AND quadrant_at_purchase IS NULL)"
         " OR (source <> 'base' AND source_decision_id IS NOT NULL"
-        " AND source_decision_id = source AND quadrant_at_purchase IS NOT NULL)",
+        " AND source_decision_id = source)",
         "source",
     ),
-    # base terms are exactly the merchant base terms (US-403)
-    _check(f"source <> 'base' OR ({SAME_AS_BASE})", "base_terms"),
+    # base terms are exactly the merchant base terms (US-403), coupons off under a block
+    _check(f"source <> 'base' OR ({SAME_AS_BASE_SHOWN})", "base_terms"),
     _check("source <> 'base' OR review_at IS NULL", "base_no_review"),
     # terms less generous than the base come from a decision with a review date (US-607);
-    # LESS_GENEROUS mirrors policy.types.ReturnTerms.is_less_generous_than (a test checks it)
+    # LESS_GENEROUS mirrors policy.types.ReturnTerms.is_less_generous_than (a test checks it),
+    # the coupons turned off by a coupon block aside: the block has its own review date
     _check(
-        f"NOT ({LESS_GENEROUS}) OR (source <> 'base' AND review_at IS NOT NULL)",
+        f"NOT ({LESS_GENEROUS_SHOWN}) OR (source <> 'base' AND review_at IS NOT NULL)",
         "restriction_has_review",
+    ),
+    # H12: a coupon block shown turns the coupons of the terms off and carries its review date
+    _check(
+        "(coupon_application_id IS NULL AND coupon_review_at IS NULL)"
+        " OR (coupon_application_id IS NOT NULL AND coupon_review_at IS NOT NULL)",
+        "coupon_block_review",
+    ),
+    _check("coupon_application_id IS NULL OR NOT coupons_enabled", "coupon_block_off"),
+    # a coupon block lapses at its review date: shown before it, within 180 days of the day
+    CheckConstraint(
+        or_(
+            column("coupon_review_at").is_(None),
+            utc_date(column("shown_at")) < column("coupon_review_at", Date),
+        ),
+        name="coupon_review_after_shown",
+    ),
+    CheckConstraint(
+        or_(
+            column("coupon_review_at").is_(None),
+            column("coupon_review_at", Date)
+            <= days_after(utc_date(column("shown_at")), MAX_REVIEW_DAYS),
+        ),
+        name="coupon_review_within_max",
     ),
     # US-607: terms from a restriction are shown only before its review date, when it lapses
     # (the UTC day of shown_at, as DecisionView.in_force and the API models count it)
@@ -846,6 +926,14 @@ inspections = Table(
     ),
 )
 Index(None, inspections.c.return_id)
+# H13, H19 (contract 1.5.0): a diminished-value claim belongs to the return, once
+Index(
+    "uq_inspections_one_claim_per_return",
+    inspections.c.return_id,
+    unique=True,
+    postgresql_where=inspections.c.compensation_applied,
+    sqlite_where=inspections.c.compensation_applied,
+)
 
 # ---- Catalogue tasks (US-606, spec 8.9) ---------------------------------------------------------
 
@@ -877,6 +965,69 @@ catalog_tasks = Table(
     _check("updated_at >= created_at", "updated_after_created"),
 )
 Index(None, catalog_tasks.c.anomaly_id)
+
+# ---- Telemetry (US-905, NFR-12, spec 9) ---------------------------------------------------------
+# One row per GPU and amd-smi sample, every 5 s, written by the sampler of
+# apps/api/services/other/telemetry.py and kept 24 hours; a row with an error and no numbers when
+# amd-smi gave none. Not a decision record: the demo reset empties it with the other tables.
+
+telemetry_samples = Table(
+    "telemetry_samples",
+    metadata,
+    Column(
+        "sample_id",
+        BigInteger().with_variant(Integer, "sqlite"),
+        primary_key=True,
+        autoincrement=True,
+    ),
+    Column("sampled_at", TS, nullable=False),
+    Column("device", String(64), nullable=False),
+    Column("gpu_index", Integer, nullable=False),
+    Column("utilization_percent", Float),
+    Column("memory_used_gib", Float),
+    Column("memory_total_gib", Float),
+    Column("power_watts", Float),
+    Column("source", String(32), nullable=False),
+    Column("error", Text),
+    _check(
+        "utilization_percent IS NULL OR (utilization_percent >= 0 AND utilization_percent <= 100)",
+        "utilization_range",
+    ),
+    _check(
+        "(memory_used_gib IS NULL OR memory_used_gib >= 0)"
+        " AND (memory_total_gib IS NULL OR memory_total_gib >= 0)"
+        " AND (power_watts IS NULL OR power_watts >= 0)",
+        "non_negative",
+    ),
+)
+Index(None, telemetry_samples.c.sampled_at)
+
+# ---- The demo reset and the id counters (ADR-15 section 15, contract 1.5.0) -------------------
+
+# One row, written by the demo reset (python -m apps.api.reset, US-903): the instant of the
+# serving snapshot the reset decided at, the wall time the demo clock started (DEMO_CLOCK, the
+# end of the reset) and the golden cases of GET /api/demo/cases with their live ids.
+demo_reset = Table(
+    "demo_reset",
+    metadata,
+    Column("reset_id", Integer, primary_key=True, autoincrement=False),
+    Column("snapshot_as_of", TS, nullable=False),
+    Column("started_at", TS, nullable=False),  # wall clock, real time
+    Column("cases", JSONDoc, nullable=False),  # DemoCasesResponse without as_of
+    _check("reset_id = 1", "single"),
+)
+
+# The next number of each id kind (MSG, TS-CHK, ORD-CHK, INS, EV, LD, CT, GEN-AGENT and the
+# drafts of each return): incremented in the transaction that writes the id, so two writers
+# never take the same number (its row stays locked until the transaction ends) and a rolled
+# back transaction gives its number back. Ids stay sequential and deterministic (H10, H18).
+id_counters = Table(
+    "id_counters",
+    metadata,
+    Column("kind", String(128), primary_key=True),
+    Column("value", BigInteger, nullable=False),
+    _check("value >= 0", "non_negative"),
+)
 
 TABLES: tuple[Table, ...] = tuple(metadata.sorted_tables)
 APPEND_ONLY_TABLES: tuple[str, ...] = ("audit_log", "simulator_assumptions", "coupon_rules")

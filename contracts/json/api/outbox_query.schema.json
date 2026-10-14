@@ -20,6 +20,7 @@
     },
     "page": {
       "default": 1,
+      "maximum": 100000,
       "minimum": 1,
       "title": "Page",
       "type": "integer"

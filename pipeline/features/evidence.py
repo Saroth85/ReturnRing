@@ -78,10 +78,6 @@ EVIDENCE_THRESHOLDS: Final = EvidenceThresholds(
 )
 
 
-def _when(as_of: datetime) -> str:
-    return f"{as_of:%Y-%m-%d %H:%M} UTC"
-
-
 def evidence_quality(
     snap: StoreSnapshot,
     lines: pd.DataFrame,
@@ -118,7 +114,6 @@ def evidence_quality(
     observations = dict(zip(customers, n_obs.astype(int), strict=True))
     with_links = None if linked is None else dict(zip(customers, linked.astype(int), strict=True))
 
-    when = _when(snap.as_of)
     rows = []
     for cid in customers:
         seen = kinds.get(cid, set())
@@ -133,22 +128,27 @@ def evidence_quality(
         missing: list[str] = []
         # The account's own settled lines only (review F14): the lines of linked accounts are
         # reported, never counted, so a new account in a cluster is never judged on others.
+        # The sentences hold no number and no date: an LLM case quotes them (llm.case requires
+        # number-free items, ADR-14 decision 11); the counts, thresholds and the decision time
+        # are the table's own columns and its provenance, shown next to the sentence.
         if n < th.min_observations:
-            linked_text = "" if n_linked is None else f" ({n_linked} with linked accounts)"
+            more = (
+                " (the linked accounts have more)"
+                if n_linked is not None and n_linked >= th.min_observations
+                else ""
+            )
             missing.append(
-                f"observations: {n} order lines with a settled outcome up to {when}"
-                f"{linked_text}; at least {th.min_observations} needed"
+                f"observations: too few order lines with a settled outcome for this account{more}"
             )
         if completeness < th.min_identifier_completeness:
-            missing.append(f"identifiers: no {', '.join(missing_kinds)} recorded up to {when}")
+            missing.append(f"identifiers: no {', '.join(missing_kinds)} recorded")
         if (
             coherence is not None
             and n_reasons >= th.min_reasons
             and coherence < th.min_reason_coherence
         ):
             missing.append(
-                f"return reasons: {n_reasons - n_coherent} of {n_reasons} returns up to {when} "
-                "give no specific reason that fits the item"
+                "return reasons: most returns give no specific reason that fits the item"
             )
         quality = EvidenceQuality.INSUFFICIENT if missing else EvidenceQuality.SUFFICIENT
         rows.append(

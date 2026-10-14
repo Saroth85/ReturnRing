@@ -499,7 +499,8 @@ def _features_section(doc: dict[str, Any]) -> list[str]:
             e = r["embeddings"]
             cover = r.get("embedding_coverage", {})
             lines.append(
-                f"  Embeddings: `{e['file']}`, encoder {', '.join(e['encoder_versions'])}; "
+                f"  Embeddings: `features/customer_embeddings`, encoder "
+                f"{', '.join(e['encoder_versions'])}; "
                 f"origin {e['origin']}; period {e['period']}; nature {e['nature']}. Customer "
                 "rows without an embedding: "
                 + "; ".join(

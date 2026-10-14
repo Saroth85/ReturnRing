@@ -107,7 +107,7 @@ A4 = FeatureSet(
     "A4",
     A3.features,
     "xgboost",
-    "what GraphSAGE embeddings add (phase 6, GPU)",
+    "what GraphSAGE embeddings add (US-202)",
     needs_embeddings=True,
 )
 ABLATION: Final = (A0, A1, A2, A3, A4)

@@ -28,9 +28,9 @@ import pandas as pd
 import pyarrow as pa
 import pytest
 
-from contracts.io import Provenance, read_table, validate_table
+from contracts.io import MAX_ORIGIN_CHARS, Provenance, read_table, validate_table
 from contracts.parquet import SCHEMAS
-from pipeline.generator import golden
+from pipeline.generator import golden, orders
 from pipeline.generator.calibration import Calibration, load_calibration, type_return_targets
 from pipeline.generator.catalogue import SIZE_RANGE, SizeKind, size_kind_for
 from pipeline.generator.config import (
@@ -192,8 +192,10 @@ def test_data01_every_table_is_written_and_valid(any_store: Store) -> None:
         assert table.num_rows > 0, name
         assert prov.nature == "synthetic"
         assert prov.origin.startswith(BASE_ORIGIN)
-        assert any_store.cal.origin in prov.origin  # the calibration says what it is
-        assert "store period 2025-10-01..2026-09-30" in prov.origin
+        assert len(prov.origin) <= MAX_ORIGIN_CHARS  # review F17: fits the API's Provenance
+        assert f"calibration {any_store.cal.nature}" in prov.origin
+        assert any_store.cal.origin in prov.chain  # the calibration says what it is
+        assert "store period 2025-10-01..2026-09-30" in prov.chain
         assert prov.period_end == (PERIOD_END - timedelta(days=1)).date() == PERIOD_LAST_DAY
         # The period covers every event of the file (C11): accounts and listings start earlier.
         if name.startswith("store/"):
@@ -387,6 +389,89 @@ def test_data03_no_ring_or_family_id_leaks_into_store_values(any_store: Store) -
         values = set(_iter_strings(table))
         assert values, name
         assert not any(s in v for s in secret for v in values), name
+
+
+@pytest.mark.parametrize("store_name", ["real_store", "real_ood_store"])
+def test_f5_identifier_counts_do_not_tell_the_behaviour(
+    request: pytest.FixtureRequest, store_name: str
+) -> None:
+    """Review F5: ring and family accounts get a mobile IP prefix, a second device and a second
+    card with the same probabilities as every other account, so "no edge to a mobile prefix" or
+    "always two devices" is no label proxy for a graph model (A4, spec 8.3). Per kind, the share
+    of accounts with two values or more, among those with one at least, stays within 0.1 plus
+    three binomial standard errors of the normal accounts' share for every behaviour (scripted
+    golden accounts left out). Before the fix: 0 against 0.4 for the mobile prefix of rings, 1.0
+    against 0.35 for the second device of families."""
+    store: Store = request.getfixturevalue(store_name)
+    labels = store["truth/labels"].set_index("customer_id")
+    labels = labels.drop(index=[c for c in golden.GOLDEN_CUSTOMERS if c in labels.index])
+    ids = store["store/identifiers"]
+    wide = {}
+    seen = set()
+    for kind in ("device", "card", "ip_prefix"):
+        counts = ids[ids["kind"] == kind].groupby("customer_id").size()
+        counts = counts.reindex(labels.index).dropna()
+        groups = (counts >= 2).groupby(labels["behaviour"].reindex(counts.index))
+        multi, sizes = groups.mean(), groups.size()
+        for behaviour, share in multi.items():
+            seen.add(behaviour)
+            gap = float(share - multi["normal"])
+            if abs(gap) > 0.1 + 3 * np.sqrt(0.25 / sizes[behaviour]):
+                wide[(kind, behaviour)] = round(gap, 3)
+    assert {"promo_ring", "shared_benign"} <= seen
+    assert not wide, wide
+
+
+def _cross_group_strong_pairs(store: Store) -> dict[str, int]:
+    """Per strong kind, pairs of accounts of different groups (a ring, a family, or one account
+    alone) that share a value."""
+    labels = store["truth/labels"].set_index("customer_id")
+    group = (
+        labels["ring_id"].fillna(labels["family_id"]).fillna(pd.Series(labels.index, labels.index))
+    )
+    ids = store["store/identifiers"]
+    out = {}
+    for kind in ("card", "email", "device"):
+        mine = ids[ids["kind"] == kind]
+        pairs = 0
+        for _, users in mine.groupby("value_hash")["customer_id"]:
+            groups = group.reindex(users).tolist()
+            pairs += sum(1 for i, a in enumerate(groups) for b in groups[i + 1 :] if a != b)
+        out[kind] = pairs
+    return out
+
+
+def test_f3_the_ood_store_shares_strong_identifiers_across_unrelated_accounts(
+    main_store: Store, ood_store: Store, real_ood_store: Store
+) -> None:
+    """Review F3: in the main store no card, e-mail or device is shared by accounts of different
+    rings, families or by unrelated accounts, so graph precision at the 0.8 threshold is 1.000 by
+    construction. The OOD store adds second-hand or shared devices and flatmates' cards between
+    unrelated accounts (pipeline.generator.config.OOD), so the precision there is measured."""
+    assert sum(_cross_group_strong_pairs(main_store).values()) == 0
+    for store in (ood_store, real_ood_store):
+        pairs = _cross_group_strong_pairs(store)
+        assert pairs["device"] > 0 and pairs["card"] > 0, pairs
+    assert SCENARIOS["main"].unrelated_device_pairs_at_scale_1 == 0
+    assert SCENARIOS["main"].flatmate_card_share == 0.0
+
+
+def test_f5_ring_accounts_can_hold_referral_and_black_friday_codes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Review F5: ring accounts were never given a referral or Black Friday code, so holding one
+    proved an account was not in a ring. With every eligible account given both codes, ring
+    accounts get them like the others."""
+    monkeypatch.setattr(orders, "REFERRAL_SHARE", 1.0)
+    monkeypatch.setattr(orders, "PROMO_SHARE", 1.0)
+    store = build_store(CAL, 5, 0.1, SCENARIOS["main"])
+    pop, coupons = store.pop, store.coupons
+    rings = {i for i in range(pop.n) if pop.ring_of[i] >= 0 and not pop.scripted[i]}
+    assert rings
+    holders = {
+        int(c) for c, k in zip(coupons.customer, coupons.kind, strict=True) if k != "welcome"
+    }
+    assert rings & holders
 
 
 def _python_strings(path: Path) -> Iterator[str]:

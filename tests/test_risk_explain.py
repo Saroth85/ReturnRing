@@ -19,12 +19,14 @@ from llm.text import (
 )
 from ml.risk.explain import (
     ALONE_LABELS,
+    DIRECTIONS,
     LABELS,
     NOT_A_CAUSE,
     TOP,
     Factor,
     Lang,
     check_factors,
+    direction_of,
     factors_json,
     phrase,
     top_factors,
@@ -97,7 +99,7 @@ def test_top_factors_rank_by_absolute_contribution_among_known_values() -> None:
         "other_reason_share",
         "size_share",
     ]
-    assert rows[1][2].as_dict()["direction"] == "flat"
+    assert rows[1][2].as_dict()["direction"] == "unchanged"
 
 
 def test_top_factors_refuse_bad_shapes_and_forbidden_features() -> None:
@@ -119,9 +121,18 @@ def test_factors_json_is_canonical() -> None:
     data = json.loads(factors_json(factors))
     assert [d["feature"] for d in data] == ["n_returns", "tenure_days"]
     assert data[0]["value"] == 3.0 and data[0]["contribution"] == 0.25
-    assert data[0]["direction"] == "up" and data[1]["direction"] == "down"
+    assert data[0]["direction"] == "raises" and data[1]["direction"] == "lowers"
     assert data[1]["phrase_it"].startswith("Giorni dall'apertura dell'account: abbassa")
     assert factors_json(factors) == factors_json(list(factors))
+
+
+def test_f18_directions_use_the_api_vocabulary() -> None:
+    """F18: one vocabulary for the direction of a contribution, the API's ScoreContribution words
+    (raises, lowers) plus unchanged for a zero contribution."""
+    assert set(DIRECTIONS) == {"raises", "lowers", "unchanged"}
+    assert [direction_of(x) for x in (0.2, -0.2, 0.0)] == ["raises", "lowers", "unchanged"]
+    for value, word in ((0.2, "raises"), (-0.2, "lowers"), (0.0, "unchanged")):
+        assert Factor("n_returns", 1.0, value).as_dict()["direction"] == word
 
 
 def test_check_factors_counts_complete_rows() -> None:

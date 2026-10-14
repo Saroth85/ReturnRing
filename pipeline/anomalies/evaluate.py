@@ -144,6 +144,8 @@ class Scores:
     defective: int  # defective variants in the store
     cells: int  # distinct flagged (variant, reason, week)
     true_cells: int
+    tasks: int = 0  # distinct flagged (variant, reason): one catalogue task each (F11)
+    true_tasks: int = 0  # of which with a matching cell
 
     @property
     def precision(self) -> float | None:
@@ -161,6 +163,10 @@ class Scores:
     def cell_precision(self) -> float | None:
         return self.true_cells / self.cells if self.cells else None
 
+    @property
+    def task_precision(self) -> float | None:
+        return self.true_tasks / self.tasks if self.tasks else None
+
 
 def score(cells: pd.DataFrame, flags: pd.Series, defective: int) -> Scores:
     """Variant-level and cell-level scores of the flagged cells (labelled by label_cells)."""
@@ -169,6 +175,9 @@ def score(cells: pd.DataFrame, flags: pd.Series, defective: int) -> Scores:
         defective=("defective", "first"), match=("match", "any")
     )
     distinct = hit.drop_duplicates(["variant_id", "reason", "week"])
+    # catalogue.catalogue_task opens one task per (variant, reason): a task is true when one of
+    # its flagged cells matches the variant's defect (review F11).
+    per_task = hit.groupby(["variant_id", "reason"])["match"].any()
     return Scores(
         flagged=len(per_variant),
         true=int(per_variant["match"].sum()),
@@ -176,6 +185,8 @@ def score(cells: pd.DataFrame, flags: pd.Series, defective: int) -> Scores:
         defective=defective,
         cells=len(distinct),
         true_cells=int(distinct["match"].sum()),
+        tasks=len(per_task),
+        true_tasks=int(per_task.sum()),
     )
 
 
@@ -293,6 +304,19 @@ def section_volume(stores: Sequence[Evaluated]) -> list[str]:
     ]
 
 
+WEEKLY_HEADER = (
+    "Rule",
+    "Variants flagged in any run",
+    "Precision per variant (MOD-10)",
+    "Catalogue tasks (variant, reason)",
+    "Task precision",
+    "Recall",
+    "Delay median (days)",
+    "Delay p90",
+    "Delay max",
+)
+
+
 def _step_cells(ev: Evaluated, step: Step) -> tuple[pd.DataFrame, pd.Series]:
     cells = with_estimator(ev.cells, step.succession)
     return cells, flagged(cells, step.thresholds)
@@ -323,6 +347,8 @@ def section_steps(ev: Evaluated, letter: str, title: str) -> list[str]:
                 step.label,
                 str(u.flagged),
                 _f(u.precision),
+                str(u.tasks),
+                _f(u.task_precision),
                 f"{_f(u.recall)} ({u.true} of {u.defective})",
                 _f(float(days.median()) if len(days) else None, 0),
                 _f(float(days.quantile(0.9)) if len(days) else None, 0),
@@ -356,21 +382,13 @@ def section_steps(ev: Evaluated, letter: str, title: str) -> list[str]:
         "",
         f"Weekly operation: one run every Monday 00:00 UTC ({len(ev.instants) - 1} runs) and one "
         "at the extraction instant, each with what was known then. A variant flagged in any run "
-        "would have opened a catalogue task; the delay runs from the defect start to the first run "
-        "with a matching flag:",
+        "would have opened a catalogue task for each flagged reason (one task per variant and "
+        "reason, pipeline.anomalies.catalogue). Precision per variant is the MOD-10 measure; "
+        "precision per task counts a defective variant flagged for a reason that is not its "
+        "defect as a false task. The delay runs from the defect start to the first run with a "
+        "matching flag:",
         "",
-        *table(
-            [
-                "Rule",
-                "Catalogue tasks (variants)",
-                "Precision",
-                "Recall",
-                "Delay median (days)",
-                "Delay p90",
-                "Delay max",
-            ],
-            union_rows,
-        ),
+        *table(WEEKLY_HEADER, union_rows),
         "",
     ]
 
@@ -777,11 +795,17 @@ def report(data: Path, log: Callable[[str], None]) -> str:
         "Navigli Fashion store, whose defects and their sales surges are design hypotheses "
         "calibrated on real ASOS aggregates. None is a measure on real products.",
         "",
-        f"- Main store origin: {main.provenance.origin}; nature {main.provenance.nature}.",
-        f"- OOD store origin: {ood.provenance.origin}; nature {ood.provenance.nature}.",
+        f"- Main store origin: {main.provenance.chain}; nature {main.provenance.nature}.",
+        f"- OOD store origin: {ood.provenance.chain}; nature {ood.provenance.nature}.",
         f"- Code: {ANOMALIES_VERSION}; product thresholds {t.version}: at least {t.min_sales} "
         f"sales in the week, z > {t.z:g}, and P(X >= O) <= {t.level:.3g} for X ~ Poisson(E) (the "
         f"normal tail of z = {t.z:g} shared by the {len(REASONS)} reasons).",
+        "",
+        "**In-sample for the choice of rule** (review F10): no constant was tuned, but steps 2 "
+        "to 4 were adopted after the literal rule of spec 8.9 (step 1) was measured on this main "
+        "store, so the MOD-10 figures of section B are in-sample for that choice. The OOD store "
+        "changes the customers, not the defect mechanism: section C does not test the rule on "
+        "another defect mechanism. Spec 8.9 and D-15 record the rule as implemented.",
         "",
         *section_volume([main, ood]),
         *section_steps(main, "B", "MOD-10 on the main store"),

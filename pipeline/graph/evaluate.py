@@ -1,7 +1,7 @@
 """Offline evaluation of the account graph: MOD-03, MOD-11 and MOD-12 (US-203, spec 8.3 and 12).
 
     python -m pipeline.graph.evaluate --data data [--as-of 2026-10-01T00:00:00Z]
-        [--report docs/results/account-graph.md] [--json artifacts/graph/evaluation.json]
+        [--report docs/results/account-graph.md] [--json artifacts/eval/graph/evaluation.json]
 
 An offline evaluation job: it reads the generator's ground truth (truth/labels), which running
 services never do (rule 12 as amended by ADR-13). The graph itself never sees it: it is built from
@@ -51,7 +51,7 @@ from pipeline.graph.build import GraphResult, default_as_of, parse_instant
 from pipeline.graph.clusters import CLUSTER_FEATURES, build_clusters, cluster_edges
 from pipeline.graph.links import build_links, hub_values
 from pipeline.graph.snapshot import StoreSnapshot, load_snapshot
-from pipeline.graph.weights import GraphParams
+from pipeline.graph.weights import STRONG_KINDS, GraphParams
 
 PRODUCT = "spec 8.3 (product)"
 VARIANTS: tuple[tuple[str, GraphParams], ...] = (
@@ -70,6 +70,9 @@ GOLDEN_GROUPS = (
 MOD03_PRECISION = 0.90
 MOD03_RECALL = 0.80
 TOP = 10
+# Offline evaluation outputs live under artifacts/eval/, apart from the models a service may
+# load (rule 12, review F2).
+DEFAULT_JSON = Path("artifacts/eval/graph/evaluation.json")
 
 
 def _c2(n: pl.Expr) -> pl.Expr:
@@ -206,6 +209,37 @@ def mixing(assigned: pl.DataFrame) -> dict[str, Any]:
     }
 
 
+def cross_group_sharing(identifiers: pl.DataFrame, assigned: pl.DataFrame) -> dict[str, int]:
+    """Per strong kind (card, e-mail, device), pairs of accounts of different groups (a ring, a
+    family, or one unrelated account) that share a value (review F3). With none, no unrelated
+    pair can reach the 0.8 threshold through a strong identifier, and the precision at 0.8 holds
+    by construction; the report says so instead of presenting it as a measurement."""
+    users = (
+        identifiers.filter(pl.col("kind").is_in(list(STRONG_KINDS)))
+        .select("kind", "value_hash", "customer_id")
+        .unique()
+        .join(_with_group(assigned).select("customer_id", "group"), on="customer_id")
+    )
+    n = users.group_by("kind", "value_hash").agg(pl.len().alias("n"))
+    k = users.group_by("kind", "value_hash", "group").agg(pl.len().alias("k"))
+    pairs = (
+        n.with_columns(_c2(pl.col("n")).alias("pairs"))
+        .group_by("kind")
+        .agg(pl.col("pairs").sum())
+        .join(
+            k.with_columns(_c2(pl.col("k")).alias("same"))
+            .group_by("kind")
+            .agg(pl.col("same").sum()),
+            on="kind",
+            how="left",
+        )
+    )
+    found = {
+        str(kind): int(p - (s or 0)) for kind, p, s in pairs.select("kind", "pairs", "same").rows()
+    }
+    return {kind: found.get(kind, 0) for kind in STRONG_KINDS}
+
+
 def common_addresses(
     identifiers: pl.DataFrame, assigned: pl.DataFrame, hub_degree: int | None
 ) -> dict[str, Any]:
@@ -286,7 +320,9 @@ def _features(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def largest_clusters(clusters: pl.DataFrame, assigned: pl.DataFrame) -> list[dict[str, Any]]:
-    """The largest clusters with their composition by ground-truth behaviour."""
+    """The largest clusters with their composition by ground-truth behaviour, by rank and size:
+    never by cluster_id, which a running service could join to features/clusters to read the
+    ground truth (rule 12, review F2)."""
     grouped = _with_group(assigned).filter(pl.col("cluster_id").is_not_null())
     sizes = (
         grouped.group_by("cluster_id")
@@ -296,7 +332,7 @@ def largest_clusters(clusters: pl.DataFrame, assigned: pl.DataFrame) -> list[dic
     )
     first = clusters.filter(pl.col("cluster_id").is_not_null()).unique("cluster_id", keep="first")
     out = []
-    for cid, n in sizes.iter_rows():
+    for rank, (cid, n) in enumerate(sizes.iter_rows(), start=1):
         members = grouped.filter(pl.col("cluster_id") == cid)
         composition = dict(sorted(members.group_by("behaviour").len().iter_rows()))
         groups = members["group"].n_unique()
@@ -304,7 +340,7 @@ def largest_clusters(clusters: pl.DataFrame, assigned: pl.DataFrame) -> list[dic
         row = first.filter(pl.col("cluster_id") == cid).row(0, named=True)
         out.append(
             {
-                "cluster_id": cid,
+                "rank": rank,
                 "size": n,
                 "composition": composition,
                 "groups": groups,
@@ -485,9 +521,9 @@ def evaluate_scenario(
         "scenario": scenario,
         "store_root": str(store_root),
         "provenance": {
-            "store_origin": store.origin,
+            "store_origin": store.chain,
             "store_nature": store.nature,
-            "truth_origin": truth_provenance.origin,
+            "truth_origin": truth_provenance.chain,
             "period_start": start.isoformat(),
             "period_end": end.isoformat(),
         },
@@ -501,6 +537,7 @@ def evaluate_scenario(
         ),
         "ring_pair_weights": ring_pair_weights(product.links, assigned),
         "pruning": pruning_check(snapshot, product),
+        "cross_group_strong_pairs": cross_group_sharing(snapshot.identifiers, assigned),
     }
 
 
@@ -658,6 +695,7 @@ def _mod03(scenarios: list[dict[str, Any]]) -> list[str]:
         ],
         rows,
     )
+    out += _by_construction(scenarios)
     out += [
         "Pairs of accounts of the same ring by the weight of their direct link (a pair below 0.8 "
         "can still share a cluster through other members):",
@@ -671,6 +709,40 @@ def _mod03(scenarios: list[dict[str, Any]]) -> list[str]:
         ],
     )
     return out
+
+
+def _by_construction(scenarios: list[dict[str, Any]]) -> list[str]:
+    """What the precision at 0.8 can measure in each scenario (review F3), read from the data."""
+    rows, notes = [], []
+    for s in scenarios:
+        pairs = s.get("cross_group_strong_pairs")
+        if pairs is None:
+            continue
+        rows.append([s["scenario"], *(_n(pairs[k]) for k in STRONG_KINDS)])
+        if sum(pairs.values()) == 0:
+            notes.append(
+                f"- {s['scenario']}: no card, e-mail or device is shared by accounts of different "
+                "groups, and addresses with IP prefixes reach at most 1 - 0.4 x 0.8 = 0.68. So "
+                "the pairwise precision at the 0.8 threshold and the absence of unrelated pairs "
+                "in one cluster hold **by construction** here: they confirm the code, not the "
+                "method (review F3)."
+            )
+        else:
+            notes.append(
+                f"- {s['scenario']}: {_n(sum(pairs.values()))} pairs of accounts of different "
+                "groups share a strong identifier, so the precision at the 0.8 threshold is "
+                "measured here, not given."
+            )
+    if not rows:
+        return []
+    return [
+        "Pairs of accounts of different groups (a ring, a family or one unrelated account) that "
+        "share a strong identifier, by kind: what the precision at the 0.8 threshold can measure.",
+        "",
+        *_table(["Scenario", *STRONG_KINDS], rows),
+        *notes,
+        "",
+    ]
 
 
 def _mod11(scenarios: list[dict[str, Any]]) -> list[str]:
@@ -764,10 +836,10 @@ def _clusters(scenarios: list[dict[str, Any]]) -> list[str]:
     for s in scenarios:
         out += [f"{s['scenario']} (composition by ground-truth behaviour):", ""]
         out += _table(
-            ["Cluster", "Size", "Composition", "Groups", "Unrelated pairs", *FEATURE_HEADERS],
+            ["Rank", "Size", "Composition", "Groups", "Unrelated pairs", *FEATURE_HEADERS],
             [
                 [
-                    c["cluster_id"],
+                    c["rank"],
                     c["size"],
                     ", ".join(f"{k} {v}" for k, v in c["composition"].items()),
                     c["groups"],
@@ -916,7 +988,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     p.add_argument("--data", type=Path, default=Path("data"), help="root of store/ and truth/")
     p.add_argument("--as-of", type=parse_instant, help="decision time, ISO 8601 with a time zone")
     p.add_argument("--report", type=Path, default=Path("docs/results/account-graph.md"))
-    p.add_argument("--json", type=Path, default=Path("artifacts/graph/evaluation.json"))
+    p.add_argument("--json", type=Path, default=DEFAULT_JSON)
     args = p.parse_args(argv)
     report = evaluate(args.data, args.as_of)
     args.json.parent.mkdir(parents=True, exist_ok=True)

@@ -110,14 +110,12 @@ def graph_provenance(snapshot: StoreSnapshot, params: GraphParams) -> Provenance
     nature is the store's (synthetic for Navigli Fashion, rule 11)."""
     store = snapshot.provenance["store/identifiers"]
     start, end = snapshot.period()
-    return Provenance(
-        origin=(
-            f"{ORIGIN}: {params.describe()}; as of {snapshot.as_of.isoformat()}; "
-            f"computed from the store: {store.origin}"
-        ),
-        period_start=start,
-        period_end=end,
-        nature=store.nature,
+    # A short origin (ADR-13 amendment 5); the lineage ends with the chain of the store it read.
+    return store.derive(
+        f"{ORIGIN}: {params.describe()}; as of {snapshot.as_of.isoformat()}; computed from the "
+        "store of the lineage",
+        start,
+        end,
     )
 
 

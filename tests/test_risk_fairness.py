@@ -3,6 +3,7 @@ contract (ADR-13 amendment 4). Every value is a made-up test fixture (nature: sy
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
@@ -50,16 +51,38 @@ def test_fair02_rates_gaps_and_warnings() -> None:
     assert report.fpr == 0.2 and report.fpr_restrictive == 0.1
     rows = {r.segment: r for r in report.rows}
     assert (rows["new"].non_abusers, rows["new"].flagged, rows["new"].restrictive) == (2, 1, 1)
-    assert rows["new"].gap_pp == pytest.approx(30.0)  # 50% against 20%
-    assert rows["new"].gap_restrictive_pp == pytest.approx(40.0)
-    assert rows["new"].warning
-    assert rows["old"].gap_pp == pytest.approx(12.5 - 20.0)
-    assert rows["old"].warning  # 7.5 points below the overall rate
-    assert [f"{r.dimension}: {r.segment}" for r in report.warnings] == [
-        "New customers: new",
-        "New customers: old",
-    ]
+    assert (rows["old"].fpr, rows["old"].fpr_restrictive) == (0.125, 0.0)
+    (dim,) = report.dimensions
+    # Spec 12 (review F8): the gap is between segments, the largest rate minus the smallest.
+    assert dim.gap_pp == pytest.approx(50.0 - 12.5)
+    assert dim.gap_restrictive_pp == pytest.approx(50.0)
+    assert (dim.highest, dim.lowest) == ("new", "old")
+    assert dim.smallest_segment == 2 and not dim.passed
+    assert not report.passed and report.failures == ["New customers"]
+    assert report.as_dict()["failures"] == ["New customers"]
     assert GAP_LIMIT_PP == 5.0
+
+
+def test_f8_fair02_gap_is_between_segments_not_against_the_population() -> None:
+    """F8: segment C at 4/59, five other segments at 0 and a large segment at 30/5,000. Against
+    the pooled rate the gap of C is under 6.3 points; between segments it is 6.78 points, above
+    the 5-point limit of spec 12, so FAIR-02 fails (never a 'warning')."""
+    ids = (
+        [f"C{i}" for i in range(59)] + [f"A{i}" for i in range(38)] + [f"J{i}" for i in range(5000)]
+    )
+    flagged = {f"C{i}" for i in range(4)} | {f"J{i}" for i in range(30)}
+    s = scores([(c, 0.9 if c in flagged else 0.1, "Q4" if c in flagged else "Q2") for c in ids])
+    category = ["C"] * 59 + ["A"] * 38 + ["J"] * 5000
+    segments = pd.DataFrame({"Main category": category}, index=s["customer_id"])
+    abusive = pd.Series(0, index=s["customer_id"])
+    everyone = pd.Series(True, index=s["customer_id"])
+    report = fair02(s, segments, abusive, everyone, 0.5, (0.0, 0.0), "fixture")
+    (dim,) = report.dimensions
+    assert 100 * (4 / 59 - report.fpr) < 6.3
+    assert dim.gap_pp == pytest.approx(100 * 4 / 59)
+    assert dim.gap_restrictive_pp == pytest.approx(100 * 4 / 59)
+    assert (dim.highest, dim.lowest, dim.smallest_segment) == ("C", "A", 38)
+    assert not dim.passed and not report.passed
 
 
 def test_fair02_counts_only_the_population_and_handles_no_threshold() -> None:
@@ -69,7 +92,8 @@ def test_fair02_counts_only_the_population_and_handles_no_threshold() -> None:
     population = pd.Series([True, False, True], index=s["customer_id"])
     report = fair02(s, segments, abusive, population, None, (0.0, 0.0), "fixture")
     assert report.non_abusers == 2 and report.flagged == 0 and report.restrictive == 1
-    assert not report.rows[0].warning  # one segment: no gap
+    (dim,) = report.dimensions
+    assert dim.gap_pp == 0.0 and dim.passed and report.passed  # one segment: no gap
 
 
 def test_fair03_counts_families_restricted_because_of_the_cluster() -> None:
@@ -82,8 +106,19 @@ def test_fair03_counts_families_restricted_because_of_the_cluster() -> None:
     check = fair03(s, alone, behaviour, everyone, "fixture")
     # F1 is in Q3 only with its cluster; F2 is in Q4 with or without it; N1 is not a family.
     assert (check.families, check.restrictive, check.because_of_cluster) == (3, 2, 1)
-    assert check.customers == ("F1",) and not check.passed
+    assert not check.passed
     assert fair03(s, s.set_index("customer_id")["quadrant"], behaviour, everyone, "x").passed
+
+
+def test_f2_fair03_output_holds_counts_never_customer_ids() -> None:
+    """F2 (rule 12): the FAIR-03 output lands in artifacts; it names no customer, since a
+    customer listed there would carry its ground-truth behaviour (shared_benign) with it."""
+    s = scores([("F1", 0.9, "Q3"), ("F2", 0.1, "Q2")])
+    alone = pd.Series({"F1": "Q1", "F2": "Q2"})
+    behaviour = pd.Series({"F1": "shared_benign", "F2": "shared_benign"})
+    out = fair03(s, alone, behaviour, pd.Series(True, index=s["customer_id"]), "x").as_dict()
+    assert out["because_of_cluster"] == 1
+    assert "F1" not in json.dumps(out) and "customers" not in out
 
 
 def test_segment_labels() -> None:
@@ -125,8 +160,10 @@ def request_row(**changes: Any) -> dict[str, Any]:
         "path": "withdrawal",
         "context_as_of": datetime(2026, 9, 1, tzinfo=UTC),
         "risk": 0.42,
+        "risk_threshold": 0.5,
         "evidence_quality": "sufficient",
         "value_eur": Decimal("12.50"),
+        "value_threshold_eur": Decimal("100.00"),
         "quadrant": "Q2",
         "shap_top3": "[]",
         "model_version": "risk-request",
@@ -147,11 +184,13 @@ def test_request_scores_contract_accepts_a_scored_and_a_guarantee_row() -> None:
         path="guarantee",
         context_as_of=None,
         risk=None,
+        risk_threshold=None,
         evidence_quality=None,
         value_eur=None,
+        value_threshold_eur=None,
         quadrant=None,
         shap_top3=None,
-        model_version="not scored: guarantee path (rule 4)",
+        model_version=None,  # ADR-13 amendment 5 (review F20): no version, not scored
     )
     assert check(guarantee) == []
 
@@ -177,8 +216,10 @@ def test_scores_contract_refuses_a_quadrant_without_sufficient_evidence() -> Non
     row = {
         "customer_id": "C-1",
         "risk": 0.2,
+        "risk_threshold": 0.5,
         "evidence_quality": "insufficient",
         "value_eur": Decimal("1.00"),
+        "value_threshold_eur": Decimal("100.00"),
         "quadrant": "Q2",
         "shap_top3": None,
         "model_version": "risk-customer",

@@ -131,15 +131,27 @@ def _b1(part: Mapping[str, Any]) -> list[str]:
         scoring = d.get("scoring", [])
         if scoring:
             lines += [
-                "Scoring of every fit row with the early-stopping model of the largest size "
-                "(DMatrix build included):",
+                "Scoring of every fit row with the model of the largest size (the fixed-rounds "
+                "model when the run has one: the same trees on every device; DMatrix build "
+                "included):",
                 "",
             ]
             lines += _table(
-                ["Device", "Batch rows", "Batch s (median)", "Single row p50 ms", "p95 ms", "n"],
+                [
+                    "Device",
+                    "Model",
+                    "Trees",
+                    "Batch rows",
+                    "Batch s (median)",
+                    "Single row p50 ms",
+                    "p95 ms",
+                    "n",
+                ],
                 [
                     [
                         s["device"],
+                        s.get("model", "es"),
+                        _fmt(s.get("trees")),
                         _fmt(s["rows"]),
                         _fmt(s["batch_seconds"]["p50"], 3),
                         _fmt(s["single_row_ms"]["p50"], 3),
@@ -150,14 +162,83 @@ def _b1(part: Mapping[str, Any]) -> list[str]:
                 ],
             )
             lines.append("")
+    lines += _b1_comparisons(details)
+    return lines
+
+
+def _rounds(pair: Mapping[str, Sequence[int]]) -> str:
+    return " / ".join(",".join(str(r) for r in pair.get(k, [])) for k in ("cpu", "mi300x"))
+
+
+def _b1_comparisons(details: Mapping[str, Any]) -> list[str]:
+    lines: list[str] = []
     speedups = details.get("speedups", [])
     if speedups:
-        lines += ["Speedup (CPU median over GPU median, same data and parameters):", ""]
+        lines += [
+            "Speedup on identical work (fixed rounds, no early stopping: the same trees on both "
+            "devices): CPU median over MI300X median.",
+            "",
+        ]
         lines += _table(
-            ["Protocol", "Size", "Variant", "CPU / GPU"],
+            ["Protocol", "Size", "Variant", "Rounds CPU / MI300X", "CPU / MI300X"],
             [
-                [s["protocol"], f"{s['fraction'] * 100:g}%", s["variant"], _fmt(s["cpu_over_gpu"])]
+                [
+                    s["protocol"],
+                    f"{s['fraction'] * 100:g}%",
+                    s["variant"],
+                    _rounds(s["rounds"]) if "rounds" in s else "n/a",
+                    _fmt(s["cpu_over_gpu"]),
+                ]
                 for s in speedups
+            ],
+        )
+        lines.append("")
+    early = details.get("early_stopping", [])
+    if early:
+        lines += [
+            "Early stopping, side by side: each device stops at its own round, so the times are "
+            "different work and their ratio is not a speedup; seconds per 100 rounds are "
+            "compared instead, and a speedup only when every run stopped at the same round.",
+            "",
+        ]
+        lines += _table(
+            [
+                "Protocol",
+                "Size",
+                "Rounds CPU / MI300X",
+                "Train s CPU / MI300X",
+                "s per 100 rounds, CPU / MI300X",
+                "Speedup (same rounds only)",
+            ],
+            [
+                [
+                    e["protocol"],
+                    f"{e['fraction'] * 100:g}%",
+                    _rounds(e["rounds"]),
+                    f"{_fmt(e['train_seconds_median']['cpu'])} / "
+                    f"{_fmt(e['train_seconds_median']['mi300x'])}",
+                    _fmt(e.get("per_100_rounds_cpu_over_gpu")),
+                    _fmt(e.get("cpu_over_gpu")) if e.get("same_rounds") else "not computed",
+                ]
+                for e in early
+            ],
+        )
+        lines.append("")
+    scoring = details.get("scoring_speedups", [])
+    if scoring:
+        lines += ["Scoring, CPU over MI300X (only between models with the same trees):", ""]
+        lines += _table(
+            ["Protocol", "Trees CPU / MI300X", "Batch", "Single row p50"],
+            [
+                [
+                    r["protocol"],
+                    f"{r['trees']['cpu']} / {r['trees']['mi300x']}",
+                    _fmt(r.get("batch_cpu_over_gpu")) if "not_computed" not in r else "n/a",
+                    _fmt(r.get("single_row_p50_cpu_over_gpu"))
+                    if "not_computed" not in r
+                    else r["not_computed"],
+                ]
+                for r in scoring
             ],
         )
         lines.append("")
@@ -166,37 +247,82 @@ def _b1(part: Mapping[str, Any]) -> list[str]:
 
 def _b2(part: Mapping[str, Any]) -> list[str]:
     lines = _header(part)
-    records = part.get("details", {}).get("records", [])
+    details = part.get("details", {})
+    records = details.get("records", [])
     if records:
+        lines += [
+            "Each row is one US-202 job (`python -m ml.gnn asos`, a fresh process per device and "
+            "data size). F1 as US-202 states it: protocol B on the decision-time population, "
+            "protocol A on the full test set.",
+            "",
+        ]
         lines += _table(
             [
+                "Size",
                 "Protocol",
                 "Device",
                 "Nodes",
-                "Edges",
+                "Training events",
                 "Epochs",
-                "Train s",
-                "Epoch s (median)",
+                "Median epoch s",
+                "Training loop s",
+                "Inference s",
                 "F1",
+                "F1 at 0.5",
                 "Population",
             ],
             [
                 [
+                    f"{r.get('sample', 1.0):.0%}",
                     r["protocol"],
-                    r["device_requested"],
+                    "mi300x" if r["device_requested"] == "cuda" else "cpu",
                     _fmt(r["nodes"]),
                     _fmt(r["edges"]),
                     _fmt(r["epochs"]),
-                    _fmt(r["train_seconds"], 2),
-                    _fmt(sorted(r["epoch_seconds"])[len(r["epoch_seconds"]) // 2], 3),
+                    _fmt(r.get("epoch_seconds_median"), 3),
+                    _fmt(r["train_seconds"], 1),
+                    _fmt(r["inference_seconds"], 3),
                     _fmt(r["f1"], 4),
+                    _fmt(r.get("f1_at_half"), 4),
                     r["population"],
                 ]
                 for r in records
             ],
         )
         lines.append("")
-    interface = part.get("details", {}).get("interface")
+    speedups = details.get("speedups", [])
+    if speedups:
+        lines += [
+            "CPU over MI300X: the median epoch (the same work on both devices) and the inference; "
+            "the training loops are not divided (early stopping ends at another epoch on each).",
+            "",
+        ]
+        lines += _table(
+            [
+                "Size",
+                "Protocol",
+                "Epochs CPU / MI300X",
+                "Median epoch s CPU / MI300X",
+                "Epoch speedup",
+                "Inference speedup",
+            ],
+            [
+                [
+                    f"{s['sample']:.0%}",
+                    s["protocol"],
+                    f"{s['epochs']['cpu']} / {s['epochs']['mi300x']}",
+                    f"{_fmt(s['epoch_seconds_median']['cpu'], 3)} / "
+                    f"{_fmt(s['epoch_seconds_median']['mi300x'], 3)}",
+                    _fmt(s.get("epoch_cpu_over_gpu")) if "not_computed" not in s else "n/a",
+                    _fmt(s.get("inference_cpu_over_gpu"))
+                    if "not_computed" not in s
+                    else s["not_computed"],
+                ]
+                for s in speedups
+            ],
+        )
+        lines.append("")
+    interface = details.get("interface")
     if interface:
         lines += [f"Interface B2 calls: `{interface}`.", ""]
     return lines
@@ -206,12 +332,13 @@ def _load_rows(loads: Mapping[str, Mapping[str, Any]], batch: bool) -> list[list
     rows = []
     for level, s in sorted(loads.items(), key=lambda kv: int(kv[0])):
         lat = s["latency_ms"]
+        p95 = lat.get("p95")
         row = [
             level,
             _fmt(s["decisions"]),
             _fmt(s["failed"]),
             _fmt(lat.get("p50"), 1),
-            _fmt(lat.get("p95"), 1),
+            _fmt(p95, 1) if p95 is not None or not lat.get("n") else "n/a (n < 20)",
         ]
         if batch:
             row.append(_fmt(s["wall_seconds"].get("p50"), 3))
@@ -237,6 +364,23 @@ def _b3(part: Mapping[str, Any]) -> list[str]:
             f" golden first ({', '.join(cases['golden'])}); by decision: "
             + ", ".join(f"{k} {v}" for k, v in cases["by_decision"].items())
             + f"; skipped: {len(cases['skipped'])}.",
+            "",
+        ]
+    case_list = d.get("case_list")
+    if case_list:
+        lines += [
+            f"Every load ran the same {case_list['decisions_per_load']} decisions (seed "
+            f"{case_list['seed']}, stratified by decision type: "
+            + ", ".join(f"{k} {v}" for k, v in case_list["by_decision"].items())
+            + f"; {case_list['golden']} of them golden cases).",
+            "",
+        ]
+    prefix = d.get("prefix_cache_pass")
+    if prefix:
+        lines += [
+            f"Before the loads, one untimed pass over the {prefix['decisions']} distinct cases "
+            f"({prefix['wall_seconds']} s at concurrency {prefix['concurrency']}) filled vLLM's "
+            "prefix cache, so every load sees the same cache.",
             "",
         ]
     server = d.get("server", {})
@@ -327,6 +471,9 @@ def _b4(part: Mapping[str, Any]) -> list[str]:
         rows.append(
             [
                 s["name"],
+                # A part written before steps named their device: on a CPU run, the CPU.
+                s.get("executes_on")
+                or ("cpu" if (part.get("config") or {}).get("device") == "cpu" else "n/a"),
                 "ok" if s["ok"] else "failed",
                 _fmt(s["seconds"], 1),
                 ", ".join(_fmt(c["seconds"], 1) for c in s["commands"]),
@@ -342,6 +489,7 @@ def _b4(part: Mapping[str, Any]) -> list[str]:
         lines += _table(
             [
                 "Step",
+                "Ran on",
                 "Exit",
                 "Seconds",
                 "Commands (s)",
@@ -354,6 +502,16 @@ def _b4(part: Mapping[str, Any]) -> list[str]:
             rows,
         )
         lines += ["", f"Total: {total:,.1f} s ({total / 60:.1f} min).", ""]
+    nightly = part.get("details", {}).get("nightly")
+    if nightly:
+        lines += [
+            f"Nightly seconds (the cost's input): {nightly['seconds']:,.1f} s, "
+            + ", ".join(nightly["included"])
+            + "; timed but left out: "
+            + ", ".join(nightly["excluded"])
+            + ".",
+            "",
+        ]
     return lines
 
 
@@ -386,7 +544,9 @@ def render(doc: Mapping[str, Any], command: str) -> str:
                 "This run had no GPU: B1 timed the CPU only, B3 was a dry run against a local "
                 "fake server (no Gemma), B4 had no GPU sampling and a mock model in its batch "
                 "generation. The MI300X numbers come from `make bench DEVICE=gpu` on the droplet "
-                '(infra/spikes/README.md, "Benchmarks B1-B4").',
+                '(infra/spikes/README.md, "The GPU session"). A CPU run checks the harness on a '
+                "development machine, under the load recorded next to each time: it is not the "
+                "run GET /api/benchmarks serves (bench/results/latest.json names GPU runs only).",
                 "",
             ]
             if doc["device"] == "cpu"

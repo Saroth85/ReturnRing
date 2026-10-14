@@ -3,11 +3,15 @@ configuration). Every probe is best effort: a missing tool gives None, never an 
 
 The image references (VLLM_IMAGE, DGL_IMAGE, ROCM_BASE_IMAGE: tag@sha256 from .env) and the
 model revision (GEMMA_REVISION) come from the environment the compose file passes in; the git
-commit from BENCH_GIT_COMMIT (containers have no .git) or `git rev-parse`.
+commit from BENCH_GIT_COMMIT (containers have no .git) or `git rev-parse`, dirty when any file is
+changed or untracked. Because a dirty tree is not a version, every part also records a content
+hash of each code folder it can see (code_bench, code_ml, ...; review G8): two runs with the same
+hashes ran the same code, committed or not.
 """
 
 from __future__ import annotations
 
+import hashlib
 import importlib
 import json
 import os
@@ -20,6 +24,9 @@ from typing import Any
 IMAGE_VARIABLES = ("VLLM_IMAGE", "DGL_IMAGE", "ROCM_BASE_IMAGE")
 MODEL_VARIABLES = ("GEMMA_MODEL", "GEMMA_REVISION")
 ROCM_VERSION_FILES = (Path("/opt/rocm/.info/version"), Path("/opt/rocm/.info/version-dev"))
+ROOT = Path(__file__).resolve().parents[1]
+CODE_DIRS = ("bench", "ml", "pipeline", "contracts", "llm", "policy")
+NOT_CODE = ("__pycache__", ".mypy_cache", ".pytest_cache", ".ruff_cache")
 
 
 def _run(command: Sequence[str], timeout_s: float = 20.0) -> str | None:
@@ -101,7 +108,7 @@ def git_info(root: Path | None = None) -> dict[str, Any]:
             ["git", "rev-parse", "HEAD"], capture_output=True, text=True, cwd=cwd, check=False
         )
         status = subprocess.run(
-            ["git", "status", "--porcelain", "--untracked-files=no"],
+            ["git", "status", "--porcelain"],
             capture_output=True,
             text=True,
             cwd=cwd,
@@ -112,6 +119,29 @@ def git_info(root: Path | None = None) -> dict[str, Any]:
     if head.returncode != 0:
         return {"commit": None, "dirty": None}
     return {"commit": head.stdout.strip(), "dirty": bool(status.stdout.strip())}
+
+
+def code_hashes(root: Path = ROOT, dirs: Sequence[str] = CODE_DIRS) -> dict[str, str]:
+    """sha256 (first 16 hex digits) of every file under each code folder present: relative
+    paths and contents, in sorted order; caches, compiled files and bench/results left out."""
+    out: dict[str, str] = {}
+    for name in dirs:
+        folder = root / name
+        if not folder.is_dir():
+            continue
+        digest = hashlib.sha256()
+        for path in sorted(folder.rglob("*")):
+            relative = path.relative_to(root)
+            if (
+                not path.is_file()
+                or path.suffix == ".pyc"
+                or any(part in NOT_CODE for part in relative.parts)
+                or relative.parts[:2] == ("bench", "results")
+            ):
+                continue
+            digest.update(relative.as_posix().encode() + b"\0" + path.read_bytes() + b"\0")
+        out[f"code_{name}"] = "sha256:" + digest.hexdigest()[:16]
+    return out
 
 
 def hardware(*, gpu: bool) -> dict[str, Any]:
@@ -152,7 +182,8 @@ def xgboost_build() -> dict[str, Any]:
 
 
 def software(modules: Sequence[str] = ()) -> dict[str, str]:
-    """Python, ROCm, image references, model revision and the given modules' versions."""
+    """Python, ROCm, image references, model revision, the given modules' versions and the
+    content hashes of the code folders."""
     out: dict[str, str] = {"python": platform.python_version()}
     rocm = rocm_version()
     if rocm:
@@ -165,4 +196,5 @@ def software(modules: Sequence[str] = ()) -> dict[str, str]:
         value = os.environ.get(variable)
         if value:
             out[variable.lower()] = value
+    out.update(code_hashes())
     return out

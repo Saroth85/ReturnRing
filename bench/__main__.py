@@ -1,6 +1,7 @@
 """CLI of the benchmarks (US-902). `make bench DEVICE=cpu|gpu` drives it; see docs/benchmarks.md.
 
     python -m bench run --device cpu|gpu [--parts B1,B2,B3,B4] [--run-id ID] [--no-merge] ...
+    python -m bench first-request --run-id ID
     python -m bench merge --run-id ID [--force-latest]
     python -m bench report --run bench/results/<run-id>.json --out docs/results/<file>.md
 
@@ -10,7 +11,9 @@ then merges the parts into bench/results/<run-id>.json and moves the latest poin
 raises is written as "failed" with the error, and the next part still runs; the exit code is 1
 when a part failed. DEVICE=gpu: B1 and B2 time the CPU and the GPU (cuda on ROCm) in the same
 process, B3 is live against VLLM_BASE_URL, B4 samples amd-smi. DEVICE=cpu: CPU only, B3 a dry
-run against the local fake server.
+run against the local fake server. `first-request` times one guided-JSON request against
+VLLM_BASE_URL right after vLLM became healthy (`make bench-vllm`, before B4 uses vLLM) and writes
+artifacts/bench/<run-id>/first-request.json, the cold start B3 reports.
 """
 
 from __future__ import annotations
@@ -81,6 +84,18 @@ def _parser() -> argparse.ArgumentParser:
     b1.add_argument("--b1-fixed-rounds", type=int, default=200, help="0: no fixed-rounds run")
     b1.add_argument("--b1-single-row-calls", type=int, default=200)
     b1.add_argument("--threads", type=int, help="CPU threads (default: every CPU)")
+    b2 = run.add_argument_group("B2")
+    b2.add_argument(
+        "--b2-samples",
+        default="0.25,0.5,1",
+        help="customer shares of the GraphSAGE runs (1: every event, the US-202 run)",
+    )
+    b2.add_argument(
+        "--gnn-out",
+        type=Path,
+        default=Path("artifacts"),
+        help="artifacts folder of the full-data US-202 runs (eval/gnn/us-202-asos-*.json)",
+    )
     b3 = run.add_argument_group("B3")
     b3.add_argument(
         "--b3", choices=["live", "dry-run", "skip"], help="default: live on gpu, dry-run on cpu"
@@ -92,8 +107,10 @@ def _parser() -> argparse.ArgumentParser:
     )
     b3.add_argument("--b3-batches", default="1,8,32")
     b3.add_argument("--b3-repeats", type=int, default=2)
-    b3.add_argument("--b3-concurrency", default="1,8,32")
-    b3.add_argument("--b3-requests", type=int, default=16, help="decisions per level, at least")
+    b3.add_argument(
+        "--b3-concurrency", default="4,16", help="closed-loop levels (concurrency 1 is batch 1)"
+    )
+    b3.add_argument("--b3-requests", type=int, default=16, help="decisions per load, at least")
     b3.add_argument("--b3-warmup", type=int, default=2)
     b3.add_argument("--b3-timeout", type=float, default=180.0)
     b4 = run.add_argument_group("B4")
@@ -113,12 +130,18 @@ def _parser() -> argparse.ArgumentParser:
         default=WORK,
         help="B4's pipeline copy: <work>/<run-id> (never data/, never under artifacts/)",
     )
+    f = sub.add_parser("first-request", help="time the first request after vLLM is healthy")
+    f.add_argument("--run-id", required=True)
+    f.add_argument("--artifacts", type=Path, default=ARTIFACTS)
+    f.add_argument("--timeout", type=float, default=600.0)
     m = sub.add_parser("merge", help="assemble bench/results/<run-id>.json")
     m.add_argument("--run-id", required=True)
     m.add_argument("--artifacts", type=Path, default=ARTIFACTS)
     m.add_argument("--results", type=Path, default=RESULTS)
     m.add_argument(
-        "--force-latest", action="store_true", help="move latest.json even over a GPU run"
+        "--force-latest",
+        action="store_true",
+        help="move latest.json to this run even if it is a CPU run or a GPU run is the latest",
     )
     r = sub.add_parser("report", help="Markdown report of a run file")
     r.add_argument("--run", type=Path, required=True, help="bench/results/<run-id>.json")
@@ -180,7 +203,12 @@ def _part(benchmark: str, args: argparse.Namespace, run_dir: Path) -> Part:
 
         return run_b2(
             B2Config(
-                raw_dir=args.raw, devices=("cpu", "cuda") if gpu else ("cpu",), seed=args.seed
+                raw_dir=args.raw,
+                devices=("cpu", "cuda") if gpu else ("cpu",),
+                samples=_list(args.b2_samples, float),
+                seed=args.seed,
+                out=args.gnn_out,
+                run_dir=run_dir,
             ),
             _log,
         )
@@ -205,8 +233,12 @@ def _part(benchmark: str, args: argparse.Namespace, run_dir: Path) -> Part:
                 requests_per_level=args.b3_requests,
                 warmup=args.b3_warmup,
                 timeout_s=args.b3_timeout,
+                seed=args.seed,
                 vllm_start_file=run_dir / "vllm-start.txt",
                 vllm_healthy_file=run_dir / "vllm-healthy.txt",
+                vllm_conditions_file=run_dir / "vllm-start-conditions.txt",
+                first_request_file=run_dir / "first-request.json",
+                disk_used_file=run_dir / "disk-used-gb.txt",
                 b4_part=run_dir / "B4.json",
             ),
             _log,
@@ -241,7 +273,11 @@ def _merge(run_id: str, artifacts: Path, results: Path, force_latest: bool) -> i
     target, latest = write_results(results, doc, force_latest=force_latest)
     _log(
         f"wrote {target}"
-        + (f" and {latest}" if latest else " (latest.json unchanged: a GPU run is the latest)")
+        + (
+            f" and {latest}"
+            if latest
+            else " (latest.json unchanged: a CPU run needs --force-latest, and a GPU run stays)"
+        )
     )
     return 0
 
@@ -250,6 +286,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if args.command == "merge":
         return _merge(check_run_id(args.run_id), args.artifacts, args.results, args.force_latest)
+    if args.command == "first-request":
+        from bench.b3_llm import first_request
+
+        out = args.artifacts / check_run_id(args.run_id) / "first-request.json"
+        ok = first_request(
+            os.environ.get("VLLM_BASE_URL", ""),
+            os.environ.get("VLLM_API_KEY", ""),
+            os.environ.get("GEMMA_MODEL", ""),
+            out,
+            args.timeout,
+        )
+        _log(f"first request {'done' if ok else 'FAILED'} -> {out}")
+        return 0 if ok else 1
     if args.command == "report":
         from bench.report import render
 

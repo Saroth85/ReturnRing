@@ -7,6 +7,7 @@ from __future__ import annotations
 import ast
 import json
 import shlex
+import subprocess
 import sys
 import time
 from datetime import UTC, date, datetime
@@ -17,6 +18,7 @@ from typing import Any
 import numpy as np
 import pytest
 
+import ml.gnn
 from apps.api.schemas import BenchmarksResponse
 from bench import amdsmi, api_view, cost, env, record, stats
 from bench.__main__ import main as bench_main
@@ -144,7 +146,9 @@ def _run(tmp_path: Path, run_id: str, parts: list[Part]) -> Path:
     return run_dir
 
 
-def test_merge_assembles_parts_and_a_gpu_run_stays_the_latest(tmp_path: Path) -> None:
+def test_merge_assembles_parts_and_only_a_gpu_run_becomes_the_latest(tmp_path: Path) -> None:
+    """Review G8: a CPU run measures the harness on a development machine; it never becomes the
+    run GET /api/benchmarks serves unless asked (--force-latest)."""
     results = tmp_path / "results"
     cpu_id, gpu_id, later_cpu = (
         "20261013T090000Z-cpu",
@@ -167,10 +171,12 @@ def test_merge_assembles_parts_and_a_gpu_run_stays_the_latest(tmp_path: Path) ->
         assert record.read_json(results / f"latest-{record.run_device(run_id)}.json")["run_id"] == (
             run_id
         )
-        if run_id == later_cpu:
-            assert latest is None  # a laptop run never replaces the MI300X run the API serves
-        else:
+        if run_id == gpu_id:
             assert latest == results / "latest.json"
+        else:
+            assert latest is None  # a CPU run is never the served run by itself
+            if run_id == cpu_id:
+                assert not (results / "latest.json").exists()
     assert record.resolve_latest(results) == results / f"{gpu_id}.json"
     record.write_results(
         results, record.read_json(results / f"{later_cpu}.json"), force_latest=True
@@ -377,6 +383,43 @@ def test_environment_probes_never_raise(tmp_path: Path, monkeypatch: pytest.Monk
     assert env.git_info(tmp_path)["commit"] is None or env.git_info(tmp_path)["commit"]
 
 
+def test_untracked_files_make_the_tree_dirty(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review G8: a new module not yet added to git is code that ran: the run is dirty."""
+    monkeypatch.delenv("BENCH_GIT_COMMIT", raising=False)
+    git = ["git", "-c", "user.email=t@example.com", "-c", "user.name=t", "-C", str(tmp_path)]
+    subprocess.run([*git, "init", "-q"], check=True)
+    (tmp_path / "a.py").write_text("x = 1\n")
+    subprocess.run([*git, "add", "a.py"], check=True)
+    subprocess.run([*git, "commit", "-qm", "a"], check=True)
+    assert env.git_info(tmp_path)["dirty"] is False
+    (tmp_path / "new_module.py").write_text("y = 2\n")
+    assert env.git_info(tmp_path)["dirty"] is True
+
+
+def test_the_code_that_ran_is_identified_by_content(tmp_path: Path) -> None:
+    """Review G8: containers have no .git; each part records a content hash of the code folders
+    it can see, so a run is traceable to its code even with uncommitted changes."""
+    for name in ("bench", "ml"):
+        (tmp_path / name / "sub").mkdir(parents=True)
+        (tmp_path / name / "sub" / "m.py").write_text("x = 1\n")
+    (tmp_path / "bench" / "results").mkdir()
+    (tmp_path / "bench" / "results" / "run.json").write_text("{}")
+    (tmp_path / "ml" / "sub" / "__pycache__").mkdir()
+    (tmp_path / "ml" / "sub" / "__pycache__" / "m.cpython-312.pyc").write_bytes(b"\0")
+    first = env.code_hashes(tmp_path)
+    assert set(first) == {"code_bench", "code_ml"}  # absent folders are left out
+    assert all(v.startswith("sha256:") and len(v) == 7 + 16 for v in first.values())
+    (tmp_path / "bench" / "results" / "other.json").write_text("{}")  # results are not code
+    (tmp_path / "ml" / "sub" / "__pycache__" / "n.pyc").write_bytes(b"\1")
+    assert env.code_hashes(tmp_path) == first
+    (tmp_path / "ml" / "sub" / "m.py").write_text("x = 2\n")
+    changed = env.code_hashes(tmp_path)
+    assert changed["code_ml"] != first["code_ml"] and changed["code_bench"] == first["code_bench"]
+    assert {"code_bench", "code_ml"} <= set(env.software())
+
+
 # ---- Cost per decision (NFR-13) ------------------------------------------------------------------
 
 
@@ -390,12 +433,23 @@ def test_the_nightly_cost_counts_every_second_the_droplet_exists() -> None:
     result = cost.cost("nightly-batch", inputs)
     # boot 600 + vLLM 300 + pipeline 900 + generation 150 x 0.5 + idle 600 = 2,475 s
     assert result.droplet_seconds_per_day == Decimal("2475.0")
-    eur_day = Decimal(2475) / 3600 * Decimal("1.99") * Decimal("0.86")
+    # The droplet is created from its snapshot every night: the snapshot is billed every day,
+    # 220 GB (assumed until measured) x 0.06 USD per GB-month over 365/12 days (review G5).
+    snapshot = Decimal(220) * Decimal("0.06") * 12 / 365
+    eur_day = (Decimal(2475) / 3600 * Decimal("1.99") + snapshot) * Decimal("0.86")
     assert result.eur_per_day == eur_day.quantize(Decimal("0.01"))
     assert result.eur_per_decision == (eur_day / 150).quantize(Decimal("0.000001"))
-    assert result.meets_target
-    assert result.breakdown["vllm_start_seconds"]["origin"] == "measured"
+    # With these test values the snapshot alone moves 150 decisions a day over the target.
+    assert not result.meets_target and result.break_even_decisions_per_day > 150
+    assert result.breakdown["vllm_start_seconds"]["origin"].startswith("measured")
     assert result.breakdown["boot_seconds"]["origin"] == "assumed"
+    assert result.breakdown["snapshot_usd_per_day"]["origin"].startswith("assumed")
+    measured = cost.cost(
+        "nightly-batch",
+        cost.Inputs(Decimal(150), Decimal("0.5"), Decimal(900), Decimal(300), Decimal(180)),
+    )
+    assert measured.breakdown["snapshot_usd_per_day"]["origin"].startswith("measured")
+    assert measured.usd_per_day < result.usd_per_day
     # The break-even volume is the smallest that meets the target.
     n = result.break_even_decisions_per_day
     for volume, meets in ((n, True), (n - 1, False)):
@@ -406,12 +460,42 @@ def test_the_nightly_cost_counts_every_second_the_droplet_exists() -> None:
         assert check.meets_target is meets
 
 
+def test_the_cost_declares_every_assumption_it_depends_on() -> None:
+    """Spec 12 'Costo completo': every number the cost uses that is not measured in the run is
+    an assumption of the version, with its value and source (review G5)."""
+    declared = cost.ASSUMPTIONS.as_dict()
+    assert declared["version"] == "cost-v2"
+    for key in (
+        "usd_per_hour",
+        "usd_per_hour_source",
+        "eur_per_usd",
+        "eur_per_usd_source",
+        "billing",
+        "boot_seconds",
+        "idle_margin_seconds",
+        "vllm_start_seconds_if_unmeasured",
+        "snapshot_gb_if_unmeasured",
+        "snapshot_gb_source",
+        "snapshot_usd_per_gb_month",
+        "snapshot_usd_per_gb_month_source",
+        "days_per_month",
+        "decisions_per_day",
+        "seconds_per_decision",
+        "pipeline_seconds",
+        "scenarios_recreated_daily",
+        "target_eur_per_decision",
+    ):
+        assert declared.get(key), key
+    assert "nightly-batch" in declared["scenarios_recreated_daily"]
+
+
 def test_always_on_and_unavailable_scenarios() -> None:
     inputs = cost.Inputs(decisions_per_day=Decimal(150))
     day = cost.cost("always-on", inputs)
     assert day.usd_per_day == Decimal("47.76") and not day.meets_target
     assert day.break_even_decisions_per_day == 4108  # 41.07 EUR a day / 0.01 EUR
-    assert cost.cost("business-hours", inputs).usd_per_day == Decimal("23.88")
+    # 12 h at 1.99 USD, plus the snapshot it is recreated from every day: 220 x 0.06 x 12 / 365
+    assert cost.cost("business-hours", inputs).usd_per_day == Decimal("24.31")
     with pytest.raises(cost.CostUnavailable):
         cost.cost("nightly-batch", inputs)
     every = cost.all_costs(inputs)
@@ -423,10 +507,10 @@ def test_always_on_and_unavailable_scenarios() -> None:
     slow = cost.Inputs(Decimal(10), Decimal(90), Decimal(900), None)
     never = cost.cost("nightly-batch", slow)
     assert never.break_even_decisions_per_day == -1  # generation alone costs above the target
-    assert never.breakdown["vllm_start_seconds"]["origin"] == "assumed"
+    assert never.breakdown["vllm_start_seconds"]["origin"].startswith("assumed")
     capacity = cost.droplet_seconds("business-hours", cost.Inputs(Decimal(10_000), Decimal(5)))
     assert capacity["parts"]["capacity_ok"] is False
-    assert cost.ASSUMPTIONS.as_dict()["version"] == "cost-v1"
+    assert cost.ASSUMPTIONS.as_dict()["version"] == "cost-v2"
 
 
 # ---- API projection and report ------------------------------------------------------------------
@@ -515,10 +599,100 @@ def test_the_report_labels_every_section(tmp_path: Path) -> None:
     assert "Configuration: " in text
 
 
+def test_the_report_separates_equal_work_from_early_stopping(tmp_path: Path) -> None:
+    """Reviews G1, G9: the B1 speedup table holds fixed-rounds runs only, with the rounds of both
+    devices; early stopping is a separate table with a ratio per 100 rounds; scoring shows the
+    trees and a ratio only between models of the same size."""
+    run = {
+        "device": "cpu",
+        "fraction": 1.0,
+        "rows_fit": 1000,
+        "variant": "es",
+        "train_seconds_median": 2.0,
+        "train_seconds": {"n": 3},
+        "rounds_run": 120,
+        "seconds_per_100_rounds_median": 1.667,
+        "dmatrix_seconds_median": 0.1,
+        "validation_logloss_median": 0.6,
+        "validation_auc_median": 0.7,
+        "load_average_before_after": [[0.5, 0.6]],
+    }
+    details = {
+        "protocols": {
+            "A": {
+                "label": "Paper protocol",
+                "fit_rows": 1000,
+                "validation_rows": 100,
+                "features": 59,
+                "prepare_seconds": 1.0,
+                "runs": [run],
+                "scoring": [
+                    {
+                        "device": "cpu",
+                        "rows": 1000,
+                        "trees": 200,
+                        "model": "fixed200",
+                        "batch_seconds": {"p50": 0.5},
+                        "single_row_ms": {"p50": 1.0, "p95": 2.0, "n": 200},
+                    }
+                ],
+            }
+        },
+        "speedups": [
+            {
+                "protocol": "A",
+                "fraction": 1.0,
+                "variant": "fixed200",
+                "rounds": {"cpu": [200], "mi300x": [200]},
+                "cpu_over_gpu": 9.5,
+            }
+        ],
+        "early_stopping": [
+            {
+                "protocol": "A",
+                "fraction": 1.0,
+                "variant": "es",
+                "rounds": {"cpu": [120], "mi300x": [95]},
+                "same_rounds": False,
+                "train_seconds_median": {"cpu": 2.0, "mi300x": 0.3},
+                "per_100_rounds_cpu_over_gpu": 5.3,
+            }
+        ],
+        "scoring_speedups": [
+            {
+                "protocol": "A",
+                "trees": {"cpu": 200, "mi300x": 200},
+                "batch_cpu_over_gpu": 3.1,
+                "single_row_p50_cpu_over_gpu": 0.4,
+            }
+        ],
+    }
+    b1 = part("B1", details=details)
+    run_dir = _run(tmp_path, "20261014T090000Z-gpu", [b1])
+    text = render(record.merge("20261014T090000Z-gpu", run_dir, created_at=T0), "cmd")
+    assert "Speedup on identical work (fixed rounds" in text and "| 9.50 |" in text
+    assert "200 / 200" in text  # rounds on both devices next to the speedup
+    assert "Early stopping, side by side" in text and "not a speedup" in text
+    assert "120 / 95" in text and "5.30" in text
+    assert "| Trees |" in text or "Trees" in text
+    assert "3.10" in text  # same trees: the scoring ratio is shown
+
+
+def test_the_committed_cpu_run_still_renders() -> None:
+    """The report reads runs written before these fields existed (docs/results/benchmarks-cpu.md
+    is regenerated from bench/results/20261014T002158Z-cpu.json)."""
+    doc = record.read_json(ROOT / "bench" / "results" / "20261014T002158Z-cpu.json")
+    text = render(doc, "python -m bench report")
+    assert "## B1:" in text and "## B4:" in text
+
+
 # ---- CLI ----------------------------------------------------------------------------------------
 
 
-def test_a_part_that_raises_is_written_as_failed_and_the_run_goes_on(tmp_path: Path) -> None:
+def test_a_part_that_raises_is_written_as_failed_and_the_run_goes_on(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(ml.gnn, "b2_unavailable", lambda: "PyTorch is not installed here")
     args = [
         "run",
         "--device",

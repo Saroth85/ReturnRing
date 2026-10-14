@@ -19,6 +19,7 @@ import platform
 import random
 import time
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Any, Literal, TypeVar
 
 import numpy as np
@@ -129,6 +130,15 @@ def warm_up(device: torch.device) -> float:
     torch.zeros(256, 256, device=device).index_add_(0, idx, b)
     synchronize(device)
     return time.perf_counter() - start
+
+
+# Rule 11: a time measured on this hardware is real (the data it ran on has its own nature).
+TIMING_NATURE = "real (measured on the machine named in environment)"
+
+
+def utc_now() -> str:
+    """The current instant in UTC, ISO 8601 to the second with a Z: the period of a timing."""
+    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def load_average() -> float | None:

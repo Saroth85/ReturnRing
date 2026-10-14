@@ -364,11 +364,15 @@ def neural(protocol: str, kind: str, device: str) -> dict[str, Any]:
             "epochs_run": 3,
             "best_epoch": 2,
             "train_seconds": 2.0 if device == "cpu" else 0.5,
+            "epoch_seconds": [0.8, 0.6, 0.5] if device == "cpu" else [0.3, 0.1, 0.1],
+            "epoch_seconds_first": 0.8 if device == "cpu" else 0.3,
             "epoch_seconds_median": 0.6 if device == "cpu" else 0.1,
             "load_average_before": 1.0,
             "load_average_after": 1.0,
+            **({"peak_allocated_gb": 1.25} if device == "gpu" else {}),
         },
         "inference": {"seconds": 0.2 if device == "cpu" else 0.05, "events": 100},
+        "threshold": 0.4,
     }
 
 
@@ -387,11 +391,31 @@ def asos_doc(device: str, sample: float = 1.0) -> dict[str, Any]:
     }
     a = {k: neural("A", k, device) for k in ("graphsage",)}
     a["graphsage"]["test"]["all"]["f1"] = 0.79
+    config = {
+        "sample": sample,
+        "seed": 42,
+        "aggregator": "mean",
+        "hidden": 16,
+        "layers": 1,
+        "head_hidden": 64,
+        "dropout": 0.2,
+        "protocols": ["B", "A"],
+        "train": {"lr": 0.01, "max_epochs": 60, "patience": 5},
+    }
+    data = {
+        "train": {"customer_nodes": 60, "variant_nodes": 40, "events": 100},
+        "rows_fit": 90,
+    }
     return {
-        "provenance": {"origin": "fixture", "nature": "synthetic"},
+        "provenance": {
+            "origin": "fixture",
+            "nature": "synthetic",
+            "period_start": "2021-09-01",
+            "period_end": "2021-11-30",
+        },
         "labels": {"test": {"period": "2021-10-01..2021-11-30"}},
-        "config": {"sample": sample},
-        "comparable": {"sample": sample, "seed": 42},
+        "config": {**config, "device": device, "backend": "dgl", "threads": None},
+        "comparable": {**config, "backend": "dgl"},
         "environment": {
             "device": "cuda:0" if device == "gpu" else "cpu",
             "backend": "dgl" if device == "gpu" else "torch",
@@ -407,20 +431,24 @@ def asos_doc(device: str, sample: float = 1.0) -> dict[str, Any]:
         },
         "timings": {
             "cold_start": {"import_torch_seconds": 1.0},
+            "cold_start_seconds": 1.5,
             "read_raw_seconds": 1.0,
             "job_seconds_after_cold_start": 10.0,
-            "nature": "measured",
+            "measured_at": "2026-10-19T08:00:00Z",
+            "nature": "real (measured on the machine named in environment)",
         },
         "protocols": {
             "B": {
                 "protocol_label": "label B",
                 "models": models,
+                "data": data,
                 "data_loading_seconds": 1.0,
                 "features": {"customer_node": ["c"], "variant_node": ["v"], "edge": ["e"]},
             },
             "A": {
                 "protocol_label": "label A",
                 "models": a,
+                "data": data,
                 "data_loading_seconds": 1.0,
                 "features": {"customer_node": ["c"], "variant_node": ["v"], "edge": []},
             },
@@ -472,6 +500,75 @@ def test_the_speedup_needs_two_comparable_runs(tmp_path: Path) -> None:
     other["comparable"]["seed"] = 7
     write_docs(tmp_path, {"us-202-asos-gpu.json": other})
     assert "no speedup is computed" in render(load_inputs(tmp_path))
+
+
+def embeddings_doc(store: str) -> dict[str, Any]:
+    return {
+        "nature": "synthetic",
+        "encoder": {
+            "version": "enc-v1",
+            "trained_here": store == "main",
+            "fit_as_of": "2026-07-01T00:00:00+00:00",
+            "config": {"layers": 2, "hidden": 16, "aggregator": "mean", "dropout": 0.2},
+            "inputs": {"customer": ["c"], "identifier": ["i"]},
+            "training": {
+                "epochs_run": 30,
+                "best_epoch": 28,
+                "validation_auc_at_best": 0.9,
+                "load_average_before": 14.9,
+                "load_average_after": 10.7,
+            },
+        },
+        "graphs": [
+            {
+                "customers": 10,
+                "identifier_values": 20,
+                "uses": 30,
+                "values_shared_by_two_or_more": 4,
+            }
+        ],
+        "output": {
+            "instants": ["2026-07-01T00:00:00+00:00"],
+            "rows": 10,
+            "provenance": {"origin": "fixture embeddings", "period": "2025-10-01..2026-09-30"},
+        },
+        "environment": {
+            "device": "cpu",
+            "backend": "torch",
+            "torch": "2.8.0",
+            "cpu": "Test Xeon",
+            "cpu_count": 4,
+            "torch_threads": 1,
+        },
+        "timings": {
+            "training_seconds": 147.3,
+            "inference_seconds": 0.8,
+            "measured_at": "2026-10-14T00:20:00Z",
+            "nature": "real (measured on the machine named in environment)",
+        },
+    }
+
+
+def test_timings_carry_hardware_date_and_nature(tmp_path: Path) -> None:
+    """Review G11: A4 and B2 timings name the machine (CPU model, threads, load), the date they
+    were measured (their period) and their nature (rule 11)."""
+    root = write_docs(
+        tmp_path,
+        {
+            "us-202-asos-cpu.json": asos_doc("cpu"),
+            "us-202-embeddings-main.json": embeddings_doc("main"),
+            "us-202-embeddings-ood.json": embeddings_doc("ood"),
+        },
+    )
+    text = render(load_inputs(root))
+    assert "Test Xeon (4 logical CPUs, 1 threads)" in text  # next to the A4 rows
+    assert "14.9 / 10.7" in text  # load average before and after the encoder training
+    assert "2026-10-14" in text and "2026-10-19" in text  # A4 and ASOS measurement dates
+    assert "Nature: real (measured" in text
+    old = asos_doc("cpu")
+    del old["timings"]["measured_at"]
+    write_docs(tmp_path, {"us-202-asos-cpu.json": old})
+    assert "date not recorded" in render(load_inputs(tmp_path))
 
 
 def test_the_report_without_any_run(tmp_path: Path) -> None:

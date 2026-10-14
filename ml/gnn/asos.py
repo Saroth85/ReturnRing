@@ -58,6 +58,7 @@ from ml.gnn.asos_data import (
     split_graph,
     standardizer,
 )
+from ml.gnn.b2 import metrics_file
 from ml.gnn.model import (
     EdgeClassifier,
     Encoder,
@@ -66,6 +67,7 @@ from ml.gnn.model import (
     to_device_graph,
 )
 from ml.gnn.runtime import (
+    TIMING_NATURE,
     Backend,
     Stopwatch,
     environment,
@@ -73,6 +75,7 @@ from ml.gnn.runtime import (
     load_average,
     seed_everything,
     synchronize,
+    utc_now,
 )
 from ml.gnn.scaling import Standardizer
 from ml.gnn.train import EdgeSet, TrainConfig, edge_set, fit, predict_logits
@@ -453,7 +456,7 @@ def _write_json(path: Path, doc: dict[str, Any]) -> Path:
 
 
 def metrics_path(out: Path, device: torch.device) -> Path:
-    return out / "eval" / "gnn" / f"us-202-asos-{'gpu' if device.type == 'cuda' else 'cpu'}.json"
+    return metrics_file(out, "gpu" if device.type == "cuda" else "cpu")
 
 
 def _save(
@@ -504,6 +507,7 @@ def run(
         torch.set_num_threads(config.threads)
     seed_everything(config.seed, config.deterministic)
     watch = Stopwatch(device)
+    measured_at = utc_now()
     started = time.perf_counter()
     raw = watch.time("read_raw", lambda: load_raw(raw_dir.parent))
     provenance = raw.provenance
@@ -569,7 +573,9 @@ def run(
             "cold_start_seconds": round(sum(cold_start.values()), 4),
             "read_raw_seconds": round(watch.seconds["read_raw"], 4),
             "job_seconds_after_cold_start": round(total, 3),
-            "nature": "measured on this machine; varies between runs and machines",
+            "measured_at": measured_at,
+            "finished_at": utc_now(),
+            "nature": TIMING_NATURE,
         },
         "assumptions": {
             "validation": f"seeded random {config.validation_fraction:.0%} of the train split "

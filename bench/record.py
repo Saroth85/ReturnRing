@@ -44,7 +44,7 @@ PROTOCOLS = ("paper", "decision_time")  # ADR-10 A and B, as the API names them
 PART_STATUSES = ("measured", "dry_run", "skipped", "failed")
 METRIC_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 MAX_TEXT = 300  # ShortText of the API
-DEVICE_RANK = {"cpu": 0, "gpu": 1}  # a CPU run never replaces a GPU run as the latest
+DEVICE_RANK = {"cpu": 0, "gpu": 1}
 
 
 class BenchError(ValueError):
@@ -321,14 +321,17 @@ def read_parts(run_dir: Path) -> dict[str, dict[str, Any]]:
 RULES = {
     "comparable_quality": "Same data, version and configuration on CPU and GPU; no speedup from "
     "different workloads. B1 runs the same matrices, xgboost build, parameters and seed on both "
-    "devices, reports rounds and validation log loss next to each time, and a fixed-rounds "
-    "variant with identical work.",
+    "devices and computes speedups from the fixed-rounds runs only (identical work), early "
+    "stopping shown apart with its rounds; B2 divides median epochs of runs with identical "
+    "settings; B3 runs every load on the same case list; B4 labels each step with the device "
+    "it ran on.",
     "separate_times": "Cold start, training, scoring and generation measured apart; latency p50 "
     "and p95 always with concurrency and throughput.",
-    "full_cost": "The cost per decision includes idle time in the declared operating scenario "
-    "(bench.cost, versioned); development experiments stay apart.",
-    "growing_loads": "Several data sizes (B1), batch sizes and concurrency levels (B3), to see "
-    "where the GPU adds value instead of assuming it.",
+    "full_cost": "The cost per decision includes idle time and the snapshot in the declared "
+    "operating scenario (bench.cost, versioned, every assumption listed); development "
+    "experiments (OOD store, risk evaluation) stay apart.",
+    "growing_loads": "Several data sizes (B1, B2), batch sizes and concurrency levels (B3), to "
+    "see where the GPU adds value instead of assuming it.",
 }
 
 
@@ -367,9 +370,10 @@ def merge(
 def write_results(
     results_dir: Path, doc: Mapping[str, Any], *, force_latest: bool = False
 ) -> tuple[Path, Path | None]:
-    """bench/results/<run-id>.json, latest-<device>.json, and latest.json unless a run of a
-    higher device rank is already the latest (a laptop CPU run never replaces the MI300X run
-    the API serves) or force_latest. Returns the run file and the latest pointer moved."""
+    """bench/results/<run-id>.json, latest-<device>.json, and latest.json for a GPU run, unless
+    a run of a higher device rank is already the latest. A CPU run measures the harness on a
+    development machine and moves latest.json (the run GET /api/benchmarks serves) only with
+    force_latest (review G8). Returns the run file and the latest pointer moved."""
     run_id = check_run_id(str(doc["run_id"]))
     device = run_device(run_id)
     target = write_json(results_dir / f"{run_id}.json", doc)
@@ -382,6 +386,8 @@ def write_results(
     }
     write_json(results_dir / f"latest-{device}.json", pointer)
     latest = results_dir / "latest.json"
+    if device == "cpu" and not force_latest:
+        return target, None
     if latest.exists() and not force_latest:
         current = read_json(latest)
         if DEVICE_RANK.get(str(current.get("device")), 0) > DEVICE_RANK[device]:

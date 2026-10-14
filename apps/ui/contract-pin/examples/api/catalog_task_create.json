@@ -1,0 +1,7 @@
+{
+  "anomaly_id": "V-JKT-DEF~defective~2026-09-21",
+  "kind": "batch_check",
+  "note": "Check the sleeve length of the September batch against the size guide",
+  "author": "luca",
+  "return_id": "RET-000105"
+}

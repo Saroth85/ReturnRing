@@ -1,0 +1,48 @@
+@import 'tailwindcss';
+@config '../../tailwind.config.ts';
+@import './tokens.css';
+@import './patterns.css';
+
+@layer base {
+  html {
+    font-size: 16px;
+  }
+
+  /* Presenter mode (?present=1, docs/ui-design.md 3.4): everything is rem-based and scales. */
+  html[data-present='1'] {
+    font-size: 18px;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--ink-1);
+    /* System stack, no webfont (docs/ui-design.md 4.4). */
+    font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    margin: 0;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+
+  table,
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+
+  [lang='it'],
+  [lang='en'] {
+    hyphens: manual;
+  }
+
+  /* A deep-linked or scrolled-to target never ends up under the sticky mode banner (UI33). */
+  [id],
+  [data-link-detail],
+  [data-section] {
+    scroll-margin-top: calc(var(--mode-banner-h, 2.25rem) + 0.75rem);
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "customer_id": "C-MARCO-1",
+  "quadrant": "Q4",
+  "lines": [
+    {
+      "variant_id": "V-JKT-2207",
+      "size": "M",
+      "p_return": 0.29,
+      "size_advice": null
+    }
+  ],
+  "terms": {
+    "return_window_days": 14,
+    "free_return_shipping": false,
+    "instant_refund": false,
+    "free_size_exchange": true,
+    "coupons_enabled": false
+  },
+  "base_terms": {
+    "return_window_days": 30,
+    "free_return_shipping": true,
+    "instant_refund": true,
+    "free_size_exchange": true,
+    "coupons_enabled": true
+  },
+  "coupon_eligible": false,
+  "coupon_block": {
+    "rule_version": "coupon-rule-v1",
+    "application_id": "CRA-000031",
+    "review_at": "2026-12-27",
+    "text": "Coupons are paused for the linked accounts of this cluster until the review date"
+  },
+  "terms_snapshot_id": "TS-CHK-000982",
+  "terms_source": "DEC-000102-1",
+  "review_at": "2026-12-27",
+  "shown_at": "2026-09-30T18:35:00Z",
+  "p_return_threshold": 0.35,
+  "model_version": "propensity-xgb-0.1.0",
+  "provenance": {
+    "origin": "Contract example: return-propensity model propensity-xgb-0.1.0 on a synthetic cart",
+    "period_start": "2025-10-01",
+    "period_end": "2026-09-30",
+    "nature": "synthetic"
+  }
+}

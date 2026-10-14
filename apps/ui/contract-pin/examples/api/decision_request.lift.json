@@ -1,0 +1,12 @@
+{
+  "decision_id": "DEC-000088-1",
+  "action": "lift",
+  "levers": null,
+  "message": {
+    "lang": "it",
+    "text": null
+  },
+  "override_reason": "Reviewed at the due date: the returns are back in line with the products",
+  "override_category": "periodic_review",
+  "approver": "luca"
+}

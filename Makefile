@@ -3,7 +3,7 @@
 	test test-gpu test-asos lint licenses asos asos-verify \
 	generate generate-ood graph features anomalies risk score results propensity serving pipeline bench \
 	gnn-asos embeddings gnn-results gnn-test gnn-image gnn-asos-gpu gnn-asos-cpu-container \
-	embeddings-gpu gnn-test-gpu \
+	embeddings-gpu gnn-test-gpu ui-install ui-types ui-check ui-e2e \
 	spike-preflight spike-prep spike-weights spike-weights-wait spike-vllm spike-wait spike-g1 \
 	spike-g1-bench spike-g2 spike-g2-cpu spike-g2-load spike-g3 spike-g3-cpu spike-g4 spike-g5 \
 	spike-g6 spike-g7 spike-down \
@@ -362,6 +362,24 @@ bench-merge:
 # On the laptop, after copying bench/results/ back: make bench-report BENCH_RUN=<run-id> DEVICE=gpu
 bench-report:
 	python -m bench report --run bench/results/$(BENCH_RUN).json --out $(BENCH_DOC)
+
+# ---- UI (apps/ui, docs/ui-design.md) ----
+UI = npm --prefix apps/ui
+
+ui-install:
+	$(UI) ci
+
+# Regenerates the TypeScript types and constants after a contract change (ADR-15).
+ui-types:
+	$(UI) run gen:types
+
+# Generated files fresh, typecheck, lint, unit tests, licences, production build.
+ui-check:
+	$(UI) run check
+
+# Playwright smoke in mock mode (Chromium from PLAYWRIGHT_BROWSERS_PATH, never `playwright install`).
+ui-e2e:
+	$(UI) run test:e2e
 
 # ---- GPU spikes SPK-G1..G7 on the MI300X droplet: infra/spikes/README.md ----
 

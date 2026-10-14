@@ -3,7 +3,7 @@
   "info": {
     "title": "ReturnRing API",
     "description": "Contract of the ReturnRing API (ADR-15). Every response carries the headers X-ReturnRing-Mode (live or cached) and X-Request-Id.",
-    "version": "1.5.0"
+    "version": "1.6.0"
   },
   "paths": {
     "/healthz": {
@@ -742,7 +742,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CheckoutEvaluateRequest-Input"
+                "$ref": "#/components/schemas/CheckoutEvaluateRequest"
               }
             }
           },
@@ -3686,7 +3686,7 @@
         ],
         "title": "BenchmarksResponse"
       },
-      "CartLine-Input": {
+      "CartLine": {
         "properties": {
           "variant_id": {
             "type": "string",
@@ -3714,38 +3714,6 @@
         "required": [
           "variant_id",
           "size"
-        ],
-        "title": "CartLine"
-      },
-      "CartLine-Output": {
-        "properties": {
-          "variant_id": {
-            "type": "string",
-            "maxLength": 96,
-            "minLength": 1,
-            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:~-]*$",
-            "title": "Variant Id"
-          },
-          "size": {
-            "type": "string",
-            "maxLength": 16,
-            "minLength": 1,
-            "title": "Size"
-          },
-          "quantity": {
-            "type": "integer",
-            "maximum": 5.0,
-            "minimum": 1.0,
-            "title": "Quantity",
-            "default": 1
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "variant_id",
-          "size",
-          "quantity"
         ],
         "title": "CartLine"
       },
@@ -4334,7 +4302,7 @@
           },
           "lines": {
             "items": {
-              "$ref": "#/components/schemas/CartLine-Input"
+              "$ref": "#/components/schemas/CartLine"
             },
             "type": "array",
             "maxItems": 20,
@@ -4391,7 +4359,7 @@
         ],
         "title": "CheckoutConfirmResponse"
       },
-      "CheckoutEvaluateRequest-Input": {
+      "CheckoutEvaluateRequest": {
         "properties": {
           "customer_id": {
             "type": "string",
@@ -4402,7 +4370,7 @@
           },
           "lines": {
             "items": {
-              "$ref": "#/components/schemas/CartLine-Input"
+              "$ref": "#/components/schemas/CartLine"
             },
             "type": "array",
             "maxItems": 20,
@@ -4429,48 +4397,6 @@
         "required": [
           "customer_id",
           "lines"
-        ],
-        "title": "CheckoutEvaluateRequest"
-      },
-      "CheckoutEvaluateRequest-Output": {
-        "properties": {
-          "customer_id": {
-            "type": "string",
-            "maxLength": 96,
-            "minLength": 1,
-            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:~-]*$",
-            "title": "Customer Id"
-          },
-          "lines": {
-            "items": {
-              "$ref": "#/components/schemas/CartLine-Output"
-            },
-            "type": "array",
-            "maxItems": 20,
-            "minItems": 1,
-            "title": "Lines"
-          },
-          "coupon_code": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 96,
-                "minLength": 1,
-                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:~-]*$"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Coupon Code"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "customer_id",
-          "lines",
-          "coupon_code"
         ],
         "title": "CheckoutEvaluateRequest"
       },
@@ -7564,7 +7490,7 @@
             "title": "Key"
           },
           "request": {
-            "$ref": "#/components/schemas/CheckoutEvaluateRequest-Output"
+            "$ref": "#/components/schemas/CheckoutEvaluateRequest"
           }
         },
         "additionalProperties": false,
@@ -7730,6 +7656,10 @@
             "type": "integer",
             "minimum": 1.0,
             "title": "Cluster Size After"
+          },
+          "changes_decision": {
+            "type": "boolean",
+            "title": "Changes Decision"
           }
         },
         "additionalProperties": false,
@@ -7740,10 +7670,11 @@
           "decision_id",
           "cluster_id",
           "cluster_size_before",
-          "cluster_size_after"
+          "cluster_size_after",
+          "changes_decision"
         ],
         "title": "DemoDispute",
-        "description": "A link whose dispute changes the cluster of the case named (US-310): the customer's\ncluster has cluster_size_before accounts, and cluster_size_after once the link is out (1:\nthe account alone)."
+        "description": "A link whose dispute changes the cluster of the case named (US-310): the customer's\ncluster has cluster_size_before accounts, and cluster_size_after once the link is out (1:\nthe account alone). changes_decision (1.6.0) says whether the recompute the dispute makes\nchanges the engine's quadrant or levers of the case (a dry run at the reset, which prefers\nsuch a link): false, the UI says \"decision unchanged\"."
       },
       "DraftView": {
         "properties": {

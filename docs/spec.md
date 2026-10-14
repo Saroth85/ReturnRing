@@ -966,7 +966,7 @@ Tre formati, una storia sola: lo stesso indicatore superficiale porta ad azioni 
 | 2:00–2:30 | Simulatore: si cambia un'ipotesi e il beneficio netto può diventare negativo | Beneficio netto con ipotesi esplicite, non risparmi gonfiati |
 | 2:30–3:00 | Slide AMD con i benchmark misurati, limiti dei dati, richiesta | Contributo misurato di ogni modello sulla MI300X; ASOS reale, abusi simulati; cerchiamo un merchant pilota |
 
-Checkout, ispezione e agente investigatore restano fuori dal percorso principale: sono nel video e si aprono dal vivo se un giudice li chiede.
+Checkout, ispezione e agente investigatore restano fuori dal percorso principale: sono nel video e si aprono dal vivo se un giudice li chiede. Il checkout si apre dopo l'approvazione di Marco: una proposta in attesa di approvazione non vale per gli ordini futuri (regola 5), quindi solo dopo l'approvazione il negozio mostra a un account collegato dell'anello le condizioni restrittive e il blocco dei coupon (ADR-15, sezione 16; `make demo-walk` segue lo stesso ordine).
 
 ### Video (massimo 5 minuti, sotto i 300 MB)
 

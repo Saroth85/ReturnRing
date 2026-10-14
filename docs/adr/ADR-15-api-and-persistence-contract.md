@@ -2,8 +2,8 @@
 
 Status: accepted, 13 Oct 2026; amended the same day after four reviews (sections 9 to 12), and on
 14 Oct 2026 by the phase 4 integration (section 13), the merge of the LLM layer's closing
-rounds (section 14) and the review of the running API (section 15). API contract version
-`1.5.0`. Covers spec section 9 (API table, flows F1 to F7), the stories of E3,
+rounds (section 14), the review of the running API (section 15) and the examples checked
+against the live service (section 16). API contract version `1.6.0`. Covers spec section 9 (API table, flows F1 to F7), the stories of E3,
 E4, E5, E6, E7 and E9, NFR-16 and CLAUDE.md rules 1, 3, 4, 5, 9, 10, 11 and 12. Changes
 `contracts/` (new `contracts/vocab.py`, `contracts/sql.py`, `contracts/json/api/`,
 `contracts/examples/api/`), removes two v1 API schemas, and adds `apps/api/schemas.py` and two
@@ -1151,6 +1151,93 @@ Known limits, reported as they are:
   after the reset (the earliest is 2 October at full scale); the public demo is read-only, so
   no message is composed there, and a reset restarts the clock.
 - **E15 is still open** (section 12).
+
+### 16. The examples against the live service (14 Oct 2026, contract 1.6.0)
+
+The review of 14 Oct 2026 (`docs/review-backlog.md`, API side of "UI readiness" and "Examples
+vs live") found places where the contract or its examples show what the running service never
+does; the UI, built on the examples, would rehearse beats the live demo cannot play. Each is a
+test in `tests/test_api_examples_live.py` (the schema clash in `tests/test_api_schemas.py`).
+The version is 1.6.0: a new field (`DemoDispute.changes_decision`) and changed schemas.
+
+- **One schema per model.** `CartLine` and `CheckoutEvaluateRequest` are requests that a
+  response also carries (`DemoCart.request`). The serialization export made their defaults
+  required there, so `demo_cases.schema.json` defined them differently from the request
+  schemas, `openapi.json` split them into `-Input` and `-Output`, and the UI's type generation
+  failed. Both keep their defaults optional in both modes
+  (`json_schema_serialization_defaults_required=False`; the API sends `quantity` and
+  `coupon_code` anyway). `test_a_model_has_one_schema_in_every_file_that_defines_it` requires a
+  byte-identical body for every `$def` and root model in every `contracts/json/api/*.schema.json`
+  that defines it, and no split in `openapi.json`; it found no other clash.
+- **Size advice at checkout (US-401).** The store holds no measurements or exchange outcomes, so
+  the live checkout never suggests a size (`checkout.advice_for`: the size guide, or no reliable
+  recommendation), and the personalized predictor has no size feature: two sizes of one
+  variant in one cart get one probability. `checkout_evaluate_response.giulia` is built through
+  `advice_for` and the live threshold: both sizes of V-DRS-2500 at 0.47, each with the
+  measurement guide. `specific` stays in `SizeAdviceKind` (a shop with measurement data could
+  use it), but no example and no live path produce it.
+- **Catalogue tasks (H14, decided).** A task may name any queued return of the anomaly's
+  variant, sold in the anomaly's week or not: the case that led to it (Elena's return is
+  requested after the anomaly's snapshot, so it is never among the anomaly's `return_ids`). A
+  return outside the queue is a 404, one of another variant a 422; section 15's H14 row
+  ("another one is a 404") is superseded. `queued_return_ids` is what the UI offers: in the
+  anomaly list the queued returns of the anomaly's week (`ProductAnomaliesResponse` keeps them
+  among `return_ids`), on a case card those and the case's own return (`CaseCard` requires it
+  and allows nothing else). The live Elena card now offers her return.
+- **Inspections (US-501..503).** The examples are built through the mock vision of
+  `LLM_MODE=mock` (`MockVision`, `assess` and `generation_of` of
+  `apps/api/services/other/inspections.py`). The request of `inspection.awaiting` carries a tiny
+  JPEG the mock reads as damaged (the DV-RULE-1 proposal), the one of `inspection.manual_review`
+  a JPEG it reads as unclear (manual review: "The photo is not clear enough to check the item:
+  verify by hand"); checklists, reasons and generation records are the mock's (`latency_ms`
+  null: the mock records none). Before, both requests carried a photo the mock reads as clean,
+  so the claim beat answered 422 `no_proposal` live. **The claim beat needs `LLM_MODE=mock`
+  (the photo of the example request, or any photo the mock reads as damaged) or
+  `LLM_MODE=vllm` (a photo with visible damage).** With `DEMO_MODE=cached`, or vLLM down, the
+  checklist is the template: every item not observable, manual review, no proposal, no claim.
+- **The demo dispute (US-310).** `find_dispute` dry-runs the recompute of each candidate link
+  (the engine's proposal on the graph without the link, compared with version 1; at most 12
+  candidates, nothing written, about 0.3 s each on the tiny test store) and takes the first
+  that changes the quadrant or the levers, else the first candidate as before.
+  `DemoDispute.changes_decision` (new) says which: on the tiny test store no candidate changes
+  the decision (a Q1 case of two accounts stays Q1); the example's dispute (Chiara, Q3) does.
+  The demo walk checks the flag against the recompute. The evidence beat on a Rossi case
+  (never Q3 or Q4, E2E-05) changes the cluster and the risk shown, rarely the decision; the
+  `before` and `after` of its recompute response say so. The reset stores the demo cases, so a
+  database reset before 1.6.0 needs a new reset (`make reset`) before `/api/demo/cases` answers.
+- **Model versions.** Every `model_versions` of the examples (decisions, audit entries,
+  `/readyz`) has the keys of the serving manifest (`pipeline.serving.manifest.
+  MODEL_VERSION_KEYS`: risk, risk_customer, checkout, reference, value, evidence, anomalies),
+  which the export writes and the live API records; before, the examples had `propensity` and
+  `graph`, keys the service never sends. The checkout examples' `model_version` is the
+  `checkout` one.
+- **Marco before the shop.** A proposal awaiting approval is not in force (rule 5), so the ring
+  checkout shows the restriction and the coupon block only once Marco's Q4 is approved:
+  `checkout_evaluate_response.marco` is that state, and the shop beat comes after the Marco
+  beat (spec 16; `scripts/demo_walk.py` already approves Marco, step 3, before the checkout).
+
+**For the UI migration (contract 1.6.0).**
+
+- Shop beat: show the measurement-guide text of each line (`size_advice.text`, in the
+  customer's language) and drop "Switch to M"; both sizes show the same probability, so no
+  size is presented as the safer one. Run it after Marco's approval.
+- Elena beat: the catalogue task form offers the card's `queued_return_ids`, which hold her
+  return.
+- Dispute and evidence beats: when `dispute.changes_decision` is false, or the recompute's
+  `before` and `after` have the same quadrant and `lever_ids`, say "decision unchanged" and
+  show what did change (the cluster, the active links, the risk).
+- Inspection beat: with `LLM_MODE=mock` upload the photo of `inspection_create_request` to get
+  the claim; in cached mode show the manual review, with no claim to confirm.
+
+Schemas whose shape changed: `demo_cases` (`CartLine.quantity` and
+`CheckoutEvaluateRequest.coupon_code` optional, `DemoDispute.changes_decision`), `openapi.json`
+(one `CartLine` and one `CheckoutEvaluateRequest` component, `changes_decision`) and the
+version in `endpoints.json`. Examples whose shape changed: `demo_cases` and every example with
+`model_versions` (case cards, decision records and results, the recomputes, the dispute, the
+regeneration, the audit page, both readyz). Examples whose values changed:
+`checkout_evaluate_response.giulia` and the six inspection examples. The rule
+`queued_return_ids` ⊆ `return_ids` moved from `ProductAnomaly` to the anomaly list, and the
+case card has its own (models only). No table changes.
 
 ## Consequences
 

@@ -165,14 +165,22 @@ def line_probabilities(
     return [round(float(p), 4) for p in serving.checkout_model.predict(frame)]
 
 
+def advice_for(size_range: object, anomaly_reason: str | None) -> s.SizeAdvice:
+    """US-401 without measurement data, for a variant's size range and the reason of its flagged
+    anomaly (None without one): the size guide, or no reliable recommendation. Never a specific
+    size: the store holds no measurements or exchange outcomes (the contract examples use this
+    too, ADR-15 section 16)."""
+    if not size_range or anomaly_reason in GUIDE_DOUBTS:
+        return s.SizeAdvice.of("no_reliable_recommendation")
+    return s.SizeAdvice.of("measurement_guide")
+
+
 def size_advice(serving: Serving, variant_id: str, at: datetime) -> s.SizeAdvice:
     """US-401 without measurement data: the size guide, or no reliable recommendation."""
     variant = serving.by_key("store/variants", variant_id) or {}
     anomaly = variant_anomaly(serving, variant_id, at)
-    doubtful = anomaly is not None and str(anomaly["reason"]) in GUIDE_DOUBTS
-    if not variant.get("size_range") or doubtful:
-        return s.SizeAdvice.of("no_reliable_recommendation")
-    return s.SizeAdvice.of("measurement_guide")
+    reason = None if anomaly is None else str(anomaly["reason"])
+    return advice_for(variant.get("size_range"), reason)
 
 
 # ---- Terms and coupon block (US-402, US-403, US-607) ---------------------------------------------

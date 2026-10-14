@@ -16,7 +16,8 @@ In one command, deterministic for a serving snapshot and SEED:
 
 Every timestamp is the snapshot instant (a fixed clock), so two resets of the same snapshot
 write the same rows (the wall time the demo clock started aside). Reads DATABASE_URL and
-SERVING_DIR; never data/ (rule 12).
+SERVING_DIR; never data/ (rule 12). The first connection is retried for about 30 s: on a first
+start PostgreSQL may still be running its init-only server, or restarting after it.
 
 Exit codes: 0 done; 1 some returns failed (listed), or vLLM was unavailable for some drafts in
 LLM_MODE=vllm (they use the template, labelled); 2 usage, or a serving snapshot that cannot be
@@ -31,10 +32,11 @@ import json
 import sys
 import time
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from datetime import datetime
-from typing import Any
+from typing import Any, Final
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from apps.api.clock import system_now
@@ -55,6 +57,34 @@ REMEDY = (
     "build the serving snapshot first: make pipeline (generate, graph, features, anomalies, "
     "risk), then python -m pipeline.serving --data data --artifacts artifacts --out serving"
 )
+CONNECT_TIMEOUT_S: Final = 30.0  # the first connection, while PostgreSQL may still be starting
+CONNECT_RETRY_S: Final = 1.0
+
+
+async def wait_for_database(
+    engine: AsyncEngine,
+    *,
+    timeout_s: float = CONNECT_TIMEOUT_S,
+    retry_s: float = CONNECT_RETRY_S,
+    log: Any = None,
+    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    clock: Callable[[], float] = time.monotonic,
+) -> None:
+    """Return once the database answers, retrying the first connection for about timeout_s
+    (the first-start race: the postgres image's init-only server, then its restart, refuse
+    connections); the last error is raised after that."""
+    say = log or (lambda _m: None)
+    deadline = clock() + timeout_s
+    while True:
+        try:
+            async with engine.connect() as conn:
+                await conn.execute(text("SELECT 1"))
+            return
+        except Exception as exc:  # refused, starting up, shutting down: all retried until then
+            if clock() >= deadline:
+                raise
+            say(f"the database does not answer yet ({type(exc).__name__}): retrying")
+            await sleep(retry_s)
 
 
 async def reset(
@@ -175,6 +205,7 @@ def main(argv: Sequence[str] | None = None, *, llm_client: LlmClient | None = No
     async def run() -> dict[str, Any]:
         engine = make_engine(settings.database_url or "")
         try:
+            await wait_for_database(engine, log=log)
             return await reset(engine, serving, generator, limit=args.limit, log=log)
         finally:
             await engine.dispose()

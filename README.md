@@ -18,9 +18,10 @@ specification is [docs/spec.md](docs/spec.md) (in Italian); the decisions are in
 ## Quick start: three commands, CPU only, no GPU
 
 You need Docker with Compose v2, GNU make and about 8 GB of RAM. The 8 GB is an estimate; what
-was measured: the API keeps the serving snapshot in memory and its process held 1.57 GB after the
-warm-up and at most 1.81 GB during the demo walk (resident memory, full synthetic store,
-14 Oct 2026; real measurement).
+was measured: the API keeps the serving snapshot in memory, and its process held about 1.6 GB
+after the warm-up; the peak during the demo walk varied between runs, up to about 2.2 GB
+(resident memory of the API process run on the host, not in a container, full synthetic store,
+14 Oct 2026; real, measured once and not repeated in Docker).
 
 ```bash
 cp .env.example .env
@@ -53,8 +54,8 @@ catalogue task, no restriction).
 
 | Command | What it does |
 | --- | --- |
-| `make reset` | the demo again from the same state, on the running stack (US-903) |
-| `make demo-walk` | walks the pitch over HTTP and checks every response against the contract (host Python: `pip install -r requirements/dev.txt`); on a read-only demo it checks that every write of the pitch is refused |
+| `make reset` (dev) or `make demo-reset` (cached) | the demo again from the same state, on the running stack (US-903); run one before `make demo-walk` |
+| `make demo-walk` | walks the pitch over HTTP and checks every response against the contract (host Python: `pip install -r requirements/dev.txt`); it approves cases, so run `make reset` (dev) or `make demo-reset` (cached) before it; on a read-only demo it checks that every write of the pitch is refused |
 | `make dev-logs`, `make dev-down` | logs, stop (the database volume is kept) |
 | `make test`, `make lint`, `make licenses` | the CPU test suite, ruff and mypy, the licence gate |
 
@@ -70,13 +71,25 @@ screen. Its views are read-only (spec 11). The case assistant needs the live mod
 mode it answers that the GPU is off; the case card keeps the precomputed explanation.
 
 The demo package comes from one GPU session: `make batch-generate` writes Gemma's draft of every
-open return into `serving/llm_cache/`, then `make demo-export` packs the snapshot, the cache and
-the benchmark results into `demo-cache/` with a `MANIFEST.json` holding the sha256 of every file
-(`demo-cache.tar.gz` to copy). On the demo server, or on a laptop:
+open return into `serving/llm_cache/`, then `make demo-export DEMO_GPU="AMD Instinct MI300X (AMD
+Developer Cloud)"` packs the snapshot, the cache and the benchmark results into `demo-cache/`
+with a `MANIFEST.json` holding the sha256 of every file, the hardware and the model of every
+draft (`demo-cache.tar.gz` to copy). `DEMO_GPU` has no default, and the export refuses drafts of
+a model other than `GEMMA_MODEL` unless the package is declared a rehearsal (`REHEARSAL=1`). The
+API shows the MI300X label only when the package's `MANIFEST.json` says its drafts were made on
+the MI300X by `GEMMA_MODEL`; any other package, such as a CPU rehearsal, is labelled
+**"Precomputed in a rehearsal, not verified on AMD MI300X"**.
+
+The package is published as a GitHub release asset after the GPU session; until then the laptop
+path below is for the team, who copy `demo-cache.tar.gz` from the droplet. The `demo-*` targets
+run the packaging script with the host `python3` (Python 3.8 or later, standard library only).
+On the demo server, or on a laptop:
 
 ```bash
 make demo-import     # unpacks demo-cache.tar.gz and checks every hash
 make demo-local      # http://localhost:8080 (a laptop), or: make demo-up (public, HTTPS)
+make demo-reset      # the cached demo again from the same state (before make demo-walk)
+make demo-down       # stops it (the database volume is kept)
 ```
 
 Status on 14 Oct 2026: the MI300X session that produces the package has not run yet, so no public
@@ -92,8 +105,9 @@ assistant answered the 503 documented for cached mode.
 The droplet runbook is [infra/spikes/README.md](infra/spikes/README.md): the spikes, "The GPU
 session" (benchmarks B1 to B4, GraphSAGE) and "The demo export" (live stack, batch generation,
 package). On the droplet, `make gpu-up` starts vLLM first, then the whole stack with HTTPS on
-`PUBLIC_HOST` and basic auth on the admin page, the telemetry and the writes
-(`make admin-password` prints the hash for `.env`).
+`PUBLIC_HOST` and basic auth on the telemetry data and the writes (`make admin-password` prints
+the hash for `.env`; `PUBLIC_HOST` and the hash are required, `.env.example` leaves both
+empty).
 
 ## Architecture
 
@@ -233,12 +247,16 @@ every benchmark as pending until then.
   on GPL, AGPL, LGPL or an unknown licence in the Python dependencies, and `npm run
   check:licenses` on the UI's npm tree; only MIT, BSD, Apache-2.0, ISC, PSF and PostgreSQL are
   allowed at runtime (rule 15). Hypothesis (MPL-2.0) is a development tool, never distributed.
-- **Container images** pulled unmodified by digest and never redistributed
-  ([ADR-12](docs/adr/ADR-12-container-licences.md)): vLLM (`vllm/vllm-openai-rocm`, Apache-2.0),
-  DGL on ROCm (`rocm/dgl`, Apache-2.0, PyTorch BSD-3-Clause), the ROCm base
-  (`rocm/dev-ubuntu-24.04`: ROCm components under MIT, NCSA and other licences, including GPL-3.0
-  tools), amd_xgboost (Apache-2.0), PostgreSQL (PostgreSQL License), Caddy (Apache-2.0), nginx
-  (BSD-2-Clause). Gemma 4 weights: Apache-2.0 on Hugging Face.
+- **Container images** pulled unmodified and never redistributed
+  ([ADR-12](docs/adr/ADR-12-container-licences.md)). The GPU images, PostgreSQL and Caddy are
+  pinned by tag and digest; the build bases of the API and of the UI by version tag only
+  (`python:3.12-slim`, `node:22.22.0-bookworm-slim`, `nginx:1.27-alpine`). vLLM
+  (`vllm/vllm-openai-rocm`, Apache-2.0), DGL on ROCm (`rocm/dgl`, Apache-2.0, PyTorch
+  BSD-3-Clause), the ROCm base (`rocm/dev-ubuntu-24.04`: ROCm components under MIT, NCSA and other
+  licences, including GPL-3.0 tools), amd_xgboost (Apache-2.0), PostgreSQL (PostgreSQL License),
+  Caddy (Apache-2.0), nginx (BSD-2-Clause), the Python base of the API image (`python`: Python
+  under the PSF License, on Debian packages under their own licences), Node.js (MIT; the UI's
+  build stage only, not in the served image). Gemma 4 weights: Apache-2.0 on Hugging Face.
 
 Runtime Python dependencies (`requirements/base.txt`), read with pip-licenses 5.5.5 on
 14 Oct 2026:

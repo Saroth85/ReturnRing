@@ -12,7 +12,7 @@ ADR-15 section 15 (contract 1.5.0) adds:
   the API on the wall clock;
 - PUBLIC_READ_ONLY=on|off (default off): the public demo answers every write route with 403
   forbidden_role, except the agent and the checkout evaluation, which are rate limited per client
-  (spec 11, "Sicurezza"); the proxy protects the admin views and the telemetry with basic auth;
+  (spec 11, "Sicurezza"); the proxy protects the telemetry data with basic auth;
 - LLM_CONCURRENCY (default 32): model calls in flight at once (the reset, batch_generate and the
   API's own executor for model calls);
 - VLLM_TIMEOUT_S (default 20): seconds a vLLM call may take before it counts as unavailable.

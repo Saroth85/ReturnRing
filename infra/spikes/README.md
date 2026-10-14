@@ -370,8 +370,9 @@ ADR-16). Every step is a `make` target from the repository root; `make -n <targe
 
 The droplet's `.env` also needs `PUBLIC_HOST` (the sslip.io name of its IP, for example
 `203-0-113-10.sslip.io`), `ADMIN_USER` and `ADMIN_PASSWORD_HASH` between single quotes (`make
-admin-password` on the laptop prints the hash): `make gpu-up` serves HTTPS on `PUBLIC_HOST` with
-basic auth on `/system`, `/api/telemetry` and every write (infra/compose.public.yml).
+admin-password` on the laptop prints the hash, bcrypt cost 10): `make gpu-up` serves HTTPS on
+`PUBLIC_HOST` with basic auth on `/api/telemetry` and every write (infra/compose.public.yml).
+`.env.example` leaves `PUBLIC_HOST` and the hash empty, so a public start without them stops.
 
 | # | Where | Command | What it does | Writes |
 | --- | --- | --- | --- | --- |
@@ -379,7 +380,7 @@ basic auth on `/system`, `/api/telemetry` and every write (infra/compose.public.
 | 2 | laptop | `rsync -a --delete serving/ root@<droplet-ip>:ReturnRing/serving/` | the snapshot only, no ground truth; before step 4 (`--delete` also removes `llm_cache/`) | `serving/` (droplet) |
 | 3 | droplet | `make spike-vllm spike-wait` | vLLM alone first, healthy before anything else uses the GPU | - |
 | 4 | droplet | `make batch-generate` | Gemma's draft of every open return through the local vLLM, golden cases first; exit 1 if vLLM failed any (not cached) | `serving/llm_cache/` |
-| 5 | droplet | `make demo-export` | checks the snapshot against its manifest, refuses an empty cache, packs snapshot, cache and `bench/results/` (pointers and runs) with `MANIFEST.json` (sha256 of every file, the model of each draft, `generated_on`); host `python3`, standard library only | `demo-cache/`, `demo-cache.tar.gz` |
+| 5 | droplet | `make demo-export DEMO_GPU="AMD Instinct MI300X (AMD Developer Cloud)"` | checks the snapshot against its manifest, refuses an empty cache and drafts of a model other than `GEMMA_MODEL`, packs snapshot, cache and `bench/results/` (pointers and runs) with `MANIFEST.json` (sha256 of every file, the model of each draft, `generated_on`, `rehearsal` false); `DEMO_GPU` has no default; host `python3` 3.8 or later, standard library only | `demo-cache/`, `demo-cache.tar.gz` |
 | 6 | laptop | `scp root@<droplet-ip>:ReturnRing/demo-cache.tar.gz .` then `make demo-import demo-local` | checks every hash, then the cached demo on http://localhost:8080 | `demo-cache/` |
 | 7 | demo server (CPU) | clone the repository, `cp .env.example .env` (set `POSTGRES_PASSWORD`, `DATABASE_URL`, `PUBLIC_HOST`, `ADMIN_PASSWORD_HASH`), copy `demo-cache.tar.gz`, then `make demo-import demo-up` | the public cached demo: HTTPS, read-only views, no GPU container | - |
 | 8 | droplet | `make gpu-up` (live pitch and video) | postgres, the reset with live Gemma drafts, the api, the telemetry sampler, the ui and the proxy on `https://PUBLIC_HOST` | database volume |
@@ -397,7 +398,12 @@ basic auth on `/system`, `/api/telemetry` and every write (infra/compose.public.
   that every write of the pitch is refused (403) while the checkout evaluation still answers; it
   changes no decision, so it needs no reset.
 - A CPU rehearsal of steps 4 to 6 without the GPU: `make demo-export ALLOW_EMPTY_CACHE=1` packs a
-  snapshot without drafts; the demo then labels every draft as the fixed template.
+  snapshot without drafts (the demo then labels every draft as the fixed template), and
+  `make demo-export REHEARSAL=1` packs the drafts of a fake vLLM server (`bench/fake_vllm.py`).
+  Both are recorded as a rehearsal in `MANIFEST.json`, and the demo shows "Precomputed in a
+  rehearsal, not verified on AMD MI300X" instead of the MI300X label.
+- After step 5, publish `demo-cache.tar.gz` as a GitHub release asset with its sha256 and add
+  the download to the README's cached-demo section; until then the laptop path is for the team.
 
 ## Files to copy back (laptop)
 

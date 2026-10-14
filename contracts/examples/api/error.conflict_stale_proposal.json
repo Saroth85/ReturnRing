@@ -1,0 +1,6 @@
+{
+  "code": "conflict",
+  "message": "DEC-000104-1 was stale (its review date passed before anyone acted on it): the case is decided again as DEC-000104-2; act on that version (US-607)",
+  "violations": [],
+  "request_id": "req-000135"
+}

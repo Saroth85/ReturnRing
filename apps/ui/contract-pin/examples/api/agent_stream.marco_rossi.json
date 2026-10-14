@@ -1,0 +1,115 @@
+[
+  {
+    "type": "tool_call",
+    "seq": 0,
+    "step": 1,
+    "tool": "get_cluster",
+    "arguments": {
+      "customer_id": "C-MARCO-1"
+    }
+  },
+  {
+    "type": "tool_result",
+    "seq": 1,
+    "step": 1,
+    "tool": "get_cluster",
+    "ok": true,
+    "summary": "Cluster CL-000417: 7 accounts created within 9 days, 2 distinct cards",
+    "refs": [
+      {
+        "kind": "cluster",
+        "id": "CL-000417"
+      }
+    ]
+  },
+  {
+    "type": "tool_call",
+    "seq": 2,
+    "step": 2,
+    "tool": "get_score_factors",
+    "arguments": {
+      "return_id": "RET-000102"
+    }
+  },
+  {
+    "type": "tool_result",
+    "seq": 3,
+    "step": 2,
+    "tool": "get_score_factors",
+    "ok": true,
+    "summary": "Top contributions: welcome coupons per account, creation spread, change of mind",
+    "refs": [
+      {
+        "kind": "return",
+        "id": "RET-000102"
+      }
+    ]
+  },
+  {
+    "type": "token",
+    "seq": 4,
+    "text": "The Rossi family shares an address and a device, but its 3 "
+  },
+  {
+    "type": "token",
+    "seq": 5,
+    "text": "accounts were created more than a year apart, use 3 distinct cards "
+  },
+  {
+    "type": "token",
+    "seq": 6,
+    "text": "and only 1 used a welcome coupon. The 7 linked accounts of "
+  },
+  {
+    "type": "token",
+    "seq": 7,
+    "text": "this case were created within 9 days and each used a welcome "
+  },
+  {
+    "type": "token",
+    "seq": 8,
+    "text": "coupon."
+  },
+  {
+    "type": "answer",
+    "seq": 9,
+    "text": "The Rossi family shares an address and a device, but its 3 accounts were created more than a year apart, use 3 distinct cards and only 1 used a welcome coupon. The 7 linked accounts of this case were created within 9 days and each used a welcome coupon.",
+    "evidence_consulted": [
+      {
+        "kind": "cluster",
+        "id": "CL-000417"
+      },
+      {
+        "kind": "return",
+        "id": "RET-000102"
+      }
+    ],
+    "evidence_missing": [],
+    "refs": [
+      {
+        "kind": "cluster",
+        "id": "CL-000417"
+      },
+      {
+        "kind": "return",
+        "id": "RET-000102"
+      }
+    ]
+  },
+  {
+    "type": "done",
+    "seq": 10,
+    "steps_used": 2,
+    "generation": {
+      "generation_id": "GEN-AGENT-000002",
+      "generation_path": "llm",
+      "llm_mode": "mock",
+      "served_from": "live",
+      "model": "mock",
+      "attempts": 1,
+      "validator_errors": [],
+      "created_at": "2026-09-30T18:10:00Z",
+      "latency_ms": 27
+    }
+  }
+]

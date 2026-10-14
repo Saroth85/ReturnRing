@@ -1,7 +1,51 @@
 {
   "items": [
     {
-      "entry_id": 14,
+      "entry_id": 62,
+      "at": "2026-09-30T20:45:00Z",
+      "actor": "luca",
+      "actor_role": "manager",
+      "action": "catalog_task_updated",
+      "entity_type": "catalog_task",
+      "entity_id": "CT-000012",
+      "return_id": "RET-000105",
+      "decision_id": null,
+      "reason": null,
+      "before": {
+        "status": "open"
+      },
+      "after": {
+        "status": "in_progress"
+      },
+      "rules_version": null,
+      "model_versions": null,
+      "assumptions_version": null,
+      "request_id": "req-000001"
+    },
+    {
+      "entry_id": 61,
+      "at": "2026-09-30T20:00:00Z",
+      "actor": "luca",
+      "actor_role": "manager",
+      "action": "coupon_rule_approved",
+      "entity_type": "coupon_rule",
+      "entity_id": "coupon-rule-v2",
+      "return_id": null,
+      "decision_id": null,
+      "reason": null,
+      "before": {
+        "rule_version": "coupon-rule-v1"
+      },
+      "after": {
+        "rule_version": "coupon-rule-v2"
+      },
+      "rules_version": null,
+      "model_versions": null,
+      "assumptions_version": null,
+      "request_id": "req-000001"
+    },
+    {
+      "entry_id": 60,
       "at": "2026-09-30T19:10:00Z",
       "actor": "luca",
       "actor_role": "manager",
@@ -67,10 +111,10 @@
         "value": "value-0.1.0"
       },
       "assumptions_version": "assumptions-v1",
-      "request_id": "req-000014"
+      "request_id": "req-000001"
     },
     {
-      "entry_id": 13,
+      "entry_id": 59,
       "at": "2026-09-30T19:00:00Z",
       "actor": "luca",
       "actor_role": "manager",
@@ -89,10 +133,36 @@
       "rules_version": null,
       "model_versions": null,
       "assumptions_version": null,
-      "request_id": "req-000013"
+      "request_id": "req-000001"
     },
     {
-      "entry_id": 12,
+      "entry_id": 58,
+      "at": "2026-09-30T18:55:00Z",
+      "actor": "system",
+      "actor_role": "system",
+      "action": "message_queued",
+      "entity_type": "outbox_message",
+      "entity_id": "MSG-000107-1",
+      "return_id": "RET-000107",
+      "decision_id": "DEC-000107-1",
+      "reason": null,
+      "before": null,
+      "after": {
+        "lang": "en"
+      },
+      "rules_version": "policy-2026-10-12",
+      "model_versions": {
+        "risk": "risk-xgb-0.1.0",
+        "propensity": "propensity-xgb-0.1.0",
+        "graph": "graph-0.1.0",
+        "evidence": "evidence-0.1.0",
+        "value": "value-0.1.0"
+      },
+      "assumptions_version": "assumptions-v1",
+      "request_id": "req-000001"
+    },
+    {
+      "entry_id": 57,
       "at": "2026-09-30T18:55:00Z",
       "actor": "sara",
       "actor_role": "operator",
@@ -158,10 +228,62 @@
         "value": "value-0.1.0"
       },
       "assumptions_version": "assumptions-v1",
-      "request_id": "req-000012"
+      "request_id": "req-000001"
     },
     {
-      "entry_id": 11,
+      "entry_id": 56,
+      "at": "2026-09-30T18:53:00Z",
+      "actor": "ahmed",
+      "actor_role": "warehouse",
+      "action": "inspection_created",
+      "entity_type": "inspection",
+      "entity_id": "INS-000015",
+      "return_id": "RET-000111",
+      "decision_id": "DEC-000111-1",
+      "reason": null,
+      "before": null,
+      "after": {
+        "state": "manual_review"
+      },
+      "rules_version": "policy-2026-10-12",
+      "model_versions": {
+        "risk": "risk-xgb-0.1.0",
+        "propensity": "propensity-xgb-0.1.0",
+        "graph": "graph-0.1.0",
+        "evidence": "evidence-0.1.0",
+        "value": "value-0.1.0"
+      },
+      "assumptions_version": "assumptions-v1",
+      "request_id": "req-000001"
+    },
+    {
+      "entry_id": 55,
+      "at": "2026-09-30T18:50:00Z",
+      "actor": "system",
+      "actor_role": "system",
+      "action": "message_queued",
+      "entity_type": "outbox_message",
+      "entity_id": "MSG-000108-1",
+      "return_id": "RET-000108",
+      "decision_id": "DEC-000108-1",
+      "reason": null,
+      "before": null,
+      "after": {
+        "lang": "it"
+      },
+      "rules_version": "policy-2026-10-12",
+      "model_versions": {
+        "risk": "risk-xgb-0.1.0",
+        "propensity": "propensity-xgb-0.1.0",
+        "graph": "graph-0.1.0",
+        "evidence": "evidence-0.1.0",
+        "value": "value-0.1.0"
+      },
+      "assumptions_version": "assumptions-v1",
+      "request_id": "req-000001"
+    },
+    {
+      "entry_id": 54,
       "at": "2026-09-30T18:50:00Z",
       "actor": "sara",
       "actor_role": "operator",
@@ -227,10 +349,36 @@
         "value": "value-0.1.0"
       },
       "assumptions_version": "assumptions-v1",
-      "request_id": "req-000011"
+      "request_id": "req-000001"
     },
     {
-      "entry_id": 10,
+      "entry_id": 53,
+      "at": "2026-09-30T18:47:00Z",
+      "actor": "system",
+      "actor_role": "system",
+      "action": "message_queued",
+      "entity_type": "outbox_message",
+      "entity_id": "MSG-000110-1",
+      "return_id": "RET-000110",
+      "decision_id": "DEC-000110-1",
+      "reason": null,
+      "before": null,
+      "after": {
+        "lang": "it"
+      },
+      "rules_version": "policy-2026-10-12",
+      "model_versions": {
+        "risk": "risk-xgb-0.1.0",
+        "propensity": "propensity-xgb-0.1.0",
+        "graph": "graph-0.1.0",
+        "evidence": "evidence-0.1.0",
+        "value": "value-0.1.0"
+      },
+      "assumptions_version": "assumptions-v1",
+      "request_id": "req-000001"
+    },
+    {
+      "entry_id": 52,
       "at": "2026-09-30T18:47:00Z",
       "actor": "ahmed",
       "actor_role": "warehouse",
@@ -266,10 +414,10 @@
         "value": "value-0.1.0"
       },
       "assumptions_version": "assumptions-v1",
-      "request_id": "req-000010"
+      "request_id": "req-000001"
     },
     {
-      "entry_id": 9,
+      "entry_id": 51,
       "at": "2026-09-30T18:45:00Z",
       "actor": "luca",
       "actor_role": "manager",
@@ -287,10 +435,73 @@
       "rules_version": null,
       "model_versions": null,
       "assumptions_version": null,
-      "request_id": "req-000009"
+      "request_id": "req-000001"
     },
     {
-      "entry_id": 8,
+      "entry_id": 50,
+      "at": "2026-09-30T18:41:00Z",
+      "actor": "ahmed",
+      "actor_role": "warehouse",
+      "action": "inspection_created",
+      "entity_type": "inspection",
+      "entity_id": "INS-000014",
+      "return_id": "RET-000110",
+      "decision_id": "DEC-000110-1",
+      "reason": null,
+      "before": null,
+      "after": {
+        "state": "awaiting_confirmation"
+      },
+      "rules_version": "policy-2026-10-12",
+      "model_versions": {
+        "risk": "risk-xgb-0.1.0",
+        "propensity": "propensity-xgb-0.1.0",
+        "graph": "graph-0.1.0",
+        "evidence": "evidence-0.1.0",
+        "value": "value-0.1.0"
+      },
+      "assumptions_version": "assumptions-v1",
+      "request_id": "req-000001"
+    },
+    {
+      "entry_id": 49,
+      "at": "2026-09-30T18:40:50Z",
+      "actor": "system",
+      "actor_role": "system",
+      "action": "draft_generated",
+      "entity_type": "llm_generation",
+      "entity_id": "GEN-000106-2",
+      "return_id": "RET-000106",
+      "decision_id": "DEC-000106-2",
+      "reason": null,
+      "before": null,
+      "after": {
+        "generation_id": "GEN-000106-2",
+        "kind": "case_draft",
+        "decision_id": "DEC-000106-2",
+        "generation_path": "template",
+        "fallback_reason": "decision_echo",
+        "model_calls": 1,
+        "validator_codes": [
+          "DECISION_ECHO"
+        ],
+        "llm_mode": "mock",
+        "served_from": "live",
+        "model": "mock"
+      },
+      "rules_version": "policy-2026-10-12",
+      "model_versions": {
+        "risk": "risk-xgb-0.1.0",
+        "propensity": "propensity-xgb-0.1.0",
+        "graph": "graph-0.1.0",
+        "evidence": "evidence-0.1.0",
+        "value": "value-0.1.0"
+      },
+      "assumptions_version": "assumptions-v1",
+      "request_id": "req-000001"
+    },
+    {
+      "entry_id": 48,
       "at": "2026-09-30T18:40:00Z",
       "actor": "system",
       "actor_role": "system",
@@ -336,7 +547,7 @@
           "provenance": {
             "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
             "period_start": "2025-10-01",
-            "period_end": "2026-09-29",
+            "period_end": "2026-09-30",
             "nature": "synthetic"
           }
         },
@@ -359,10 +570,10 @@
         "value": "value-0.1.0"
       },
       "assumptions_version": "assumptions-v1",
-      "request_id": "req-000008"
+      "request_id": "req-000001"
     },
     {
-      "entry_id": 7,
+      "entry_id": 47,
       "at": "2026-09-30T18:40:00Z",
       "actor": "sara",
       "actor_role": "operator",
@@ -388,10 +599,127 @@
         "value": "value-0.1.0"
       },
       "assumptions_version": "assumptions-v1",
-      "request_id": "req-000007"
+      "request_id": "req-000001"
     },
     {
-      "entry_id": 6,
+      "entry_id": 46,
+      "at": "2026-09-30T18:37:00Z",
+      "actor": "system",
+      "actor_role": "system",
+      "action": "checkout_confirmed",
+      "entity_type": "terms_snapshot",
+      "entity_id": "TS-CHK-000982",
+      "return_id": null,
+      "decision_id": null,
+      "reason": null,
+      "before": null,
+      "after": {
+        "order_id": "ORD-CHK-000002"
+      },
+      "rules_version": null,
+      "model_versions": null,
+      "assumptions_version": null,
+      "request_id": "req-000001"
+    },
+    {
+      "entry_id": 45,
+      "at": "2026-09-30T18:35:00Z",
+      "actor": "system",
+      "actor_role": "system",
+      "action": "checkout_terms_shown",
+      "entity_type": "terms_snapshot",
+      "entity_id": "TS-CHK-000982",
+      "return_id": null,
+      "decision_id": null,
+      "reason": null,
+      "before": null,
+      "after": {
+        "customer_id": "C-MARCO-1",
+        "terms_source": "DEC-000102-1"
+      },
+      "rules_version": null,
+      "model_versions": null,
+      "assumptions_version": null,
+      "request_id": "req-000001"
+    },
+    {
+      "entry_id": 44,
+      "at": "2026-09-30T18:32:00Z",
+      "actor": "system",
+      "actor_role": "system",
+      "action": "checkout_confirmed",
+      "entity_type": "terms_snapshot",
+      "entity_id": "TS-CHK-000981",
+      "return_id": null,
+      "decision_id": null,
+      "reason": null,
+      "before": null,
+      "after": {
+        "order_id": "ORD-CHK-000001"
+      },
+      "rules_version": null,
+      "model_versions": null,
+      "assumptions_version": null,
+      "request_id": "req-000001"
+    },
+    {
+      "entry_id": 43,
+      "at": "2026-09-30T18:30:40Z",
+      "actor": "system",
+      "actor_role": "system",
+      "action": "draft_generated",
+      "entity_type": "llm_generation",
+      "entity_id": "GEN-000104-2",
+      "return_id": "RET-000104",
+      "decision_id": "DEC-000104-2",
+      "reason": null,
+      "before": null,
+      "after": {
+        "generation_id": "GEN-000104-2",
+        "kind": "case_draft",
+        "decision_id": "DEC-000104-2",
+        "generation_path": "model",
+        "fallback_reason": null,
+        "model_calls": 1,
+        "validator_codes": [],
+        "llm_mode": "mock",
+        "served_from": "live",
+        "model": "mock"
+      },
+      "rules_version": "policy-2026-10-12",
+      "model_versions": {
+        "risk": "risk-xgb-0.1.0",
+        "propensity": "propensity-xgb-0.1.0",
+        "graph": "graph-0.1.0",
+        "evidence": "evidence-0.1.0",
+        "value": "value-0.1.0"
+      },
+      "assumptions_version": "assumptions-v1",
+      "request_id": "req-000001"
+    },
+    {
+      "entry_id": 42,
+      "at": "2026-09-30T18:30:00Z",
+      "actor": "system",
+      "actor_role": "system",
+      "action": "checkout_terms_shown",
+      "entity_type": "terms_snapshot",
+      "entity_id": "TS-CHK-000981",
+      "return_id": null,
+      "decision_id": null,
+      "reason": null,
+      "before": null,
+      "after": {
+        "customer_id": "C-GIULIA",
+        "terms_source": "DEC-000101-1"
+      },
+      "rules_version": null,
+      "model_versions": null,
+      "assumptions_version": null,
+      "request_id": "req-000001"
+    },
+    {
+      "entry_id": 41,
       "at": "2026-09-30T18:30:00Z",
       "actor": "system",
       "actor_role": "system",
@@ -434,7 +762,7 @@
           "provenance": {
             "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
             "period_start": "2025-10-01",
-            "period_end": "2026-09-26",
+            "period_end": "2026-09-30",
             "nature": "synthetic"
           }
         },
@@ -454,10 +782,10 @@
         "value": "value-0.1.0"
       },
       "assumptions_version": "assumptions-v1",
-      "request_id": "req-000006"
+      "request_id": "req-000001"
     },
     {
-      "entry_id": 5,
+      "entry_id": 40,
       "at": "2026-09-30T18:30:00Z",
       "actor": "sara",
       "actor_role": "operator",
@@ -483,10 +811,10 @@
         "value": "value-0.1.0"
       },
       "assumptions_version": "assumptions-v1",
-      "request_id": "req-000005"
+      "request_id": "req-000001"
     },
     {
-      "entry_id": 4,
+      "entry_id": 39,
       "at": "2026-09-30T18:20:00Z",
       "actor": "system",
       "actor_role": "system",
@@ -509,10 +837,10 @@
         "value": "value-0.1.0"
       },
       "assumptions_version": "assumptions-v1",
-      "request_id": "req-000004"
+      "request_id": "req-000001"
     },
     {
-      "entry_id": 3,
+      "entry_id": 38,
       "at": "2026-09-30T18:20:00Z",
       "actor": "sara",
       "actor_role": "operator",
@@ -589,10 +917,689 @@
         "value": "value-0.1.0"
       },
       "assumptions_version": "assumptions-v1",
-      "request_id": "req-000003"
+      "request_id": "req-000001"
     },
     {
-      "entry_id": 2,
+      "entry_id": 37,
+      "at": "2026-09-30T18:05:00Z",
+      "actor": "sara",
+      "actor_role": "operator",
+      "action": "draft_regenerated",
+      "entity_type": "llm_generation",
+      "entity_id": "GEN-000101-2",
+      "return_id": "RET-000101",
+      "decision_id": "DEC-000101-1",
+      "reason": null,
+      "before": null,
+      "after": {
+        "generation_id": "GEN-000101-2",
+        "kind": "regenerate",
+        "decision_id": "DEC-000101-1",
+        "generation_path": "model",
+        "fallback_reason": null,
+        "model_calls": 1,
+        "validator_codes": [],
+        "llm_mode": "mock",
+        "served_from": "live",
+        "model": "mock"
+      },
+      "rules_version": "policy-2026-10-12",
+      "model_versions": {
+        "risk": "risk-xgb-0.1.0",
+        "propensity": "propensity-xgb-0.1.0",
+        "graph": "graph-0.1.0",
+        "evidence": "evidence-0.1.0",
+        "value": "value-0.1.0"
+      },
+      "assumptions_version": "assumptions-v1",
+      "request_id": "req-000001"
+    },
+    {
+      "entry_id": 36,
+      "at": "2026-09-30T17:00:00Z",
+      "actor": "luca",
+      "actor_role": "manager",
+      "action": "coupon_rule_application_reversed",
+      "entity_type": "coupon_rule_application",
+      "entity_id": "CRA-000027",
+      "return_id": "RET-000077",
+      "decision_id": "DEC-000077-1",
+      "reason": "The linked accounts share a pickup point only: application reversed",
+      "before": {
+        "state": "confirmed"
+      },
+      "after": {
+        "state": "reversed"
+      },
+      "rules_version": "policy-2026-10-12",
+      "model_versions": {
+        "risk": "risk-xgb-0.1.0",
+        "propensity": "propensity-xgb-0.1.0",
+        "graph": "graph-0.1.0",
+        "evidence": "evidence-0.1.0",
+        "value": "value-0.1.0"
+      },
+      "assumptions_version": "assumptions-v1",
+      "request_id": "req-000001"
+    },
+    {
+      "entry_id": 35,
+      "at": "2026-09-30T13:06:00Z",
+      "actor": "system",
+      "actor_role": "system",
+      "action": "draft_generated",
+      "entity_type": "llm_generation",
+      "entity_id": "GEN-000112-1",
+      "return_id": "RET-000112",
+      "decision_id": "DEC-000112-1",
+      "reason": null,
+      "before": null,
+      "after": {
+        "generation_id": "GEN-000112-1",
+        "kind": "case_draft",
+        "decision_id": "DEC-000112-1",
+        "generation_path": "model",
+        "fallback_reason": null,
+        "model_calls": 1,
+        "validator_codes": [],
+        "llm_mode": "mock",
+        "served_from": "live",
+        "model": "mock"
+      },
+      "rules_version": "policy-2026-10-12",
+      "model_versions": {
+        "risk": "risk-xgb-0.1.0",
+        "propensity": "propensity-xgb-0.1.0",
+        "graph": "graph-0.1.0",
+        "evidence": "evidence-0.1.0",
+        "value": "value-0.1.0"
+      },
+      "assumptions_version": "assumptions-v1",
+      "request_id": "req-000001"
+    },
+    {
+      "entry_id": 34,
+      "at": "2026-09-30T13:05:00Z",
+      "actor": "system",
+      "actor_role": "system",
+      "action": "decision_proposed",
+      "entity_type": "decision",
+      "entity_id": "DEC-000112-1",
+      "return_id": "RET-000112",
+      "decision_id": "DEC-000112-1",
+      "reason": null,
+      "before": null,
+      "after": {
+        "decision_id": "DEC-000112-1",
+        "version": 1,
+        "state": "proposed",
+        "quadrant": null,
+        "risk": null,
+        "lever_ids": [],
+        "requires_approval": false,
+        "review_at": null,
+        "approver": null,
+        "override_category": null,
+        "coupon_application_id": null
+      },
+      "rules_version": "policy-2026-10-12",
+      "model_versions": {
+        "risk": "risk-xgb-0.1.0",
+        "propensity": "propensity-xgb-0.1.0",
+        "graph": "graph-0.1.0",
+        "evidence": "evidence-0.1.0",
+        "value": "value-0.1.0"
+      },
+      "assumptions_version": "assumptions-v1",
+      "request_id": "req-000001"
+    },
+    {
+      "entry_id": 33,
+      "at": "2026-09-29T15:00:00Z",
+      "actor": "system",
+      "actor_role": "system",
+      "action": "message_queued",
+      "entity_type": "outbox_message",
+      "entity_id": "MSG-000077-1",
+      "return_id": "RET-000077",
+      "decision_id": "DEC-000077-1",
+      "reason": null,
+      "before": null,
+      "after": {
+        "lang": "it"
+      },
+      "rules_version": "policy-2026-10-12",
+      "model_versions": {
+        "risk": "risk-xgb-0.1.0",
+        "propensity": "propensity-xgb-0.1.0",
+        "graph": "graph-0.1.0",
+        "evidence": "evidence-0.1.0",
+        "value": "value-0.1.0"
+      },
+      "assumptions_version": "assumptions-v1",
+      "request_id": "req-000001"
+    },
+    {
+      "entry_id": 32,
+      "at": "2026-09-29T15:00:00Z",
+      "actor": "sara",
+      "actor_role": "operator",
+      "action": "decision_approved",
+      "entity_type": "decision",
+      "entity_id": "DEC-000077-1",
+      "return_id": "RET-000077",
+      "decision_id": "DEC-000077-1",
+      "reason": null,
+      "before": {
+        "decision_id": "DEC-000077-1",
+        "version": 1,
+        "state": "proposed",
+        "quadrant": "Q4",
+        "risk": {
+          "value": 0.82,
+          "unit": "probability",
+          "provenance": {
+            "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+            "period_start": "2025-10-01",
+            "period_end": "2026-09-29",
+            "nature": "synthetic"
+          }
+        },
+        "lever_ids": [
+          "return_window_days:14",
+          "free_return_shipping:false",
+          "instant_refund:false",
+          "coupons_enabled:false",
+          "cluster_coupons_disabled:true",
+          "transparency_notice:true"
+        ],
+        "requires_approval": true,
+        "review_at": "2026-12-28",
+        "approver": null,
+        "override_category": null,
+        "coupon_application_id": "CRA-000027"
+      },
+      "after": {
+        "decision_id": "DEC-000077-1",
+        "version": 1,
+        "state": "approved",
+        "quadrant": "Q4",
+        "risk": {
+          "value": 0.82,
+          "unit": "probability",
+          "provenance": {
+            "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+            "period_start": "2025-10-01",
+            "period_end": "2026-09-29",
+            "nature": "synthetic"
+          }
+        },
+        "lever_ids": [
+          "return_window_days:14",
+          "free_return_shipping:false",
+          "instant_refund:false",
+          "coupons_enabled:false",
+          "cluster_coupons_disabled:true",
+          "transparency_notice:true"
+        ],
+        "requires_approval": true,
+        "review_at": "2026-12-28",
+        "approver": "sara",
+        "override_category": null,
+        "coupon_application_id": "CRA-000027"
+      },
+      "rules_version": "policy-2026-10-12",
+      "model_versions": {
+        "risk": "risk-xgb-0.1.0",
+        "propensity": "propensity-xgb-0.1.0",
+        "graph": "graph-0.1.0",
+        "evidence": "evidence-0.1.0",
+        "value": "value-0.1.0"
+      },
+      "assumptions_version": "assumptions-v1",
+      "request_id": "req-000001"
+    },
+    {
+      "entry_id": 31,
+      "at": "2026-09-29T14:01:00Z",
+      "actor": "system",
+      "actor_role": "system",
+      "action": "draft_generated",
+      "entity_type": "llm_generation",
+      "entity_id": "GEN-000077-1",
+      "return_id": "RET-000077",
+      "decision_id": "DEC-000077-1",
+      "reason": null,
+      "before": null,
+      "after": {
+        "generation_id": "GEN-000077-1",
+        "kind": "case_draft",
+        "decision_id": "DEC-000077-1",
+        "generation_path": "model",
+        "fallback_reason": null,
+        "model_calls": 1,
+        "validator_codes": [],
+        "llm_mode": "mock",
+        "served_from": "live",
+        "model": "mock"
+      },
+      "rules_version": "policy-2026-10-12",
+      "model_versions": {
+        "risk": "risk-xgb-0.1.0",
+        "propensity": "propensity-xgb-0.1.0",
+        "graph": "graph-0.1.0",
+        "evidence": "evidence-0.1.0",
+        "value": "value-0.1.0"
+      },
+      "assumptions_version": "assumptions-v1",
+      "request_id": "req-000001"
+    },
+    {
+      "entry_id": 30,
+      "at": "2026-09-29T14:00:00Z",
+      "actor": "system",
+      "actor_role": "system",
+      "action": "decision_proposed",
+      "entity_type": "decision",
+      "entity_id": "DEC-000077-1",
+      "return_id": "RET-000077",
+      "decision_id": "DEC-000077-1",
+      "reason": null,
+      "before": null,
+      "after": {
+        "decision_id": "DEC-000077-1",
+        "version": 1,
+        "state": "proposed",
+        "quadrant": "Q4",
+        "risk": {
+          "value": 0.82,
+          "unit": "probability",
+          "provenance": {
+            "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+            "period_start": "2025-10-01",
+            "period_end": "2026-09-29",
+            "nature": "synthetic"
+          }
+        },
+        "lever_ids": [
+          "return_window_days:14",
+          "free_return_shipping:false",
+          "instant_refund:false",
+          "coupons_enabled:false",
+          "cluster_coupons_disabled:true",
+          "transparency_notice:true"
+        ],
+        "requires_approval": true,
+        "review_at": "2026-12-28",
+        "approver": null,
+        "override_category": null,
+        "coupon_application_id": "CRA-000027"
+      },
+      "rules_version": "policy-2026-10-12",
+      "model_versions": {
+        "risk": "risk-xgb-0.1.0",
+        "propensity": "propensity-xgb-0.1.0",
+        "graph": "graph-0.1.0",
+        "evidence": "evidence-0.1.0",
+        "value": "value-0.1.0"
+      },
+      "assumptions_version": "assumptions-v1",
+      "request_id": "req-000001"
+    },
+    {
+      "entry_id": 29,
+      "at": "2026-09-29T13:06:00Z",
+      "actor": "system",
+      "actor_role": "system",
+      "action": "draft_generated",
+      "entity_type": "llm_generation",
+      "entity_id": "GEN-000108-1",
+      "return_id": "RET-000108",
+      "decision_id": "DEC-000108-1",
+      "reason": null,
+      "before": null,
+      "after": {
+        "generation_id": "GEN-000108-1",
+        "kind": "case_draft",
+        "decision_id": "DEC-000108-1",
+        "generation_path": "model",
+        "fallback_reason": null,
+        "model_calls": 1,
+        "validator_codes": [],
+        "llm_mode": "mock",
+        "served_from": "live",
+        "model": "mock"
+      },
+      "rules_version": "policy-2026-10-12",
+      "model_versions": {
+        "risk": "risk-xgb-0.1.0",
+        "propensity": "propensity-xgb-0.1.0",
+        "graph": "graph-0.1.0",
+        "evidence": "evidence-0.1.0",
+        "value": "value-0.1.0"
+      },
+      "assumptions_version": "assumptions-v1",
+      "request_id": "req-000001"
+    },
+    {
+      "entry_id": 28,
+      "at": "2026-09-29T13:06:00Z",
+      "actor": "system",
+      "actor_role": "system",
+      "action": "draft_generated",
+      "entity_type": "llm_generation",
+      "entity_id": "GEN-000109-1",
+      "return_id": "RET-000109",
+      "decision_id": "DEC-000109-1",
+      "reason": null,
+      "before": null,
+      "after": {
+        "generation_id": "GEN-000109-1",
+        "kind": "case_draft",
+        "decision_id": "DEC-000109-1",
+        "generation_path": "template",
+        "fallback_reason": "decision_echo",
+        "model_calls": 1,
+        "validator_codes": [
+          "DECISION_ECHO",
+          "TERMS_TOPIC"
+        ],
+        "llm_mode": "mock",
+        "served_from": "live",
+        "model": "mock"
+      },
+      "rules_version": "policy-2026-10-12",
+      "model_versions": {
+        "risk": "risk-xgb-0.1.0",
+        "propensity": "propensity-xgb-0.1.0",
+        "graph": "graph-0.1.0",
+        "evidence": "evidence-0.1.0",
+        "value": "value-0.1.0"
+      },
+      "assumptions_version": "assumptions-v1",
+      "request_id": "req-000001"
+    },
+    {
+      "entry_id": 27,
+      "at": "2026-09-29T13:05:00Z",
+      "actor": "system",
+      "actor_role": "system",
+      "action": "decision_proposed",
+      "entity_type": "decision",
+      "entity_id": "DEC-000108-1",
+      "return_id": "RET-000108",
+      "decision_id": "DEC-000108-1",
+      "reason": null,
+      "before": null,
+      "after": {
+        "decision_id": "DEC-000108-1",
+        "version": 1,
+        "state": "proposed",
+        "quadrant": "Q3",
+        "risk": {
+          "value": 0.71,
+          "unit": "probability",
+          "provenance": {
+            "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+            "period_start": "2025-10-01",
+            "period_end": "2026-09-29",
+            "nature": "synthetic"
+          }
+        },
+        "lever_ids": [
+          "instant_refund:false",
+          "transparency_notice:true"
+        ],
+        "requires_approval": true,
+        "review_at": "2026-12-28",
+        "approver": null,
+        "override_category": null,
+        "coupon_application_id": null
+      },
+      "rules_version": "policy-2026-10-12",
+      "model_versions": {
+        "risk": "risk-xgb-0.1.0",
+        "propensity": "propensity-xgb-0.1.0",
+        "graph": "graph-0.1.0",
+        "evidence": "evidence-0.1.0",
+        "value": "value-0.1.0"
+      },
+      "assumptions_version": "assumptions-v1",
+      "request_id": "req-000001"
+    },
+    {
+      "entry_id": 26,
+      "at": "2026-09-29T13:05:00Z",
+      "actor": "system",
+      "actor_role": "system",
+      "action": "decision_proposed",
+      "entity_type": "decision",
+      "entity_id": "DEC-000109-1",
+      "return_id": "RET-000109",
+      "decision_id": "DEC-000109-1",
+      "reason": null,
+      "before": null,
+      "after": {
+        "decision_id": "DEC-000109-1",
+        "version": 1,
+        "state": "proposed",
+        "quadrant": null,
+        "risk": {
+          "value": 0.4,
+          "unit": "probability",
+          "provenance": {
+            "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+            "period_start": "2025-10-01",
+            "period_end": "2026-09-29",
+            "nature": "synthetic"
+          }
+        },
+        "lever_ids": [],
+        "requires_approval": false,
+        "review_at": null,
+        "approver": null,
+        "override_category": null,
+        "coupon_application_id": null
+      },
+      "rules_version": "policy-2026-10-12",
+      "model_versions": {
+        "risk": "risk-xgb-0.1.0",
+        "propensity": "propensity-xgb-0.1.0",
+        "graph": "graph-0.1.0",
+        "evidence": "evidence-0.1.0",
+        "value": "value-0.1.0"
+      },
+      "assumptions_version": "assumptions-v1",
+      "request_id": "req-000001"
+    },
+    {
+      "entry_id": 25,
+      "at": "2026-09-29T12:03:00Z",
+      "actor": "system",
+      "actor_role": "system",
+      "action": "draft_generated",
+      "entity_type": "llm_generation",
+      "entity_id": "GEN-000106-1",
+      "return_id": "RET-000106",
+      "decision_id": "DEC-000106-1",
+      "reason": null,
+      "before": null,
+      "after": {
+        "generation_id": "GEN-000106-1",
+        "kind": "case_draft",
+        "decision_id": "DEC-000106-1",
+        "generation_path": "model",
+        "fallback_reason": null,
+        "model_calls": 1,
+        "validator_codes": [],
+        "llm_mode": "mock",
+        "served_from": "live",
+        "model": "mock"
+      },
+      "rules_version": "policy-2026-10-12",
+      "model_versions": {
+        "risk": "risk-xgb-0.1.0",
+        "propensity": "propensity-xgb-0.1.0",
+        "graph": "graph-0.1.0",
+        "evidence": "evidence-0.1.0",
+        "value": "value-0.1.0"
+      },
+      "assumptions_version": "assumptions-v1",
+      "request_id": "req-000001"
+    },
+    {
+      "entry_id": 24,
+      "at": "2026-09-29T12:02:00Z",
+      "actor": "system",
+      "actor_role": "system",
+      "action": "decision_proposed",
+      "entity_type": "decision",
+      "entity_id": "DEC-000106-1",
+      "return_id": "RET-000106",
+      "decision_id": "DEC-000106-1",
+      "reason": null,
+      "before": null,
+      "after": {
+        "decision_id": "DEC-000106-1",
+        "version": 1,
+        "state": "proposed",
+        "quadrant": "Q3",
+        "risk": {
+          "value": 0.66,
+          "unit": "probability",
+          "provenance": {
+            "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+            "period_start": "2025-10-01",
+            "period_end": "2026-09-29",
+            "nature": "synthetic"
+          }
+        },
+        "lever_ids": [
+          "instant_refund:false",
+          "transparency_notice:true"
+        ],
+        "requires_approval": true,
+        "review_at": "2026-12-28",
+        "approver": null,
+        "override_category": null,
+        "coupon_application_id": null
+      },
+      "rules_version": "policy-2026-10-12",
+      "model_versions": {
+        "risk": "risk-xgb-0.1.0",
+        "propensity": "propensity-xgb-0.1.0",
+        "graph": "graph-0.1.0",
+        "evidence": "evidence-0.1.0",
+        "value": "value-0.1.0"
+      },
+      "assumptions_version": "assumptions-v1",
+      "request_id": "req-000001"
+    },
+    {
+      "entry_id": 23,
+      "at": "2026-09-29T10:00:00Z",
+      "actor": "luca",
+      "actor_role": "manager",
+      "action": "coupon_rule_approved",
+      "entity_type": "coupon_rule",
+      "entity_id": "coupon-rule-v1",
+      "return_id": null,
+      "decision_id": null,
+      "reason": null,
+      "before": null,
+      "after": {
+        "rule_version": "coupon-rule-v1"
+      },
+      "rules_version": null,
+      "model_versions": null,
+      "assumptions_version": null,
+      "request_id": "req-000001"
+    },
+    {
+      "entry_id": 22,
+      "at": "2026-09-28T13:06:00Z",
+      "actor": "system",
+      "actor_role": "system",
+      "action": "draft_generated",
+      "entity_type": "llm_generation",
+      "entity_id": "GEN-000107-1",
+      "return_id": "RET-000107",
+      "decision_id": "DEC-000107-1",
+      "reason": null,
+      "before": null,
+      "after": {
+        "generation_id": "GEN-000107-1",
+        "kind": "case_draft",
+        "decision_id": "DEC-000107-1",
+        "generation_path": "model",
+        "fallback_reason": null,
+        "model_calls": 1,
+        "validator_codes": [],
+        "llm_mode": "mock",
+        "served_from": "live",
+        "model": "mock"
+      },
+      "rules_version": "policy-2026-10-12",
+      "model_versions": {
+        "risk": "risk-xgb-0.1.0",
+        "propensity": "propensity-xgb-0.1.0",
+        "graph": "graph-0.1.0",
+        "evidence": "evidence-0.1.0",
+        "value": "value-0.1.0"
+      },
+      "assumptions_version": "assumptions-v1",
+      "request_id": "req-000001"
+    },
+    {
+      "entry_id": 21,
+      "at": "2026-09-28T13:05:00Z",
+      "actor": "system",
+      "actor_role": "system",
+      "action": "decision_proposed",
+      "entity_type": "decision",
+      "entity_id": "DEC-000107-1",
+      "return_id": "RET-000107",
+      "decision_id": "DEC-000107-1",
+      "reason": null,
+      "before": null,
+      "after": {
+        "decision_id": "DEC-000107-1",
+        "version": 1,
+        "state": "proposed",
+        "quadrant": "Q1",
+        "risk": {
+          "value": 0.22,
+          "unit": "probability",
+          "provenance": {
+            "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+            "period_start": "2025-10-01",
+            "period_end": "2026-09-28",
+            "nature": "synthetic"
+          }
+        },
+        "lever_ids": [
+          "return_window_days:60",
+          "priority_size_exchange:true"
+        ],
+        "requires_approval": false,
+        "review_at": null,
+        "approver": null,
+        "override_category": null,
+        "coupon_application_id": null
+      },
+      "rules_version": "policy-2026-10-12",
+      "model_versions": {
+        "risk": "risk-xgb-0.1.0",
+        "propensity": "propensity-xgb-0.1.0",
+        "graph": "graph-0.1.0",
+        "evidence": "evidence-0.1.0",
+        "value": "value-0.1.0"
+      },
+      "assumptions_version": "assumptions-v1",
+      "request_id": "req-000001"
+    },
+    {
+      "entry_id": 20,
       "at": "2026-09-28T09:17:00Z",
       "actor": "system",
       "actor_role": "system",
@@ -624,10 +1631,10 @@
         "value": "value-0.1.0"
       },
       "assumptions_version": "assumptions-v1",
-      "request_id": "req-000002"
+      "request_id": "req-000001"
     },
     {
-      "entry_id": 1,
+      "entry_id": 19,
       "at": "2026-09-28T09:16:00Z",
       "actor": "system",
       "actor_role": "system",
@@ -677,9 +1684,709 @@
       },
       "assumptions_version": "assumptions-v1",
       "request_id": "req-000001"
+    },
+    {
+      "entry_id": 18,
+      "at": "2026-09-27T13:06:00Z",
+      "actor": "system",
+      "actor_role": "system",
+      "action": "draft_generated",
+      "entity_type": "llm_generation",
+      "entity_id": "GEN-000111-1",
+      "return_id": "RET-000111",
+      "decision_id": "DEC-000111-1",
+      "reason": null,
+      "before": null,
+      "after": {
+        "generation_id": "GEN-000111-1",
+        "kind": "case_draft",
+        "decision_id": "DEC-000111-1",
+        "generation_path": "model",
+        "fallback_reason": null,
+        "model_calls": 1,
+        "validator_codes": [],
+        "llm_mode": "mock",
+        "served_from": "live",
+        "model": "mock"
+      },
+      "rules_version": "policy-2026-10-12",
+      "model_versions": {
+        "risk": "risk-xgb-0.1.0",
+        "propensity": "propensity-xgb-0.1.0",
+        "graph": "graph-0.1.0",
+        "evidence": "evidence-0.1.0",
+        "value": "value-0.1.0"
+      },
+      "assumptions_version": "assumptions-v1",
+      "request_id": "req-000001"
+    },
+    {
+      "entry_id": 17,
+      "at": "2026-09-27T13:05:00Z",
+      "actor": "system",
+      "actor_role": "system",
+      "action": "decision_proposed",
+      "entity_type": "decision",
+      "entity_id": "DEC-000111-1",
+      "return_id": "RET-000111",
+      "decision_id": "DEC-000111-1",
+      "reason": null,
+      "before": null,
+      "after": {
+        "decision_id": "DEC-000111-1",
+        "version": 1,
+        "state": "proposed",
+        "quadrant": "Q2",
+        "risk": {
+          "value": 0.28,
+          "unit": "probability",
+          "provenance": {
+            "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+            "period_start": "2025-10-01",
+            "period_end": "2026-09-27",
+            "nature": "synthetic"
+          }
+        },
+        "lever_ids": [],
+        "requires_approval": false,
+        "review_at": null,
+        "approver": null,
+        "override_category": null,
+        "coupon_application_id": null
+      },
+      "rules_version": "policy-2026-10-12",
+      "model_versions": {
+        "risk": "risk-xgb-0.1.0",
+        "propensity": "propensity-xgb-0.1.0",
+        "graph": "graph-0.1.0",
+        "evidence": "evidence-0.1.0",
+        "value": "value-0.1.0"
+      },
+      "assumptions_version": "assumptions-v1",
+      "request_id": "req-000001"
+    },
+    {
+      "entry_id": 16,
+      "at": "2026-09-27T10:15:00Z",
+      "actor": "system",
+      "actor_role": "system",
+      "action": "draft_generated",
+      "entity_type": "llm_generation",
+      "entity_id": "GEN-000101-1",
+      "return_id": "RET-000101",
+      "decision_id": "DEC-000101-1",
+      "reason": null,
+      "before": null,
+      "after": {
+        "generation_id": "GEN-000101-1",
+        "kind": "case_draft",
+        "decision_id": "DEC-000101-1",
+        "generation_path": "model",
+        "fallback_reason": null,
+        "model_calls": 1,
+        "validator_codes": [],
+        "llm_mode": "mock",
+        "served_from": "live",
+        "model": "mock"
+      },
+      "rules_version": "policy-2026-10-12",
+      "model_versions": {
+        "risk": "risk-xgb-0.1.0",
+        "propensity": "propensity-xgb-0.1.0",
+        "graph": "graph-0.1.0",
+        "evidence": "evidence-0.1.0",
+        "value": "value-0.1.0"
+      },
+      "assumptions_version": "assumptions-v1",
+      "request_id": "req-000001"
+    },
+    {
+      "entry_id": 15,
+      "at": "2026-09-27T10:14:00Z",
+      "actor": "system",
+      "actor_role": "system",
+      "action": "decision_proposed",
+      "entity_type": "decision",
+      "entity_id": "DEC-000101-1",
+      "return_id": "RET-000101",
+      "decision_id": "DEC-000101-1",
+      "reason": null,
+      "before": null,
+      "after": {
+        "decision_id": "DEC-000101-1",
+        "version": 1,
+        "state": "proposed",
+        "quadrant": "Q1",
+        "risk": {
+          "value": 0.12,
+          "unit": "probability",
+          "provenance": {
+            "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+            "period_start": "2025-10-01",
+            "period_end": "2026-09-27",
+            "nature": "synthetic"
+          }
+        },
+        "lever_ids": [
+          "return_window_days:60",
+          "priority_size_exchange:true"
+        ],
+        "requires_approval": false,
+        "review_at": null,
+        "approver": null,
+        "override_category": null,
+        "coupon_application_id": null
+      },
+      "rules_version": "policy-2026-10-12",
+      "model_versions": {
+        "risk": "risk-xgb-0.1.0",
+        "propensity": "propensity-xgb-0.1.0",
+        "graph": "graph-0.1.0",
+        "evidence": "evidence-0.1.0",
+        "value": "value-0.1.0"
+      },
+      "assumptions_version": "assumptions-v1",
+      "request_id": "req-000001"
+    },
+    {
+      "entry_id": 14,
+      "at": "2026-09-26T15:42:00Z",
+      "actor": "system",
+      "actor_role": "system",
+      "action": "draft_generated",
+      "entity_type": "llm_generation",
+      "entity_id": "GEN-000105-1",
+      "return_id": "RET-000105",
+      "decision_id": "DEC-000105-1",
+      "reason": null,
+      "before": null,
+      "after": {
+        "generation_id": "GEN-000105-1",
+        "kind": "case_draft",
+        "decision_id": "DEC-000105-1",
+        "generation_path": "regenerated",
+        "fallback_reason": null,
+        "model_calls": 2,
+        "validator_codes": [
+          "UNGROUNDED_NUMBER"
+        ],
+        "llm_mode": "mock",
+        "served_from": "live",
+        "model": "mock"
+      },
+      "rules_version": "policy-2026-10-12",
+      "model_versions": {
+        "risk": "risk-xgb-0.1.0",
+        "propensity": "propensity-xgb-0.1.0",
+        "graph": "graph-0.1.0",
+        "evidence": "evidence-0.1.0",
+        "value": "value-0.1.0"
+      },
+      "assumptions_version": "assumptions-v1",
+      "request_id": "req-000001"
+    },
+    {
+      "entry_id": 13,
+      "at": "2026-09-26T15:41:00Z",
+      "actor": "system",
+      "actor_role": "system",
+      "action": "decision_proposed",
+      "entity_type": "decision",
+      "entity_id": "DEC-000105-1",
+      "return_id": "RET-000105",
+      "decision_id": "DEC-000105-1",
+      "reason": null,
+      "before": null,
+      "after": {
+        "decision_id": "DEC-000105-1",
+        "version": 1,
+        "state": "proposed",
+        "quadrant": null,
+        "risk": null,
+        "lever_ids": [],
+        "requires_approval": false,
+        "review_at": null,
+        "approver": null,
+        "override_category": null,
+        "coupon_application_id": null
+      },
+      "rules_version": "policy-2026-10-12",
+      "model_versions": {
+        "risk": "risk-xgb-0.1.0",
+        "propensity": "propensity-xgb-0.1.0",
+        "graph": "graph-0.1.0",
+        "evidence": "evidence-0.1.0",
+        "value": "value-0.1.0"
+      },
+      "assumptions_version": "assumptions-v1",
+      "request_id": "req-000001"
+    },
+    {
+      "entry_id": 12,
+      "at": "2026-09-26T13:06:00Z",
+      "actor": "system",
+      "actor_role": "system",
+      "action": "draft_generated",
+      "entity_type": "llm_generation",
+      "entity_id": "GEN-000110-1",
+      "return_id": "RET-000110",
+      "decision_id": "DEC-000110-1",
+      "reason": null,
+      "before": null,
+      "after": {
+        "generation_id": "GEN-000110-1",
+        "kind": "case_draft",
+        "decision_id": "DEC-000110-1",
+        "generation_path": "model",
+        "fallback_reason": null,
+        "model_calls": 1,
+        "validator_codes": [],
+        "llm_mode": "mock",
+        "served_from": "live",
+        "model": "mock"
+      },
+      "rules_version": "policy-2026-10-12",
+      "model_versions": {
+        "risk": "risk-xgb-0.1.0",
+        "propensity": "propensity-xgb-0.1.0",
+        "graph": "graph-0.1.0",
+        "evidence": "evidence-0.1.0",
+        "value": "value-0.1.0"
+      },
+      "assumptions_version": "assumptions-v1",
+      "request_id": "req-000001"
+    },
+    {
+      "entry_id": 11,
+      "at": "2026-09-26T13:05:00Z",
+      "actor": "system",
+      "actor_role": "system",
+      "action": "decision_proposed",
+      "entity_type": "decision",
+      "entity_id": "DEC-000110-1",
+      "return_id": "RET-000110",
+      "decision_id": "DEC-000110-1",
+      "reason": null,
+      "before": null,
+      "after": {
+        "decision_id": "DEC-000110-1",
+        "version": 1,
+        "state": "proposed",
+        "quadrant": "Q2",
+        "risk": {
+          "value": 0.31,
+          "unit": "probability",
+          "provenance": {
+            "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+            "period_start": "2025-10-01",
+            "period_end": "2026-09-26",
+            "nature": "synthetic"
+          }
+        },
+        "lever_ids": [],
+        "requires_approval": false,
+        "review_at": null,
+        "approver": null,
+        "override_category": null,
+        "coupon_application_id": null
+      },
+      "rules_version": "policy-2026-10-12",
+      "model_versions": {
+        "risk": "risk-xgb-0.1.0",
+        "propensity": "propensity-xgb-0.1.0",
+        "graph": "graph-0.1.0",
+        "evidence": "evidence-0.1.0",
+        "value": "value-0.1.0"
+      },
+      "assumptions_version": "assumptions-v1",
+      "request_id": "req-000001"
+    },
+    {
+      "entry_id": 10,
+      "at": "2026-09-26T11:04:00Z",
+      "actor": "system",
+      "actor_role": "system",
+      "action": "draft_generated",
+      "entity_type": "llm_generation",
+      "entity_id": "GEN-000104-1",
+      "return_id": "RET-000104",
+      "decision_id": "DEC-000104-1",
+      "reason": null,
+      "before": null,
+      "after": {
+        "generation_id": "GEN-000104-1",
+        "kind": "case_draft",
+        "decision_id": "DEC-000104-1",
+        "generation_path": "model",
+        "fallback_reason": null,
+        "model_calls": 1,
+        "validator_codes": [],
+        "llm_mode": "mock",
+        "served_from": "live",
+        "model": "mock"
+      },
+      "rules_version": "policy-2026-10-12",
+      "model_versions": {
+        "risk": "risk-xgb-0.1.0",
+        "propensity": "propensity-xgb-0.1.0",
+        "graph": "graph-0.1.0",
+        "evidence": "evidence-0.1.0",
+        "value": "value-0.1.0"
+      },
+      "assumptions_version": "assumptions-v1",
+      "request_id": "req-000001"
+    },
+    {
+      "entry_id": 9,
+      "at": "2026-09-26T11:03:00Z",
+      "actor": "system",
+      "actor_role": "system",
+      "action": "decision_proposed",
+      "entity_type": "decision",
+      "entity_id": "DEC-000104-1",
+      "return_id": "RET-000104",
+      "decision_id": "DEC-000104-1",
+      "reason": null,
+      "before": null,
+      "after": {
+        "decision_id": "DEC-000104-1",
+        "version": 1,
+        "state": "proposed",
+        "quadrant": "Q2",
+        "risk": {
+          "value": 0.34,
+          "unit": "probability",
+          "provenance": {
+            "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+            "period_start": "2025-10-01",
+            "period_end": "2026-09-26",
+            "nature": "synthetic"
+          }
+        },
+        "lever_ids": [],
+        "requires_approval": false,
+        "review_at": null,
+        "approver": null,
+        "override_category": null,
+        "coupon_application_id": null
+      },
+      "rules_version": "policy-2026-10-12",
+      "model_versions": {
+        "risk": "risk-xgb-0.1.0",
+        "propensity": "propensity-xgb-0.1.0",
+        "graph": "graph-0.1.0",
+        "evidence": "evidence-0.1.0",
+        "value": "value-0.1.0"
+      },
+      "assumptions_version": "assumptions-v1",
+      "request_id": "req-000001"
+    },
+    {
+      "entry_id": 8,
+      "at": "2026-09-25T11:04:00Z",
+      "actor": "system",
+      "actor_role": "system",
+      "action": "draft_generated",
+      "entity_type": "llm_generation",
+      "entity_id": "GEN-000103-1",
+      "return_id": "RET-000103",
+      "decision_id": "DEC-000103-1",
+      "reason": null,
+      "before": null,
+      "after": {
+        "generation_id": "GEN-000103-1",
+        "kind": "case_draft",
+        "decision_id": "DEC-000103-1",
+        "generation_path": "model",
+        "fallback_reason": null,
+        "model_calls": 1,
+        "validator_codes": [],
+        "llm_mode": "mock",
+        "served_from": "live",
+        "model": "mock"
+      },
+      "rules_version": "policy-2026-10-12",
+      "model_versions": {
+        "risk": "risk-xgb-0.1.0",
+        "propensity": "propensity-xgb-0.1.0",
+        "graph": "graph-0.1.0",
+        "evidence": "evidence-0.1.0",
+        "value": "value-0.1.0"
+      },
+      "assumptions_version": "assumptions-v1",
+      "request_id": "req-000001"
+    },
+    {
+      "entry_id": 7,
+      "at": "2026-09-25T11:03:00Z",
+      "actor": "system",
+      "actor_role": "system",
+      "action": "decision_proposed",
+      "entity_type": "decision",
+      "entity_id": "DEC-000103-1",
+      "return_id": "RET-000103",
+      "decision_id": "DEC-000103-1",
+      "reason": null,
+      "before": null,
+      "after": {
+        "decision_id": "DEC-000103-1",
+        "version": 1,
+        "state": "proposed",
+        "quadrant": "Q2",
+        "risk": {
+          "value": 0.18,
+          "unit": "probability",
+          "provenance": {
+            "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+            "period_start": "2025-10-01",
+            "period_end": "2026-09-25",
+            "nature": "synthetic"
+          }
+        },
+        "lever_ids": [],
+        "requires_approval": false,
+        "review_at": null,
+        "approver": null,
+        "override_category": null,
+        "coupon_application_id": null
+      },
+      "rules_version": "policy-2026-10-12",
+      "model_versions": {
+        "risk": "risk-xgb-0.1.0",
+        "propensity": "propensity-xgb-0.1.0",
+        "graph": "graph-0.1.0",
+        "evidence": "evidence-0.1.0",
+        "value": "value-0.1.0"
+      },
+      "assumptions_version": "assumptions-v1",
+      "request_id": "req-000001"
+    },
+    {
+      "entry_id": 6,
+      "at": "2026-08-28T16:00:00Z",
+      "actor": "luca",
+      "actor_role": "manager",
+      "action": "catalog_task_updated",
+      "entity_type": "catalog_task",
+      "entity_id": "CT-000007",
+      "return_id": null,
+      "decision_id": null,
+      "reason": null,
+      "before": {
+        "status": "open"
+      },
+      "after": {
+        "status": "done"
+      },
+      "rules_version": null,
+      "model_versions": null,
+      "assumptions_version": null,
+      "request_id": "req-000001"
+    },
+    {
+      "entry_id": 5,
+      "at": "2026-08-04T10:00:00Z",
+      "actor": "luca",
+      "actor_role": "manager",
+      "action": "catalog_task_opened",
+      "entity_type": "catalog_task",
+      "entity_id": "CT-000007",
+      "return_id": null,
+      "decision_id": null,
+      "reason": null,
+      "before": null,
+      "after": {
+        "kind": "size_guide",
+        "anomaly_id": "V-DRS-0815~not_as_described~2026-07-27"
+      },
+      "rules_version": null,
+      "model_versions": null,
+      "assumptions_version": null,
+      "request_id": "req-000001"
+    },
+    {
+      "entry_id": 4,
+      "at": "2026-06-30T10:00:00Z",
+      "actor": "system",
+      "actor_role": "system",
+      "action": "message_queued",
+      "entity_type": "outbox_message",
+      "entity_id": "MSG-000088-1",
+      "return_id": "RET-000088",
+      "decision_id": "DEC-000088-1",
+      "reason": null,
+      "before": null,
+      "after": {
+        "lang": "it"
+      },
+      "rules_version": "policy-2026-10-12",
+      "model_versions": {
+        "risk": "risk-xgb-0.1.0",
+        "propensity": "propensity-xgb-0.1.0",
+        "graph": "graph-0.1.0",
+        "evidence": "evidence-0.1.0",
+        "value": "value-0.1.0"
+      },
+      "assumptions_version": "assumptions-v1",
+      "request_id": "req-000001"
+    },
+    {
+      "entry_id": 3,
+      "at": "2026-06-30T10:00:00Z",
+      "actor": "luca",
+      "actor_role": "manager",
+      "action": "decision_approved",
+      "entity_type": "decision",
+      "entity_id": "DEC-000088-1",
+      "return_id": "RET-000088",
+      "decision_id": "DEC-000088-1",
+      "reason": null,
+      "before": {
+        "decision_id": "DEC-000088-1",
+        "version": 1,
+        "state": "proposed",
+        "quadrant": "Q3",
+        "risk": {
+          "value": 0.68,
+          "unit": "probability",
+          "provenance": {
+            "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+            "period_start": "2025-10-01",
+            "period_end": "2026-06-29",
+            "nature": "synthetic"
+          }
+        },
+        "lever_ids": [
+          "instant_refund:false",
+          "transparency_notice:true"
+        ],
+        "requires_approval": true,
+        "review_at": "2026-09-27",
+        "approver": null,
+        "override_category": null,
+        "coupon_application_id": null
+      },
+      "after": {
+        "decision_id": "DEC-000088-1",
+        "version": 1,
+        "state": "approved",
+        "quadrant": "Q3",
+        "risk": {
+          "value": 0.68,
+          "unit": "probability",
+          "provenance": {
+            "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+            "period_start": "2025-10-01",
+            "period_end": "2026-06-29",
+            "nature": "synthetic"
+          }
+        },
+        "lever_ids": [
+          "instant_refund:false",
+          "transparency_notice:true"
+        ],
+        "requires_approval": true,
+        "review_at": "2026-09-27",
+        "approver": "luca",
+        "override_category": null,
+        "coupon_application_id": null
+      },
+      "rules_version": "policy-2026-10-12",
+      "model_versions": {
+        "risk": "risk-xgb-0.1.0",
+        "propensity": "propensity-xgb-0.1.0",
+        "graph": "graph-0.1.0",
+        "evidence": "evidence-0.1.0",
+        "value": "value-0.1.0"
+      },
+      "assumptions_version": "assumptions-v1",
+      "request_id": "req-000001"
+    },
+    {
+      "entry_id": 2,
+      "at": "2026-06-29T13:06:00Z",
+      "actor": "system",
+      "actor_role": "system",
+      "action": "draft_generated",
+      "entity_type": "llm_generation",
+      "entity_id": "GEN-000088-1",
+      "return_id": "RET-000088",
+      "decision_id": "DEC-000088-1",
+      "reason": null,
+      "before": null,
+      "after": {
+        "generation_id": "GEN-000088-1",
+        "kind": "case_draft",
+        "decision_id": "DEC-000088-1",
+        "generation_path": "model",
+        "fallback_reason": null,
+        "model_calls": 1,
+        "validator_codes": [],
+        "llm_mode": "mock",
+        "served_from": "live",
+        "model": "mock"
+      },
+      "rules_version": "policy-2026-10-12",
+      "model_versions": {
+        "risk": "risk-xgb-0.1.0",
+        "propensity": "propensity-xgb-0.1.0",
+        "graph": "graph-0.1.0",
+        "evidence": "evidence-0.1.0",
+        "value": "value-0.1.0"
+      },
+      "assumptions_version": "assumptions-v1",
+      "request_id": "req-000001"
+    },
+    {
+      "entry_id": 1,
+      "at": "2026-06-29T13:05:00Z",
+      "actor": "system",
+      "actor_role": "system",
+      "action": "decision_proposed",
+      "entity_type": "decision",
+      "entity_id": "DEC-000088-1",
+      "return_id": "RET-000088",
+      "decision_id": "DEC-000088-1",
+      "reason": null,
+      "before": null,
+      "after": {
+        "decision_id": "DEC-000088-1",
+        "version": 1,
+        "state": "proposed",
+        "quadrant": "Q3",
+        "risk": {
+          "value": 0.68,
+          "unit": "probability",
+          "provenance": {
+            "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+            "period_start": "2025-10-01",
+            "period_end": "2026-06-29",
+            "nature": "synthetic"
+          }
+        },
+        "lever_ids": [
+          "instant_refund:false",
+          "transparency_notice:true"
+        ],
+        "requires_approval": true,
+        "review_at": "2026-09-27",
+        "approver": null,
+        "override_category": null,
+        "coupon_application_id": null
+      },
+      "rules_version": "policy-2026-10-12",
+      "model_versions": {
+        "risk": "risk-xgb-0.1.0",
+        "propensity": "propensity-xgb-0.1.0",
+        "graph": "graph-0.1.0",
+        "evidence": "evidence-0.1.0",
+        "value": "value-0.1.0"
+      },
+      "assumptions_version": "assumptions-v1",
+      "request_id": "req-000001"
     }
   ],
-  "total": 14,
+  "total": 62,
   "page": 1,
-  "page_size": 50
+  "page_size": 100
 }

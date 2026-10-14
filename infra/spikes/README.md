@@ -20,7 +20,8 @@ snapshot. Billing runs from creation to destruction, powered off or not.
 - trainer-gbm installs `amd_xgboost==3.2.0` from `https://pypi.amd.com/rocm-7.2.3/simple` only,
   with a pinned wheel hash, and everything else from PyPI only. The build fails if a ROCm library
   of `libxgboost.so` is missing.
-- Each spike starts on its own. Nothing is started with `make gpu-up`.
+- Each spike starts on its own. Nothing of the spikes is started with `make gpu-up`, which
+  starts the product stack ("The demo export" below).
 - vLLM keeps its weights (`hf-cache`) and compile cache (`vllm-cache`) in volumes, so a restart
   or a later session from the snapshot skips both. It runs with `HF_HUB_OFFLINE=1` (rule 2): only
   `spike-weights` talks to Hugging Face.
@@ -293,6 +294,122 @@ the download measured in step 8, destroy without it and note the decision.
 
 Fill `docs/spike-results.md` from `artifacts/spikes/` (the field names match the JSON keys the
 scripts write). Commit only `docs/spike-results.md`; artifacts stay out of git.
+
+## The GPU session: US-202, A4 and benchmarks B1-B4 (one ordered list)
+
+Run it once the spikes pass: in the same session after step 13 and before step 14, or in a later
+session from the snapshot. Method and the four rules of spec 12: `docs/benchmarks.md`; the
+GraphSAGE jobs: `docs/graphsage.md`. Every droplet step is a `make` target run from the repository
+root (`make -n <target>` prints its commands); `$RUN` below is `artifacts/bench/$BENCH_RUN`.
+
+Droplet time is unmeasured. B2's CPU baseline is the longest step: the full-data US-202 job took
+92 minutes on this project's 4 shared vCPUs, and its time on the droplet's 20 vCPUs is what B2
+measures. `BENCH_ARGS="--b2-samples 1"` skips the 25% and 50% sizes (growing loads) if the
+session is short. B1 then B4 come next. After a failure, rerun from the failed step with the same
+`BENCH_RUN`: the parts already written in `$RUN` stay.
+
+| # | Where | Command | What it does | vLLM | Writes |
+| --- | --- | --- | --- | --- | --- |
+| 1 | laptop | `make lint test`, then `make asos pipeline` if `data/` is not built | the branch is green; the ASOS tables and the synthetic store | - | `data/raw/`, `data/store/`, `data/features/`, `data/scores/`, `data/ood/` (laptop) |
+| 2 | laptop | `ssh root@<droplet-ip> mkdir -p ReturnRing/data/raw` then `scp data/raw/asos_*.parquet root@<droplet-ip>:ReturnRing/data/raw/` and `rsync -a data/store data/features data/ood root@<droplet-ip>:ReturnRing/data/` | copies the ASOS tables (about 70 MB, CC BY 4.0, used and not redistributed) and the store the A4 encoder reads (about 55 MB); `data/truth` is never copied (rule 12) | - | `data/raw/asos_*.parquet`, `data/store/`, `data/features/`, `data/ood/` (droplet) |
+| 3 | droplet | `make spike-down` | stops vLLM and every trainer, keeps the volumes; B1, B2 and the GNN jobs refuse to run while vLLM is up (their CPU half alone on the 20 vCPUs, their GPU half alone on the GPU) | down | nothing |
+| 4 | droplet | `export BENCH_RUN=$(date -u +%Y%m%dT%H%M%SZ)-gpu` | one run id for the whole session (`.env` as for the spikes: ROCM_BASE_IMAGE, AMD_PYPI_INDEX_URL, VLLM_API_KEY, GEMMA_MODEL, GEMMA_REVISION, VLLM_IMAGE, DGL_IMAGE) | down | nothing |
+| 5 | droplet | `make bench-build DEVICE=gpu` | builds the bench image (ROCm 7.2.3, the amd_xgboost wheel of trainer-gbm, the pipeline and llm stack) | down | the `bench` image |
+| 6 | droplet | `make gnn-image` | builds trainer-graphsage: rocm/dgl plus numpy 2.5.4, pandas 3.0.6 and what ml.gnn, B2 and the GPU tests import; the build fails if DGL breaks on numpy 2 | down | the `trainer-graphsage` image |
+| 7 | droplet | `make gnn-test-gpu` | DGL against the PyTorch layers on the CPU and the GPU, the job tests pinned to the CPU, and the GPU job tests reading the GPU files | down | nothing (pytest temporary folders) |
+| 8 | droplet | `make bench-b1 DEVICE=gpu` | B1: XGBoost on the CPU then the MI300X, protocols A and B, sizes 10, 25, 50, 100%, 200 fixed rounds (the speedups) and early stopping (shown apart), 3 repeats, scoring with the fixed-rounds model | down | `$RUN/B1.json` |
+| 9 | droplet | `make bench-b2 DEVICE=gpu` | B2 in trainer-graphsage: `ml.gnn.b2_timing` runs the US-202 job (`python -m ml.gnn asos`) on the CPU and on the MI300X at 25%, 50% and 100% of the customers; the full-data runs are the US-202 runs | down | `$RUN/B2.json`; `artifacts/eval/gnn/us-202-asos-cpu.json`, `us-202-asos-gpu.json`; `artifacts/gnn/models/asos_{A,B}_graphsage_{cpu,gpu}.pt` and `.meta.json`; `$RUN/b2-sample-25/`, `$RUN/b2-sample-50/` |
+| 10 | droplet | `make embeddings-gpu` | A4: the customer encoder trained on the GPU on the main store, applied to the OOD store, embeddings copied into `data/` | down | `artifacts/gnn/models/customer_encoder.pt` and `.meta.json`; `artifacts/eval/gnn/us-202-embeddings-main.json`, `-ood.json`; `data/features/customer_embeddings.parquet`, `data/ood/features/customer_embeddings.parquet` |
+| 11 | droplet | `make bench-vllm DEVICE=gpu` | drops the page cache (`BENCH_DROP_CACHES=0` keeps it), starts vLLM, waits for `/health` (15 s polling), then times the first request before anything else uses vLLM | starts | `$RUN/vllm-start-conditions.txt`, `vllm-start.txt`, `vllm-healthy.txt`, `first-request.json` |
+| 12 | droplet | `make bench-b4 DEVICE=gpu` | B4: the nightly pipeline (generate, graph, features, anomalies, risk, scoring on the CPU; batch generation on the MI300X through vLLM), amd-smi sampled on the host every 5 s | up | `$RUN/B4.json`, `$RUN/amdsmi.jsonl`, `$RUN/b4-logs/`, `bench-work/$BENCH_RUN/` (the generated store, truth deleted) |
+| 13 | droplet | `make bench-b3 DEVICE=gpu` | records the disk the snapshot will hold, then B3: Gemma latency p50 and p95 and tokens per second, batches 1, 8, 32 and concurrency 4, 16, every load on the same case list from B4's store; cost per decision (cost-v2) | up | `$RUN/disk-used-gb.txt`, `$RUN/B3.json` |
+| 14 | droplet | `make bench-merge DEVICE=gpu` | the run file, the pointers GET /api/benchmarks reads, a report | any | `bench/results/$BENCH_RUN.json`, `bench/results/latest.json`, `bench/results/latest-gpu.json`, `$RUN/report.md` |
+| 15 | laptop | `scp root@<droplet-ip>:"ReturnRing/bench/results/*.json" ./bench/results/`; `scp -r root@<droplet-ip>:ReturnRing/artifacts/bench/$BENCH_RUN ./artifacts/bench/`; `scp root@<droplet-ip>:"ReturnRing/artifacts/eval/gnn/*.json" ./artifacts/eval/gnn/`; `scp root@<droplet-ip>:ReturnRing/data/features/customer_embeddings.parquet ./data/features/`; `scp root@<droplet-ip>:ReturnRing/data/ood/features/customer_embeddings.parquet ./data/ood/features/` | copies back what the laptop steps read | - | the same paths on the laptop |
+| 16 | droplet | spike step 14: `make spike-down`, `shutdown -h now`, snapshot, destroy | stops billing | down | the snapshot |
+| 17 | laptop | `make bench-report BENCH_RUN=$BENCH_RUN DEVICE=gpu` | the MI300X report | - | `docs/results/benchmarks-mi300x.md` |
+| 18 | laptop | `make risk` | the A4 row with the GPU embeddings: an offline evaluation that reads `data/truth`, which stays on the laptop (rule 12; the droplet host has no project Python either) | - | `artifacts/eval/risk/metrics.json`, `docs/results/us-204-risk.md`, `data/scores/` |
+| 19 | laptop | `make gnn-results` | the US-202 report from the droplet's CPU and GPU files (median-epoch speedup when their settings match) and the A4 row | - | `docs/results/us-202-graphsage.md` |
+
+`make bench DEVICE=gpu` runs steps 5, 6, 8, 9, 11, 12, 13 and 14 in that order; run the steps one
+by one instead, so that steps 7 and 10 come where the table puts them (step 10 refuses to start
+once vLLM is up).
+
+What to look at:
+
+- Step 6: the build prints `numpy 2.5.4` and `dgl ... on numpy 2.5.4`. A failure there is the
+  rocm/dgl image refusing numpy 2 (it ships numpy 1.26.4, pinned by amd-dgl): record it, plan B
+  of spec 13 (GraphSAGE as an upgrade, B2 postponed), and go on with step 8.
+- Step 8: the log line `B1 cuda: cold start ...` and no "GPU not used" error (amd_xgboost falls
+  back to the CPU with only a warning; B1 refuses that run instead of reporting it).
+- Step 9: `B2 A cuda 100%: median epoch ...` lines, and the environment of
+  `us-202-asos-gpu.json` with `torch_hip` set, the dgl backend and `gpu_arch` gfx942. Exit 2 from
+  the job means the GPU is not visible in the container (`make spike-gpu-check`).
+- Step 11: `first-request.json` with `"ok": true`; `vllm-start-conditions.txt` says whether the
+  page cache was dropped (it needs root on the host).
+- Step 12: `amd-smi` must exist on the host (`/opt/rocm/bin` is added to the PATH); otherwise the
+  target says so and samples inside the container. `batch_generation` exits 1 if vLLM was
+  unavailable for any decision.
+- Step 13: `failed` must be 0 in every load of `B3.json` (details); failures are kept out of the
+  latencies and noted. To change the loads: `BENCH_ARGS="--b3-batches 1,8,32 --b3-concurrency
+  4,16 --b3-repeats 2"`.
+- Every part says `measured`, `skipped` (with the reason) or `failed` (with the error); a failed
+  part does not stop the next one.
+
+Commit `bench/results/$BENCH_RUN.json`, `latest.json`, `latest-gpu.json`,
+`docs/results/benchmarks-mi300x.md`, `docs/results/us-202-graphsage.md` and
+`docs/results/us-204-risk.md`. `artifacts/` (raw records, logs, amd-smi samples, models),
+`data/` and `bench-work/` stay out of git.
+
+## The demo export: MI300X drafts, the cached demo package and the live stack (US-901, US-903)
+
+The cached demo (`DEMO_MODE=cached`, GPU off) serves the drafts Gemma wrote on the MI300X for the
+open returns of one serving snapshot. The cache is keyed by the llm_case, so the snapshot the
+batch reads must be the one the demo serves: build it once on the laptop and copy it, never
+rebuild it on one side only. `data/truth` stays on the laptop (the snapshot holds no ground truth,
+ADR-16). Every step is a `make` target from the repository root; `make -n <target>` prints it.
+
+The droplet's `.env` also needs `PUBLIC_HOST` (the sslip.io name of its IP, for example
+`203-0-113-10.sslip.io`), `ADMIN_USER` and `ADMIN_PASSWORD_HASH` between single quotes (`make
+admin-password` on the laptop prints the hash): `make gpu-up` serves HTTPS on `PUBLIC_HOST` with
+basic auth on `/system`, `/api/telemetry` and every write (infra/compose.public.yml).
+
+| # | Where | Command | What it does | Writes |
+| --- | --- | --- | --- | --- |
+| 1 | laptop | `make demo-data` (Docker) or `make pipeline` (host Python) | the store, the models and the serving snapshot, seed 42 | `data/`, `artifacts/`, `serving/` |
+| 2 | laptop | `rsync -a --delete serving/ root@<droplet-ip>:ReturnRing/serving/` | the snapshot only, no ground truth; before step 4 (`--delete` also removes `llm_cache/`) | `serving/` (droplet) |
+| 3 | droplet | `make spike-vllm spike-wait` | vLLM alone first, healthy before anything else uses the GPU | - |
+| 4 | droplet | `make batch-generate` | Gemma's draft of every open return through the local vLLM, golden cases first; exit 1 if vLLM failed any (not cached) | `serving/llm_cache/` |
+| 5 | droplet | `make demo-export` | checks the snapshot against its manifest, refuses an empty cache, packs snapshot, cache and `bench/results/` (pointers and runs) with `MANIFEST.json` (sha256 of every file, the model of each draft, `generated_on`); host `python3`, standard library only | `demo-cache/`, `demo-cache.tar.gz` |
+| 6 | laptop | `scp root@<droplet-ip>:ReturnRing/demo-cache.tar.gz .` then `make demo-import demo-local` | checks every hash, then the cached demo on http://localhost:8080 | `demo-cache/` |
+| 7 | demo server (CPU) | clone the repository, `cp .env.example .env` (set `POSTGRES_PASSWORD`, `DATABASE_URL`, `PUBLIC_HOST`, `ADMIN_PASSWORD_HASH`), copy `demo-cache.tar.gz`, then `make demo-import demo-up` | the public cached demo: HTTPS, read-only views, no GPU container | - |
+| 8 | droplet | `make gpu-up` (live pitch and video) | postgres, the reset with live Gemma drafts, the api, the telemetry sampler, the ui and the proxy on `https://PUBLIC_HOST` | database volume |
+
+- Step 4 runs after the benchmarks of "The GPU session" or on its own; it never needs the
+  trainers. Run `make bench-merge` before step 5 so `bench/results/latest.json` names the
+  MI300X run the demo shows (a CPU run is packed too, labelled, but never served as latest).
+- Step 8 resets the database and drafts every open return through vLLM, `LLM_CONCURRENCY` model
+  calls at once (review H32, default 32; `VLLM_TIMEOUT_S` bounds each, default 20 s). The export
+  (steps 3 to 5) does not need it.
+- `make demo-walk API_URL=http://127.0.0.1:8000` on a host with `requirements/dev.txt` walks the
+  pitch against the running API after a reset (`make reset`, `make gpu-reset`, `make demo-reset`);
+  in cached mode the case assistant answers 503, as documented. On a read-only demo
+  (`PUBLIC_READ_ONLY=true`, the default of steps 6 and 7) the walk reads the same cases and checks
+  that every write of the pitch is refused (403) while the checkout evaluation still answers; it
+  changes no decision, so it needs no reset.
+- A CPU rehearsal of steps 4 to 6 without the GPU: `make demo-export ALLOW_EMPTY_CACHE=1` packs a
+  snapshot without drafts; the demo then labels every draft as the fixed template.
+
+## Files to copy back (laptop)
+
+```bash
+scp root@<droplet-ip>:"ReturnRing/bench/results/*.json" ./bench/results/
+scp -r root@<droplet-ip>:ReturnRing/artifacts/bench/$BENCH_RUN ./artifacts/bench/
+make bench-report BENCH_RUN=$BENCH_RUN DEVICE=gpu      # writes docs/results/benchmarks-mi300x.md
+```
+
+Commit `bench/results/$BENCH_RUN.json`, `bench/results/latest.json`, `latest-gpu.json` and
+`docs/results/benchmarks-mi300x.md`. `artifacts/bench/` (raw records, logs, amd-smi samples) and
+`bench-work/` (the generated store) stay out of git. Then step 14 (stop, snapshot, destroy).
 
 ## Files
 

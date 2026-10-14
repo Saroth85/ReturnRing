@@ -1,0 +1,275 @@
+{
+  "as_of": "2026-09-30T18:50:00Z",
+  "thresholds": {
+    "z": 3.0,
+    "min_sales": 20
+  },
+  "items": [
+    {
+      "anomaly_id": "V-JKT-DEF~defective~2026-09-21",
+      "variant_id": "V-JKT-DEF",
+      "product_id": "P-JKT-0412",
+      "category": "Jackets",
+      "brand": "Navigli Studio",
+      "reason": "defective",
+      "week": "2026-09-21",
+      "observed": {
+        "value": 11,
+        "unit": "count",
+        "provenance": {
+          "origin": "Contract example: product anomalies anomalies-0.1.0 (spec 8.9) of the synthetic shop",
+          "period_start": "2025-10-01",
+          "period_end": "2026-09-30",
+          "nature": "synthetic"
+        }
+      },
+      "expected": {
+        "value": 1.8,
+        "unit": "expected_count",
+        "provenance": {
+          "origin": "Contract example: product anomalies anomalies-0.1.0 (spec 8.9) of the synthetic shop",
+          "period_start": "2025-10-01",
+          "period_end": "2026-09-30",
+          "nature": "synthetic"
+        }
+      },
+      "z": {
+        "value": 6.86,
+        "unit": "z_score",
+        "provenance": {
+          "origin": "Contract example: product anomalies anomalies-0.1.0 (spec 8.9) of the synthetic shop",
+          "period_start": "2025-10-01",
+          "period_end": "2026-09-30",
+          "nature": "synthetic"
+        }
+      },
+      "sales": {
+        "value": 46,
+        "unit": "count",
+        "provenance": {
+          "origin": "Contract example: product anomalies anomalies-0.1.0 (spec 8.9) of the synthetic shop",
+          "period_start": "2025-10-01",
+          "period_end": "2026-09-30",
+          "nature": "synthetic"
+        }
+      },
+      "status": "task_opened",
+      "catalog_task_id": "CT-000012",
+      "return_ids": [
+        "RET-000097",
+        "RET-000099",
+        "RET-000105"
+      ],
+      "queued_return_ids": [
+        "RET-000105"
+      ],
+      "trend": [
+        {
+          "week": "2026-08-03",
+          "sales": 38,
+          "returns": 1,
+          "return_rate": 0.0263
+        },
+        {
+          "week": "2026-08-10",
+          "sales": 41,
+          "returns": 0,
+          "return_rate": 0.0
+        },
+        {
+          "week": "2026-08-17",
+          "sales": 44,
+          "returns": 1,
+          "return_rate": 0.0227
+        },
+        {
+          "week": "2026-08-24",
+          "sales": 40,
+          "returns": 1,
+          "return_rate": 0.025
+        },
+        {
+          "week": "2026-08-31",
+          "sales": 43,
+          "returns": 2,
+          "return_rate": 0.0465
+        },
+        {
+          "week": "2026-09-07",
+          "sales": 45,
+          "returns": 4,
+          "return_rate": 0.0889
+        },
+        {
+          "week": "2026-09-14",
+          "sales": 46,
+          "returns": 7,
+          "return_rate": 0.1522
+        },
+        {
+          "week": "2026-09-21",
+          "sales": 46,
+          "returns": 11,
+          "return_rate": 0.2391
+        }
+      ]
+    },
+    {
+      "anomaly_id": "V-SNK-2290~defective~2026-09-21",
+      "variant_id": "V-SNK-2290",
+      "product_id": "P-SNK-2290",
+      "category": "Shoes",
+      "brand": "Navigli Sport",
+      "reason": "defective",
+      "week": "2026-09-21",
+      "observed": {
+        "value": 7,
+        "unit": "count",
+        "provenance": {
+          "origin": "Contract example: product anomalies anomalies-0.1.0 (spec 8.9) of the synthetic shop",
+          "period_start": "2025-10-01",
+          "period_end": "2026-09-30",
+          "nature": "synthetic"
+        }
+      },
+      "expected": {
+        "value": 1.2,
+        "unit": "expected_count",
+        "provenance": {
+          "origin": "Contract example: product anomalies anomalies-0.1.0 (spec 8.9) of the synthetic shop",
+          "period_start": "2025-10-01",
+          "period_end": "2026-09-30",
+          "nature": "synthetic"
+        }
+      },
+      "z": {
+        "value": 5.29,
+        "unit": "z_score",
+        "provenance": {
+          "origin": "Contract example: product anomalies anomalies-0.1.0 (spec 8.9) of the synthetic shop",
+          "period_start": "2025-10-01",
+          "period_end": "2026-09-30",
+          "nature": "synthetic"
+        }
+      },
+      "sales": {
+        "value": 31,
+        "unit": "count",
+        "provenance": {
+          "origin": "Contract example: product anomalies anomalies-0.1.0 (spec 8.9) of the synthetic shop",
+          "period_start": "2025-10-01",
+          "period_end": "2026-09-30",
+          "nature": "synthetic"
+        }
+      },
+      "status": "open",
+      "catalog_task_id": null,
+      "return_ids": [
+        "RET-000094",
+        "RET-000098"
+      ],
+      "queued_return_ids": [],
+      "trend": []
+    },
+    {
+      "anomaly_id": "V-DRS-0815~not_as_described~2026-07-27",
+      "variant_id": "V-DRS-0815",
+      "product_id": "P-DRS-0815",
+      "category": "Dresses",
+      "brand": "Navigli Studio",
+      "reason": "not_as_described",
+      "week": "2026-07-27",
+      "observed": {
+        "value": 9,
+        "unit": "count",
+        "provenance": {
+          "origin": "Contract example: product anomalies anomalies-0.1.0 (spec 8.9) of the synthetic shop",
+          "period_start": "2025-10-01",
+          "period_end": "2026-09-30",
+          "nature": "synthetic"
+        }
+      },
+      "expected": {
+        "value": 2.1,
+        "unit": "expected_count",
+        "provenance": {
+          "origin": "Contract example: product anomalies anomalies-0.1.0 (spec 8.9) of the synthetic shop",
+          "period_start": "2025-10-01",
+          "period_end": "2026-09-30",
+          "nature": "synthetic"
+        }
+      },
+      "z": {
+        "value": 4.76,
+        "unit": "z_score",
+        "provenance": {
+          "origin": "Contract example: product anomalies anomalies-0.1.0 (spec 8.9) of the synthetic shop",
+          "period_start": "2025-10-01",
+          "period_end": "2026-09-30",
+          "nature": "synthetic"
+        }
+      },
+      "sales": {
+        "value": 43,
+        "unit": "count",
+        "provenance": {
+          "origin": "Contract example: product anomalies anomalies-0.1.0 (spec 8.9) of the synthetic shop",
+          "period_start": "2025-10-01",
+          "period_end": "2026-09-30",
+          "nature": "synthetic"
+        }
+      },
+      "status": "resolved",
+      "catalog_task_id": "CT-000007",
+      "return_ids": [
+        "RET-000071",
+        "RET-000074"
+      ],
+      "queued_return_ids": [],
+      "trend": [
+        {
+          "week": "2026-07-27",
+          "sales": 43,
+          "returns": 9,
+          "return_rate": 0.2093
+        },
+        {
+          "week": "2026-08-03",
+          "sales": 40,
+          "returns": 7,
+          "return_rate": 0.175
+        },
+        {
+          "week": "2026-08-10",
+          "sales": 38,
+          "returns": 6,
+          "return_rate": 0.1579
+        },
+        {
+          "week": "2026-08-17",
+          "sales": 41,
+          "returns": 4,
+          "return_rate": 0.0976
+        },
+        {
+          "week": "2026-08-24",
+          "sales": 39,
+          "returns": 3,
+          "return_rate": 0.0769
+        },
+        {
+          "week": "2026-08-31",
+          "sales": 42,
+          "returns": 3,
+          "return_rate": 0.0714
+        }
+      ]
+    }
+  ],
+  "provenance": {
+    "origin": "Contract example: product anomalies anomalies-0.1.0 (spec 8.9) of the synthetic shop",
+    "period_start": "2025-10-01",
+    "period_end": "2026-09-30",
+    "nature": "synthetic"
+  }
+}

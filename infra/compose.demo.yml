@@ -1,9 +1,38 @@
-# demo profile switches (public CPU server, results precomputed on the MI300X).
+# demo profile switches (US-901): the cached demo, GPU off, results precomputed on the MI300X.
 #   docker compose -f infra/docker-compose.yml -f infra/compose.demo.yml --env-file .env --profile demo ...
-# The values here win over the laptop .env: no GPU, no vLLM, cached outputs only.
+# make demo-local runs it on a laptop (http://localhost:8080); make demo-up adds
+# -f infra/compose.public.yml for the public server.
+# The values here win over the laptop .env: no GPU, no vLLM, cached outputs only. The API and the
+# reset read the demo package of `make demo-export` (demo-cache/: the serving snapshot with
+# llm_cache/, the benchmark results and MANIFEST.json), never serving/ or data/ of this checkout.
+# Compose merges volumes by container path, so these mounts replace those of docker-compose.yml.
+# Public views are read-only by default (spec 11): PUBLIC_READ_ONLY=false in .env turns writes on,
+# behind basic auth on a public server.
 services:
   api:
     environment:
       DEVICE: cpu
       LLM_MODE: mock
       DEMO_MODE: cached
+      PUBLIC_READ_ONLY: ${PUBLIC_READ_ONLY:-true}
+    volumes:
+      - ../demo-cache/serving:/app/serving:ro
+      - ../demo-cache/bench/results:/app/bench/results:ro
+
+  reset:
+    environment:
+      DEVICE: cpu
+      LLM_MODE: mock
+      DEMO_MODE: cached
+      PUBLIC_READ_ONLY: ${PUBLIC_READ_ONLY:-true}
+    volumes:
+      - ../demo-cache/serving:/app/serving:ro
+
+  ui:
+    build:
+      args:
+        VITE_READ_ONLY: ${PUBLIC_READ_ONLY:-true}
+
+  proxy:
+    environment:
+      PUBLIC_READ_ONLY: ${PUBLIC_READ_ONLY:-true}

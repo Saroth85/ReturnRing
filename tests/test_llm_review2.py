@@ -2,7 +2,10 @@
 
 Every probe quoted in the review is a parametrized test here. Each one passed the checks of
 commit b00d8fa and must be rejected now. The file uses only interfaces that already existed at
-b00d8fa, so it can be run against that commit to see the probes pass there.
+b00d8fa, so it can be run against that commit to see the probes pass there. Since round 3
+(finding T7) the validator no longer reads lever values from words: a statement about levers or
+restrictions is TERMS_TOPIC (regenerate), and only another quadrant is DECISION_ECHO; the R2
+probes are still rejected, by one code or the other.
 """
 
 from __future__ import annotations
@@ -15,7 +18,7 @@ from llm.agent import VllmAgent, grounded_in, is_write_request, to_json
 from llm.client import check_local_url
 from llm.templates import template_output
 from llm.text import banned_terms, literal_numbers, literal_units, terms_wording
-from llm.validator import Action, Code, ValidationResult, lever_claims, validate
+from llm.validator import Action, Code, ValidationResult, validate
 from tests.llm_factories import Built, make
 from tests.test_llm_agent import MARCO, FakeReader, ScriptedChat, answer, calls, tool_call
 
@@ -205,11 +208,14 @@ R2_UNRESTRICTED_PROBES = [
 ]
 
 
+REJECTED = {"TERMS_TOPIC", "DECISION_ECHO"}  # strings: TERMS_TOPIC is not a code at b00d8fa
+
+
 @pytest.mark.parametrize("text", R2_Q4_PROBES)
-def test_r2_a_negated_or_paraphrased_lever_value_is_a_decision_echo(text: str) -> None:
+def test_r2_a_negated_or_paraphrased_lever_value_is_rejected(text: str) -> None:
     result = validate(with_extra_statement(GOLDEN, text), GOLDEN.expected, GOLDEN.case)
-    assert Code.DECISION_ECHO in {e.code for e in result.errors}, result.errors
-    assert result.action is Action.TEMPLATE
+    assert REJECTED & set(result.codes), result.errors
+    assert result.action in (Action.REGENERATE, Action.TEMPLATE)
 
 
 @pytest.mark.parametrize("name", ["guarantee", "insufficient", "Q1"])
@@ -217,20 +223,23 @@ def test_r2_a_negated_or_paraphrased_lever_value_is_a_decision_echo(text: str) -
 def test_r2_restrictions_named_without_restrictive_levers(name: str, text: str) -> None:
     built = make(name)
     result = validate(with_extra_statement(built, text), built.expected, built.case)
-    assert Code.DECISION_ECHO in {e.code for e in result.errors}, result.errors
+    assert REJECTED & set(result.codes), result.errors
 
 
 @pytest.mark.parametrize(
-    "text, claims",
+    "text",
     [
-        ("Coupons are not disabled.", ["coupons_enabled:true"]),
-        ("Instant refund is not off.", ["instant_refund:true"]),
-        ("Instant refund isn't available.", ["instant_refund:false"]),
-        ("Cluster coupons are not disabled.", ["cluster_coupons_disabled:false"]),
+        "Coupons are not disabled.",
+        "Instant refund is not off.",
+        "Instant refund isn't available.",
+        "Cluster coupons are not disabled.",
     ],
 )
-def test_r2_a_negation_inverts_the_value(text: str, claims: list[str]) -> None:
-    assert lever_claims(text) == claims
+def test_r2_a_lever_is_a_topic_whatever_its_value(text: str) -> None:
+    """Round 3, finding T7: no value is read, so no negation can turn it into the engine's."""
+    result = validate(with_extra_statement(GOLDEN, text), GOLDEN.expected, GOLDEN.case)
+    assert result.codes == ["TERMS_TOPIC"], result.errors
+    assert result.action is Action.REGENERATE
 
 
 # ---- R3: same-person synonyms (rule 11) -------------------------------------------------------
@@ -344,7 +353,9 @@ R4_ANSWERS = [
     "The cluster R-MARCO has 7 linked accounts that look like frօud.",
     # R7: signs and parentheses
     "Link L-101 has 4 shared events and weight - 0.98.",
-    "Link L-101 has weight (0.98).",
+    # "(0.98)" right after a word is the value of a label since round 5 (finding V12), so the
+    # accounting sign is probed after a colon.
+    "Link L-101 has weight: (0.98).",
 ]
 
 

@@ -480,6 +480,10 @@ CHECKS: dict[str, tuple[Check, ...]] = {
         ListItems("missing_evidence", min_length=0),
         NotBlank("thresholds_version"),
     ),
+    "features/customer_embeddings": (
+        Unique(("customer_id", "as_of")),
+        NotBlank("encoder_version"),
+    ),
     "features/product_anomalies": (
         Unique(("variant_id", "reason", "week", "as_of")),
         OneOf("reason", _REASONS),

@@ -1,0 +1,49 @@
+{
+  "status": "ready",
+  "mode": "cached",
+  "llm_mode": "mock",
+  "device": "cpu",
+  "label": "Precomputed on AMD MI300X",
+  "checks": [
+    {
+      "component": "database",
+      "status": "ok",
+      "detail": null
+    },
+    {
+      "component": "scores",
+      "status": "ok",
+      "detail": null
+    },
+    {
+      "component": "models",
+      "status": "ok",
+      "detail": null
+    },
+    {
+      "component": "vllm",
+      "status": "disabled",
+      "detail": "GPU off in cached mode"
+    },
+    {
+      "component": "demo_cache",
+      "status": "ok",
+      "detail": null
+    },
+    {
+      "component": "telemetry",
+      "status": "disabled",
+      "detail": null
+    }
+  ],
+  "contract_version": "1.1.0",
+  "rules_version": "policy-2026-10-12",
+  "assumptions_version": "assumptions-v1",
+  "model_versions": {
+    "risk": "risk-xgb-0.1.0",
+    "propensity": "propensity-xgb-0.1.0",
+    "graph": "graph-0.1.0",
+    "evidence": "evidence-0.1.0",
+    "value": "value-0.1.0"
+  }
+}

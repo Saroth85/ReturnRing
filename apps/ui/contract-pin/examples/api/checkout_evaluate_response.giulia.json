@@ -1,0 +1,50 @@
+{
+  "customer_id": "C-GIULIA",
+  "quadrant": "Q1",
+  "lines": [
+    {
+      "variant_id": "V-DRS-2500",
+      "size": "M",
+      "p_return": 0.18,
+      "size_advice": null
+    },
+    {
+      "variant_id": "V-DRS-2500",
+      "size": "L",
+      "p_return": 0.47,
+      "size_advice": {
+        "kind": "specific",
+        "suggested_size": "M",
+        "text": "Customers with your measurements kept size M of this dress"
+      }
+    }
+  ],
+  "terms": {
+    "return_window_days": 60,
+    "free_return_shipping": true,
+    "instant_refund": true,
+    "free_size_exchange": true,
+    "coupons_enabled": true
+  },
+  "base_terms": {
+    "return_window_days": 30,
+    "free_return_shipping": true,
+    "instant_refund": true,
+    "free_size_exchange": true,
+    "coupons_enabled": true
+  },
+  "coupon_eligible": true,
+  "coupon_block": null,
+  "terms_snapshot_id": "TS-CHK-000981",
+  "terms_source": "DEC-000101-1",
+  "review_at": null,
+  "shown_at": "2026-09-30T18:30:00Z",
+  "p_return_threshold": 0.35,
+  "model_version": "propensity-xgb-0.1.0",
+  "provenance": {
+    "origin": "Contract example: return-propensity model propensity-xgb-0.1.0 on a synthetic cart",
+    "period_start": "2025-10-01",
+    "period_end": "2026-09-30",
+    "nature": "synthetic"
+  }
+}

@@ -496,8 +496,7 @@
               "customer",
               "return",
               "order",
-              "cluster",
-              "policy"
+              "cluster"
             ]
           },
           "metric": {

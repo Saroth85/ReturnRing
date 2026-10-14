@@ -136,13 +136,15 @@
         "expected_net_benefit",
         "-requested_at",
         "requested_at",
-        "-risk"
+        "-risk",
+        "refund_due_by"
       ],
       "title": "Sort",
       "type": "string"
     },
     "page": {
       "default": 1,
+      "maximum": 100000,
       "minimum": 1,
       "title": "Page",
       "type": "integer"

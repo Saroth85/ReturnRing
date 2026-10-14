@@ -1,0 +1,57 @@
+{
+  "items": [
+    {
+      "task_id": "CT-000012",
+      "anomaly_id": "V-JKT-DEF~defective~2026-09-21",
+      "variant_id": "V-JKT-DEF",
+      "reason": "defective",
+      "kind": "batch_check",
+      "status": "open",
+      "note": "Check the sleeve length of the September batch against the size guide",
+      "created_by": "luca",
+      "created_at": "2026-09-30T18:45:00Z",
+      "updated_at": "2026-09-30T18:45:00Z",
+      "done_at": null,
+      "return_id": "RET-000105",
+      "follow_up": null
+    },
+    {
+      "task_id": "CT-000007",
+      "anomaly_id": "V-DRS-0815~not_as_described~2026-07-27",
+      "variant_id": "V-DRS-0815",
+      "reason": "not_as_described",
+      "kind": "size_guide",
+      "status": "done",
+      "note": "Size guide corrected: the waist runs one size small",
+      "created_by": "luca",
+      "created_at": "2026-08-04T10:00:00Z",
+      "updated_at": "2026-08-28T16:00:00Z",
+      "done_at": "2026-08-28T16:00:00Z",
+      "return_id": null,
+      "follow_up": {
+        "baseline_rate": {
+          "value": 0.1871,
+          "unit": "ratio",
+          "provenance": {
+            "origin": "Contract example: product anomalies anomalies-0.1.0 (spec 8.9) of the synthetic shop",
+            "period_start": "2025-10-01",
+            "period_end": "2026-09-30",
+            "nature": "synthetic"
+          }
+        },
+        "after_rate": {
+          "value": 0.0741,
+          "unit": "ratio",
+          "provenance": {
+            "origin": "Contract example: product anomalies anomalies-0.1.0 (spec 8.9) of the synthetic shop",
+            "period_start": "2025-10-01",
+            "period_end": "2026-09-30",
+            "nature": "synthetic"
+          }
+        },
+        "weeks_after": 4,
+        "caveat": "A decrease alone does not prove the effect of the correction: that needs a controlled comparison."
+      }
+    }
+  ]
+}

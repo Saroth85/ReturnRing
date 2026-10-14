@@ -1,0 +1,6 @@
+{
+  "code": "llm_unavailable",
+  "message": "The language model is off in cached mode: no new draft or answer can be generated (US-901)",
+  "violations": [],
+  "request_id": "req-000129"
+}

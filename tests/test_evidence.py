@@ -91,8 +91,7 @@ def test_few_observations_are_insufficient_with_the_reason(root: Path) -> None:
         assert row["evidence_quality"] == EvidenceQuality.INSUFFICIENT
         assert row["n_observations"] == n
         assert len(row["missing_evidence"]) >= 1
-        assert row["missing_evidence"][0].startswith("observations:")
-        assert f"{n} order lines" in row["missing_evidence"][0]
+        assert row["missing_evidence"][0].startswith("observations: too few order lines")
 
 
 def test_unsettled_lines_are_not_yet_observations(root: Path) -> None:
@@ -117,7 +116,7 @@ def test_vague_reasons_are_incoherent(root: Path) -> None:
     vague = out.loc["C-VAGUE"]
     assert vague["n_reasons"] == 3 and vague["reason_coherence"] == pytest.approx(1 / 3)
     assert vague["evidence_quality"] == EvidenceQuality.INSUFFICIENT
-    assert any(m.startswith("return reasons: 2 of 3") for m in vague["missing_evidence"])
+    assert any(m.startswith("return reasons: most returns") for m in vague["missing_evidence"])
     one = out.loc["C-ONE-VAGUE"]  # a single return is too few to judge the reasons
     assert one["reason_coherence"] == pytest.approx(0.0)
     assert one["evidence_quality"] == EvidenceQuality.SUFFICIENT
@@ -152,7 +151,7 @@ def test_linked_accounts_are_reported_never_counted_as_own_evidence(root: Path) 
     assert linked.loc["C-NEW", "n_observations"] == 0
     assert linked.loc["C-NEW", "n_observations_linked"] == 5
     assert linked.loc["C-NEW", "evidence_quality"] == EvidenceQuality.INSUFFICIENT
-    assert "5 with linked accounts" in linked.loc["C-NEW", "missing_evidence"][0]
+    assert "the linked accounts have more" in linked.loc["C-NEW", "missing_evidence"][0]
     assert linked.loc["C-IDS", "n_observations_linked"] == 4  # no cluster row: own only
     for column in ("evidence_quality", "n_observations"):  # the graph changes no outcome
         assert linked[column].tolist() == out[column].tolist()
@@ -180,3 +179,19 @@ def test_versioned_thresholds_are_valid() -> None:
     with pytest.raises(ValueError):
         replace(t, min_observations=0)
     assert set(IDENTIFIER_WEIGHTS) == set(IDENTIFIER_KINDS)
+
+
+def test_missing_evidence_sentences_are_number_free_for_the_llm_case(root: Path) -> None:
+    """llm.case quotes these sentences to the model and refuses any that fails the statement
+    checks (ADR-14 decision 11): no count, no threshold and no date in the text; those are the
+    table's columns and its provenance."""
+    from llm.case import missing_evidence_problems
+
+    clusters = pd.DataFrame(
+        {"customer_id": ["C-FEW", "C-OK", "C-NEW"], "cluster_id": ["K-1", "K-1", "K-1"]}
+    )
+    for out in (evidence(root), evidence(root, clusters=clusters)):
+        for items in out["missing_evidence"]:
+            for item in items:
+                assert not any(ch.isdigit() for ch in item), item
+                assert missing_evidence_problems(item) == [], item

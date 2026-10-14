@@ -18,7 +18,7 @@ Origin: main store at the evaluation time and the OOD store (separate rows). Nat
 
 | Test | Target | Measured | Result |
 | --- | --- | --- | --- |
-| MOD-04 | A0 to A4 on the same split, regressions included | A0 to A3 reported on the same rows; A4 not run: phase 6 (GPU), EmbeddingSource hook in ml/risk/features.py | reported |
+| MOD-04 | A0 to A4 on the same split, regressions included | A0 to A4 reported on the same rows (A4: GraphSAGE embeddings, US-202) | reported |
 | MOD-05 | 3 factors for 100% of the cases, none forbidden | customers test: 6,009 of 6,009; requests test: 4,218 of 4,218; customers ood: 20,000 of 20,000; requests ood: 14,163 of 14,163 | pass |
 | MOD-06 | ECE <= 0.05 | customer A3, test 0.0021; request, test 0.0040; customer A3, OOD 0.0127; request, OOD 0.0309 | pass |
 | MOD-07 | no cluster in both train and test | cluster: 0, ring: 0, family: 0 on two sides | pass |
@@ -42,7 +42,7 @@ Same split and same rows for every model. AUPRC and precision at k rank the scor
 | A1 (what the model adds) | 18 | 0.970 | 1.000 | 1.000 | 0.333 | 279 | 0.914 | 0.941 | 0.42% | 0.06% (1 / 1,722) | 0.0018 | 0.0052 |
 | A2 (what the account graph adds) | 26 | 0.980 | 1.000 | 1.000 | 0.143 | 294 | 0.884 | 0.959 | 0.59% | 0.12% (2 / 1,722) | 0.0022 | 0.0042 |
 | A3 (what the residual adds) | 29 | 0.980 | 1.000 | 1.000 | 0.214 | 291 | 0.893 | 0.959 | 0.54% | 0.12% (2 / 1,722) | 0.0021 | 0.0040 |
-| A4 (what GraphSAGE embeddings add (phase 6, GPU)) | 29 | not run: phase 6 (GPU), EmbeddingSource hook in ml/risk/features.py | - | - | - | - | - | - | - | - | - | - |
+| A4 (what GraphSAGE embeddings add (US-202)) | 45 | 0.977 | 1.000 | 1.000 | 0.286 | 294 | 0.881 | 0.956 | 0.61% | 0.17% (3 / 1,722) | 0.0027 | 0.0043 |
 
 Change from each step to the next, held-out test customers. A regression is any reported metric that gets worse (AUPRC, P@50, P@100, precision, recall, FPR, FPR high-value, ECE or Brier), listed as measured (rule 13):
 
@@ -51,6 +51,7 @@ Change from each step to the next, held-out test customers. A regression is any 
 | A0 -> A1 | +0.3368 | -4.38 | +69.00 | +0.37 | +0.06 | -0.0107 | precision, FPR, FPR high-value |
 | A1 -> A2 | +0.0094 | -2.96 | +1.85 | +0.17 | +0.06 | +0.0003 | precision, FPR, FPR high-value, ECE |
 | A2 -> A3 | +0.0004 | +0.91 | +0.00 | -0.05 | +0.00 | -0.0001 | none |
+| A3 -> A4 | -0.0030 | -1.25 | -0.37 | +0.07 | +0.06 | +0.0006 | AUPRC, precision, recall, FPR, FPR high-value, ECE, Brier |
 
 The same rows by abusive behaviour (held-out test customers): each behaviour against every non-abusive row, with the same models and thresholds. AUPRC and precision depend on the share of the behaviour among the rows; recall does not.
 
@@ -64,6 +65,8 @@ The same rows by abusive behaviour (held-out test customers): each behaviour aga
 | A2 | wardrober | 5,918 | 180 | 0.959 | 0.833 | 0.939 |
 | A3 | promo_ring | 5,829 | 91 | 1.000 | 0.746 | 1.000 |
 | A3 | wardrober | 5,918 | 180 | 0.961 | 0.845 | 0.939 |
+| A4 | promo_ring | 5,829 | 91 | 0.999 | 0.722 | 1.000 |
+| A4 | wardrober | 5,918 | 180 | 0.956 | 0.828 | 0.933 |
 
 ### Out-of-distribution scenario, a separate row (MOD-12)
 
@@ -77,13 +80,14 @@ High-value cut: 123.40 EUR. The OOD rings are smaller, slower and share fewer id
 | A1 (what the model adds) | 18 | 0.869 | 0.980 | 0.990 | 0.333 | 826 | 0.829 | 0.761 | 0.74% | 0.00% (0 / 5,730) | 0.0077 | 0.0140 |
 | A2 (what the account graph adds) | 26 | 0.838 | 1.000 | 0.990 | 0.143 | 822 | 0.807 | 0.737 | 0.83% | 0.14% (8 / 5,730) | 0.0121 | 0.0156 |
 | A3 (what the residual adds) | 29 | 0.840 | 1.000 | 0.990 | 0.214 | 828 | 0.804 | 0.740 | 0.85% | 0.14% (8 / 5,730) | 0.0127 | 0.0158 |
-| A4 (what GraphSAGE embeddings add (phase 6, GPU)) | 29 | not run: phase 6 (GPU), EmbeddingSource hook in ml/risk/features.py | - | - | - | - | - | - | - | - | - | - |
+| A4 (what GraphSAGE embeddings add (US-202)) | 45 | 0.837 | 0.980 | 0.990 | 0.286 | 903 | 0.759 | 0.761 | 1.14% | 0.23% (13 / 5,730) | 0.0103 | 0.0155 |
 
 | Step | AUPRC change | Precision change (points) | Recall change (points) | FPR change (points) | FPR high-value change (points) | ECE change | Worse (every reported metric compared) |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | A0 -> A1 | +0.3504 | -9.27 | +47.22 | +0.62 | +0.00 | +0.0026 | precision, FPR, ECE |
 | A1 -> A2 | -0.0310 | -2.27 | -2.44 | +0.09 | +0.14 | +0.0043 | AUPRC, precision, recall, FPR, FPR high-value, ECE, Brier |
 | A2 -> A3 | +0.0017 | -0.22 | +0.33 | +0.02 | +0.00 | +0.0007 | precision, FPR, ECE, Brier |
+| A3 -> A4 | -0.0027 | -4.58 | +2.11 | +0.29 | +0.09 | -0.0025 | AUPRC, P@50, precision, FPR, FPR high-value |
 
 The same rows by abusive behaviour (every customer of the OOD store): each behaviour against every non-abusive row, with the same models and thresholds. AUPRC and precision depend on the share of the behaviour among the rows; recall does not.
 
@@ -97,6 +101,8 @@ The same rows by abusive behaviour (every customer of the OOD store): each behav
 | A2 | wardrober | 19,700 | 600 | 0.946 | 0.778 | 0.928 |
 | A3 | promo_ring | 19,400 | 300 | 0.308 | 0.402 | 0.363 |
 | A3 | wardrober | 19,700 | 600 | 0.943 | 0.775 | 0.928 |
+| A4 | promo_ring | 19,400 | 300 | 0.327 | 0.374 | 0.433 |
+| A4 | wardrober | 19,700 | 600 | 0.935 | 0.718 | 0.925 |
 
 ### Feature sets and largest contributions
 
@@ -108,7 +114,9 @@ The same rows by abusive behaviour (every customer of the OOD store): each behav
   Rounds kept 75. Largest shares of total gain (contribution to the score, not a cause): `cluster_return_rate` 0.60, `mean_line_price_eur` 0.12, `changed_mind_share` 0.09, `cluster_size` 0.07, `median_days_to_return` 0.04.
 - **A3** (xgboost, 29 features): `return_rate_to_date`, `median_days_to_return`, `mean_line_price_eur`, `n_orders`, `n_lines`, `n_delivered_lines`, `n_observations`, `n_returns`, `return_rate`, `size_share`, `changed_mind_share`, `not_as_expected_share`, `other_reason_share`, `tenure_days`, `n_welcome_coupons_used`, `n_promo_coupons_used`, `coupon_order_share`, `weekend_order_share`, `cluster_size`, `shared_strong_ids`, `welcome_coupons`, `n_distinct_cards`, `creation_spread_days`, `welcome_coupons_per_account`, `cluster_return_rate`, `strong_id_share`, `expected_returns`, `residual`, `residual_z`.
   Rounds kept 77. Largest shares of total gain (contribution to the score, not a cause): `cluster_return_rate` 0.59, `mean_line_price_eur` 0.11, `changed_mind_share` 0.09, `cluster_size` 0.07, `median_days_to_return` 0.04.
-- **A4**: the 29 features of A3 plus GraphSAGE embedding columns; not run: phase 6 (GPU), EmbeddingSource hook in ml/risk/features.py.
+- **A4** (xgboost, 45 features): `return_rate_to_date`, `median_days_to_return`, `mean_line_price_eur`, `n_orders`, `n_lines`, `n_delivered_lines`, `n_observations`, `n_returns`, `return_rate`, `size_share`, `changed_mind_share`, `not_as_expected_share`, `other_reason_share`, `tenure_days`, `n_welcome_coupons_used`, `n_promo_coupons_used`, `coupon_order_share`, `weekend_order_share`, `cluster_size`, `shared_strong_ids`, `welcome_coupons`, `n_distinct_cards`, `creation_spread_days`, `welcome_coupons_per_account`, `cluster_return_rate`, `strong_id_share`, `expected_returns`, `residual`, `residual_z`, `graphsage_0`, `graphsage_1`, `graphsage_2`, `graphsage_3`, `graphsage_4`, `graphsage_5`, `graphsage_6`, `graphsage_7`, `graphsage_8`, `graphsage_9`, `graphsage_10`, `graphsage_11`, `graphsage_12`, `graphsage_13`, `graphsage_14`, `graphsage_15`.
+  Embeddings: `features/customer_embeddings`, encoder graphsage-link-prediction-v1@2026-07-01T00:00Z; origin ReturnRing GraphSAGE customer embeddings (ml.gnn, US-202, spec 8.3): link prediction on the customer-identifier graph, no label; encoder graphsage-link-prediction-v1@2026-07-01T00:00Z (cpu, torch); as of 2026-07-01..2026-10-01; period 2019-05-10..2026-09-30; nature synthetic. Customer rows without an embedding: ood 0 of 20,000; test 0 of 6,009; train 0 of 10,417; validation 0 of 2,615. Trained by link prediction on the customer-identifier graph, no label (spec 8.3); method and timings in docs/results/us-202-graphsage.md.
+  Rounds kept 56. Largest shares of total gain (contribution to the score, not a cause): `cluster_return_rate` 0.59, `mean_line_price_eur` 0.11, `changed_mind_share` 0.09, `cluster_size` 0.07, `median_days_to_return` 0.03.
 - An account with no linked account has its cluster features computed on itself (pipeline.graph), so for most customers `cluster_return_rate` is close to `return_rate_to_date`: gain moves between correlated features, and the gain shares do not measure what the graph adds. The ablation rows do.
 - No feature set holds a forbidden feature (gender, country, age, names, hashes, raw identifiers: `contracts.parquet.forbidden_features`, FAIR-01) or a customer value column (rule 6); both are checked when the module loads and before every training.
 

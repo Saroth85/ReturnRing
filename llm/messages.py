@@ -4,10 +4,14 @@ Gemma writes connective text with placeholders; amounts, terms and deadlines are
 filled by code, and the legal clause is fixed text appended by code.
 
 One placeholder grammar serves both the validator and `render`:
-- the only tokens are {terms}, {amount} and {deadline};
+- the only tokens are {terms}, {amount}, {deadline} and {deduction};
 - any other brace, bracket or angle character is rejected (also full-width forms, after NFKC);
 - a placeholder is accepted only if its value is available for the decision;
 - {terms} is required when the decision has restrictive levers and terms to show.
+
+{deduction} (round 4 of the API review, finding E17) is the amount withheld for a
+diminished-value claim. Only the mandatory body written by code uses it: the llm_case never offers
+it, because the model chooses phrasebook ids and writes no customer text (ADR-14 decision 8).
 """
 
 from __future__ import annotations
@@ -26,9 +30,9 @@ from llm.text import Lang
 from policy.legal_guard import is_restrictive
 from policy.types import Decision, Path, ReturnTerms
 
-Placeholder = Literal["terms", "amount", "deadline"]
-PLACEHOLDERS: tuple[Placeholder, ...] = ("terms", "amount", "deadline")
-_TOKEN_RE = re.compile(r"\{(terms|amount|deadline)\}")
+Placeholder = Literal["terms", "amount", "deadline", "deduction"]
+PLACEHOLDERS: tuple[Placeholder, ...] = ("terms", "amount", "deadline", "deduction")
+_TOKEN_RE = re.compile(r"\{(terms|amount|deadline|deduction)\}")
 _STRAY_RE = re.compile(r"[{}\[\]<>]")
 
 PlaceholderProblemCode = Literal["PLACEHOLDER_SYNTAX", "PLACEHOLDER_UNAVAILABLE", "TERMS_MISSING"]
@@ -152,11 +156,48 @@ _MONTHS: dict[Lang, tuple[str, ...]] = {
 }
 
 
-def term_phrases(levers: Sequence[LeverObject], lang: Lang) -> list[str]:
-    """Fixed phrases for the future-order terms of the levers, without repeats."""
+# Lever values that restrict future orders (policy/legal_guard.is_restrictive): a shorter window
+# is checked against the base.
+_RESTRICTIVE_VALUES = frozenset(
+    {
+        ("free_return_shipping", False),
+        ("instant_refund", False),
+        ("coupons_enabled", False),
+        ("cluster_coupons_disabled", True),
+        ("transparency_notice", True),
+    }
+)
+
+
+def restricts(levers: Sequence[LeverObject], base: ReturnTerms | None = None) -> bool:
+    """The levers restrict future orders: a restrictive value, or a window shorter than the
+    base (when the base is given)."""
+    for lever in levers:
+        if (lever["id"], lever["value"]) in _RESTRICTIVE_VALUES:
+            return True
+        window = base.return_window_days if base is not None else 0
+        if lever["id"] == "return_window_days" and int(lever["value"]) < window:
+            return True
+    return False
+
+
+def term_phrases(
+    levers: Sequence[LeverObject], lang: Lang, base: ReturnTerms | None = None
+) -> list[str]:
+    """Fixed phrases for the future-order terms of the levers, without repeats. In a decision
+    that restricts, a lever whose scope is all_orders (the free size exchange) holds for the
+    current return too, so the current-return sentence states it and {terms} leaves it out; the
+    cluster coupon block has no phrase when the base already has no discount codes (round 5,
+    findings V7 and V8)."""
+    restrictive = restricts(levers, base)
     phrases: list[str] = []
     for lever in levers:
         value = lever["value"]
+        if restrictive and lever["scope"] == "all_orders":
+            continue
+        redundant = base is not None and not base.coupons_enabled
+        if lever["id"] == "cluster_coupons_disabled" and redundant:
+            continue
         if lever["id"] == "return_window_days":
             phrase: str | None = _WINDOW[lang].format(days=value)
         else:
@@ -168,13 +209,16 @@ def term_phrases(levers: Sequence[LeverObject], lang: Lang) -> list[str]:
 
 
 def available_placeholders(
-    path: str, levers: Sequence[LeverObject], refund_known: bool
+    path: str,
+    levers: Sequence[LeverObject],
+    refund_known: bool,
+    base: ReturnTerms | None = None,
 ) -> frozenset[Placeholder]:
     """Placeholders whose value code can fill for a decision: {terms} when the levers change
     the terms of future orders, {deadline} on the withdrawal path, {amount} on the withdrawal
     path when the refund amount is known."""
     names: set[Placeholder] = set()
-    if term_phrases(levers, "en"):
+    if term_phrases(levers, "en", base):
         names.add("terms")
     if path == Path.WITHDRAWAL.value:
         names.add("deadline")
@@ -185,6 +229,27 @@ def available_placeholders(
 
 def format_date(day: date, lang: Lang) -> str:
     return f"{day.day} {_MONTHS[lang][day.month - 1]} {day.year}"
+
+
+# Days read with a vowel in Italian (uno, otto, undici) take the elided article: "l'11 ottobre".
+_IT_ELIDED_DAYS = frozenset({1, 8, 11})
+
+
+def format_deadline(day: date, lang: Lang) -> str:
+    """The refund deadline as the {deadline} field: "12 October 2026" in English, and in Italian
+    with its article, which depends on how the day is read ("il 12 ottobre 2026", "l'11 ottobre
+    2026"), so that "al più tardi per {deadline}" is correct on every day (round 4, finding
+    E22)."""
+    text = format_date(day, lang)
+    if lang == "en":
+        return text
+    return f"l'{text}" if day.day in _IT_ELIDED_DAYS else f"il {text}"
+
+
+def has_deduction(decision: Decision) -> bool:
+    """A diminished-value claim withholds part of the refund of a withdrawal: the {deduction}
+    field states it (the guarantee path never has a claim, policy/legal_guard.py)."""
+    return decision.diminished_value_claim is not None and decision.path is Path.WITHDRAWAL
 
 
 def format_amount(amount: Decimal, lang: Lang) -> str:
@@ -201,20 +266,23 @@ def template_fields(
 ) -> dict[str, str]:
     """Values of the available placeholders, written by code (rule 10)."""
     levers = decision.levers.to_contract(base)
-    available = available_placeholders(decision.path.value, levers, refund_eur is not None)
+    available = available_placeholders(decision.path.value, levers, refund_eur is not None, base)
     fields: dict[str, str] = {}
     if "terms" in available:
-        fields["terms"] = "; ".join(term_phrases(levers, lang))
+        fields["terms"] = "; ".join(term_phrases(levers, lang, base))
     if "deadline" in available:
-        fields["deadline"] = format_date(decision.refund_due_by, lang)
+        fields["deadline"] = format_deadline(decision.refund_due_by, lang)
     if refund_eur is not None and "amount" in available:
         fields["amount"] = format_amount(refund_eur, lang)
+    claim = decision.diminished_value_claim
+    if claim is not None and has_deduction(decision):
+        fields["deduction"] = format_amount(claim.amount_eur, lang)
     return fields
 
 
 def requires_terms(decision: Decision, base: ReturnTerms) -> bool:
     levers = decision.levers.to_contract(base)
-    return is_restrictive(decision.levers, base) and bool(term_phrases(levers, "en"))
+    return is_restrictive(decision.levers, base) and bool(term_phrases(levers, "en", base))
 
 
 def render(

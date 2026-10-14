@@ -493,6 +493,8 @@
       "coupons_enabled": true
     },
     "review_at": null,
+    "coupon_application_id": null,
+    "coupon_review_at": null,
     "shown_at": "2026-09-20T20:14:00Z",
     "confirmed_at": "2026-09-20T20:15:00Z"
   },
@@ -1059,7 +1061,6 @@
       "created_at": "2026-09-27T10:15:00Z",
       "latency_ms": 14
     },
-    "tone": "warm",
     "decision_echo": {
       "path": "withdrawal",
       "quadrant": "Q1",
@@ -1068,6 +1069,56 @@
         "priority_size_exchange:true"
       ]
     },
+    "case_facts": [
+      {
+        "id": "F1",
+        "entity": "customer",
+        "metric": "risk_score",
+        "value": 0.12,
+        "period": "as of 2026-09-27",
+        "nature": "synthetic"
+      },
+      {
+        "id": "F2",
+        "entity": "customer",
+        "metric": "value_eur_12m",
+        "value": 211.85,
+        "period": "12 months to 2026-09-27",
+        "nature": "synthetic"
+      },
+      {
+        "id": "F3",
+        "entity": "customer",
+        "metric": "size_share",
+        "value": 0.83,
+        "period": "as of 2026-09-27",
+        "nature": "synthetic"
+      },
+      {
+        "id": "F4",
+        "entity": "customer",
+        "metric": "residual_z",
+        "value": 0.4,
+        "period": "as of 2026-09-27",
+        "nature": "synthetic"
+      },
+      {
+        "id": "F5",
+        "entity": "customer",
+        "metric": "cluster_size",
+        "value": 1,
+        "period": "as of 2026-09-27",
+        "nature": "synthetic"
+      },
+      {
+        "id": "F6",
+        "entity": "return",
+        "metric": "days_since_delivery",
+        "value": 3,
+        "period": "2026-09-24/2026-09-27",
+        "nature": "synthetic"
+      }
+    ],
     "explanation": [
       {
         "label": "SCORE",
@@ -1075,7 +1126,7 @@
           "F1",
           "F3"
         ],
-        "text": "Risk score 0.12; size_share at 0.83 lowers it: a contribution to the score, not a cause.",
+        "text": "Risk score 0.12: an estimate, not a cause. size_share (0.83) lowers it.",
         "facts": [
           {
             "id": "F1",
@@ -1100,7 +1151,7 @@
         "fact_ids": [
           "F2"
         ],
-        "text": "Customer net margin over the period: 211.85 EUR, above the value threshold.",
+        "text": "Customer net margin over the period: 211.85 EUR.",
         "facts": [
           {
             "id": "F2",
@@ -1143,16 +1194,18 @@
           "fields": {
             "terms": "reso entro 60 giorni dalla consegna; cambio taglia con priorità",
             "amount": null,
-            "deadline": "11 ottobre 2026"
+            "deadline": "l'11 ottobre 2026",
+            "deduction": null
           },
-          "text": "Ciao, grazie per aver scelto i nostri capi. Abbiamo registrato la tua richiesta di reso e il rimborso è previsto per il 11 ottobre 2026. Per i tuoi prossimi ordini ti offriamo condizioni di reso migliori: reso entro 60 giorni dalla consegna; cambio taglia con priorità. Se ti serve un'altra taglia, rispondi pure a questo messaggio. Siamo felici di averti tra i nostri clienti."
+          "text": "Ciao, grazie per aver scelto i nostri capi. Abbiamo registrato la tua richiesta di reso e il rimborso è previsto al più tardi per l'11 ottobre 2026. Per i tuoi prossimi ordini ti offriamo condizioni di reso migliori: reso entro 60 giorni dalla consegna; cambio taglia con priorità. Se ti serve un'altra taglia, rispondi pure a questo messaggio. Siamo felici di averti tra i nostri clienti."
         },
         {
           "lang": "en",
           "fields": {
             "terms": "returns within 60 days of delivery; priority size exchange",
             "amount": null,
-            "deadline": "11 October 2026"
+            "deadline": "11 October 2026",
+            "deduction": null
           },
           "text": "Hello, thank you for choosing our clothes. We have registered your return request and your refund is due by 11 October 2026. For your next orders we are glad to offer you better return terms: returns within 60 days of delivery; priority size exchange. If you need a different size, just reply to this message. We are happy to have you with us."
         }

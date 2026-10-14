@@ -1,0 +1,12 @@
+{
+  "terms_snapshot_id": "TS-CHK-000982",
+  "customer_id": "C-MARCO-1",
+  "lines": [
+    {
+      "variant_id": "V-JKT-2207",
+      "size": "M",
+      "quantity": 1
+    }
+  ],
+  "coupon_code": null
+}

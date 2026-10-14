@@ -136,6 +136,10 @@ def test_complete_sends_a_guided_json_request(server: FakeServer) -> None:
         "- INFO_TERMS: Questions about these terms? Just reply to this message." in user["content"]
     )
     assert "OPEN_SORRY_ITEM" not in user["content"]  # a guarantee sentence, not for this case
+    assert user["content"].endswith(  # round 3, finding T4: the coherence rules of the selection
+        "Rules:\n- At most one of HELP_SIZE, CONTACT_REPLY, INFO_TERMS.\n"
+        "- CLOSE_DAY only after OPEN_THANKS or OPEN_MESSAGE or OPEN_CHOICE."
+    )
 
 
 @pytest.mark.parametrize("name", ["Q4_cluster", "Q2", "guarantee", "insufficient"])
@@ -160,7 +164,7 @@ def test_retry_codes_are_sent_as_feedback(server: FakeServer) -> None:
     client(server.url).complete(CASE, retry_codes=("BANNED_TERM", "TOO_LONG"))
     feedback = server.requests[0]["body"]["messages"][-1]
     assert feedback["role"] == "user"
-    assert "BANNED_TERM, TOO_LONG" in feedback["content"]
+    assert "BANNED_TERM; TOO_LONG" in feedback["content"]
 
 
 def test_usage_is_optional(server: FakeServer) -> None:

@@ -18,12 +18,56 @@ jobs:
           python-version: "3.12"
       - run: pip install -r requirements/dev.txt
       - run: make lint
+      # US-003: the whole suite in CPU + mock mode. The Compose CLI of the runner renders the
+      # merged profiles (tests/test_infra.py); no Docker daemon is needed.
       - run: python -m pytest -m "not gpu" -q --cov=policy --cov=llm --cov-branch --cov-report=term-missing
       # NFR-14: 100% line and branch coverage on the policy package (engine, legal guard,
       # simulator, types) and on the whole LLM layer (validator, phrasebook, messages, agent, client).
       - run: python -m coverage report --include="policy/*,llm/*" --fail-under=100
+      # US-002, LIC-01: the licence gate of the Python dependencies (rule 15).
       - run: make licenses
+      # The generated API contract and its examples are up to date (ADR-15).
+      - run: python -m scripts.export_api_schemas --check
+      - run: python -m scripts.build_api_examples --check
 
+  # Phase 5 UI (apps/ui): Node 22, exact versions from package-lock.json.
+  ui:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: apps/ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/ui/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      # The generated types match contracts/json/api (ADR-15).
+      - run: npm run check:types-gen
+      # US-002, LIC-01: the npm licence gate (rule 15).
+      - run: npm run check:licenses
+      # Production build in live mode, then the bundle check (no contract example in dist/).
+      - run: npm run build
+
+  # GraphSAGE (US-202, A4) with the CPU build of PyTorch: the tests with the torch marker, and
+  # mypy with the real torch types (docs/graphsage.md). PyTorch is not a product dependency.
+  gnn-cpu:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements/dev.txt -r infra/requirements-gnn-cpu.txt
+      - run: python -m pytest -m torch -q
+      - run: mypy
+
+  # US-004, SEC-03: no secret in the history.
   secrets:
     runs-on: ubuntu-24.04
     steps:

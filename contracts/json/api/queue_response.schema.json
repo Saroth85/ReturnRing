@@ -223,6 +223,15 @@
           "title": "Review Due",
           "type": "boolean"
         },
+        "refund_due_by": {
+          "format": "date",
+          "title": "Refund Due By",
+          "type": "string"
+        },
+        "refund_overdue": {
+          "title": "Refund Overdue",
+          "type": "boolean"
+        },
         "risk": {
           "anyOf": [
             {
@@ -280,6 +289,8 @@
         "lever_ids",
         "review_at",
         "review_due",
+        "refund_due_by",
+        "refund_overdue",
         "risk",
         "value",
         "expected_net_benefit",
@@ -336,7 +347,8 @@
         "expected_net_benefit",
         "-requested_at",
         "requested_at",
-        "-risk"
+        "-risk",
+        "refund_due_by"
       ],
       "title": "Sort",
       "type": "string"

@@ -1,0 +1,374 @@
+{
+  "decision": {
+    "decision_id": "DEC-000112-1",
+    "return_id": "RET-000112",
+    "version": 1,
+    "revision_trigger": "initial",
+    "supersedes": null,
+    "superseded_by": null,
+    "created_at": "2026-09-30T13:05:00Z",
+    "as_of": "2026-09-30T20:00:00Z",
+    "decided_on": "2026-09-30",
+    "state": "proposed",
+    "path": "guarantee",
+    "evidence_quality": "sufficient",
+    "quadrant": null,
+    "missing_evidence": [],
+    "proposed_levers": [],
+    "levers": [],
+    "lever_ids": [],
+    "requires_approval": false,
+    "in_force": true,
+    "current_return_terms": {
+      "return_window_days": 30,
+      "free_return_shipping": true,
+      "instant_refund": true,
+      "free_size_exchange": true,
+      "coupons_enabled": true
+    },
+    "future_terms": {
+      "return_window_days": 30,
+      "free_return_shipping": true,
+      "instant_refund": true,
+      "free_size_exchange": true,
+      "coupons_enabled": true
+    },
+    "refund_due_by": "2026-10-14",
+    "review_at": null,
+    "approver": null,
+    "approved_at": null,
+    "override_reason": null,
+    "override_category": null,
+    "coupon_rule": null,
+    "diminished_value_claim": null,
+    "inputs": {
+      "order_id": "ORD-005512",
+      "customer_id": "C-18120",
+      "reason": "wrong_item",
+      "delivered_on": "2026-09-25",
+      "notice_on": "2026-09-30",
+      "order_terms": {
+        "return_window_days": 30,
+        "free_return_shipping": true,
+        "instant_refund": true,
+        "free_size_exchange": true,
+        "coupons_enabled": true
+      },
+      "base_terms": {
+        "return_window_days": 30,
+        "free_return_shipping": true,
+        "instant_refund": true,
+        "free_size_exchange": true,
+        "coupons_enabled": true
+      },
+      "risk": null,
+      "value_eur": null,
+      "evidence_quality": "sufficient",
+      "cluster_id": null,
+      "thresholds": {
+        "risk": 0.6,
+        "value_eur": 185.0
+      },
+      "provenance": {
+        "origin": "Contract example: engine inputs: risk-xgb-0.1.0 and value-0.1.0 scores on decision-time features of the synthetic shop, matrix thresholds of the validation months",
+        "period_start": "2025-10-01",
+        "period_end": "2026-09-30",
+        "nature": "synthetic"
+      }
+    },
+    "rules_version": "policy-2026-10-12",
+    "model_versions": {
+      "risk": "risk-xgb-0.1.0",
+      "propensity": "propensity-xgb-0.1.0",
+      "graph": "graph-0.1.0",
+      "evidence": "evidence-0.1.0",
+      "value": "value-0.1.0"
+    },
+    "assumptions_version": "assumptions-v1",
+    "generation_id": "GEN-000112-1"
+  },
+  "alternatives": [
+    {
+      "kind": "proposal",
+      "summary": "Guarantee return, free of charge, and the right item sent again",
+      "recommended": true,
+      "levers": [],
+      "net_benefit": {
+        "assumptions": {
+          "period": "12 months after the decision, customer C-18120",
+          "logistics_returns_avoided": 0,
+          "logistics_cost_per_return_eur": 8.0,
+          "undue_discounts_avoided": 0,
+          "avg_undue_discount_eur": 12.0,
+          "minutes_saved": 5.0,
+          "hourly_cost_eur": 22.0,
+          "incentives_eur": 0.0,
+          "system_cost_eur": 0.5,
+          "error_cost_eur": 0.0,
+          "abandonment_margin_lost_eur": 0.0,
+          "incremental_margin_eur": 0.0,
+          "version": "DEC-000112-1/proposal",
+          "basis": "simulated",
+          "based_on": "assumptions-v1"
+        },
+        "components": [
+          {
+            "id": "logistics_costs_avoided",
+            "amount": {
+              "value": 0.0,
+              "unit": "eur",
+              "provenance": {
+                "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+                "period_start": "2026-10-01",
+                "period_end": "2027-09-30",
+                "nature": "simulated"
+              }
+            }
+          },
+          {
+            "id": "undue_discounts_avoided",
+            "amount": {
+              "value": 0.0,
+              "unit": "eur",
+              "provenance": {
+                "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+                "period_start": "2026-10-01",
+                "period_end": "2027-09-30",
+                "nature": "simulated"
+              }
+            }
+          },
+          {
+            "id": "time_saved_value",
+            "amount": {
+              "value": 1.83,
+              "unit": "eur",
+              "provenance": {
+                "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+                "period_start": "2026-10-01",
+                "period_end": "2027-09-30",
+                "nature": "simulated"
+              }
+            }
+          },
+          {
+            "id": "incremental_margin",
+            "amount": {
+              "value": 0.0,
+              "unit": "eur",
+              "provenance": {
+                "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+                "period_start": "2026-10-01",
+                "period_end": "2027-09-30",
+                "nature": "simulated"
+              }
+            }
+          },
+          {
+            "id": "incentives",
+            "amount": {
+              "value": 0.0,
+              "unit": "eur",
+              "provenance": {
+                "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+                "period_start": "2026-10-01",
+                "period_end": "2027-09-30",
+                "nature": "simulated"
+              }
+            }
+          },
+          {
+            "id": "system_cost",
+            "amount": {
+              "value": -0.5,
+              "unit": "eur",
+              "provenance": {
+                "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+                "period_start": "2026-10-01",
+                "period_end": "2027-09-30",
+                "nature": "simulated"
+              }
+            }
+          },
+          {
+            "id": "error_cost",
+            "amount": {
+              "value": 0.0,
+              "unit": "eur",
+              "provenance": {
+                "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+                "period_start": "2026-10-01",
+                "period_end": "2027-09-30",
+                "nature": "simulated"
+              }
+            }
+          },
+          {
+            "id": "abandonment_margin_lost",
+            "amount": {
+              "value": 0.0,
+              "unit": "eur",
+              "provenance": {
+                "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+                "period_start": "2026-10-01",
+                "period_end": "2027-09-30",
+                "nature": "simulated"
+              }
+            }
+          }
+        ],
+        "total": {
+          "value": 1.33,
+          "unit": "eur",
+          "provenance": {
+            "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+            "period_start": "2026-10-01",
+            "period_end": "2027-09-30",
+            "nature": "simulated"
+          }
+        }
+      }
+    },
+    {
+      "kind": "verification",
+      "summary": "Check the item at the warehouse",
+      "recommended": false,
+      "levers": [],
+      "net_benefit": {
+        "assumptions": {
+          "period": "12 months after the decision, customer C-18120",
+          "logistics_returns_avoided": 0,
+          "logistics_cost_per_return_eur": 8.0,
+          "undue_discounts_avoided": 0,
+          "avg_undue_discount_eur": 12.0,
+          "minutes_saved": 0.0,
+          "hourly_cost_eur": 22.0,
+          "incentives_eur": 0.0,
+          "system_cost_eur": 4.4,
+          "error_cost_eur": 0.0,
+          "abandonment_margin_lost_eur": 0.0,
+          "incremental_margin_eur": 0.0,
+          "version": "DEC-000112-1/verification",
+          "basis": "simulated",
+          "based_on": "assumptions-v1"
+        },
+        "components": [
+          {
+            "id": "logistics_costs_avoided",
+            "amount": {
+              "value": 0.0,
+              "unit": "eur",
+              "provenance": {
+                "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+                "period_start": "2026-10-01",
+                "period_end": "2027-09-30",
+                "nature": "simulated"
+              }
+            }
+          },
+          {
+            "id": "undue_discounts_avoided",
+            "amount": {
+              "value": 0.0,
+              "unit": "eur",
+              "provenance": {
+                "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+                "period_start": "2026-10-01",
+                "period_end": "2027-09-30",
+                "nature": "simulated"
+              }
+            }
+          },
+          {
+            "id": "time_saved_value",
+            "amount": {
+              "value": 0.0,
+              "unit": "eur",
+              "provenance": {
+                "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+                "period_start": "2026-10-01",
+                "period_end": "2027-09-30",
+                "nature": "simulated"
+              }
+            }
+          },
+          {
+            "id": "incremental_margin",
+            "amount": {
+              "value": 0.0,
+              "unit": "eur",
+              "provenance": {
+                "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+                "period_start": "2026-10-01",
+                "period_end": "2027-09-30",
+                "nature": "simulated"
+              }
+            }
+          },
+          {
+            "id": "incentives",
+            "amount": {
+              "value": 0.0,
+              "unit": "eur",
+              "provenance": {
+                "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+                "period_start": "2026-10-01",
+                "period_end": "2027-09-30",
+                "nature": "simulated"
+              }
+            }
+          },
+          {
+            "id": "system_cost",
+            "amount": {
+              "value": -4.4,
+              "unit": "eur",
+              "provenance": {
+                "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+                "period_start": "2026-10-01",
+                "period_end": "2027-09-30",
+                "nature": "simulated"
+              }
+            }
+          },
+          {
+            "id": "error_cost",
+            "amount": {
+              "value": 0.0,
+              "unit": "eur",
+              "provenance": {
+                "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+                "period_start": "2026-10-01",
+                "period_end": "2027-09-30",
+                "nature": "simulated"
+              }
+            }
+          },
+          {
+            "id": "abandonment_margin_lost",
+            "amount": {
+              "value": 0.0,
+              "unit": "eur",
+              "provenance": {
+                "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+                "period_start": "2026-10-01",
+                "period_end": "2027-09-30",
+                "nature": "simulated"
+              }
+            }
+          }
+        ],
+        "total": {
+          "value": -4.4,
+          "unit": "eur",
+          "provenance": {
+            "origin": "Contract example: economic simulator, unit costs of assumptions-v1 (spec 4 and 8.10)",
+            "period_start": "2026-10-01",
+            "period_end": "2027-09-30",
+            "nature": "simulated"
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "code": "conflict",
+  "message": "the refund of RET-000102 was due by 2026-10-10 (14 days from the notice, rule 3): it is overdue; no message states a past deadline",
+  "violations": [],
+  "request_id": "req-000136"
+}

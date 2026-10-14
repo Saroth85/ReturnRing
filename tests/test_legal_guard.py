@@ -259,6 +259,17 @@ def test_leg09_coupon_rule_and_confirmation() -> None:
     assert "COUPON_CONFIRMATION_MISSING" in codes(blank_confirm, req)
 
 
+@pytest.mark.parametrize("cluster_id", [None, " "])
+def test_leg09_a_cluster_coupon_block_names_its_cluster(cluster_id: str | None) -> None:
+    """Round 4, E2: a cluster coupon block without a cluster could block the coupons of
+    accounts the engine never linked to the customer."""
+    d, req = _q4()
+    assert d.coupon_rule is not None and d.coupon_rule.cluster_id == "R-MARCO"
+    assert "COUPON_CLUSTER_MISSING" not in codes(d, req)
+    orphan = replace(d, coupon_rule=replace(d.coupon_rule, cluster_id=cluster_id))
+    assert "COUPON_CLUSTER_MISSING" in codes(orphan, req)
+
+
 GOOD_CLAIM = DiminishedValueClaim(Decimal("20"), ("photo-1",), confirmed_by="ahmed", rule_id="dv-1")
 
 

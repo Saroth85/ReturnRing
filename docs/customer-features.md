@@ -144,9 +144,11 @@ and no customer feature reads it (rule 6, tested).
 | Reason coherence | Share of withdrawal returns whose reason is specific (size, changed mind, not as expected) and fits the item (a size reason on a sized item) | At least 0.5, judged from 2 withdrawal returns on |
 
 Below any threshold the outcome is **insufficient**, with one plain sentence per missing piece, for
-example "observations: 2 order lines with a settled outcome up to 2026-07-01 00:00 UTC; at least 4
-needed". The policy then gives standard terms: an insufficient case is never safe and never
-suspicious (US-307).
+example "observations: too few order lines with a settled outcome for this account". The
+sentences hold no number and no date, because the LLM case quotes them and llm.case refuses
+numbers it cannot ground (ADR-14 decision 11); the counts, the thresholds and the decision time
+are the table's own columns and its provenance, shown next to the sentence. The policy then gives
+standard terms: an insufficient case is never safe and never suspicious (US-307).
 
 The thresholds are design values, versioned; the results file measures what they do on the
 generated store (share insufficient per component, by behaviour, OOD on a separate row) and sweeps

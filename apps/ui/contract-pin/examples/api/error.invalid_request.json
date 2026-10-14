@@ -1,0 +1,11 @@
+{
+  "code": "invalid_request",
+  "message": "The request body is invalid",
+  "violations": [
+    {
+      "code": "value_error",
+      "message": "body: override needs override_reason and override_category"
+    }
+  ],
+  "request_id": "req-000123"
+}

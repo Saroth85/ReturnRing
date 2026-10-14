@@ -11,11 +11,14 @@
   `python -m pipeline.anomalies.evaluate --data data`, `us-204-risk.md` by `python -m ml.risk
   --data data --out artifacts --scores data`, `us-202-graphsage.md` by `python -m ml.gnn report`
   (`make gnn-results`, from the metrics of `make gnn-asos` and `make embeddings`, which need
-  PyTorch). `make pipeline` then `make results` rewrite all but the first and the last, which need
-  `make asos` and `make propensity`, and the GraphSAGE runs.
+  PyTorch), `benchmarks-cpu.md` and `benchmarks-mi300x.md` by `python -m bench report` from a run
+  of `make bench` (US-902). `make pipeline` then `make results` rewrite the store-based files;
+  US-201 needs `make asos` and `make propensity`, and the GraphSAGE and benchmark files their runs.
 - `graphsage.md` — GraphSAGE (US-202, A4): the ASOS benchmark under both protocols, the customer
   embeddings by link prediction, the same model on DGL and on plain PyTorch, the CI job with
   PyTorch and the commands on the MI300X.
+- `benchmarks.md` — benchmarks B1-B4 (US-902): what each measures, the four rules of spec 12, the
+  cost per decision and its versioned assumptions, the run file served by GET /api/benchmarks.
 - `synthetic-store.md` — the Navigli Fashion generator (US-102..US-105): calibration, behaviours,
   golden cases, out-of-distribution scenario, measured numbers.
 - `customer-features.md` — decision-time customer features, the product/cohort reference model, the

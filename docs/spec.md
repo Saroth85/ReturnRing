@@ -296,7 +296,7 @@ Definition of Done valida per ogni storia: test verdi in modalità CPU e mock, c
 | ID | Storia | Criteri di accettazione | Priorità | Stato |
 | --- | --- | --- | --- | --- |
 | US-901 | Come giudice online voglio provare l'app anche a GPU spenta | Modalità demo con risultati precalcolati sulla MI300X, etichetta visibile e sempre riconoscibile dal live | Must | Da fare |
-| US-902 | Come giudice voglio vedere quanto lavora AMD | Benchmark B1–B4 con versioni, dati e configurazione; tempi a freddo, training, scoring e generazione separati; costo per decisione con l'inattività inclusa | Must | Da fare |
+| US-902 | Come giudice voglio vedere quanto lavora AMD | Benchmark B1–B4 con versioni, dati e configurazione; tempi a freddo, training, scoring e generazione separati; costo per decisione con l'inattività inclusa | Must | In parte: harness `bench/` e `make bench` (docs/benchmarks.md); misure su CPU senza GPU (B1 ridotto, B3 a vuoto contro un server finto, B4 senza GPU); misure sulla MI300X da fare (infra/spikes/README.md) |
 | US-903 | Come presentatore voglio rifare la demo identica | Script di reset dei dati e dei quattro casi d'oro in un comando | Must | Da fare |
 | US-904 | Come giudice voglio un README completo | Avvio in 3 comandi; sezione How the risk is computed; architettura; licenze; limiti dichiarati | Must | Da fare |
 | US-905 | Come giudice voglio vedere la telemetria | Latenza, token al secondo e utilizzo GPU da amd-smi in un pannello di dettaglio | Should | Da fare |

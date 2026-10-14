@@ -721,7 +721,8 @@ def test_e25_checkout_texts_come_from_llm_in_italian_and_english() -> None:
     assert marco["coupon_block"]["text"] == COUPON_BLOCK_TEXT
     giulia = load("checkout_evaluate_response.giulia.json")
     advice = next(x["size_advice"] for x in giulia["lines"] if x["size_advice"])
-    assert advice["text"] == {lang: size_advice_text("specific", lang, "M") for lang in LANGS}
+    # the size guide: the live checkout never suggests a size (ADR-15 section 18)
+    assert advice["text"] == {lang: size_advice_text("measurement_guide", lang) for lang in LANGS}
     s.CheckoutEvaluateResponse.model_validate(marco)
     english = {**COUPON_BLOCK_TEXT, "en": "Coupons are paused for the linked accounts"}
     refused(s.CheckoutEvaluateResponse, mutated(marco, ("coupon_block", "text"), english))
@@ -729,7 +730,10 @@ def test_e25_checkout_texts_come_from_llm_in_italian_and_english() -> None:
             mutated(marco, ("coupon_block", "text"), "Coupons are paused"))  # fmt: skip
     line = next(i for i, x in enumerate(giulia["lines"]) if x["size_advice"])
     refused(s.CheckoutEvaluateResponse,
-            mutated(giulia, ("lines", line, "size_advice", "suggested_size"), "L"))  # fmt: skip
+            mutated(giulia, ("lines", line, "size_advice", "suggested_size"), "M"))  # fmt: skip
+    english = {**advice["text"], "it": advice["text"]["en"]}
+    refused(s.CheckoutEvaluateResponse,
+            mutated(giulia, ("lines", line, "size_advice", "text"), english))  # fmt: skip
 
 
 # ---- E26: a decision record shows the state of its coupon application -----------------------

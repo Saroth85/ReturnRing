@@ -18,7 +18,8 @@ new reset). It talks to the API only, never to data/ (rule 12), and walks the pa
 5. Elena: the guarantee path, no score, no restriction; the anomaly of the variant opens a
    catalogue task that changes no decision (E2E-04, US-606);
 6. a case with insufficient evidence: standard terms and the missing evidence (US-307);
-7. a link dispute from a case: before and after, a new version, the audit entry (US-310);
+7. a link dispute from a case: before and after, a new version, the audit entry (US-310), and
+   whether the decision changed, as /api/demo/cases announced (changes_decision);
 8. the three questions of the agent on the ring case, streamed (US-702); in cached mode the
    GPU is off and the agent answers 503 llm_unavailable, as the contract says (H35);
 9. the manager's matrix, the simulator (ECO-01: 368 EUR), the KPIs of the reset week, the
@@ -693,6 +694,8 @@ class Walk:
         recompute = result["recompute"]
         check(recompute is not None and recompute["trigger"] == "link_disputed", "recomputed")
         before, after = recompute["before"], recompute["after"]
+        decision = ("quadrant", "lever_ids")
+        changed = [before[k] for k in decision] != [after[k] for k in decision]
         if card["customer_id"] in ROSSI_CARD_ACCOUNTS:
             check(after["quadrant"] not in RESTRICTED, "the family is never restricted")
         if chosen is not None and link_id == chosen["link_id"]:
@@ -700,6 +703,7 @@ class Walk:
                 (after["cluster_size"] or 1) == chosen["cluster_size_after"],
                 "the cluster the demo cases announced",
             )
+            check(changed == chosen["changes_decision"], "the decision change it announced")
         new = recompute["decision"]
         check(new["version"] == card["decision"]["version"] + 1, "a new version (F7)")
         check(new["supersedes"] == card["decision"]["decision_id"], "it supersedes the shown one")
@@ -712,6 +716,7 @@ class Walk:
             "affected_return_ids": result["affected_return_ids"],
             "before": {k: before[k] for k in ("quadrant", "cluster_size", "requires_approval")},
             "after": {k: after[k] for k in ("quadrant", "cluster_size", "requires_approval")},
+            "decision_changed": changed,
         }
 
     def agent(self) -> None:

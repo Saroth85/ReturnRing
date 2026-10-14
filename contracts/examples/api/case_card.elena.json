@@ -375,10 +375,12 @@
     "rules_version": "policy-2026-10-12",
     "model_versions": {
       "risk": "risk-xgb-0.1.0",
-      "propensity": "propensity-xgb-0.1.0",
-      "graph": "graph-0.1.0",
+      "risk_customer": "risk-customer-xgb-0.1.0",
+      "checkout": "propensity-xgb-0.1.0",
+      "reference": "reference-xgb-0.1.0",
+      "value": "value-0.1.0",
       "evidence": "evidence-0.1.0",
-      "value": "value-0.1.0"
+      "anomalies": "anomalies-0.1.0"
     },
     "assumptions_version": "assumptions-v1",
     "generation_id": "GEN-000105-1"
@@ -811,8 +813,7 @@
     "catalog_task_id": null,
     "return_ids": [
       "RET-000097",
-      "RET-000099",
-      "RET-000105"
+      "RET-000099"
     ],
     "queued_return_ids": [
       "RET-000105"

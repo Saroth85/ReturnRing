@@ -90,6 +90,21 @@ def _hardware(doc: dict[str, Any]) -> str:
     return f"{what}; {env['backend']} backend; {versions}"
 
 
+def _measured_on(doc: dict[str, Any]) -> str:
+    """The period of a run's timings: the UTC day it started (rule 11)."""
+    at = (doc.get("timings") or {}).get("measured_at")
+    return f"measured on {str(at)[:10]} (UTC)" if at else "date not recorded in the metrics file"
+
+
+def _timing_nature(doc: dict[str, Any]) -> str:
+    """Rule 11: a time measured on real hardware is real (files written before the jobs said so
+    explicitly carry a free-text note instead)."""
+    nature = str((doc.get("timings") or {}).get("nature", ""))
+    if nature.startswith("real"):
+        return nature
+    return "real (measured on the machine named here; varies between runs and machines)"
+
+
 def _run_line(doc: dict[str, Any]) -> str:
     cfg = doc["config"]
     sample = (
@@ -317,9 +332,9 @@ def _timing_section(asos: dict[str, dict[str, Any] | None]) -> list[str]:
             f"### {device.upper()} run",
             "",
             _run_line(doc),
-            f"Nature: {t['nature']}. Load: the machine's 1-minute load average before and after "
-            "training; a load above the number of CPUs means other jobs shared them, and the CPU "
-            "times are an upper bound.",
+            f"Nature: {_timing_nature(doc)}. Period: {_measured_on(doc)}. Load: the machine's "
+            "1-minute load average before and after training; a load above the number of CPUs "
+            "means other jobs shared them, and the CPU times are an upper bound.",
             "",
             *table(
                 ("Phase", "Seconds"),
@@ -512,7 +527,7 @@ def _embedding_section(inputs: dict[str, Any]) -> list[str]:
     for store in ("main", "ood"):
         doc = inputs["embeddings"][store]
         if doc is None:
-            rows.append([store, "not run", *(["n/a"] * 7)])
+            rows.append([store, "not run", *(["n/a"] * 9)])
             continue
         enc = doc["encoder"]
         tr = (enc.get("training") or {}) if enc["trained_here"] else {}
@@ -527,7 +542,9 @@ def _embedding_section(inputs: dict[str, Any]) -> list[str]:
                 _f(tr.get("validation_auc_at_best")) if tr else "-",
                 _s(t.get("training_seconds"), 2) if t.get("training_seconds") else "-",
                 _s(t.get("inference_seconds"), 3),
-                f"{doc['environment']['device']}, {doc['environment']['backend']}",
+                f"{doc['environment']['device']}: {_hardware(doc)}",
+                f"{tr.get('load_average_before')} / {tr.get('load_average_after')}" if tr else "-",
+                _measured_on(doc),
             ]
         )
     enc = main["encoder"]
@@ -561,10 +578,15 @@ def _embedding_section(inputs: dict[str, Any]) -> list[str]:
                 "Validation AUC (self-supervised task)",
                 "Training s",
                 "Inference s (all instants)",
-                "Device, backend",
+                "Device: hardware, backend, versions",
+                "Load before / after training",
+                "Period",
             ),
             rows,
         ),
+        "",
+        f"Timings: nature {_timing_nature(main)}; a load above the number of CPUs means other "
+        "jobs shared them, and the CPU times are an upper bound.",
         "",
         "The AUC measures the self-supervised task (a held-out use against a random value of the "
         "same kind), not abuse detection; what the embeddings add to abuse detection is the A4 "
@@ -677,15 +699,18 @@ def _commands() -> list[str]:
         "make gnn-results             # this file",
         "```",
         "",
-        "MI300X droplet (trainer-graphsage image: rocm/dgl plus this code; DGL backend):",
+        "MI300X droplet (trainer-graphsage image: rocm/dgl plus this code; DGL backend), in the "
+        "order of infra/spikes/README.md, 'The GPU session':",
         "",
         "```bash",
         "make gnn-image               # build the trainer-graphsage image (pulls rocm/dgl)",
-        "make gnn-asos-gpu            # DEVICE=gpu: artifacts/eval/gnn/us-202-asos-gpu.json",
-        "make gnn-asos-cpu-container  # same image, --device cpu: the B2 CPU baseline",
+        "make bench-b2 DEVICE=gpu     # B2: the asos job on the CPU and the MI300X, both",
+        "                             # artifacts/eval/gnn/us-202-asos-{cpu,gpu}.json",
         "make embeddings-gpu          # encoder on the GPU, embeddings copied into data/",
-        "make risk gnn-results        # on the host: A4 row and this file",
         "```",
+        "",
+        "Then on the laptop, with the metrics files and the embeddings copied back: `make risk "
+        "gnn-results` (the A4 row needs the ground truth, which stays on the laptop).",
         "",
         "Tests: `python -m pytest -m torch` with PyTorch installed (skipped without it); on the "
         "droplet `make gnn-test-gpu` also compares the DGL and PyTorch layers on the GPU.",

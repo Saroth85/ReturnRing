@@ -11,10 +11,18 @@ Two jobs, one model family:
   of the synthetic store known at a decision time (no label, rule 12), written as
   features/customer_embeddings for the A4 ablation of ml/risk (ADR-13 amendment 6).
 - `python -m ml.gnn report`: docs/results/us-202-graphsage.md from the metrics files (no torch).
+- `ml.gnn.b2_timing`: the hook of benchmark B2 (bench.b2_gnn, US-902): runs the asos job once per
+  device and data size and projects its metrics file (ml.gnn.b2); `b2_unavailable()` says why it
+  cannot run where PyTorch is missing.
 
 Modules without torch (importable by every job and test): graph (heterogeneous graph indices),
 asos_data (ASOS graph and features per protocol), identity_graph (customer-identifier graph of a
-store snapshot), report. Modules with torch: runtime (device, seeds, backend, timers), model
+store snapshot), report, b2. Modules with torch: runtime (device, seeds, backend, timers), model
 (GraphSAGE: DGL when importable, else the same layers in pure PyTorch), train, asos, embeddings.
 DEVICE=cpu|gpu picks the device (gpu is torch.device("cuda"), also on ROCm), SEED the seed.
 """
+
+from ml.gnn.b2 import b2_timing
+from ml.gnn.b2 import unavailable as b2_unavailable
+
+__all__ = ["b2_timing", "b2_unavailable"]

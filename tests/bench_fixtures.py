@@ -39,6 +39,9 @@ RETURNS: tuple[tuple[str, str, str, str, float | None, str, str | None, str | No
     ("RET-6", "C-ELENA", "not_as_described", "guarantee", None, "90.00", None, None),
 )
 CLUSTER = ("C-MARCO-1", "C-MARCO-2")
+# What pipeline.features.evidence writes for an account with too few settled lines: words only,
+# because llm.case refuses a missing-evidence item with a number in it (ADR-14 decision 11).
+MISSING_EVIDENCE = "observations: too few order lines with a settled outcome for this account"
 
 
 def eur(text: str) -> Decimal:
@@ -140,7 +143,7 @@ def write_store(root: Path) -> Path:
                 "available_at": decided,
             }
         )
-        missing = ["fewer than 3 orders observed"] if evidence == "insufficient" else []
+        missing = [MISSING_EVIDENCE] if evidence == "insufficient" else []
         store["features/evidence_quality"].append(
             {
                 "customer_id": customer,

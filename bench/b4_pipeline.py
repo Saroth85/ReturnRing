@@ -10,12 +10,24 @@ stops at the first command that fails, as make does, and keeps what it measured 
 work folder is outside artifacts/ (which running services mount) and the generated ground truth
 is deleted when the job ends; the logs go to the run folder.
 
+Each step says where it executes (review G3): every step but the generation runs on the CPU, also
+on the droplet (pipeline/ and ml.risk, ml.scoring take no device: XGBoost trains with the CPU
+`hist` method), so its time is a CPU number ("droplet CPU (<model>)"); only batch_generation runs
+on the MI300X, through vLLM, and only with LLM_MODE=vllm (with the mock model it is CPU work too).
+The pipeline total says how many of its seconds ran on the GPU.
+
+The nightly seconds (review G6) are what a production night runs before the drafts: the main
+store's commands of generate (the stand-in for the ingest), graph, features, anomalies and
+scoring. The OOD store (evaluation only), the risk step (offline training and evaluation against
+the generated truth, which a production night does not have) and the generation (the cost adds it
+at the B3 batch-32 rate) are timed but left out; bench.cost reads this sum.
+
 GPU utilisation comes from `amd-smi metric --json` sampled every 5 s (bench.amdsmi): by a host
 sampler writing the samples file (sampler "external", the droplet default, see the Makefile), or
 by a thread of this process ("inprocess"), or not at all ("none", CPU runs). Each step gets the
 samples inside its window: mean and max gfx activity, max VRAM used (vLLM's reservation included
-when it is up), mean power. A step shorter than the interval may get no sample: it then has no
-GPU number rather than a made-up one.
+when it is up), mean power: MI300X readings, whatever the step ran on. A step shorter than the
+interval may get no sample: it then has no GPU number rather than a made-up one.
 """
 
 from __future__ import annotations
@@ -40,11 +52,22 @@ SamplerMode = Literal["none", "inprocess", "external"]
 CALIBRATION = Path("pipeline/calibration/asos_calibration.json")
 
 
+Executes = Literal["cpu", "gpu", "vllm"]
+
+
 @dataclass(frozen=True)
 class Step:
     name: str
     title: str
     commands: tuple[tuple[str, ...], ...]  # argv templates: {python} {data} {artifacts} ...
+    # Where the work runs on a GPU run: "cpu", "gpu" (the step itself uses the GPU), or "vllm"
+    # (the GPU through the local vLLM, when LLM_MODE=vllm; the mock model runs on the CPU).
+    executes_on: Executes = "cpu"
+    # Per command: part of a production night (None: every command). bench.cost reads the sum.
+    nightly: tuple[bool, ...] | None = None
+
+    def is_nightly(self, index: int) -> bool:
+        return self.nightly is None or self.nightly[index]
 
 
 PY = "{python}"
@@ -70,6 +93,7 @@ STEPS: tuple[Step, ...] = (
             )
             for scenario in ("main", "ood")
         ),
+        nightly=(True, False),
     ),
     Step(
         "graph",
@@ -78,6 +102,7 @@ STEPS: tuple[Step, ...] = (
             (PY, "-m", "pipeline.graph", "--store", "{data}"),
             (PY, "-m", "pipeline.graph", "--store", "{data}/ood"),
         ),
+        nightly=(True, False),
     ),
     Step(
         "features",
@@ -96,6 +121,7 @@ STEPS: tuple[Step, ...] = (
                 "{data}",
             ),
         ),
+        nightly=(True, False),
     ),
     Step(
         "anomalies",
@@ -104,6 +130,7 @@ STEPS: tuple[Step, ...] = (
             (PY, "-m", "pipeline.anomalies", "--store", "{data}", "--out", "{data}"),
             (PY, "-m", "pipeline.anomalies", "--store", "{data}/ood", "--out", "{data}/ood"),
         ),
+        nightly=(True, False),
     ),
     Step(
         "risk",
@@ -123,6 +150,7 @@ STEPS: tuple[Step, ...] = (
                 "{artifacts}/us-204-risk.md",
             ),
         ),
+        nightly=(False,),  # offline training and evaluation: not a production night's work
     ),
     Step(
         "scoring",
@@ -142,6 +170,7 @@ STEPS: tuple[Step, ...] = (
                 "{artifacts}/eval/scores/fairness.json",
             ),
         ),
+        nightly=(True,),
     ),
     Step(
         "batch_generation",
@@ -159,6 +188,7 @@ STEPS: tuple[Step, ...] = (
                 "{concurrency}",
             ),
         ),
+        executes_on="vllm",
     ),
 )
 STEP_NAMES = tuple(s.name for s in STEPS)
@@ -188,6 +218,9 @@ class B4Config:
         unknown = [s for s in self.steps if s not in names]
         if unknown or not self.steps:
             raise ValueError(f"unknown steps {unknown}; steps are {names}")
+        for step in self.table:
+            if step.nightly is not None and len(step.nightly) != len(step.commands):
+                raise ValueError(f"step {step.name}: one nightly flag per command")
         if self.sampler not in ("none", "inprocess", "external"):
             raise ValueError(f"sampler {self.sampler!r}")
 
@@ -212,6 +245,44 @@ def _values(config: B4Config) -> dict[str, str]:
     }
 
 
+def executes_on(step: Step, config: B4Config) -> str:
+    """The API device a step's time belongs to: "mi300x" only for work that ran on the GPU."""
+    if config.device != "gpu" or step.executes_on == "cpu":
+        return "cpu"
+    if step.executes_on == "vllm" and _environment(config)["LLM_MODE"] != "vllm":
+        return "cpu"
+    return "mi300x"
+
+
+def nightly_summary(table: Sequence[Step], steps: Sequence[dict[str, Any]]) -> dict[str, Any]:
+    """The seconds of a production night before the drafts (bench.cost reads them), and what
+    was timed but left out."""
+    by_name = {s.name: s for s in table}
+    seconds = 0.0
+    included: list[str] = []
+    excluded: list[str] = []
+    for record in steps:
+        step = by_name[record["name"]]
+        n = len(step.commands)
+        for i, command in enumerate(record["commands"]):
+            label = record["name"] if n == 1 else f"{record['name']} (command {i + 1} of {n})"
+            if step.is_nightly(i) and step.executes_on != "vllm":
+                seconds += command["seconds"]
+                included.append(label)
+            else:
+                excluded.append(label)
+    complete = len(steps) > 0 and all(r["ok"] for r in steps)
+    return {
+        "seconds": round(seconds, 3),
+        "complete": complete,
+        "included": included,
+        "excluded": excluded,
+        "what": "a production night before the drafts: the main store's generate (stand-in for "
+        "the ingest), graph, features, anomalies and scoring; the OOD store, the offline risk "
+        "evaluation and the generation (the cost adds it at the B3 batch-32 rate) left out",
+    }
+
+
 def _environment(config: B4Config) -> dict[str, str]:
     llm_mode = config.llm_mode or ("vllm" if config.device == "gpu" else "mock")
     return {
@@ -231,7 +302,12 @@ def run_steps(config: B4Config, log: Log = lambda _m: None) -> list[dict[str, An
     logs.mkdir(parents=True, exist_ok=True)
     records: list[dict[str, Any]] = []
     for step in (s for s in config.table if s.name in config.steps):
-        record: dict[str, Any] = {"name": step.name, "title": step.title, "commands": []}
+        record: dict[str, Any] = {
+            "name": step.name,
+            "title": step.title,
+            "executes_on": executes_on(step, config),
+            "commands": [],
+        }
         record["start_unix"] = time.time()
         t0 = time.perf_counter()
         failed = False
@@ -255,6 +331,7 @@ def run_steps(config: B4Config, log: Log = lambda _m: None) -> list[dict[str, An
                     "seconds": round(time.perf_counter() - c0, 3),
                     "exit_code": code,
                     "log": str(log_path),
+                    "nightly": step.is_nightly(i) and step.executes_on != "vllm",
                 }
             )
             if code != 0:
@@ -298,7 +375,10 @@ def run_b4(config: B4Config, log: Log = lambda _m: None) -> Part:
         else None
     )
     ok = bool(steps) and all(s["ok"] for s in steps) and len(steps) == len(config.steps)
-    measurements = _measurements(config, steps, whole, hardware, started.date(), finished.date())
+    nightly = nightly_summary(config.table, steps)
+    measurements = _measurements(
+        config, steps, whole, nightly, hardware, started.date(), finished.date()
+    )
     timeline = (
         [s.to_dict() for s in samples if steps[0]["start_unix"] <= s.t <= steps[-1]["end_unix"]]
         if steps
@@ -327,6 +407,14 @@ def run_b4(config: B4Config, log: Log = lambda _m: None) -> Part:
         )
     if config.sampler == "none":
         notes.append("No GPU sampling in this run (CPU only).")
+    if gpu:
+        on_gpu = [s["name"] for s in steps if s["executes_on"] == "mi300x"]
+        notes.append(
+            "Every step but "
+            + (", ".join(on_gpu) if on_gpu else "none")
+            + " ran on the droplet CPU and is reported as a CPU time; the GPU numbers of a CPU "
+            "step are amd-smi readings of the MI300X during it (vLLM's reservation included)."
+        )
     return Part(
         benchmark="B4",
         status="measured" if ok else "failed",
@@ -355,6 +443,7 @@ def run_b4(config: B4Config, log: Log = lambda _m: None) -> Part:
         notes=notes,
         details={
             "steps": [{k: v for k, v in s.items()} for s in steps],
+            "nightly": nightly,
             "gpu_whole_pipeline": whole,
             "gpu_timeline": timeline[:5000],
         },
@@ -366,64 +455,125 @@ def _measurements(
     config: B4Config,
     steps: Sequence[dict[str, Any]],
     whole: dict[str, Any] | None,
+    nightly: dict[str, Any],
     hardware: dict[str, Any],
     start: date,
     end: date,
 ) -> list[Measurement]:
     gpu = config.device == "gpu"
-    where = "MI300X droplet" if gpu else f"{hardware['cpu']}, {hardware['logical_cpus']} CPUs"
+    cpu = f"{hardware['cpu']}, {hardware['logical_cpus']} CPUs"
+    where = {
+        "cpu": f"the droplet CPU ({cpu})" if gpu else cpu,
+        "mi300x": "the MI300X droplet (the GPU through vLLM)",
+    }
     sampling = (
         f"GPU from amd-smi every {config.interval_s:g} s"
         if config.sampler != "none"
         else "no GPU sampling"
     )
-    origin = short(
-        f"B4, measured by bench on {where}: wall time of each nightly pipeline step "
-        f"(seed {config.seed}, scale {config.scale:g}); {sampling}"
-    )
-    common: dict[str, Any] = {
-        "benchmark": "B4",
-        "device": "mi300x" if gpu else "cpu",
-        "origin": origin,
-        "period_start": start,
-        "period_end": end,
-        "nature": "real",
-        "data_nature": "synthetic",
-        "phase": "pipeline",
+
+    def common(device: str) -> dict[str, Any]:
+        return {
+            "benchmark": "B4",
+            "device": device,
+            "origin": short(
+                f"B4, measured by bench on {where[device]}: wall time of nightly pipeline steps "
+                f"(seed {config.seed}, scale {config.scale:g}); {sampling}"
+            ),
+            "period_start": start,
+            "period_end": end,
+            "nature": "real",
+            "data_nature": "synthetic",
+            "phase": "pipeline",
+        }
+
+    gpu_readings = {
+        **common("mi300x"),
+        "origin": short(
+            f"B4, amd-smi readings of the MI300X every {config.interval_s:g} s during nightly "
+            f"pipeline steps (seed {config.seed}, scale {config.scale:g})"
+        ),
     }
     out: list[Measurement] = []
     for step in steps:
         if not step["ok"]:
             continue
+        device = step["executes_on"]
         out.append(
             Measurement(
                 metric=f"step_seconds_{step['name']}",
-                label=short(f"Nightly pipeline step {step['name']}: {step['title']}"),
+                label=short(
+                    f"Nightly pipeline step {step['name']}: {step['title']} "
+                    f"(ran on {'the MI300X' if device == 'mi300x' else 'the CPU'})"
+                ),
                 value=step["seconds"],
                 unit="seconds",
                 repeats=1,
                 warm=False,
-                **common,
+                **common(device),
                 detail={"commands": [c["seconds"] for c in step["commands"]]},
             )
         )
-        out += _gpu_measurements(step["gpu"], step["name"], f"step {step['name']}", common)
+        out += _gpu_measurements(step["gpu"], step["name"], f"step {step['name']}", gpu_readings)
     if steps and all(s["ok"] for s in steps):
+        on_gpu = [s for s in steps if s["executes_on"] == "mi300x"]
+        gpu_seconds = round(sum(s["seconds"] for s in on_gpu), 3)
+        total = round(sum(s["seconds"] for s in steps), 3)
+        split = (
+            f"; {gpu_seconds:,.1f} s of it on the MI300X ({', '.join(s['name'] for s in on_gpu)})"
+            f", the rest on the CPU"
+            if on_gpu
+            else "; every step on the CPU"
+        )
         out.append(
             Measurement(
                 metric="pipeline_seconds_total",
                 label=short(
                     f"Nightly pipeline, {len(steps)} steps one after the other: "
                     + ", ".join(s["name"] for s in steps)
+                    + split
                 ),
-                value=round(sum(s["seconds"] for s in steps), 3),
+                value=total,
                 unit="seconds",
                 repeats=1,
                 warm=False,
-                **common,
+                detail={"gpu_seconds": gpu_seconds, "cpu_seconds": round(total - gpu_seconds, 3)},
+                **common("cpu" if len(on_gpu) < len(steps) else "mi300x"),
             )
         )
-        out += _gpu_measurements(whole, "total", "the whole pipeline", common)
+        if on_gpu:
+            out.append(
+                Measurement(
+                    metric="pipeline_seconds_gpu_steps",
+                    label=short(
+                        "Nightly pipeline steps that ran on the MI300X: "
+                        + ", ".join(s["name"] for s in on_gpu)
+                    ),
+                    value=gpu_seconds,
+                    unit="seconds",
+                    repeats=1,
+                    warm=False,
+                    **common("mi300x"),
+                )
+            )
+        if nightly["included"]:
+            out.append(
+                Measurement(
+                    metric="pipeline_seconds_nightly",
+                    label=short(
+                        "Nightly operating work before the drafts (the cost's input): "
+                        + ", ".join(nightly["included"])
+                        + "; without the OOD store, the risk evaluation and the generation"
+                    ),
+                    value=nightly["seconds"],
+                    unit="seconds",
+                    repeats=1,
+                    warm=False,
+                    detail={"excluded": nightly["excluded"]},
+                    **common("cpu"),
+                )
+            )
+        out += _gpu_measurements(whole, "total", "the whole pipeline", gpu_readings)
     return out
 
 

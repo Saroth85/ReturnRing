@@ -1,26 +1,40 @@
-"""B2: GraphSAGE on ASOS GraphReturns, CPU against the MI300X, and F1 against the paper (US-902).
+"""B2: GraphSAGE on ASOS GraphReturns, CPU against the MI300X, and F1 as US-202 states it.
 
-ml/gnn is built in parallel (US-202). B2 calls one function of it and nothing else:
+B2 calls one function of ml/gnn (US-202) and nothing else:
 
-    ml.gnn.b2_timing(raw_dir: Path, *, protocol: "A" | "B", device: "cpu" | "cuda",
-                     seed: int) -> Mapping[str, object]
+    ml.gnn.b2_timing(raw_dir: Path, *, protocol: "A" | "B", device: "cpu" | "cuda", seed: int,
+                     sample: float, out: Path, controls: bool, extra_args: tuple[str, ...])
+        -> Mapping[str, object]  # GnnTiming below
 
-which trains the model of spec 8.1 (SAGEConv 16, max-pool, dropout 0.2, Adam 0.01, heterogeneous
-graph with brand, product type and reason nodes) on the raw ASOS tables of `raw_dir` with the
-same data, parameters and seed on both devices, and returns the record GnnTiming below (one
-process per call is fine; the first epoch includes the device initialisation). B2 checks the
-record and turns it into measurements; a requested GPU run whose device_effective is the CPU is
-refused, never reported as a GPU number. When ml.gnn or b2_timing is absent, B2 is "skipped" with
-the reason, and the run goes on.
+which runs the US-202 job (`python -m ml.gnn asos`, a fresh process per device and data size) and
+projects its metrics file (ml/gnn/b2.py). The full-data runs write the US-202 files
+(<out>/eval/gnn/us-202-asos-<cpu|gpu>.json, read by `make gnn-results`), so the droplet trains
+each device once for B2 and US-202. B2 checks each record and turns it into measurements:
 
-Standard library only: B2 runs in the trainer-gnn image (rocm/dgl), next to torch and DGL.
+- speedup: CPU median epoch over GPU median epoch (the US-202 definition; every epoch is the same
+  work on both devices), and CPU over GPU inference, only between two records whose `comparable`
+  settings are identical (spec 12, 'Qualità comparabile'). The whole training loop is reported
+  but never divided: early stopping ends at a different epoch on each device;
+- F1 as US-202 states it: protocol B on the decision-time population (no paper reference, ADR-10),
+  protocol A on the full test set next to the paper's GNN F1 0.792 (paper protocol, NFR-16);
+  measured on the full data only;
+- cold start: the job's own (torch and DGL import, device context, first kernels, in a fresh
+  process), once per device and data size;
+- growing loads (spec 12): seeded customer samples (default 25%, 50% and 100%), the smaller ones
+  timing GraphSAGE alone (no MLP or XGBoost control), written under the run folder so they never
+  replace the US-202 files.
+
+A requested GPU run whose effective device is the CPU is refused, never reported as a GPU number.
+When ml.gnn is absent, has no b2_timing, or cannot train here (b2_unavailable: no PyTorch), B2 is
+"skipped" with the reason, and the run goes on.
+
+Standard library only: B2 runs in the trainer-graphsage image (rocm/dgl plus the US-202 stack).
 """
 
 from __future__ import annotations
 
 import importlib
 import math
-import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -28,13 +42,19 @@ from typing import Any, Literal, NotRequired, TypedDict
 
 from bench import env
 from bench.record import Measurement, Part, short, utc_now
-from bench.stats import median, summary
+from bench.stats import summary
 
 GNN_MODULE = "ml.gnn"
 GNN_FUNCTION = "b2_timing"
-PAPER_GNN_F1 = 0.792  # arXiv:2302.14096, GNN (spec 8.1)
+GNN_UNAVAILABLE = "b2_unavailable"
+PAPER_GNN_F1 = 0.792  # arXiv:2302.14096, GNN, paper protocol (A) only
 API_PROTOCOL = {"A": "paper", "B": "decision_time"}
 API_DEVICE = {"cpu": "cpu", "cuda": "mi300x"}
+POPULATION = {"A": "all", "B": "decision_time"}  # the population US-202 states per protocol
+POPULATION_TEXT = {
+    "all": "full test set",
+    "decision_time": "decision-time test population",
+}
 
 Log = Callable[[str], None]
 Hook = Callable[..., Mapping[str, object]]
@@ -46,22 +66,34 @@ class GnnTiming(TypedDict):
     protocol: Literal["A", "B"]
     device_requested: Literal["cpu", "cuda"]
     device_effective: str  # torch device actually used, e.g. "cuda:0" or "cpu"
-    nodes: int
-    edges: int  # labelled customer-variant edges trained on
-    epochs: int
-    cold_start_seconds: float  # first epoch, device initialisation and kernel loading included
-    epoch_seconds: list[float]  # every epoch after the first
-    train_seconds: float  # the whole training loop, graph building excluded
-    inference_seconds: float  # scoring the test edges
-    f1: float  # on the test split, at `threshold`
+    model: str  # what was trained, from the run's own configuration
+    comparable: dict[str, object]  # settings two devices must share for a speedup
+    sample: float  # share of customers kept (1.0: every event)
+    nodes: int  # customer and variant nodes of the train graph
+    edges: int  # labelled events trained on
+    epochs: int  # epochs run (early stopping)
+    cold_start_seconds: float  # the job's: torch and DGL import, device context, first kernels
+    epoch_seconds: list[float]  # every epoch, the first included
+    epoch_seconds_median: float  # median of epoch_seconds: the speedup basis (US-202)
+    train_seconds: float  # the whole training loop
+    inference_seconds: float  # scoring the test events
+    f1: float  # at the validation threshold, on `population`
+    f1_at_half: float
     threshold: float
-    population: str  # which test events the F1 is on, e.g. "full test set"
+    population: str  # "decision_time" (protocol B) or "all" (protocol A), as US-202 states it
+    population_events: int
     data_origin: str  # provenance origin of the raw tables read (rule 11)
-    versions: dict[str, str]  # torch, dgl, hip
+    versions: dict[str, str]  # torch, HIP, DGL, backend
+    hardware: str  # CPU model and threads, or GPU name and architecture
     peak_memory_gib: NotRequired[float | None]
     graph_build_seconds: NotRequired[float | None]
     precision: NotRequired[float | None]
     recall: NotRequired[float | None]
+    best_epoch: NotRequired[int | None]
+    load_average_before_after: NotRequired[list[float | None]]
+    measured_at: NotRequired[str | None]
+    comparisons: NotRequired[dict[str, dict[str, float]]]  # other models, same events
+    metrics_file: NotRequired[str]
 
 
 # Written out: with postponed annotations TypedDict cannot see NotRequired.
@@ -69,22 +101,30 @@ REQUIRED_KEYS = (
     "protocol",
     "device_requested",
     "device_effective",
+    "model",
+    "comparable",
+    "sample",
     "nodes",
     "edges",
     "epochs",
     "cold_start_seconds",
     "epoch_seconds",
+    "epoch_seconds_median",
     "train_seconds",
     "inference_seconds",
     "f1",
+    "f1_at_half",
     "threshold",
     "population",
+    "population_events",
     "data_origin",
     "versions",
+    "hardware",
 )
-_NUMBERS = ("cold_start_seconds", "train_seconds", "inference_seconds", "f1", "threshold")
-_INTEGERS = ("nodes", "edges", "epochs")
-_TEXTS = ("device_effective", "population", "data_origin")
+_SECONDS = ("cold_start_seconds", "epoch_seconds_median", "train_seconds", "inference_seconds")
+_RATIOS = ("f1", "f1_at_half", "threshold")
+_INTEGERS = ("nodes", "edges", "epochs", "population_events")
+_TEXTS = ("device_effective", "model", "population", "data_origin", "hardware")
 
 
 class TimingError(ValueError):
@@ -96,7 +136,28 @@ class B2Config:
     raw_dir: Path
     devices: tuple[str, ...] = ("cpu",)
     protocols: tuple[str, ...] = ("A", "B")
+    samples: tuple[float, ...] = (0.25, 0.5, 1.0)
     seed: int = 42
+    out: Path = Path("artifacts")  # the US-202 artifacts folder (full-data runs)
+    run_dir: Path | None = None  # the bench run folder (sampled runs go below it)
+    job_args: tuple[str, ...] = ()  # extra arguments of the job (tests: fewer epochs)
+
+    def __post_init__(self) -> None:
+        if not self.samples or any(not 0 < s <= 1 for s in self.samples):
+            raise ValueError("samples must be in (0, 1]")
+        if not self.devices or any(d not in API_DEVICE for d in self.devices):
+            raise ValueError(f"devices must be among {tuple(API_DEVICE)}")
+
+    def out_for(self, sample: float) -> Path:
+        """Full data: the US-202 folder; a sample: its own folder under the run."""
+        if sample >= 1.0:
+            return self.out
+        base = self.run_dir if self.run_dir is not None else self.out / "bench-b2"
+        return base / f"b2-sample-{_pct(sample)}"
+
+
+def _pct(sample: float) -> str:
+    return f"{sample * 100:g}".replace(".", "_")
 
 
 def find_hook() -> tuple[Hook | None, str]:
@@ -105,13 +166,15 @@ def find_hook() -> tuple[Hook | None, str]:
         module = importlib.import_module(GNN_MODULE)
     except ModuleNotFoundError as exc:
         if exc.name in (GNN_MODULE, "ml"):
-            return None, (
-                f"{GNN_MODULE} is not in this checkout (US-202 is built in parallel): B2 skipped"
-            )
+            return None, f"{GNN_MODULE} is not in this checkout: B2 skipped"
         raise
     hook = getattr(module, GNN_FUNCTION, None)
     if not callable(hook):
         return None, f"{GNN_MODULE} has no {GNN_FUNCTION}(): B2 skipped"
+    check = getattr(module, GNN_UNAVAILABLE, None)
+    reason = check() if callable(check) else None
+    if reason:
+        return None, f"{reason}: B2 skipped"
     return hook, ""
 
 
@@ -133,8 +196,13 @@ def check_timing(record: Mapping[str, object], protocol: str, device: str) -> Gn
             f"asked for protocol {protocol} on {device}, got {record['protocol']} on "
             f"{record['device_requested']}"
         )
-    for name in _NUMBERS:
-        _finite(record[name], name, high=1.0 if name in ("f1", "threshold") else math.inf)
+    for name in _SECONDS:
+        _finite(record[name], name)
+    for name in _RATIOS:
+        _finite(record[name], name, high=1.0)
+    sample = record["sample"]
+    if isinstance(sample, bool) or not isinstance(sample, int | float) or not 0 < sample <= 1:
+        raise TimingError(f"sample must be in (0, 1], got {sample!r}")
     for name in _INTEGERS:
         value = record[name]
         if isinstance(value, bool) or not isinstance(value, int) or value < 1:
@@ -142,11 +210,18 @@ def check_timing(record: Mapping[str, object], protocol: str, device: str) -> Gn
     for name in _TEXTS:
         if not isinstance(record[name], str) or not str(record[name]).strip():
             raise TimingError(f"{name} must be a non-empty string")
+    if record["population"] != POPULATION[protocol]:
+        raise TimingError(
+            f"US-202 states protocol {protocol} on population {POPULATION[protocol]}, got "
+            f"{record['population']!r}"
+        )
     epochs = record["epoch_seconds"]
     if not isinstance(epochs, list) or not epochs:
         raise TimingError("epoch_seconds must be a non-empty list")
     for value in epochs:
         _finite(value, "epoch_seconds")
+    if not isinstance(record["comparable"], Mapping):
+        raise TimingError("comparable must map setting names to values")
     versions = record["versions"]
     if not isinstance(versions, Mapping) or not all(
         isinstance(k, str) and isinstance(v, str) for k, v in versions.items()
@@ -161,18 +236,18 @@ def check_timing(record: Mapping[str, object], protocol: str, device: str) -> Gn
     return timing
 
 
-def _measurements(
-    timing: GnnTiming, started_on: Any, hardware: Mapping[str, Any]
-) -> list[Measurement]:
+def _measurements(timing: GnnTiming, started_on: Any, first_of_job: bool) -> list[Measurement]:
     device = timing["device_requested"]
     protocol = timing["protocol"]
-    where = "MI300X" if device == "cuda" else f"{hardware.get('cpu')}"
+    where = f"MI300X: {timing['hardware']}" if device == "cuda" else timing["hardware"]
     versions = ", ".join(f"{k} {v}" for k, v in sorted(timing["versions"].items()))
+    full = timing["sample"] >= 1.0
+    data = "every event" if full else f"seeded {timing['sample']:.0%} customer sample"
     origin = short(
-        f"B2, measured by bench through ml.gnn.b2_timing on {where} ({versions}); "
-        f"{timing['data_origin']}; protocol {protocol} (ADR-10)"
+        f"B2, measured by bench through ml.gnn.b2_timing (US-202 job) on {where} ({versions}); "
+        f"{timing['data_origin']}; protocol {protocol} (ADR-10), {data}"
     )
-    graph = f"{timing['nodes']:,} nodes, {timing['edges']:,} labelled edges"
+    graph = f"{timing['nodes']:,} nodes, {timing['edges']:,} training events, {data}"
     common: dict[str, Any] = {
         "benchmark": "B2",
         "device": API_DEVICE[device],
@@ -181,86 +256,160 @@ def _measurements(
         "period_end": utc_now().date(),
         "nature": "real",
         "data_nature": "real",
-        "protocol": API_PROTOCOL[protocol],
         "rows": timing["edges"],
     }
     p = protocol.lower()
-    epoch_median = round(median(timing["epoch_seconds"]), 4)
-    out = [
+    size = f"{_pct(timing['sample'])}pct"
+    out: list[Measurement] = []
+    if first_of_job:
+        out.append(
+            Measurement(
+                metric=f"gnn_cold_start_seconds_{size}",
+                label=short(
+                    "GraphSAGE job cold start: import torch and DGL, device context and first "
+                    f"kernels, in a fresh process ({data})"
+                ),
+                value=round(timing["cold_start_seconds"], 3),
+                unit="seconds",
+                phase="cold_start",
+                warm=False,
+                repeats=1,
+                **{**common, "rows": None},
+            )
+        )
+    out += [
         Measurement(
-            metric=f"gnn_cold_start_seconds_{p}",
+            metric=f"gnn_epoch_seconds_median_{p}_{size}",
             label=short(
-                f"GraphSAGE first epoch, protocol {protocol} ({graph}), device "
-                "initialisation included"
+                f"GraphSAGE median epoch, protocol {protocol} ({graph}): the speedup basis, the "
+                "same work on every device"
             ),
-            value=round(timing["cold_start_seconds"], 3),
+            value=round(timing["epoch_seconds_median"], 4),
             unit="seconds",
-            phase="cold_start",
-            warm=False,
-            repeats=1,
+            phase="training",
+            warm=True,
+            repeats=len(timing["epoch_seconds"]),
+            detail={"epoch_seconds": summary(timing["epoch_seconds"], 4)},
+            protocol=API_PROTOCOL[protocol],
             **common,
         ),
         Measurement(
-            metric=f"gnn_train_seconds_{p}",
+            metric=f"gnn_train_seconds_{p}_{size}",
             label=short(
-                f"GraphSAGE training, protocol {protocol} ({graph}), {timing['epochs']} epochs"
+                f"GraphSAGE training loop, protocol {protocol} ({graph}), {timing['epochs']} "
+                "epochs until early stopping: not a speedup basis"
             ),
             value=round(timing["train_seconds"], 3),
             unit="seconds",
             phase="training",
             warm=False,
             repeats=1,
+            protocol=API_PROTOCOL[protocol],
             **common,
         ),
         Measurement(
-            metric=f"gnn_epoch_seconds_median_{p}",
-            label=short(f"GraphSAGE epoch time, median after the first, protocol {protocol}"),
-            value=epoch_median,
-            unit="seconds",
-            phase="training",
-            warm=True,
-            repeats=len(timing["epoch_seconds"]),
-            detail={"epoch_seconds": summary(timing["epoch_seconds"], 4)},
-            **common,
-        ),
-        Measurement(
-            metric=f"gnn_inference_seconds_{p}",
-            label=short(f"GraphSAGE scoring of the test edges, protocol {protocol}"),
+            metric=f"gnn_inference_seconds_{p}_{size}",
+            label=short(f"GraphSAGE scoring of the test events, protocol {protocol} ({data})"),
             value=round(timing["inference_seconds"], 3),
             unit="seconds",
             phase="scoring",
             warm=True,
             repeats=1,
-            **common,
-        ),
-        Measurement(
-            metric=f"gnn_f1_{p}",
-            label=short(
-                f"GraphSAGE F1 on the ASOS test split ({timing['population']}), protocol "
-                f"{protocol}, threshold {timing['threshold']:.3f}; paper GNN F1 {PAPER_GNN_F1}"
-                + (" (paper protocol: not product performance, NFR-16)" if protocol == "A" else "")
-            ),
-            value=round(timing["f1"], 4),
-            unit="ratio",
-            phase="scoring",
-            repeats=1,
+            protocol=API_PROTOCOL[protocol],
             **common,
         ),
     ]
+    if full:
+        population = POPULATION_TEXT[timing["population"]]
+        events = f"{timing['population_events']:,} events"
+        if protocol == "A":
+            reference = (
+                f"; paper GNN F1 {PAPER_GNN_F1} (paper protocol: not product performance, NFR-16)"
+            )
+        else:
+            reference = "; decision-time protocol (ADR-10): no published figure applies"
+        for metric, value, at in (
+            (f"gnn_f1_{p}", timing["f1"], f"validation threshold {timing['threshold']:.3f}"),
+            (f"gnn_f1_at_half_{p}", timing["f1_at_half"], "threshold 0.5"),
+        ):
+            out.append(
+                Measurement(
+                    metric=metric,
+                    label=short(
+                        f"GraphSAGE F1, protocol {protocol}, ASOS {population} ({events}), {at}"
+                        + reference
+                    ),
+                    value=round(value, 4),
+                    unit="ratio",
+                    phase="scoring",
+                    repeats=1,
+                    protocol=API_PROTOCOL[protocol],
+                    **common,
+                )
+            )
     peak = timing.get("peak_memory_gib")
     if peak is not None:
         out.append(
             Measurement(
-                metric=f"gnn_peak_memory_gib_{p}",
-                label=short(f"GraphSAGE peak device memory, protocol {protocol}"),
+                metric=f"gnn_peak_memory_gib_{p}_{size}",
+                label=short(f"GraphSAGE peak device memory, protocol {protocol} ({data})"),
                 value=round(float(peak), 3),
                 unit="gib",
                 phase="training",
                 repeats=1,
+                protocol=API_PROTOCOL[protocol],
                 **common,
             )
         )
     return out
+
+
+def _speedup(cpu: Mapping[str, Any], gpu: Mapping[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {
+        "protocol": cpu["protocol"],
+        "sample": cpu["sample"],
+        "epochs": {"cpu": cpu["epochs"], "mi300x": gpu["epochs"]},
+        "epoch_seconds_median": {
+            "cpu": cpu["epoch_seconds_median"],
+            "mi300x": gpu["epoch_seconds_median"],
+        },
+    }
+    if cpu["comparable"] != gpu["comparable"]:
+        differ = sorted(
+            k
+            for k in set(cpu["comparable"]) | set(gpu["comparable"])
+            if cpu["comparable"].get(k) != gpu["comparable"].get(k)
+        )
+        out["not_computed"] = f"different settings on the two devices: {', '.join(differ)}"
+        return out
+    if gpu["epoch_seconds_median"] > 0:
+        ratio = cpu["epoch_seconds_median"] / gpu["epoch_seconds_median"]
+        out["epoch_cpu_over_gpu"] = round(ratio, 3)
+    if gpu["inference_seconds"] > 0:
+        out["inference_cpu_over_gpu"] = round(
+            cpu["inference_seconds"] / gpu["inference_seconds"], 3
+        )
+    if cpu["sample"] >= 1.0:
+        out["f1"] = {"cpu": cpu["f1"], "mi300x": gpu["f1"]}
+    return out
+
+
+def _skipped(started: Any, reason: str, hardware: dict[str, Any]) -> Part:
+    return Part(
+        benchmark="B2",
+        status="skipped",
+        title="GraphSAGE on ASOS GraphReturns: CPU against MI300X, F1",
+        dataset="ASOS GraphReturns, paper and decision-time protocols (ADR-10)",
+        started_at=started,
+        finished_at=utc_now(),
+        versions=env.software(),
+        notes=[reason],
+        details={
+            "interface": f"{GNN_MODULE}.{GNN_FUNCTION}(raw_dir, *, protocol, device, seed, "
+            "sample, out, controls, extra_args) -> GnnTiming (bench/b2_gnn.py)"
+        },
+        hardware=hardware,
+    )
 
 
 def run_b2(config: B2Config, log: Log = lambda _m: None, hook: Hook | None = None) -> Part:
@@ -270,65 +419,83 @@ def run_b2(config: B2Config, log: Log = lambda _m: None, hook: Hook | None = Non
     found, reason = (hook, "") if hook is not None else find_hook()
     if found is None:
         log(reason)
-        return Part(
-            benchmark="B2",
-            status="skipped",
-            title="GraphSAGE on ASOS GraphReturns: CPU against MI300X, F1",
-            dataset="ASOS GraphReturns, paper and decision-time protocols (ADR-10)",
-            started_at=started,
-            finished_at=utc_now(),
-            versions=env.software(),
-            notes=[reason],
-            details={
-                "interface": f"{GNN_MODULE}.{GNN_FUNCTION}(raw_dir, *, protocol, device, "
-                "seed) -> GnnTiming (bench/b2_gnn.py)"
-            },
-            hardware=hardware,
-        )
+        return _skipped(started, reason, hardware)
     measurements: list[Measurement] = []
     records: list[dict[str, Any]] = []
     versions = env.software(("torch", "dgl"))
-    for protocol in config.protocols:
-        for device in config.devices:
-            t0 = time.perf_counter()
-            raw = found(config.raw_dir, protocol=protocol, device=device, seed=config.seed)
-            timing = check_timing(raw, protocol, device)
-            log(f"B2 {protocol} {device}: {timing['train_seconds']:.1f} s, F1 {timing['f1']:.4f}")
-            versions.update(timing["versions"])
-            records.append({**timing, "call_seconds": round(time.perf_counter() - t0, 3)})
-            measurements += _measurements(timing, started.date(), hardware)
+    jobs_seen: set[tuple[str, float]] = set()
+    for sample in config.samples:
+        out = config.out_for(sample)
+        for protocol in config.protocols:
+            for device in config.devices:
+                raw = found(
+                    config.raw_dir,
+                    protocol=protocol,
+                    device=device,
+                    seed=config.seed,
+                    sample=sample,
+                    out=out,
+                    controls=sample >= 1.0,
+                    extra_args=config.job_args,
+                )
+                timing = check_timing(raw, protocol, device)
+                if timing["sample"] != sample:
+                    raise TimingError(f"asked for a {sample:g} sample, got {timing['sample']:g}")
+                log(
+                    f"B2 {protocol} {device} {sample:.0%}: median epoch "
+                    f"{timing['epoch_seconds_median']:.3f} s, F1 {timing['f1']:.4f}"
+                )
+                versions.update(timing["versions"])
+                records.append(dict(timing))
+                first = (device, sample) not in jobs_seen
+                jobs_seen.add((device, sample))
+                measurements += _measurements(timing, started.date(), first)
     speedups = []
-    for protocol in config.protocols:
-        by_device = {r["device_requested"]: r for r in records if r["protocol"] == protocol}
-        if "cpu" in by_device and "cuda" in by_device:
-            cpu, gpu_r = by_device["cpu"], by_device["cuda"]
-            speedups.append(
-                {
-                    "protocol": protocol,
-                    "train_cpu_over_gpu": round(cpu["train_seconds"] / gpu_r["train_seconds"], 3)
-                    if gpu_r["train_seconds"] > 0
-                    else None,
-                }
-            )
+    for sample in config.samples:
+        for protocol in config.protocols:
+            by_device = {
+                r["device_requested"]: r
+                for r in records
+                if r["protocol"] == protocol and r["sample"] == sample
+            }
+            if "cpu" in by_device and "cuda" in by_device:
+                speedups.append(_speedup(by_device["cpu"], by_device["cuda"]))
+    notes = [
+        f"Protocol A F1: the paper's protocol, next to the paper's GNN F1 {PAPER_GNN_F1} "
+        "(arXiv:2302.14096); it measures the dataset, not the product (ADR-10, NFR-16). "
+        "Protocol B F1: the decision-time population, with no paper reference.",
+        "Speedup: CPU median epoch over MI300X median epoch (the same work per epoch), computed "
+        "only between runs with identical settings; the training loops are reported but not "
+        "divided, because early stopping ends at a different epoch on each device.",
+        "The full-data runs are the US-202 runs: they also wrote "
+        f"{config.out}/eval/gnn/us-202-asos-<cpu|gpu>.json for `make gnn-results`.",
+    ]
+    if any("not_computed" in s for s in speedups):
+        notes.append(
+            "For some sizes the two devices ran with different settings: no speedup is "
+            "computed for them (details)."
+        )
+    model = records[0]["model"] if records else "not run"
     return Part(
         benchmark="B2",
         status="measured",
-        title="GraphSAGE on ASOS GraphReturns: CPU against MI300X, F1 against the paper",
+        title="GraphSAGE on ASOS GraphReturns: CPU against MI300X, F1 as in US-202"
+        if gpu
+        else "GraphSAGE on ASOS GraphReturns: CPU (MI300X pending), F1 as in US-202",
         dataset="ASOS GraphReturns (OSF c793h, real), protocols A (paper) and B (decision time) "
-        "of ADR-10",
+        "of ADR-10; seeded customer samples for the smaller sizes",
         started_at=started,
         finished_at=utc_now(),
         versions=versions,
         config={
             "seed": config.seed,
             "devices": ",".join(API_DEVICE[d] for d in config.devices),
-            "model": "SAGEConv 16, max-pool, dropout 0.2, Adam 0.01 (spec 8.1)",
+            "samples": ",".join(f"{s:g}" for s in config.samples),
+            "model": short(model, 200),
+            "speedup_basis": "median epoch (US-202)",
         },
         measurements=measurements,
-        notes=[
-            f"Paper GNN F1 {PAPER_GNN_F1} (arXiv:2302.14096); protocol A numbers measure the "
-            "dataset, not the product (ADR-10)."
-        ],
+        notes=notes,
         details={"records": records, "speedups": speedups},
         hardware=hardware,
     )

@@ -54,8 +54,11 @@ services:
       - ../artifacts:/app/artifacts
       - ../bench-work:/app/bench-work
 
-  # B2 runs in the DGL image (ml.gnn, US-202): the same offline-job mounts, code read-only.
-  trainer-gnn:
+  # B2 runs in trainer-graphsage (rocm/dgl plus what ml.gnn imports, US-202): ml.gnn.b2_timing
+  # runs the US-202 job there, so B2 and US-202 train once per device. The code is mounted
+  # read-only over the copy built into the image (a code change needs no rebuild); data/raw and
+  # artifacts/ come from docker-compose.yml.
+  trainer-graphsage:
     environment:
       <<: *bench-env
     volumes:

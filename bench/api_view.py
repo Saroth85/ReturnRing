@@ -32,7 +32,7 @@ TITLES = {
 DATASETS = {
     "B1": "ASOS GraphReturns train split (OSF c793h), protocols A and B (ADR-10)",
     "B2": "ASOS GraphReturns, paper and decision-time protocols (ADR-10)",
-    "B3": "llm_case inputs built by llm.case from the synthetic store, golden cases first",
+    "B3": "one seeded llm_case list from the synthetic store for every load (llm.case)",
     "B4": "Navigli Fashion synthetic store, nightly pipeline",
 }
 

@@ -1728,7 +1728,13 @@ def rossi(card_shared: bool) -> Case:
     return Case("rossi_card" if card_shared else "rossi", card, engine, queue_item(card))
 
 
-def jacket_anomaly(task_id: str | None = "CT-000012") -> s.ProductAnomaly:
+def jacket_anomaly(
+    task_id: str | None = "CT-000012", card_return: str | None = None
+) -> s.ProductAnomaly:
+    """The anomaly of the Elena beat. Its returns are those of its week known at its snapshot
+    (none queued); Elena's return is requested after the snapshot, so it is not among them.
+    On a case card, `card_return` is the case's own return, which the card offers to a
+    catalogue task (ADR-15 section 16); the manager's list does not."""
     week = date(2026, 9, 21)
     observed, expected = 11, 1.8
     trend = []
@@ -1756,8 +1762,8 @@ def jacket_anomaly(task_id: str | None = "CT-000012") -> s.ProductAnomaly:
         sales=m(46, "count", ANOMALIES),
         status="open" if task_id is None else "task_opened",
         catalog_task_id=task_id,
-        return_ids=["RET-000097", "RET-000099", "RET-000105"],
-        queued_return_ids=["RET-000105"],
+        return_ids=["RET-000097", "RET-000099"],
+        queued_return_ids=[] if card_return is None else [card_return],
         trend=trend,
     )
 
@@ -1827,7 +1833,8 @@ def elena() -> Case:
             outputs=answer,
             latency_ms=31,
         ),  # fmt: skip
-        anomaly=jacket_anomaly(None),  # open at the demo clock: the task is created at 18:45
+        # open at the demo clock (the task is created at 18:45); the card offers her return
+        anomaly=jacket_anomaly(None, "RET-000105"),
     )
     return Case("elena", card, engine, queue_item(card))
 

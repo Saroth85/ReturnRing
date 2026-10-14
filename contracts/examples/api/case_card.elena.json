@@ -813,8 +813,7 @@
     "catalog_task_id": null,
     "return_ids": [
       "RET-000097",
-      "RET-000099",
-      "RET-000105"
+      "RET-000099"
     ],
     "queued_return_ids": [
       "RET-000105"

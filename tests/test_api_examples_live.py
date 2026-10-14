@@ -151,22 +151,28 @@ def test_inspection_examples_are_the_mock_vision_answer_for_their_photo(
 def test_a_card_anomaly_lists_the_case_return_among_the_returns_a_task_can_name() -> None:
     """A catalogue task may name any queued return of the anomaly's variant (the case that led
     to it). The anomaly of a case card lists the case's own return among queued_return_ids even
-    when its line was not sold in the anomaly's week (the live Elena card); nothing else outside
-    the anomaly's returns. The manager's list keeps the returns of the anomaly's week only."""
+    when it is not among the anomaly's returns: Elena's return is requested after the anomaly's
+    snapshot, so live it never is (ADR-15 section 16). Nothing else outside the anomaly's
+    returns. The manager's list keeps the returns of the anomaly's week only, so its item for
+    the same anomaly does not offer her return; the rest of the item is the card's anomaly."""
     card = load("case_card.elena.json")
     own = card["return_id"]
     anomaly = card["product_anomaly"]
     assert own in anomaly["queued_return_ids"]
+    assert own not in anomaly["return_ids"]
     s.CaseCard.model_validate(card)
-    week_only = [r for r in anomaly["return_ids"] if r != own]
-    s.CaseCard.model_validate(mutated(card, ("product_anomaly", "return_ids"), week_only))
     refused(s.CaseCard, mutated(card, ("product_anomaly", "queued_return_ids"), []))
     stranger = sorted([own, "RET-999999"])
     refused(s.CaseCard, mutated(card, ("product_anomaly", "queued_return_ids"), stranger))
     listing = load("product_anomalies.json")
-    elena = next(i for i, x in enumerate(listing["items"]) if own in x["queued_return_ids"])
-    returns = [r for r in listing["items"][elena]["return_ids"] if r != own]
-    refused(s.ProductAnomaliesResponse, mutated(listing, ("items", elena, "return_ids"), returns))
+    items = listing["items"]
+    i = next(i for i, x in enumerate(items) if x["anomaly_id"] == anomaly["anomaly_id"])
+    item = items[i]
+    assert own not in item["queued_return_ids"]
+    assert {**anomaly, "queued_return_ids": item["queued_return_ids"]} == item
+    offered = sorted([*item["queued_return_ids"], own])
+    listing = mutated(listing, ("items", i, "queued_return_ids"), offered)
+    refused(s.ProductAnomaliesResponse, listing)
 
 
 def test_the_live_elena_card_offers_her_return_to_the_catalogue_task(api: Api) -> None:
@@ -180,6 +186,7 @@ def test_the_live_elena_card_offers_her_return_to_the_catalogue_task(api: Api) -
     if anomaly is None:
         pytest.skip("no anomaly on the defective jacket in the tiny store")
     assert elena in anomaly["queued_return_ids"]
+    assert elena not in anomaly["return_ids"]  # requested after the snapshot, as in the example
     assert set(anomaly["queued_return_ids"]) - {elena} <= set(anomaly["return_ids"])
     task = {
         "anomaly_id": anomaly["anomaly_id"],

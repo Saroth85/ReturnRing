@@ -172,8 +172,9 @@ from policy.types import CouponRuleApplication as PolicyCouponRule
 # a claim per return, the stale_proposal recompute, the write_request refusal, read-only mode);
 # 1.6.0: the examples against the live service (ADR-15 section 16: one schema per model in every
 # file, DemoDispute.changes_decision, the case's own return in its card's queued_return_ids, the
-# manifest's model_versions keys, the checkout and inspection examples of the live paths)
-API_CONTRACT_VERSION = "1.6.0"
+# manifest's model_versions keys, the checkout and inspection examples of the live paths);
+# 1.6.1: the Elena examples' anomaly as live (her return only on her card, ADR-15 section 16)
+API_CONTRACT_VERSION = "1.6.1"
 MODE_HEADER = "X-ReturnRing-Mode"  # every response: "live" or "cached" (US-901)
 REQUEST_ID_HEADER = "X-Request-Id"  # every response; also in the audit log (NFR-12)
 CachedLabel = Literal["Precomputed on AMD MI300X"]

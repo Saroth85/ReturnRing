@@ -57,12 +57,9 @@
       "catalog_task_id": "CT-000012",
       "return_ids": [
         "RET-000097",
-        "RET-000099",
-        "RET-000105"
+        "RET-000099"
       ],
-      "queued_return_ids": [
-        "RET-000105"
-      ],
+      "queued_return_ids": [],
       "trend": [
         {
           "week": "2026-08-03",

@@ -8,7 +8,7 @@ own settings, clock, engine, serving snapshot and LLM client.
 
 The clock (ADR-15 section 15): an injected clock wins; otherwise DEMO_CLOCK=on gives the
 DemoClock (the snapshot instant plus the time since the demo reset; frozen at the snapshot
-instant on the public read-only and the cached demo, section 16), off the wall clock.
+instant on the public read-only demo, section 16), off the wall clock.
 """
 
 from __future__ import annotations

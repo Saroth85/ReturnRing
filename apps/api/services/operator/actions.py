@@ -45,9 +45,10 @@ Contract 1.5.0 (ADR-15 section 15):
 Contract 1.6.0 (ADR-15 section 16): after the refund deadline a person can still reject the
 proposal or override it to the standard levers, with no message (outbox_message null,
 s.late_without_message): neither sets terms to announce, and the refund is owed all the same.
-Approve, an override to other levers and any act on a case with a diminished-value claim (whose
-message states the deduction) still answer 409. A guarantee case states no refund deadline, so
-its acts are never refused for one (rule 4, NFR-17).
+Approve and an override to other levers still answer 409. A guarantee case states no refund
+deadline, so its acts are never refused for one (rule 4, NFR-17). 1.7.0: a case with a
+diminished-value claim too (its refund and deduction are then stated outside ReturnRing), and
+the queue keeps every such case refund_overdue, since no message has stated the refund.
 """
 
 from __future__ import annotations

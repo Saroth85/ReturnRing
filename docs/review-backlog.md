@@ -7,6 +7,12 @@ reviewers ranked it; each item names where to look and a suggested fix.
 The UI items are the planned migration of `apps/ui` from the pinned contract 1.1.0
 (`apps/ui/contract-pin/`) to the API's contract 1.5.0.
 
+## Rules and legal behaviour
+
+- **[minor] No message states a refund after its deadline: a late rejection or standard-terms act sends none**  
+  Where: llm/phrasebook.py (_REGISTERED, _REGISTERED_AMOUNT and _DEDUCTION all assume {deadline}); apps/api/schemas.py late_without_message; ADR-15 section 17  
+  Fix: Add a reviewed withdrawal body without {deadline} (with {amount} and the {deduction} sentence), in Italian and English, and send it on a late act instead of no message. Left open in contract 1.7.0: it is new customer wording; until then such a case stays refund_overdue in the queue and the merchant states the refund outside ReturnRing.
+
 ## A judge following the README
 
 - **[blocker] The UI the README describes is not in this commit: localhost:8080 shows a placeholder, and the UI CI job fails**  

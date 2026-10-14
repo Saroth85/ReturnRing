@@ -3,7 +3,7 @@ label of cached mode ("Precomputed on AMD MI300X"), a check per component and th
 
 Contract 1.5.0 (ADR-15 section 15): /readyz shows the API's clock (the demo clock: the
 snapshot instant plus the time since the reset, frozen at the snapshot instant on the public
-and the cached demo, 1.6.0) and whether the public demo is read-only; the
+read-only demo, 1.6.0) and whether the public demo is read-only; the
 cached label is shown only while precomputed outputs are there (H6); the status is not_ready
 while the database, the scores or the models are missing, when every /api route fails (H37);
 the vLLM probe follows no redirect (rule 2, H23) and checks that GEMMA_MODEL is served (H30);

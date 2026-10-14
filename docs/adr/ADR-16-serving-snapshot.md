@@ -243,8 +243,9 @@ The review of the API (H1 to H40) changed the core of section 5 and the reset of
   at most every 5 s before a transaction, so a reset made while the API runs restarts the
   clock; before any reset the clock starts at the snapshot instant when the service starts.
   `Runtime.wall_now()` keeps the wall clock for what is measured in real time (amd-smi samples).
-  Tests inject a `FixedClock`, as before. On the public read-only and the cached demo the demo
-  clock is frozen at the snapshot instant (ADR-15 section 16, 14 Oct 2026).
+  Tests inject a `FixedClock`, as before. On the read-only demo (public, or cached as
+  `infra/compose.demo.yml` starts it) the demo clock is frozen at the snapshot instant (ADR-15
+  sections 16 and 17, 14 Oct 2026); with writes on it runs.
 - **The reset in three phases.** `services.cases.admit` decides every open return (one
   transaction each, golden first); `Generator.generate_each` makes the drafts outside any
   transaction with `LLM_CONCURRENCY` (32) model calls in flight; `services.generation.store`

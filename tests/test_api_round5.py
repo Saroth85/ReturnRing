@@ -557,8 +557,9 @@ def test_a_stale_restriction_proposal_is_decided_again(api: Api) -> None:
     )  # fmt: skip
     assert rejected["decision"]["decision_id"] == fresh["decision_id"]
     assert rejected["decision"]["state"] == "rejected" and rejected["outbox_message"] is None
+    # 1.7.0: no message has stated the refund, so the case stays flagged
     item = next(i for i in _queued(api, sort="refund_due_by") if i["return_id"] == return_id)
-    assert not item["refund_overdue"]
+    assert item["refund_overdue"]
 
 
 def test_a_message_never_states_a_past_refund_deadline(api: Api) -> None:

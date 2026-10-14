@@ -169,6 +169,7 @@ def decision(decision_id: str, return_id: str, **changes: Any) -> Row:
         "value_threshold_eur": Decimal("185.00"),
         "inputs_provenance": SCORES_PROVENANCE,
         "snapshot_on": date(2026, 9, 1),
+        "scored_on": date(2026, 9, 27),
         "base_terms": BASE_TERMS,
         "order_terms": BASE_TERMS,
         "path": "withdrawal",
@@ -620,7 +621,13 @@ VIOLATIONS: list[tuple[str, dict[str, Any], str]] = [
     ("decisions", {"path": "guarantee", "refund_due_by": None}, "guarantee_unscored"),
     (
         "decisions",
-        {"path": "guarantee", "quadrant": None, "risk": None, "refund_due_by": None},
+        {
+            "path": "guarantee",
+            "quadrant": None,
+            "risk": None,
+            "scored_on": None,
+            "refund_due_by": None,
+        },
         "guarantee_unscored",
     ),
     ("decisions", {"evidence_quality": "insufficient"}, "insufficient_no_quadrant"),
@@ -651,6 +658,7 @@ VIOLATIONS: list[tuple[str, dict[str, Any], str]] = [
             "path": "guarantee",
             "quadrant": None,
             "risk": None,
+            "scored_on": None,
             "proposed_levers": [],
             "levers": [],
             "requires_approval": False,
@@ -661,7 +669,16 @@ VIOLATIONS: list[tuple[str, dict[str, Any], str]] = [
         },
         "refund_due_on_withdrawal",
     ),
-    ("decisions", {"snapshot_on": DAY + timedelta(days=1)}, "snapshot_by_decision"),
+    (
+        "decisions",
+        {"snapshot_on": DAY + timedelta(days=1), "risk": None, "scored_on": None},
+        "snapshot_by_decision",
+    ),
+    # 1.7.0: the risk is scored at the request, after the snapshot and by the decision day
+    ("decisions", {"scored_on": None}, "risk_scored_by_decision"),
+    ("decisions", {"scored_on": date(2026, 8, 31)}, "risk_scored_by_decision"),
+    ("decisions", {"scored_on": DAY + timedelta(days=1)}, "risk_scored_by_decision"),
+    ("decisions", {"risk": None}, "risk_scored_by_decision"),
     (
         "decisions",
         {
@@ -679,6 +696,7 @@ VIOLATIONS: list[tuple[str, dict[str, Any], str]] = [
             **SECOND_VERSION,
             "revision_trigger": "evidence_added",
             "decided_on": date(2026, 9, 1),
+            "scored_on": date(2026, 9, 1),  # by the decision day (ck_decisions_risk_scored_...)
         },
         "new_version_decided_on_creation",
     ),
@@ -1160,6 +1178,7 @@ def decision_row(view: s.DecisionView) -> Row:
         "value_threshold_eur": Decimal(str(inputs.thresholds.value_eur)),
         "inputs_provenance": inputs.provenance.model_dump(mode="json"),
         "snapshot_on": inputs.snapshot_on,
+        "scored_on": inputs.scored_on,
         "base_terms": inputs.base_terms.model_dump(),
         "order_terms": inputs.order_terms.model_dump(),
         "path": view.path.value,

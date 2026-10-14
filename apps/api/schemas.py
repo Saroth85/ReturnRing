@@ -173,8 +173,11 @@ from policy.types import CouponRuleApplication as PolicyCouponRule
 # a claim per return, the stale_proposal recompute, the write_request refusal, read-only mode);
 # 1.6.0: the rules and legal items of the review backlog (ADR-15 section 16: the frozen demo
 # clock, no refund deadline on the guarantee path, late rejections without a message, the
-# customer snapshot day of the draft facts, the refund's own provenance, the neutral coupon block)
-API_CONTRACT_VERSION = "1.6.0"
+# customer snapshot day of the draft facts, the refund's own provenance, the neutral coupon block);
+# 1.7.0: the review of section 16 (ADR-15 section 17: the clock frozen only on the read-only
+# demo, late silent acts kept refund_overdue and allowed on a claim case, the risk score dated
+# with the day it was scored, DecisionInputs.scored_on)
+API_CONTRACT_VERSION = "1.7.0"
 MODE_HEADER = "X-ReturnRing-Mode"  # every response: "live" or "cached" (US-901)
 REQUEST_ID_HEADER = "X-Request-Id"  # every response; also in the audit log (NFR-12)
 CachedLabel = Literal["Precomputed on AMD MI300X"]
@@ -806,10 +809,33 @@ def refund_deadline(path: Path, notice_on: date) -> date | None:
     return notice_on + timedelta(days=LEGAL_REFUND_DAYS)
 
 
-def refund_overdue(state: DecisionStatus, refund_due_by: date | None, today: date) -> bool:
-    """A proposed case whose refund deadline has passed: no message has stated the refund yet
-    (1.5.0, H1). A case without a deadline is never overdue (1.6.0)."""
-    return state == "proposed" and refund_due_by is not None and refund_due_by < today
+def refund_overdue(
+    state: DecisionStatus, refund_due_by: date | None, today: date, *, late: bool = False
+) -> bool:
+    """A case whose refund deadline has passed while no message has stated the refund: a
+    proposed case (1.5.0, H1), or one a person decided after that day, which sends no message
+    (`late`: acted_late, 1.7.0). A case without a deadline is never overdue (1.6.0)."""
+    if refund_due_by is None or refund_due_by >= today:
+        return False
+    return state == "proposed" or late
+
+
+def acted_late(
+    state: DecisionStatus,
+    revision_trigger: RevisionTrigger,
+    refund_due_by: date | None,
+    approved_at: datetime | None,
+) -> bool:
+    """A person's rejection or override of a proposal after its refund deadline (1.6.0): the
+    act sent no message, so none states the refund (late_without_message). A lift or a renewal
+    reviews a restriction whose own act stated it in time."""
+    return (
+        state in ("rejected", "overridden")
+        and revision_trigger != "review"
+        and refund_due_by is not None
+        and approved_at is not None
+        and utc_day(approved_at) > refund_due_by
+    )
 
 
 def _check_scoring(
@@ -848,7 +874,8 @@ class QueueItem(ApiModel):
     # 1.5.0 (H1): the day the refund is due (notice + 14 days, rule 3), and whether that day is
     # past while the latest version is still proposed, so no message has stated the refund yet.
     # 1.6.0: null on the guarantee path, which has no 14-day refund deadline and is never
-    # overdue (rule 4, NFR-17)
+    # overdue (rule 4, NFR-17). 1.7.0: a rejection or the standard terms after the deadline
+    # send no message, so such a case stays overdue
     refund_due_by: date | None
     refund_overdue: bool
     risk: Metric | None  # probability; null on the guarantee path or with insufficient evidence
@@ -903,9 +930,14 @@ class QueueResponse(ApiModel):
             if item.review_due != due:
                 raise ValueError(f"{item.return_id}: review_due is a restriction past review_at")
             overdue = refund_overdue(item.state, item.refund_due_by, today)
-            if item.refund_overdue != overdue:
+            # a rejection or the standard terms: decided in time (a message stated the refund)
+            # or after the deadline (none did, 1.7.0); the item does not say when
+            either = item.state in ("rejected", "overridden") and not item.lever_ids
+            late = refund_overdue(item.state, item.refund_due_by, today, late=either)
+            if item.refund_overdue not in {overdue, late}:
                 raise ValueError(
-                    f"{item.return_id}: refund_overdue is a proposed case past refund_due_by"
+                    f"{item.return_id}: refund_overdue is a case past refund_due_by that no "
+                    "message has stated: proposed, or rejected or set to the standard terms late"
                 )
         return self
 
@@ -1389,7 +1421,10 @@ class DecisionInputs(ApiModel):
     at decision time, stored with the version so an earlier one is served as it was (rule 11).
     snapshot_on (1.6.0) is the UTC day of the customer snapshot the engine read (value, evidence,
     cluster: the last one before the request, or the request itself when none preceded it): the
-    period of the score, value, factor and cluster facts of a draft and of the agent (rule 11)."""
+    period of the value, factor and cluster facts of a draft and of the agent (rule 11).
+    scored_on (1.7.0) is the UTC day the risk was scored, at the request (the score's decided_at:
+    request features as the shop knew them, and that snapshot): the period of the risk_score
+    fact. Null exactly when there is no risk (the guarantee path, rule 4)."""
 
     order_id: Id
     customer_id: Id
@@ -1405,6 +1440,18 @@ class DecisionInputs(ApiModel):
     thresholds: DecisionThresholds
     provenance: Provenance
     snapshot_on: date  # 1.6.0: the day of the customer snapshot the engine read
+    scored_on: date | None  # 1.7.0: the day the risk was scored, at the request
+
+    @model_validator(mode="after")
+    def _scored(self) -> Self:
+        if (self.scored_on is None) != (self.risk is None):
+            raise ValueError("a risk, and only a risk, has the day it was scored (scored_on)")
+        if self.scored_on is not None and self.scored_on < self.snapshot_on:
+            raise ValueError(
+                "the risk is scored at the request, after the customer snapshot it reads "
+                "(scored_on before snapshot_on)"
+            )
+        return self
 
     def scores(self) -> CaseScores:
         """The engine's CaseScores; on the guarantee path risk and value are not read."""
@@ -1590,6 +1637,8 @@ class DecisionView(ApiModel):
             raise ValueError("no diminished-value claim on a defect")
         if self.inputs.snapshot_on > self.decided_on:
             raise ValueError("the engine reads a customer snapshot made by the decision day")
+        if self.inputs.scored_on is not None and self.inputs.scored_on > self.decided_on:
+            raise ValueError("the engine reads a risk scored by the decision day (scored_on)")
         violations = legal_guard_check(*to_policy_decision(self), base)
         if violations:
             found = "; ".join(f"{v.code}: {v.message}" for v in violations)
@@ -2359,7 +2408,8 @@ def _check_case_facts(draft: DraftView, view: DecisionView) -> None:  # noqa: C9
     the engine's decision of its version (round 4, E3 and E10): ids F1, F2... in order, one fact
     per metric, the nature of the engine inputs, and each metric with the entity, the period
     and, where the version holds it, the value build_case gives it ("as of {snapshot_on}", "12
-    months to {snapshot_on}": the customer snapshot the engine read, 1.6.0, rule 11;
+    months to {snapshot_on}": the customer snapshot the engine read, 1.6.0, rule 11; the risk
+    score "as of {scored_on}", the day it was scored at the request, 1.7.0;
     "{delivered_on}/{notice_on}"); a lever is never a fact. A case that is not scored has only
     the days since delivery (rule 4, US-307); the cluster is a fact
     only of a customer in a cluster; a score factor is a feature that may be shown and never
@@ -2384,7 +2434,8 @@ def _check_case_facts(draft: DraftView, view: DecisionView) -> None:  # noqa: C9
         "days_since_delivery": ("return", delivered, (inputs.notice_on - inputs.delivered_on).days)
     }
     if scored:
-        fixed["risk_score"] = ("customer", as_of, inputs.risk)
+        assert inputs.scored_on is not None  # a withdrawal is scored (DecisionInputs)
+        fixed["risk_score"] = ("customer", f"as of {inputs.scored_on.isoformat()}", inputs.risk)
         fixed["value_eur_12m"] = ("customer", f"12 months to {day}", inputs.value_eur)
     if clustered:
         fixed["cluster_size"] = ("cluster", as_of, None)
@@ -2464,6 +2515,7 @@ def expected_case_facts(
             missing_evidence=view.missing_evidence,
             nature=inputs.provenance.nature,
             as_of=inputs.snapshot_on,
+            risk_as_of=inputs.scored_on,
         )
     except CaseError as exc:
         raise ValueError(f"llm.case.build_case refuses the version: {exc}") from None
@@ -3235,18 +3287,14 @@ _RESULT_ACTIONS: dict[DecisionStatus, AuditAction] = {
 
 def late_without_message(view: DecisionView) -> bool:
     """A person's act that sends no message (1.6.0, ADR-15 section 16): a rejection, or an
-    override to the standard levers, made after the refund deadline of a case without a
-    diminished-value claim. It sets no terms to announce, and its message would state a refund
-    deadline already past (rule 3); the refund is owed all the same. Any other act after the
-    deadline answers 409, since its message would state that past date (1.5.0, H1); so does an
-    act on a case with a claim, whose message must state the deduction and its reason."""
-    return (
-        view.state in ("rejected", "overridden")
-        and not view.levers
-        and view.diminished_value_claim is None
-        and view.refund_due_by is not None
-        and view.approved_at is not None
-        and utc_day(view.approved_at) > view.refund_due_by
+    override to the standard levers, made after the refund deadline. It sets no terms to
+    announce, and its message would state a refund deadline already past (rule 3); the refund
+    is owed all the same, and the queue keeps the case refund_overdue (1.7.0). A case with a
+    diminished-value claim too (1.7.0): the refund and the deduction are stated outside
+    ReturnRing, as for any overdue refund. Any other act after the deadline answers 409, since
+    its message would state that past date (1.5.0, H1)."""
+    return not view.levers and acted_late(
+        view.state, view.revision_trigger, view.refund_due_by, view.approved_at
     )
 
 
@@ -4674,8 +4722,8 @@ DEMO_CLOCK_NOTE = (
     "Demo clock: the instant of the serving snapshot plus the time elapsed since the demo reset"
 )
 FROZEN_CLOCK_NOTE = (
-    "Demo clock, frozen at the instant of the serving snapshot: the public read-only or cached "
-    "demo, whose refund deadlines never pass while it stays up"
+    "Demo clock, frozen at the instant of the serving snapshot: the read-only demo, whose "
+    "refund deadlines never pass while it stays up"
 )
 
 
@@ -4686,10 +4734,10 @@ class ClockView(ApiModel):
     fixed: a clock that stands still (tests). Every 'now' of the API (as_of, the time of an act,
     the period of a figure that ends now) is this clock's.
 
-    frozen (1.6.0, ADR-15 section 16): the demo clock of the public read-only demo and of the
-    cached demo stands at the snapshot instant (now equals snapshot_as_of), so no refund
-    deadline of the reset's proposals passes while the demo stays up; a client never advances
-    a frozen clock."""
+    frozen (1.6.0, ADR-15 section 16): the demo clock of the public read-only demo stands at
+    the snapshot instant (now equals snapshot_as_of), so no refund deadline of the reset's
+    proposals passes while the demo stays up; a client never advances a frozen clock. Where
+    writes are on (a cached demo with writes on included) the demo clock runs (1.7.0)."""
 
     kind: ClockKind
     now: AwareDatetime

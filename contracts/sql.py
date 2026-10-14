@@ -392,6 +392,9 @@ decisions = Table(
     # the UTC day of the customer snapshot the engine read (value, evidence, cluster): the period
     # of the facts of the version's draft (contract 1.6.0, rule 11)
     Column("snapshot_on", Date, nullable=False),
+    # the UTC day the risk was scored, at the request (the score's decided_at): the period of the
+    # risk_score fact (contract 1.7.0, rule 11); null when there is no risk (rule 4)
+    Column("scored_on", Date),
     # the top 3 contributions to the risk above (ADR-16): [{feature, value, contribution,
     # direction, phrase_en, phrase_it}] as ml.risk.explain writes shap_top3; the case card shows
     # them and the draft's facts cite them. Null when the return is not scored (rule 4, US-307)
@@ -463,6 +466,12 @@ decisions = Table(
     _check("evidence_quality <> 'insufficient' OR quadrant IS NULL", "insufficient_no_quadrant"),
     # rule 7 (1.6.0): the engine reads a customer snapshot made by the decision day
     _check("snapshot_on <= decided_on", "snapshot_by_decision"),
+    # rule 7 (1.7.0): the risk is scored at the request, after that snapshot, by the decision day
+    _check(
+        "(risk IS NULL AND scored_on IS NULL) OR (risk IS NOT NULL AND scored_on IS NOT NULL"
+        " AND snapshot_on <= scored_on AND scored_on <= decided_on)",
+        "risk_scored_by_decision",
+    ),
     # rule 3, rule 4 (1.6.0): the 14-day refund deadline is a withdrawal's, and only a withdrawal's
     _check(
         "(path = 'withdrawal' AND refund_due_by IS NOT NULL)"

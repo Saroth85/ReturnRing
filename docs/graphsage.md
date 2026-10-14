@@ -95,7 +95,7 @@ image fails the build, not the session. It mounts `data/raw`, `data/store`, `dat
 with the DGL image already pulled), from the repository root:
 
 ```bash
-make gnn-image                 # build trainer-graphsage (~1 min on top of the pulled rocm/dgl)
+make gnn-image                 # build trainer-graphsage on top of the pulled rocm/dgl
 make gnn-test-gpu              # DGL against the PyTorch layers on the GPU, and the job tests
 make gnn-asos-gpu              # B2 on the MI300X: artifacts/eval/gnn/us-202-asos-gpu.json
 make gnn-asos-cpu-container    # the same in the same image on the droplet's CPU (alone on the
@@ -104,10 +104,15 @@ make embeddings-gpu            # A4 encoder and embeddings on the GPU, copied in
 make risk gnn-results          # host: the A4 row (docs/results/us-204-risk.md) and this report
 ```
 
-Each target is one `docker compose ... run --rm -T trainer-graphsage python -m ml.gnn ...`
-(`make -n <target>` prints it). Expected: an environment line with `torch_hip` set, the dgl
+Each GPU target runs `docker compose ... run --rm -T trainer-graphsage python -m ml.gnn ...`
+(`make -n <target>` prints the exact commands). Expected: an environment line with `torch_hip` set, the dgl
 backend and `gpu_arch` gfx942 in the metrics; a `GpuUnavailable` exit 2 means the GPU is not
 visible in the container (`make spike-gpu-check`). The spec 11 memory budget for the ASOS graph
 is under 8 GB, unmeasured so far; each run records its peak (`peak_allocated_gb`).
 `GNN_SAMPLE=0.25` runs a seeded customer sample, reported as such; the B2 numbers come from
 full-data runs on both devices.
+
+On a shared CPU, `--threads 1` can be faster than every core. On this project's 4-vCPU
+development machine under a load average of 15 to 25 (other jobs), one training step on the ASOS
+graph took about 4.5 s with one thread and 7.5 s with four, and an epoch of the A4 encoder about
+0.5 s against 18 s. Each run records its thread count and the load average next to its timings.

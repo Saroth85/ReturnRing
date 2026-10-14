@@ -164,6 +164,48 @@ def _headline(doc: dict[str, Any]) -> list[str]:
     )
 
 
+def _one_hot(name: str) -> bool:
+    return name.startswith(("product_type_", "brand_"))
+
+
+def _differences(doc: dict[str, Any]) -> list[str]:
+    """GraphSAGE minus each other model of the run, on the headline population of a protocol:
+    what the graph adds over the same head without message passing (MLP) and over XGBoost."""
+    rows = []
+    for protocol, entry in _protocols(doc):
+        population = "decision_time" if protocol == "B" else "all"
+        g = entry["models"].get("graphsage")
+        if g is None or g["test"].get(population) is None:
+            continue
+        for kind in ("mlp", "xgboost"):
+            other = entry["models"].get(kind)
+            if other is None or other["test"].get(population) is None:
+                continue
+            a, b = g["test"][population], other["test"][population]
+            rows.append(
+                [
+                    f"{g['title']} minus {other['title']}",
+                    POPULATION_TITLES[population],
+                    f"{a['f1'] - b['f1']:+.4f}",
+                    f"{a['f1_at_half'] - b['f1_at_half']:+.4f}",
+                    f"{a['cross_entropy'] - b['cross_entropy']:+.4f}",
+                    f"{a['ece'] - b['ece']:+.4f}",
+                ]
+            )
+    if not rows:
+        return []
+    return [
+        "Differences on the same events (a positive F1 or a negative cross-entropy favours "
+        "GraphSAGE); measured once, with no confidence interval:",
+        "",
+        *table(
+            ("Comparison", "Population", "F1", "F1 at 0.5", "Cross-entropy", "ECE"),
+            rows,
+        ),
+        "",
+    ]
+
+
 def _population_tables(doc: dict[str, Any], protocol: str) -> list[str]:
     entry = doc["protocols"][protocol]
     lines: list[str] = []
@@ -216,9 +258,16 @@ def _population_tables(doc: dict[str, Any], protocol: str) -> list[str]:
     return lines
 
 
+def _protocols(doc: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    """(protocol, entry) in the order of the run (B first), whatever the JSON key order."""
+    order = [p for p in doc.get("config", {}).get("protocols", ["B", "A"]) if p in doc["protocols"]]
+    order += [p for p in sorted(doc["protocols"]) if p not in order]
+    return [(p, doc["protocols"][p]) for p in order]
+
+
 def _training_rows(doc: dict[str, Any]) -> list[list[str]]:
     rows = []
-    for entry in doc["protocols"].values():
+    for _, entry in _protocols(doc):
         for kind in MODEL_ORDER:
             m = entry["models"].get(kind)
             if m is None:
@@ -277,7 +326,7 @@ def _timing_section(asos: dict[str, dict[str, Any] | None]) -> list[str]:
                 [
                     ["Cold start: import torch", _s(cold.get("import_torch_seconds"), 3)],
                     [
-                        "Cold start: import the backend (DGL)",
+                        "Cold start: import DGL (0 with the PyTorch backend)",
                         _s(cold.get("import_backend_seconds"), 3),
                     ],
                     [
@@ -290,7 +339,7 @@ def _timing_section(asos: dict[str, dict[str, Any] | None]) -> list[str]:
                             f"Data loading, protocol {p}: join, graph, features, copy to device",
                             _s(e["data_loading_seconds"], 3),
                         ]
-                        for p, e in doc["protocols"].items()
+                        for p, e in _protocols(doc)
                     ],
                     ["Whole job after the cold start", _s(t["job_seconds_after_cold_start"], 1)],
                 ],
@@ -330,7 +379,7 @@ def _timing_section(asos: dict[str, dict[str, Any] | None]) -> list[str]:
         ]
     else:
         rows = []
-        for protocol, entry in gpu["protocols"].items():
+        for protocol, entry in _protocols(gpu):
             for kind in ("graphsage", "mlp"):
                 g = entry["models"].get(kind)
                 c = cpu["protocols"].get(protocol, {}).get("models", {}).get(kind)
@@ -397,6 +446,7 @@ def _asos_section(asos: dict[str, dict[str, Any] | None]) -> list[str]:
         "",
         *_headline(doc),
         "",
+        *_differences(doc),
         "Protocol B rows are measured on the decision-time population (ADR-10 amendment 1); "
         "protocol A rows and the paper's rows on the full test set. The paper's numbers use the "
         "paper's protocol (features over the labelled window) and its own training choices (see "
@@ -433,9 +483,9 @@ def _asos_section(asos: dict[str, dict[str, Any] | None]) -> list[str]:
             f"Inputs. Customer nodes ({len(f['customer_node'])}): "
             + ", ".join(f"`{n}`" for n in f["customer_node"])
             + f". Variant nodes ({len(f['variant_node'])}): "
-            + ", ".join(f"`{n}`" for n in f["variant_node"][:6])
-            + (", the product type and brand one-hot" if len(f["variant_node"]) > 6 else "")
-            + ", and its flag and degree. Edge head: "
+            + ", ".join(f"`{n}`" for n in f["variant_node"] if not _one_hot(n))
+            + f" and {sum(_one_hot(n) for n in f['variant_node'])} product type and brand "
+            "one-hot columns. Edge head: "
             + (
                 f"the {len(f['edge'])} protocol B features of ml.propensity"
                 if f["edge"]
@@ -465,7 +515,7 @@ def _embedding_section(inputs: dict[str, Any]) -> list[str]:
             rows.append([store, "not run", *(["n/a"] * 7)])
             continue
         enc = doc["encoder"]
-        tr = enc.get("training") or {}
+        tr = (enc.get("training") or {}) if enc["trained_here"] else {}
         t = doc["timings"]
         rows.append(
             [
@@ -473,8 +523,8 @@ def _embedding_section(inputs: dict[str, Any]) -> list[str]:
                 enc["version"] + (" (trained here)" if enc["trained_here"] else " (applied)"),
                 ", ".join(i[:10] for i in doc["output"]["instants"]),
                 _n(doc["output"]["rows"]),
-                f"{tr.get('epochs_run')} (best {tr.get('best_epoch')})" if tr else "n/a",
-                _f(tr.get("validation_auc_at_best")) if tr else "n/a",
+                f"{tr.get('epochs_run')} (best {tr.get('best_epoch')})" if tr else "-",
+                _f(tr.get("validation_auc_at_best")) if tr else "-",
                 _s(t.get("training_seconds"), 2) if t.get("training_seconds") else "-",
                 _s(t.get("inference_seconds"), 3),
                 f"{doc['environment']['device']}, {doc['environment']['backend']}",

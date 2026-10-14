@@ -1,5 +1,7 @@
 .PHONY: dev-up dev-down gpu-up gpu-down demo-up test test-gpu test-asos lint licenses asos asos-verify \
 	generate generate-ood graph features anomalies risk score results propensity pipeline bench demo-export \
+	gnn-asos embeddings gnn-results gnn-test gnn-image gnn-asos-gpu gnn-asos-cpu-container \
+	embeddings-gpu gnn-test-gpu \
 	spike-preflight spike-prep spike-weights spike-weights-wait spike-vllm spike-wait spike-g1 \
 	spike-g1-bench spike-g2 spike-g2-cpu spike-g2-load spike-g3 spike-g3-cpu spike-g4 spike-g5 \
 	spike-g6 spike-g7 spike-down \
@@ -116,6 +118,51 @@ results:
 
 propensity:
 	python -m ml.propensity --raw data/raw --out artifacts --doc docs/results/us-201-propensity.md
+
+# ---- US-202 and A4 (phase 6): GraphSAGE, python -m ml.gnn (docs/graphsage.md) ----
+# Needs PyTorch: infra/requirements-gnn-cpu.txt on a laptop, the trainer-graphsage image on the
+# droplet (DGL is used when importable). Not part of `make pipeline`, which needs no torch; `make
+# risk` runs the A4 row when data/features/customer_embeddings.parquet exists.
+GNN_SAMPLE ?= 1.0
+gnn-asos:
+	python -m ml.gnn asos --raw data/raw --out artifacts --sample $(GNN_SAMPLE)
+
+# The encoder is fitted on the main store at the risk job's train end and applied, frozen, to the
+# OOD store (never trained on, US-105).
+embeddings:
+	python -m ml.gnn embed --store data --out data --models artifacts
+	python -m ml.gnn embed --store data/ood --out data/ood --models artifacts \
+	  --encoder artifacts/gnn/models/customer_encoder
+
+gnn-results:
+	python -m ml.gnn report --artifacts artifacts --doc docs/results/us-202-graphsage.md
+
+gnn-test:
+	python -m pytest -m torch -q
+
+# On the MI300X droplet, in the trainer-graphsage image (rocm/dgl + this code). The CPU baseline of
+# B2 runs in the same image with --device cpu, alone on the CPU (infra/spikes/README.md, step 8).
+GNN = $(GPU) run --rm -T trainer-graphsage
+gnn-image:
+	$(GPU) build trainer-graphsage
+
+gnn-asos-gpu:
+	$(GNN) python -m ml.gnn asos --raw data/raw --out artifacts --device gpu --sample $(GNN_SAMPLE)
+
+gnn-asos-cpu-container:
+	$(GNN) python -m ml.gnn asos --raw data/raw --out artifacts --device cpu --sample $(GNN_SAMPLE)
+
+embeddings-gpu:
+	$(GNN) python -m ml.gnn embed --store data --out artifacts/gnn/data --models artifacts --device gpu
+	$(GNN) python -m ml.gnn embed --store data/ood --out artifacts/gnn/data/ood --models artifacts \
+	  --encoder artifacts/gnn/models/customer_encoder --device gpu
+	mkdir -p data/features data/ood/features
+	cp artifacts/gnn/data/features/customer_embeddings.parquet data/features/
+	cp artifacts/gnn/data/ood/features/customer_embeddings.parquet data/ood/features/
+
+gnn-test-gpu:
+	$(GNN) python -m pytest -m "torch or gpu" -q -p no:cacheprovider tests/test_gnn_model.py \
+	  tests/test_gnn_jobs.py
 
 # Phase 1 and 2: the synthetic store, the account graph, the features, the product anomalies and
 # the risk models with their batch scores (docs/spec.md, section 15).

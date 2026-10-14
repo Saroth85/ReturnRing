@@ -19,6 +19,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -34,7 +35,7 @@ from contracts.io import (
     require_derived,
     write_table,
 )
-from contracts.parquet import SCHEMAS, is_forbidden_feature
+from contracts.parquet import EMBEDDING_COLUMNS, EMBEDDING_DIM, SCHEMAS, is_forbidden_feature
 from ml.reference.model import TrainConfig
 from ml.risk.__main__ import main as risk_main
 from ml.risk.report import render
@@ -461,6 +462,73 @@ def test_the_results_file_is_the_rendered_metrics(job: tuple[Path, dict[str, Any
     ):
         assert heading in text
     assert "Nature: synthetic" in text and "/tmp" not in text.split("## Tests")[0].split("-->")[0]
+
+
+def noise_embeddings(data: Path, root: Path, instants: list[datetime]) -> None:
+    """features/customer_embeddings under root for every customer of `data` at each instant,
+    derived from its store: seeded noise, no torch. The A4 hook is under test here; GraphSAGE
+    itself is tested in tests/test_gnn_jobs.py."""
+    features = read_table("features/customer_features", data)[0].to_pandas()
+    _, store = read_table("store/identifiers", data)
+    rng = np.random.default_rng(0)
+    parts = []
+    for t in instants:
+        ids = features.loc[features["as_of"] == pd.Timestamp(t), "customer_id"].tolist()
+        z = rng.normal(size=(len(ids), EMBEDDING_DIM))
+        columns: dict[str, Any] = {"customer_id": ids}
+        columns |= {name: z[:, j] for j, name in enumerate(EMBEDDING_COLUMNS)}
+        columns |= {"encoder_version": ["noise-test"] * len(ids), "as_of": [t] * len(ids)}
+        parts.append(pa.table(columns, schema=SCHEMAS["features/customer_embeddings"]))
+    provenance = store.derive("test noise embeddings", store.period_start, store.period_end)
+    write_table("features/customer_embeddings", pa.concat_tables(parts), root, provenance)
+
+
+def test_a4_runs_on_the_same_rows_when_the_embeddings_exist(
+    data: Path, job: tuple[Path, dict[str, Any]], tmp_path: Path
+) -> None:
+    """US-202 A4 hook: with features/customer_embeddings (main at the train end and the
+    evaluation time, OOD at the evaluation time) the ablation runs A4 on the rows of A0..A3, which
+    do not change; without the file A4 is reported as not run (the job fixture)."""
+    _, doc = job
+    train_end = datetime.fromisoformat(doc["train_end"])
+    eval_end = datetime.fromisoformat(doc["eval_end"])
+    emb = tmp_path / "emb"
+    noise_embeddings(data, emb, [train_end, eval_end])
+    noise_embeddings(data / "ood", emb / "ood", [eval_end])
+    out = tmp_path / "out"
+    argv = ["--data", str(data), "--out", str(out), "--no-scores", "--embeddings", str(emb)]
+    risk_main([*argv, "--results", str(out / "us-204.md")])
+    with_a4 = json.loads(metrics_path(out).read_text(encoding="utf-8"))
+    before = {r["set"]: r for r in doc["ablation"]}
+    after = {r["set"]: r for r in with_a4["ablation"]}
+    a4 = after["A4"]
+    assert a4["status"] == "run"
+    assert a4["features"] == [*after["A3"]["features"], *EMBEDDING_COLUMNS]
+    for population in ("test", "ood"):
+        assert a4[population]["n"] == after["A3"][population]["n"]
+    assert all(v["without_embedding"] == 0 for v in a4["embedding_coverage"].values())
+    for name in ("A0", "A1", "A2", "A3"):
+        assert after[name]["test"] == before[name]["test"], name
+    assert with_a4["embeddings"]["main"]["encoder_versions"] == ["noise-test"]
+    assert (out / "risk" / "models" / "A4.json").exists()
+    text = (out / "us-204.md").read_text(encoding="utf-8")
+    assert "A0 to A4 reported on the same rows" in text and "| A3 -> A4 |" in text
+    # An embedding file without the train end is refused, never silently skipped.
+    late = tmp_path / "late"
+    noise_embeddings(data, late, [eval_end])
+    with pytest.raises(ValueError, match="no embeddings at"):
+        risk_main(
+            [
+                "--data",
+                str(data),
+                "--out",
+                str(tmp_path / "x"),
+                "--no-scores",
+                "--no-results",
+                "--embeddings",
+                str(late),
+            ]
+        )
 
 
 def test_a_naive_decision_time_is_a_usage_error() -> None:

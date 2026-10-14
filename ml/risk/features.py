@@ -7,7 +7,8 @@ Ablation of spec 8.4 (MOD-04), one feature set per step, all on the same split:
 - A1: A0 + the individual behaviour features of features/customer_features, XGBoost;
 - A2: A1 + the cluster features of features/clusters (account graph, spec 8.3), XGBoost;
 - A3: A2 + the return residual (expected returns, R_c, z_c of spec 8.2), XGBoost;
-- A4: A3 + GraphSAGE embeddings, a hook for phase 6 (GPU), not run on CPU.
+- A4: A3 + GraphSAGE embeddings (features/customer_embeddings, written by `python -m ml.gnn
+  embed`, US-202): run when that file exists, through an EmbeddingSource (ml.risk.embeddings).
 
 "Value" in A0 is the price of the items a customer buys, the returnguard-style high-value rule. The
 customer value V_c (features/customer_value) never feeds risk (rule 6): no feature set holds one
@@ -36,6 +37,7 @@ import numpy as np
 import numpy.typing as npt
 import pandas as pd
 
+from contracts.parquet import EMBEDDING_PREFIX as CONTRACT_EMBEDDING_PREFIX
 from contracts.parquet import SCHEMAS, forbidden_features, label_or_key_features
 from pipeline.graph.clusters import CLUSTER_FEATURES as GRAPH_CLUSTER_FEATURES
 from policy.types import Path, ReturnReason
@@ -81,6 +83,7 @@ REASON_FEATURES: Final = {
 }
 REQUEST_FEATURES: Final = (*REQUEST_COLUMNS.values(), *REASON_FEATURES)
 EMBEDDING_PREFIX: Final = "graphsage_"
+assert EMBEDDING_PREFIX == CONTRACT_EMBEDDING_PREFIX  # features/customer_embeddings columns
 
 Learner = Literal["rules", "xgboost"]
 
@@ -104,7 +107,7 @@ A4 = FeatureSet(
     "A4",
     A3.features,
     "xgboost",
-    "what GraphSAGE embeddings add (phase 6, GPU)",
+    "what GraphSAGE embeddings add (US-202)",
     needs_embeddings=True,
 )
 ABLATION: Final = (A0, A1, A2, A3, A4)
@@ -229,9 +232,10 @@ def matrix(frame: pd.DataFrame, features: Sequence[str]) -> F64:
 
 
 class EmbeddingSource(Protocol):
-    """A4 hook (phase 6, US-202 GPU work): GraphSAGE embeddings of the customers, trained by link
-    prediction on the customer-identifier graph known at as_of (no labels, so no leak from the
-    ground truth). Columns: customer_id and EMBEDDING_PREFIX + index."""
+    """A4 (US-202): GraphSAGE embeddings of the customers, trained by link prediction on the
+    customer-identifier graph known at as_of (no labels, so no leak from the ground truth).
+    Columns: customer_id and EMBEDDING_PREFIX + index. ml.risk.embeddings.FileEmbeddingSource
+    reads them from features/customer_embeddings."""
 
     def embeddings_at(self, as_of: datetime) -> pd.DataFrame: ...
 

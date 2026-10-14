@@ -690,11 +690,16 @@ async def save(
     return events
 
 
-def check_rate(app: FastAPI, person: str) -> None:
-    """429 rate_limited past AGENT_RATE_LIMIT questions of one person in the window."""
-    wait = limiter_of(app).retry_after(person)
+def check_rate(app: FastAPI, person: str, client: str | None = None) -> None:
+    """429 rate_limited past AGENT_RATE_LIMIT questions of one person in the window. On the
+    public read-only demo (`client`: roles.client_key) the count is per client and person:
+    every visitor names one of three demo users, so one anonymous client must not spend the
+    questions of all."""
+    key = person if client is None else f"{client} {person}"
+    wait = limiter_of(app).retry_after(key)
     if wait is not None:
         raise rate_limited(
             f"at most {AGENT_RATE_LIMIT} questions to the agent per person every "
-            f"{AGENT_RATE_WINDOW_S:.0f} s: try again in {max(1, round(wait))} s"
+            f"{AGENT_RATE_WINDOW_S:.0f} s",
+            wait,
         )

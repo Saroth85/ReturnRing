@@ -129,3 +129,75 @@ def test_linked_accounts_never_same_person() -> None:
     for match in re.finditer(r"same person", README, re.I):
         before = README[max(0, match.start() - 8) : match.start()]
         assert "never" in before, README[max(0, match.start() - 40) : match.end()]
+
+
+# ---- Review of 14 Oct 2026 ("A judge following the README") -------------------------------------
+
+
+def _flat(text: str) -> str:
+    return " ".join(text.split())
+
+
+def test_the_memory_figure_is_a_dated_range_measured_once() -> None:
+    """The quoted peak did not reproduce (rules 11, 13): a range, its date, how and how often."""
+    quick = _flat(section("Quick start"))
+    assert "1.81 GB" not in README and "1.57 GB" not in README
+    for needle in ("about 1.6 GB", "up to about 2.2 GB", "14 Oct 2026", "measured once"):
+        assert needle in quick, needle
+    assert "not in a container" in quick
+    compose = _flat((ROOT / "infra" / "docker-compose.yml").read_text(encoding="utf-8"))
+    assert "about 1.6 GB" in compose and "up to about 2.2 GB" in compose
+    assert "1.81 GB" not in compose
+
+
+def test_the_resets_come_before_the_walk_and_the_cached_stack_can_stop() -> None:
+    quick = section("Quick start")
+    assert "`make reset` (dev) or `make demo-reset` (cached)" in quick
+    assert "before `make demo-walk`" in quick
+    cached = code_blocks(section("The cached demo"))[0]
+    assert cached == ["make demo-import", "make demo-local", "make demo-reset", "make demo-down"]
+
+
+def test_the_cached_demo_says_where_the_package_comes_from_and_what_it_claims() -> None:
+    """No URL is invented before the package exists; the MI300X label is claimed only for a
+    package that says so (rules 11 and 13), and the host python3 version is stated."""
+    from apps.api.schemas import CACHED_LABEL, REHEARSAL_LABEL
+
+    cached = _flat(section("The cached demo"))
+    assert "GitHub release asset after the GPU session" in cached
+    assert "the laptop path below is for the team" in cached
+    assert "releases/download" not in README and "curl -LO" not in README
+    assert "Python 3.8 or later" in cached
+    assert f'"{CACHED_LABEL}"' in cached and f'"{REHEARSAL_LABEL}"' in cached
+    assert "DEMO_GPU" in cached and "REHEARSAL=1" in cached and "GEMMA_MODEL" in cached
+
+
+def _base_images() -> list[str]:
+    images = []
+    for dockerfile in ("apps/api/Dockerfile", "apps/ui/Dockerfile"):
+        text = (ROOT / dockerfile).read_text(encoding="utf-8")
+        images += re.findall(r"^FROM (\S+)", text, re.M)
+    return images
+
+
+def test_the_image_licences_say_how_each_image_is_pinned() -> None:
+    """Not every image is pulled by digest: the claim names which are, and lists the base image
+    of every image the project builds, Python included (PSF, Debian packages)."""
+    licences = _flat(section("Licences"))
+    assert "pulled unmodified by digest" not in README
+    images = _base_images()
+    assert any(image.startswith("python:") for image in images)
+    for image in images:
+        if "@sha256:" not in image:
+            assert f"`{image}`" in licences, image  # named among those pinned by tag only
+    assert "pinned by tag and digest" in licences and "by version tag only" in licences
+    assert "PSF License" in licences and "Debian packages" in licences
+    compose = (ROOT / "infra" / "docker-compose.yml").read_text(encoding="utf-8")
+    for image in re.findall(r"^\s+image: (\S+@sha256:\S+)$", compose, re.M):
+        assert image.split(":")[0].split("/")[-1] in licences.lower(), image
+
+
+def test_basic_auth_protects_the_data_not_the_admin_page() -> None:
+    gpu = _flat(section("The GPU session"))
+    assert "basic auth on the telemetry data and the writes" in gpu
+    assert "admin page, the telemetry" not in README

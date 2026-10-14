@@ -12,11 +12,13 @@ same one: Ahmed's screen cannot approve as Sara.
 The public demo (PUBLIC_READ_ONLY=on; spec 11, "Sicurezza": the demo views are public and read
 only; ADR-15 section 15, H21) answers 403 forbidden_role to every write route but the two the
 public pages use: the agent and the checkout evaluation, each rate limited per client
-(check_public_rate). The admin views and the telemetry are behind the proxy's basic auth.
+(check_public_rate; an IPv6 client by its /64), and a 429 says when to retry (Retry-After). The
+telemetry data is behind the proxy's basic auth.
 """
 
 from __future__ import annotations
 
+import ipaddress
 from typing import Final
 
 from fastapi import Request
@@ -115,13 +117,28 @@ def authorize(
     return check_role(ep, actor_of(ep, body), request.headers.get(ACTOR_HEADER))
 
 
+def network_key(host: str) -> str:
+    """The rate-limit key of an address: an IPv6 client by its /64 prefix (one subscriber
+    usually holds a whole /64), an IPv4-mapped one by its IPv4 address; anything else as is."""
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return host
+    if isinstance(address, ipaddress.IPv6Address):
+        if address.ipv4_mapped is not None:
+            return str(address.ipv4_mapped)
+        return str(ipaddress.IPv6Network((int(address), 64), strict=False))
+    return str(address)
+
+
 def client_key(request: Request) -> str:
-    """The client of a request: the first X-Forwarded-For hop the proxy sets, else the peer."""
+    """The client of a request: the first X-Forwarded-For hop the proxy sets, else the peer
+    (network_key: an IPv6 client by its /64)."""
     forwarded = request.headers.get("x-forwarded-for", "")
     first = forwarded.split(",")[0].strip()
     if first:
-        return first
-    return request.client.host if request.client is not None else "unknown"
+        return network_key(first)
+    return network_key(request.client.host) if request.client is not None else "unknown"
 
 
 def check_public_rate(request: Request) -> None:
@@ -137,5 +154,6 @@ def check_public_rate(request: Request) -> None:
     if wait is not None:
         raise rate_limited(
             f"at most {PUBLIC_RATE_LIMIT} requests of the public demo per client every "
-            f"{PUBLIC_RATE_WINDOW_S:.0f} s: try again in {max(1, round(wait))} s"
+            f"{PUBLIC_RATE_WINDOW_S:.0f} s",
+            wait,
         )

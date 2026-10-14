@@ -169,12 +169,28 @@ from policy.types import CouponRuleApplication as PolicyCouponRule
 # 1.4.1: the LLM layer's closing rounds merged (no lever fact, validator code TERMS_TOPIC; ADR-15
 # section 14); 1.5.0: the review of the API (ADR-15 section 15: GET /api/demo/cases, the demo
 # clock in /readyz, refund deadlines in the queue, the coupon block in the terms shown and stored,
-# a claim per return, the stale_proposal recompute, the write_request refusal, read-only mode)
-API_CONTRACT_VERSION = "1.5.0"
+# a claim per return, the stale_proposal recompute, the write_request refusal, read-only mode);
+# 1.5.1: the review of the public deployment (ADR-15 section 16: the rehearsal label of a cached
+# demo not verified as made on the MI300X, Retry-After on every 429); 1.5.2: its second review
+# (ADR-15 section 17: the cached telemetry note no longer names the MI300X)
+API_CONTRACT_VERSION = "1.5.2"
 MODE_HEADER = "X-ReturnRing-Mode"  # every response: "live" or "cached" (US-901)
 REQUEST_ID_HEADER = "X-Request-Id"  # every response; also in the audit log (NFR-12)
-CachedLabel = Literal["Precomputed on AMD MI300X"]
+RETRY_AFTER_HEADER = "Retry-After"  # on a 429 rate_limited: whole seconds to wait (1.5.1)
+RETRY_AFTER_DOC = "on a 429 rate_limited: the whole seconds to wait before trying again"
+RETRY_AFTER_OPENAPI: dict[str, Any] = {
+    RETRY_AFTER_HEADER: {
+        "description": RETRY_AFTER_DOC,
+        "schema": {"type": "integer", "minimum": 1},
+    }
+}
+# The label of cached mode (US-901): the MI300X claim only when the demo package says the drafts
+# were made there by the model it names, the rehearsal label otherwise (1.5.1; rules 11 and 13).
+CachedLabel = Literal[
+    "Precomputed on AMD MI300X", "Precomputed in a rehearsal, not verified on AMD MI300X"
+]
 CACHED_LABEL: CachedLabel = get_args(CachedLabel)[0]
+REHEARSAL_LABEL: CachedLabel = get_args(CachedLabel)[1]
 ValueLegend = Literal[
     "Customer value orients benefits and service. It is never a signal of abuse and never feeds "
     "the risk score."
@@ -4605,7 +4621,8 @@ class ReadyzResponse(ApiModel):
     mode: ServedFrom
     llm_mode: LlmMode  # the mode of the outputs served: vllm in cached mode (MI300X outputs)
     device: Literal["cpu", "gpu"]
-    # shown on every page in cached mode, while the precomputed outputs are there (1.5.0, H6)
+    # shown on every page in cached mode, while the precomputed outputs are there (1.5.0, H6);
+    # the MI300X label only for a package verified as the MI300X one, else the rehearsal (1.5.1)
     label: CachedLabel | None
     checks: list[ComponentCheck] = Field(min_length=1)
     contract_version: Version

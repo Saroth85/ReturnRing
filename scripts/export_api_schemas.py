@@ -30,6 +30,9 @@ from apps.api.schemas import (
     JSON,
     MODE_HEADER,
     REQUEST_ID_HEADER,
+    RETRY_AFTER_DOC,
+    RETRY_AFTER_HEADER,
+    RETRY_AFTER_OPENAPI,
     SSE,
     Endpoint,
     ErrorResponse,
@@ -59,6 +62,7 @@ def endpoints_document() -> dict[str, Any]:
         "headers": {
             MODE_HEADER: "on every response: live or cached (US-901)",
             REQUEST_ID_HEADER: "on every response; also stored in the audit log (NFR-12)",
+            RETRY_AFTER_HEADER: RETRY_AFTER_DOC,
         },
         "error_body": "error",
         "endpoints": [ep.as_dict() for ep in ENDPOINTS],
@@ -110,6 +114,8 @@ def contract_app() -> FastAPI:
         responses: dict[int | str, dict[str, Any]] = {
             code: {"model": ErrorResponse} for code in (*ep.errors, 422)
         }
+        if 429 in responses:
+            responses[429]["headers"] = RETRY_AFTER_OPENAPI
         response_model: Any = API_MODELS[ep.response]
         if ep.media_type == SSE:
             responses[ep.status] = {

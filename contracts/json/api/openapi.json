@@ -3,7 +3,7 @@
   "info": {
     "title": "ReturnRing API",
     "description": "Contract of the ReturnRing API (ADR-15). Every response carries the headers X-ReturnRing-Mode (live or cached) and X-Request-Id.",
-    "version": "1.5.0"
+    "version": "1.5.2"
   },
   "paths": {
     "/healthz": {
@@ -771,6 +771,15 @@
           },
           "429": {
             "description": "Too Many Requests",
+            "headers": {
+              "Retry-After": {
+                "description": "on a 429 rate_limited: the whole seconds to wait before trying again",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1.0
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -2031,6 +2040,15 @@
           },
           "429": {
             "description": "Too Many Requests",
+            "headers": {
+              "Retry-After": {
+                "description": "on a 429 rate_limited: the whole seconds to wait before trying again",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1.0
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -10704,7 +10722,10 @@
             "anyOf": [
               {
                 "type": "string",
-                "const": "Precomputed on AMD MI300X"
+                "enum": [
+                  "Precomputed on AMD MI300X",
+                  "Precomputed in a rehearsal, not verified on AMD MI300X"
+                ]
               },
               {
                 "type": "null"

@@ -1301,7 +1301,8 @@
         "fallback_reason": "decision_echo",
         "model_calls": 1,
         "validator_codes": [
-          "DECISION_ECHO"
+          "DECISION_ECHO",
+          "TERMS_TOPIC"
         ],
         "llm_mode": "mock",
         "served_from": "live",

@@ -165,8 +165,10 @@ from policy.types import CouponRuleApplication as PolicyCouponRule
 # 1.3.0: third round (the LLM contract of llm/ in drafts and messages, decision day, bounded
 # review dates, typed generation records, payload metrics, realized KPI sets); 1.4.0: fourth
 # round (no unapproved restriction announced, coupon blocks tied to their cluster, the facts of
-# the llm_case on every draft, the deduction stated with its reason, error scenarios, tone gone)
-API_CONTRACT_VERSION = "1.4.0"
+# the llm_case on every draft, the deduction stated with its reason, error scenarios, tone gone);
+# 1.4.1: the LLM layer's closing rounds merged (no lever fact, validator code TERMS_TOPIC; ADR-15
+# section 14)
+API_CONTRACT_VERSION = "1.4.1"
 MODE_HEADER = "X-ReturnRing-Mode"  # every response: "live" or "cached" (US-901)
 REQUEST_ID_HEADER = "X-Request-Id"  # every response; also in the audit log (NFR-12)
 CachedLabel = Literal["Precomputed on AMD MI300X"]
@@ -2207,8 +2209,9 @@ def _fact_number(value: float | int) -> Decimal:
 
 
 # The facts llm.case.build_case writes in this order: risk, value, the score factors, the cluster,
-# the days since delivery, the window of the proposal. A factor named like the cluster or the
-# days fact takes its place (the first fact of a metric is kept).
+# the days since delivery. A factor named like the cluster or the days fact takes its place (the
+# first fact of a metric is kept). The levers are not facts (ADR-14, round 3, finding T7): a
+# window lever is never a fact, nor a score factor.
 _FACT_RANKS = {"risk_score": 0, "value_eur_12m": 1, "days_since_delivery": 3}
 _NEVER_FACTORS = frozenset({"risk_score", "value_eur_12m", "return_window_days"})
 
@@ -2222,7 +2225,7 @@ def _check_case_facts(draft: DraftView, view: DecisionView) -> None:  # noqa: C9
     the engine's decision of its version (round 4, E3 and E10): ids F1, F2... in order, one fact
     per metric, the nature of the engine inputs, and each metric with the entity, the period
     and, where the version holds it, the value build_case gives it ("as of {decided_on}", "12
-    months to {decided_on}", "{delivered_on}/{notice_on}", "orders from {decided_on}"). A case
+    months to {decided_on}", "{delivered_on}/{notice_on}"); a lever is never a fact. A case
     that is not scored has only the days since delivery (rule 4, US-307); the cluster is a fact
     only of a customer in a cluster; a score factor is a feature that may be shown and never
     customer value (rule 6). The values of the factors and of the cluster size are checked
@@ -2241,13 +2244,10 @@ def _check_case_facts(draft: DraftView, view: DecisionView) -> None:  # noqa: C9
     as_of = f"as of {day}"
     scored = _scored(view)
     clustered = scored and inputs.cluster_id is not None
-    window = next((x.value for x in view.proposed_levers if x.id == "return_window_days"), None)
     delivered = f"{inputs.delivered_on.isoformat()}/{inputs.notice_on.isoformat()}"
     fixed: dict[str, tuple[str, str, float | int | None]] = {
         "days_since_delivery": ("return", delivered, (inputs.notice_on - inputs.delivered_on).days)
     }
-    if window is not None:
-        fixed["return_window_days"] = ("policy", f"orders from {day}", window)
     if scored:
         fixed["risk_score"] = ("customer", as_of, inputs.risk)
         fixed["value_eur_12m"] = ("customer", f"12 months to {day}", inputs.value_eur)

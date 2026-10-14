@@ -3,7 +3,7 @@
   "info": {
     "title": "ReturnRing API",
     "description": "Contract of the ReturnRing API (ADR-15). Every response carries the headers X-ReturnRing-Mode (live or cached) and X-Request-Id.",
-    "version": "1.4.0"
+    "version": "1.4.1"
   },
   "paths": {
     "/healthz": {
@@ -4484,8 +4484,7 @@
               "customer",
               "return",
               "order",
-              "cluster",
-              "policy"
+              "cluster"
             ],
             "title": "Entity"
           },
@@ -7896,6 +7895,7 @@
                 "SCHEMA",
                 "CASE_INVALID",
                 "DECISION_ECHO",
+                "TERMS_TOPIC",
                 "UNKNOWN_FACT",
                 "MISSING_FACT",
                 "LABEL_MISMATCH",
@@ -8018,6 +8018,7 @@
                 "SCHEMA",
                 "CASE_INVALID",
                 "DECISION_ECHO",
+                "TERMS_TOPIC",
                 "UNKNOWN_FACT",
                 "MISSING_FACT",
                 "LABEL_MISMATCH",

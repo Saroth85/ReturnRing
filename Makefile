@@ -1,9 +1,13 @@
 .PHONY: dev-up dev-down gpu-up gpu-down demo-up test test-gpu test-asos lint licenses asos asos-verify \
 	generate generate-ood graph features anomalies risk score results propensity pipeline bench demo-export \
+	gnn-asos embeddings gnn-results gnn-test gnn-image gnn-asos-gpu gnn-asos-cpu-container \
+	embeddings-gpu gnn-test-gpu \
 	spike-preflight spike-prep spike-weights spike-weights-wait spike-vllm spike-wait spike-g1 \
 	spike-g1-bench spike-g2 spike-g2-cpu spike-g2-load spike-g3 spike-g3-cpu spike-g4 spike-g5 \
 	spike-g6 spike-g7 spike-down \
-	spike-gpu-check spike-logs
+	spike-gpu-check spike-logs \
+	bench-cpu bench-gpu bench-build bench-b1 bench-b2 bench-vllm bench-vllm-start bench-b3 bench-b4 \
+	bench-merge bench-report
 
 ENV_FILE ?= .env
 # Data pipeline (phase 1): the committed real calibration (ASOS train-split aggregates, US-101).
@@ -117,12 +121,156 @@ results:
 propensity:
 	python -m ml.propensity --raw data/raw --out artifacts --doc docs/results/us-201-propensity.md
 
+# ---- US-202 and A4 (phase 6): GraphSAGE, python -m ml.gnn (docs/graphsage.md) ----
+# Needs PyTorch: infra/requirements-gnn-cpu.txt on a laptop, the trainer-graphsage image on the
+# droplet (DGL is used when importable). Not part of `make pipeline`, which needs no torch; `make
+# risk` runs the A4 row when data/features/customer_embeddings.parquet exists.
+GNN_SAMPLE ?= 1.0
+gnn-asos:
+	python -m ml.gnn asos --raw data/raw --out artifacts --sample $(GNN_SAMPLE)
+
+# The encoder is fitted on the main store at the risk job's train end and applied, frozen, to the
+# OOD store (never trained on, US-105).
+embeddings:
+	python -m ml.gnn embed --store data --out data --models artifacts
+	python -m ml.gnn embed --store data/ood --out data/ood --models artifacts \
+	  --encoder artifacts/gnn/models/customer_encoder
+
+gnn-results:
+	python -m ml.gnn report --artifacts artifacts --doc docs/results/us-202-graphsage.md
+
+gnn-test:
+	python -m pytest -m torch -q
+
+# On the MI300X droplet, in the trainer-graphsage image (rocm/dgl + this code). On the droplet
+# `make bench-b2 DEVICE=gpu` runs the US-202 job on both devices (it writes the same files as
+# gnn-asos-gpu and gnn-asos-cpu-container): use these two for a run outside the benchmark. Each
+# refuses to start while vLLM is up: the CPU baseline runs alone on the CPU, the GPU run alone on
+# the GPU (infra/spikes/README.md, "The GPU session").
+GNN = $(GPU) run --rm -T trainer-graphsage
+gnn-image:
+	$(GPU) build trainer-graphsage
+
+gnn-asos-gpu:
+	@$(VLLM_DOWN)
+	$(GNN) python -m ml.gnn asos --raw data/raw --out artifacts --device gpu --sample $(GNN_SAMPLE)
+
+gnn-asos-cpu-container:
+	@$(VLLM_DOWN)
+	$(GNN) python -m ml.gnn asos --raw data/raw --out artifacts --device cpu --sample $(GNN_SAMPLE)
+
+embeddings-gpu:
+	@$(VLLM_DOWN)
+	$(GNN) python -m ml.gnn embed --store data --out artifacts/gnn/data --models artifacts --device gpu
+	$(GNN) python -m ml.gnn embed --store data/ood --out artifacts/gnn/data/ood --models artifacts \
+	  --encoder artifacts/gnn/models/customer_encoder --device gpu
+	mkdir -p data/features data/ood/features
+	cp artifacts/gnn/data/features/customer_embeddings.parquet data/features/
+	cp artifacts/gnn/data/ood/features/customer_embeddings.parquet data/ood/features/
+
+gnn-test-gpu:
+	$(GNN) python -m pytest -m "torch or gpu" -q -p no:cacheprovider tests/test_gnn_model.py \
+	  tests/test_gnn_jobs.py
+
 # Phase 1 and 2: the synthetic store, the account graph, the features, the product anomalies and
 # the risk models with their batch scores (docs/spec.md, section 15).
 pipeline: generate generate-ood graph features anomalies risk
 
-bench:
-	@echo "bench: implemented in session wt-ml (benchmarks B1-B4)"
+# ---- Benchmarks B1-B4 (US-902): method in docs/benchmarks.md, GPU session order in
+# infra/spikes/README.md ("The GPU session"). Parts go to artifacts/bench/<run-id>/, the merged run
+# to bench/results/<run-id>.json; only a GPU run moves the latest pointer (GET /api/benchmarks).
+# make bench (DEVICE=cpu): here, CPU only; B3 is a dry run against a local fake server, B2 trains
+# only where PyTorch is installed.
+# make bench DEVICE=gpu: on the droplet, B1 in the bench container and B2 in trainer-graphsage with
+# vLLM down first, then vLLM, B4 and B3.
+DEVICE ?= cpu
+BENCH_RAW ?= data/raw
+BENCH_DATA ?=
+BENCH_ARGS ?=
+ifndef BENCH_RUN
+BENCH_RUN := $(shell date -u +%Y%m%dT%H%M%SZ)-$(DEVICE)
+endif
+BENCH_DIR = artifacts/bench/$(BENCH_RUN)
+BENCH_DOC ?= docs/results/benchmarks-$(if $(filter gpu,$(DEVICE)),mi300x,cpu).md
+BENCH_COMPOSE = docker compose -f infra/docker-compose.yml -f infra/compose.gpu.yml -f infra/compose.bench.yml --env-file $(ENV_FILE) --profile gpu
+BENCH_RUN_GPU = $(BENCH_COMPOSE) run --rm -T
+VLLM_DOWN = if [ -n "$$($(GPU) ps -q --status running vllm 2>/dev/null)" ]; then \
+	  echo "vLLM is running: B1 and B2 run alone on the GPU and the CPU (make gpu-down first)"; exit 1; fi
+export BENCH_GIT_COMMIT ?= $(shell git rev-parse HEAD 2>/dev/null)
+# Untracked files count as changes (review G8): a new module not yet added is still code that ran.
+export BENCH_GIT_DIRTY ?= $(shell git status --porcelain 2>/dev/null | grep -q . && echo 1 || echo 0)
+
+bench: bench-$(DEVICE)
+
+bench-cpu:
+	python -m bench run --device cpu --run-id $(BENCH_RUN) --raw $(BENCH_RAW) $(if $(BENCH_DATA),--data $(BENCH_DATA)) $(BENCH_ARGS)
+	python -m bench report --run bench/results/$(BENCH_RUN).json --out $(BENCH_DOC)
+
+bench-gpu: bench-build gnn-image bench-b1 bench-b2 bench-vllm bench-b4 bench-b3 bench-merge
+
+bench-build:
+	$(BENCH_COMPOSE) build bench
+
+bench-b1:
+	@$(VLLM_DOWN)
+	$(BENCH_RUN_GPU) bench python -m bench run --device gpu --parts B1 --run-id $(BENCH_RUN) --raw $(BENCH_RAW) --no-merge $(BENCH_ARGS)
+
+# B2 runs in trainer-graphsage (rocm/dgl plus what ml.gnn imports; `make gnn-image` builds it):
+# ml.gnn.b2_timing runs the US-202 job on the CPU and on the MI300X, at every --b2-samples size.
+bench-b2:
+	@$(VLLM_DOWN)
+	$(BENCH_RUN_GPU) trainer-graphsage python -m bench run --device gpu --parts B2 --run-id $(BENCH_RUN) --raw $(BENCH_RAW) --no-merge $(BENCH_ARGS)
+
+# Starts vLLM and records start and healthy times for the B3 cold start (15 s polling), then times
+# the first request right after it, before B4's batch generation uses vLLM (reviews G7, G15):
+# first-request.json. If vLLM was already up, B3 reports no cold start. The page cache is dropped
+# before the start (BENCH_DROP_CACHES=0 keeps it), so the weights are read from disk; the compile
+# cache volume is kept, and a droplet created from a snapshot reads a cold disk: the measured
+# start is a lower bound of the nightly one, and vllm-start-conditions.txt says how it was taken.
+BENCH_DROP_CACHES ?= 1
+bench-vllm: bench-vllm-start spike-wait
+	@if [ -f $(BENCH_DIR)/vllm-start.txt ]; then \
+	  cp $(SPIKES)/logs/vllm-healthy.txt $(BENCH_DIR)/vllm-healthy.txt; \
+	  $(BENCH_RUN_GPU) bench python -m bench first-request --run-id $(BENCH_RUN); fi
+
+bench-vllm-start:
+	@mkdir -p $(BENCH_DIR) $(SPIKES)/logs
+	@if [ -n "$$($(GPU) ps -q --status running vllm 2>/dev/null)" ]; then \
+	  echo "vLLM already running: B3 reports no cold start"; rm -f $(BENCH_DIR)/vllm-start.txt; \
+	else \
+	  if [ "$(BENCH_DROP_CACHES)" = 1 ] && sync && { echo 3 > /proc/sys/vm/drop_caches; } 2>/dev/null; then \
+	    echo "page cache dropped before the start" > $(BENCH_DIR)/vllm-start-conditions.txt; \
+	  else echo "page cache not dropped (a warm restart)" > $(BENCH_DIR)/vllm-start-conditions.txt; fi; \
+	  cat $(BENCH_DIR)/vllm-start-conditions.txt; \
+	  date -u +%Y-%m-%dT%H:%M:%SZ | tee $(BENCH_DIR)/vllm-start.txt > $(SPIKES)/logs/vllm-start.txt; \
+	  $(GPU) up -d --no-build vllm; fi
+
+# The nightly pipeline in the bench container, amd-smi sampled every 5 s on the host (SPK-G4:
+# the host amd-smi matches the driver), or inside the container when the host has none.
+bench-b4:
+	@mkdir -p $(BENCH_DIR) bench-work
+	@export PATH="$$PATH:/opt/rocm/bin"; sampler=""; \
+	if command -v amd-smi >/dev/null && command -v python3 >/dev/null; then \
+	  python3 -m bench.amdsmi --out $(BENCH_DIR)/amdsmi.jsonl & sampler=$$!; \
+	  samples="--b4-samples $(BENCH_DIR)/amdsmi.jsonl"; \
+	else echo "no amd-smi on the host: sampling inside the container"; samples="--b4-sampler inprocess"; fi; \
+	$(BENCH_RUN_GPU) bench python -m bench run --device gpu --parts B4 --run-id $(BENCH_RUN) --no-merge $$samples $(BENCH_ARGS); \
+	rc=$$?; if [ -n "$$sampler" ]; then kill $$sampler; fi; exit $$rc
+
+# disk-used-gb.txt: the GB used on the droplet's root disk (images, weights, volumes), the size
+# the snapshot of step 14 will hold; B3's cost reads it instead of the cost-v2 assumption.
+bench-b3:
+	@mkdir -p $(BENCH_DIR)
+	df -BG --output=used / | tail -1 | tr -dc '0-9' > $(BENCH_DIR)/disk-used-gb.txt
+	$(BENCH_RUN_GPU) bench python -m bench run --device gpu --parts B3 --run-id $(BENCH_RUN) --no-merge $(if $(BENCH_DATA),--data $(BENCH_DATA)) $(BENCH_ARGS)
+
+bench-merge:
+	$(BENCH_RUN_GPU) bench python -m bench merge --run-id $(BENCH_RUN)
+	$(BENCH_RUN_GPU) bench python -m bench report --run bench/results/$(BENCH_RUN).json --out $(BENCH_DIR)/report.md
+
+# On the laptop, after copying bench/results/ back: make bench-report BENCH_RUN=<run-id> DEVICE=gpu
+bench-report:
+	python -m bench report --run bench/results/$(BENCH_RUN).json --out $(BENCH_DOC)
 
 demo-export:
 	@echo "demo-export: implemented in session E9 (US-901)"

@@ -4,7 +4,8 @@ Used when the model is unavailable, echoes a different decision or fails validat
 customer message is a default selection of phrasebook ids per decision kind (llm/phrasebook.py,
 adversarial review of 13 Oct, round 2): code writes the body, the terms, the deadline and the
 legal clause around it. The operator explanation is built from the case facts, so every number
-in it is grounded by construction. A test proves that every template passes
+in it is grounded by construction, and it names no lever, term or restriction: the case view shows
+the decision (round 3, finding T7). A test proves that every template passes
 llm/validator.validate for every kind of engine decision.
 """
 
@@ -54,7 +55,7 @@ def explanation_from_case(case: Mapping[str, Any]) -> list[dict[str, Any]]:
                 "OBSERVED",
                 None,
                 "The return reason is a defect or a non-conformity: the case follows the legal "
-                "guarantee path, with no risk score and no restrictive levers.",
+                "guarantee path, with no risk score.",
             )
         )
     elif case["evidence_quality"] == "insufficient":
@@ -62,8 +63,8 @@ def explanation_from_case(case: Mapping[str, Any]) -> list[dict[str, Any]]:
             _statement(
                 "OBSERVED",
                 None,
-                "Evidence is insufficient for a risk estimate: standard terms apply, no quadrant "
-                "is assigned, and the missing evidence is listed with the case.",
+                "Evidence is insufficient for a risk estimate: no quadrant is assigned, and the "
+                "missing evidence is listed with the case.",
             )
         )
     else:
@@ -110,8 +111,8 @@ def explanation_from_case(case: Mapping[str, Any]) -> list[dict[str, Any]]:
             _statement(
                 "OBSERVED",
                 None,
-                f"The rules engine placed the case in {case['quadrant']}; the levers are listed "
-                "with the decision.",
+                f"The rules engine placed the case in {case['quadrant']}; the case view shows "
+                "the decision.",
             )
         )
     days = by_metric["days_since_delivery"]

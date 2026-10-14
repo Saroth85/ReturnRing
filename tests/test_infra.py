@@ -375,6 +375,144 @@ def test_gbm_pypi_requirements_pinned_and_without_upstream_xgboost() -> None:
         assert name.lower() not in {"xgboost", "xgboost-cpu", "amd_xgboost", "amd-xgboost"}
 
 
+def test_the_graphsage_trainer_never_sees_the_ground_truth() -> None:
+    """US-202 and A4 (ml/gnn) need the ASOS tables, the stores and their features, never the
+    ground truth: trainer-graphsage mounts data/ subfolders read-only and no ancestor of
+    data/truth, so rule 12 holds by construction (it is not one of the JOB_SERVICES)."""
+    service = services("docker-compose.yml")["trainer-graphsage"]
+    assert "trainer-graphsage" not in JOB_SERVICES
+    data, truth = ROOT / "data", ROOT / "data" / "truth"
+    mounts = bind_mounts(service)
+    for name in ("raw", "store", "features", "ood"):
+        assert ((data / name).resolve(), f"/app/data/{name}", True) in mounts, name
+    for source, _, read_only in mounts:
+        assert source != truth and truth not in source.parents and source not in truth.parents
+        if source == data or data in source.parents:
+            assert read_only, source
+    assert ((ROOT / "artifacts").resolve(), "/app/artifacts", False) in mounts
+    assert service["build"]["dockerfile"] == "infra/docker/trainer-gnn.Dockerfile"
+    assert service["build"]["args"]["DGL_IMAGE"] == "${DGL_IMAGE}"
+    gpu = services("compose.gpu.yml")["trainer-graphsage"]
+    assert gpu["build"]["args"]["DGL_IMAGE"].startswith("${DGL_IMAGE:?")
+    assert gpu["environment"]["DEVICE"] == "gpu"
+
+
+# What the pinned rocm/dgl image (DGL_IMAGE in .env.example) ships in /opt/venv, from its layer
+# metadata: torch 2.8.0 (ROCm 7.0), amd-dgl 2.4.0, scipy 1.16.2, and numpy 1.26.4, which amd-dgl
+# pins (Requires-Dist numpy==1.26.4) over the numpy 2.3.3 the PyTorch layer had. numpy and pandas
+# are therefore installed on top (the ingest and propensity code need numpy 2); torch, DGL and
+# scipy (built for numpy >= 1.25.2, < 2.6) stay as shipped.
+IMAGE_STACK = frozenset({"torch", "dgl", "scipy"})
+MODULE_DISTRIBUTION = {"sklearn": "scikit-learn", "xgboost": "xgboost-cpu"}
+
+
+def _pins(path: Path) -> dict[str, str]:
+    pins = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.split("#", 1)[0].strip()
+        if line and not line.startswith(("-r", "--")):
+            name, _, version = line.partition("==")
+            pins[name.lower().replace("_", "-")] = version
+    return pins
+
+
+def third_party_imports(*modules: str) -> set[str]:
+    """Top-level third-party modules imported, at any depth, by the project modules reachable
+    from `modules` (every import statement, lazy ones included)."""
+    import ast
+    import sys
+
+    def path_of(name: str) -> Path | None:
+        base = ROOT.joinpath(*name.split("."))
+        for candidate in (base / "__init__.py", base.with_suffix(".py")):
+            if candidate.exists():
+                return candidate
+        return None
+
+    local = {p.name for p in ROOT.iterdir() if (p / "__init__.py").exists()} | {"tests"}
+    seen: set[str] = set()
+    found: set[str] = set()
+    todo = list(modules)
+    while todo:
+        name = todo.pop()
+        path = path_of(name)
+        if name in seen or path is None:
+            continue
+        seen.add(name)
+        package = name if path.name == "__init__.py" else name.rsplit(".", 1)[0]
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            names: list[str] = []
+            if isinstance(node, ast.Import):
+                names = [a.name for a in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                parts = package.split(".")
+                base = (
+                    ".".join(parts[: len(parts) - node.level + 1] + [node.module or ""]).strip(".")
+                    if node.level
+                    else node.module or ""
+                )
+                names = [base, *(f"{base}.{a.name}" for a in node.names)]
+            for imported in filter(None, names):
+                top = imported.split(".")[0]
+                if top in local:
+                    todo.append(imported)
+                elif top not in sys.stdlib_module_names and top != "__future__":
+                    found.add(top)
+    return found
+
+
+def test_the_graphsage_image_adds_what_the_jobs_import_and_keeps_the_rocm_stack() -> None:
+    dockerfile = (INFRA / "docker" / "trainer-gnn.Dockerfile").read_text(encoding="utf-8")
+    assert "FROM ${DGL_IMAGE}" in dockerfile and "--extra-index-url" not in dockerfile
+    assert "--no-deps --index-url https://pypi.org/simple" in dockerfile
+    assert "import ml.gnn.asos, ml.gnn.embeddings" in dockerfile  # fails the build, not the run
+    assert "COPY bench bench" in dockerfile  # B2 runs here (make bench-b2)
+    assert "numpy.__version__ == '2.5.4'" in dockerfile and "SAGEConv" in dockerfile
+    pins = _pins(INFRA / "docker" / "requirements-gnn.txt")
+    assert pins and all(pins.values()), "every package is pinned"
+    assert not set(pins) & IMAGE_STACK, "the rocm/dgl image ships these, built together for ROCm"
+    assert not set(pins) & {"xgboost", "amd-xgboost"}
+    base = _pins(ROOT / "requirements" / "base.txt") | _pins(ROOT / "requirements" / "dev.txt")
+    for name in set(pins) & set(base):
+        assert pins[name] == base[name], name
+    assert pins["numpy"] == "2.5.4" and pins["pandas"] == "3.0.6"
+    # Everything the jobs, B2 and the tests of `make gnn-test-gpu` import is either shipped by
+    # the image or pinned here.
+    needed = third_party_imports(
+        "ml.gnn.__main__",
+        "ml.gnn.asos",
+        "ml.gnn.embeddings",
+        "ml.gnn.report",
+        "bench.b2_gnn",
+        "tests.conftest",
+        "tests.test_gnn_model",
+        "tests.test_gnn_jobs",
+    )
+    for module in sorted(needed - IMAGE_STACK):
+        distribution = MODULE_DISTRIBUTION.get(module, module)
+        assert distribution in pins, f"{module} is imported but not in requirements-gnn.txt"
+    cpu = (INFRA / "requirements-gnn-cpu.txt").read_text(encoding="utf-8")
+    assert "torch==2.8.0+cpu" in cpu  # the PyTorch of the rocm/dgl image, CPU build
+
+
+def test_makefile_gnn_targets() -> None:
+    targets = makefile_targets()
+    assert targets["gnn-asos"][1] == [
+        "python -m ml.gnn asos --raw data/raw --out artifacts --sample $(GNN_SAMPLE)"
+    ]
+    assert " ".join(targets["embeddings"][1]).count("python -m ml.gnn embed") == 2
+    assert "--encoder artifacts/gnn/models/customer_encoder" in " ".join(targets["embeddings"][1])
+    assert targets["gnn-results"][1] == [
+        "python -m ml.gnn report --artifacts artifacts --doc docs/results/us-202-graphsage.md"
+    ]
+    assert "--device gpu" in " ".join(targets["gnn-asos-gpu"][1])
+    assert "--device cpu" in " ".join(targets["gnn-asos-cpu-container"][1])
+    for target in ("gnn-asos-gpu", "gnn-asos-cpu-container", "embeddings-gpu"):
+        # Alone on the GPU and on the CPU, as B1 and B2 (review G10).
+        assert targets[target][1][0] == "@$(VLLM_DOWN)", target
+    assert "embeddings" not in targets["pipeline"][0].split()  # make pipeline needs no torch
+
+
 def test_makefile_targets_use_overrides_and_existing_scripts() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
     assert re.search(r"^GPU = .*-f infra/compose\.gpu\.yml", makefile, re.M)

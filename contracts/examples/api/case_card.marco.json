@@ -1698,14 +1698,6 @@
         "value": 6,
         "period": "2026-09-22/2026-09-28",
         "nature": "synthetic"
-      },
-      {
-        "id": "F8",
-        "entity": "policy",
-        "metric": "return_window_days",
-        "value": 14,
-        "period": "orders from 2026-09-28",
-        "nature": "synthetic"
       }
     ],
     "explanation": [
@@ -1715,7 +1707,7 @@
           "F1",
           "F3"
         ],
-        "text": "Risk score 0.87; the largest contribution is welcome_coupons_per_account: each linked account used the welcome coupon.",
+        "text": "Risk score 0.87: an estimate, not a cause. welcome_coupons_per_account (1) contributes most to it: each linked account used the welcome coupon.",
         "facts": [
           {
             "id": "F1",
@@ -1764,7 +1756,7 @@
       {
         "label": "HYPOTHESIS",
         "fact_ids": [],
-        "text": "The linked accounts may be managed together: verify the shared payment cards before approving.",
+        "text": "The shared device and payment cards of the linked accounts are worth checking in the order log.",
         "facts": []
       }
     ],
@@ -1784,7 +1776,7 @@
             "deadline": "il 12 ottobre 2026",
             "deduction": null
           },
-          "text": "Ciao, grazie per averci scritto. Abbiamo registrato la tua richiesta di reso e il rimborso è previsto per il 12 ottobre 2026. I tuoi prossimi ordini avranno nuove condizioni di reso, mostrate prima di ogni acquisto: reso entro 14 giorni dalla consegna; spedizione del reso a tuo carico; rimborso nei tempi di legge, non istantaneo; codici sconto non utilizzabili. Queste condizioni tengono conto dei resi dei tuoi ordini precedenti. Per domande su queste condizioni, rispondi pure a questo messaggio. Un caro saluto dal nostro team.\n\nTi ricordiamo che puoi sempre esercitare il diritto di recesso entro 14 giorni dalla consegna, senza indicarne il motivo. Ti rimborseremo entro 14 giorni dalla tua comunicazione, al ricevimento dei prodotti o della prova della loro spedizione."
+          "text": "Ciao, grazie per averci scritto. Abbiamo registrato la tua richiesta di reso e il rimborso è previsto al più tardi per il 12 ottobre 2026. Questo reso mantiene le condizioni del tuo ordine. I tuoi prossimi ordini avranno queste condizioni di reso, mostrate prima dell'acquisto: reso entro 14 giorni dalla consegna; spedizione del reso a tuo carico; rimborso nei tempi di legge, non istantaneo; codici sconto non utilizzabili. Queste condizioni tengono conto dei tuoi resi precedenti. Per domande su queste condizioni, rispondi pure a questo messaggio. Un caro saluto dal nostro team.\n\nTi ricordiamo che puoi sempre esercitare il diritto di recesso entro 14 giorni dalla consegna, senza indicarne il motivo. Ti rimborseremo entro 14 giorni dalla tua comunicazione, al ricevimento dei prodotti o della prova della loro spedizione."
         },
         {
           "lang": "en",
@@ -1794,7 +1786,7 @@
             "deadline": "12 October 2026",
             "deduction": null
           },
-          "text": "Hello, thank you for writing to us. We have registered your return request and your refund is due by 12 October 2026. Your next orders will have new return terms, shown before each purchase: returns within 14 days of delivery; return shipping at your expense; refund within the legal time limit, not instant; discount codes not available. These terms take into account the returns on your previous orders. Questions about these terms? Just reply to this message. Warm regards from our team.\n\nYou can always withdraw from your purchase within 14 days of delivery without giving any reason. We will refund you within 14 days of your notice, once we receive the items or proof that you have sent them back."
+          "text": "Hello, thank you for writing to us. We have registered your return request and your refund is due by 12 October 2026. This return keeps the terms of your order. Your next orders will have these return terms, shown before each purchase: returns within 14 days of delivery; return shipping at your expense; refund within the legal time limit, not instant; discount codes not available. These terms take into account your previous returns. Questions about these terms? Just reply to this message. Warm regards from our team.\n\nYou can always withdraw from your purchase within 14 days of delivery without giving any reason. We will refund you within 14 days of your notice, once we receive the items or proof that you have sent them back."
         }
       ]
     },

@@ -182,14 +182,6 @@
         "value": 3,
         "period": "2026-09-24/2026-09-27",
         "nature": "synthetic"
-      },
-      {
-        "id": "F7",
-        "entity": "policy",
-        "metric": "return_window_days",
-        "value": 60,
-        "period": "orders from 2026-09-27",
-        "nature": "synthetic"
       }
     ],
     "explanation": [
@@ -281,7 +273,7 @@
       {
         "label": "OBSERVED",
         "fact_ids": [],
-        "text": "The rules engine placed the case in Q1; the levers are listed with the decision.",
+        "text": "The rules engine placed the case in Q1; the case view shows the decision.",
         "facts": []
       },
       {

@@ -58,7 +58,7 @@ def test_regenerated_once_with_the_error_codes() -> None:
     assert result.path is GenerationPath.REGENERATED
     assert result.model_calls == 2
     assert {i.code for i in result.issues} == {Code.WRONG_LANGUAGE}
-    assert mock.calls == [(), ("WRONG_LANGUAGE",)]
+    assert mock.calls == [(), ("WRONG_LANGUAGE in operator_explanation: English expected",)]
 
 
 def test_template_after_two_failures() -> None:

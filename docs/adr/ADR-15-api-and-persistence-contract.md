@@ -1,7 +1,8 @@
 # ADR-15: API and persistence contract
 
-Status: accepted, 13 Oct 2026; amended the same day after four reviews (sections 9 to 12). API
-contract version `1.4.0`. Covers spec section 9 (API table, flows F1 to F7), the stories of E3,
+Status: accepted, 13 Oct 2026; amended the same day after four reviews (sections 9 to 12), and on
+14 Oct 2026 by the phase 4 integration (section 13) and the merge of the LLM layer's closing
+rounds (section 14). API contract version `1.4.1`. Covers spec section 9 (API table, flows F1 to F7), the stories of E3,
 E4, E5, E6, E7 and E9, NFR-16 and CLAUDE.md rules 1, 3, 4, 5, 9, 10, 11 and 12. Changes
 `contracts/` (new `contracts/vocab.py`, `contracts/sql.py`, `contracts/json/api/`,
 `contracts/examples/api/`), removes two v1 API schemas, and adds `apps/api/schemas.py` and two
@@ -345,8 +346,8 @@ The intake function, and only it, triggers the decision:
   `_check_draft` checks that `case_facts` are the facts `llm.case.build_case` writes for the
   version: ids in order, one fact per metric, the nature of the inputs, and each metric with
   the entity, period and value build_case gives it (risk and value "as of" and "12 months to"
-  the decision day, the days since delivery over the delivery and notice days, the window of
-  the proposal "orders from" the decision day, the cluster only for a customer in a cluster,
+  the decision day, the days since delivery over the delivery and notice days, the cluster only
+  for a customer in a cluster, no lever (ADR-14 decision 9; section 14),
   score factors that may be shown and are never customer value, at most three). Where the
   response shows the score factors and the cluster size (the case card, a recompute), the facts
   must equal a rebuild with `llm.case.build_case` (`expected_case_facts`). It then runs
@@ -448,8 +449,8 @@ mock routes serve every version a version chain of the examples points to.
 - The claim is attached to the decision (`diminished_value_claim`, checked by the legal guard),
   on the price of the returned line (`line_price`). The message to the customer states the
   refund left after the claim ({amount}: the price of the line less the claim) and the amount
-  withheld with its reason ({deduction}: "Abbiamo trattenuto {deduction} per la diminuzione di
-  valore rilevata al controllo."; section 12, E9, E12 and E17). It offers no other size.
+  withheld with its reason ({deduction}: "Abbiamo trattenuto {deduction} per il minor valore
+  rilevato al controllo."; section 12, E9, E12 and E17; section 14). It offers no other size.
 - **No unapproved restriction reaches the customer (rule 5).** The confirmation sends its
   message exactly when a claim applies and the decision does not await a person's approval.
   While a Q3 or Q4 proposal waits for Sara, the message would state its restrictive terms, so
@@ -813,7 +814,7 @@ refused (`tests/test_api_round4.py`, plus rows of `tests/test_sql_contract.py`,
 | E14: a tone nothing applied | Removed from `RegenerateRequest`, `DraftView`, `llm_generations`, `contracts/vocab.py` and spec 9 |
 | E15: generation records allow paths `llm.generate` cannot take | **Open**: not part of this round. `check_generation_path`, the `llm_generations` CHECKs and the link of a generation to its decision stay as in section 11 |
 | E16 (major): no 403, 409 conflict, 429 or 503 scenario, no renew outcome | Error examples for every code and routes for every declared status (section 7, Errors); the scenario `renewed`; a test requires a route for every declared error status |
-| E17 (major): the deduction was not explained | A reviewed sentence written by code with the field {deduction} ("Abbiamo trattenuto {deduction} per la diminuzione di valore rilevata al controllo." / "We have withheld {deduction} for the loss of value found at our check."), no size sentence, at most two extras (ADR-14 section 9) |
+| E17 (major): the deduction was not explained | A reviewed sentence written by code with the field {deduction} ("Abbiamo trattenuto {deduction} per la diminuzione di valore rilevata al controllo." / "We have withheld {deduction} for the loss of value found at our check."; the Italian text since section 14: "per il minor valore rilevato al controllo"), no size sentence, at most two extras, one in Q3 and Q4 since section 14 (ADR-14 decision 12) |
 | E18: decision and return ids not served | A record for every version the examples name, a card for RET-000077; the test resolves every `DEC-` id of the examples and the return of every record |
 | E19: CL-000655 missing from the matrix | Its three accounts are Q4 points; a test checks every customer of a decision in force |
 | E20: the audit page left out acts | The whole log of the examples, numbered in time order; results and recomputes name its ids |
@@ -882,6 +883,54 @@ changes a generated file (`contracts/json/api/`, `contracts/examples/api/`): the
   creates it when it starts first, keeps 24 hours and skips a sample it cannot store. It was
   defined in the telemetry service with its own metadata; `tests/test_sql_contract.py` covers
   it now like every table.
+
+
+### 14. Merge of the LLM layer's closing rounds (14 Oct 2026, contract 1.4.1)
+
+The API branch was merged with the LLM layer of rounds 3 to 6 of the adversarial review (ADR-14
+decisions 9 to 11) and the number-free missing-evidence sentences of `pipeline/features/
+evidence.py`. Both branches had changed `llm/`; ADR-14 decision 12 records the merged customer
+texts. The merge changes generated files, so the version is 1.4.1.
+
+- **No lever fact (contract change).** ADR-14 decision 9 removes the `policy` entity of the
+  llm_case: operator statements do not talk about levers, so the window of the proposal is no
+  longer a fact. `CitedFact.entity` (`llm.case.Entity`) loses `policy`, and `_check_case_facts`
+  no longer expects a `return_window_days` fact "orders from" the decision day (a lever is
+  never a fact nor a score factor). Every draft of a decision with a window lever has one fact
+  fewer.
+- **`TERMS_TOPIC` (contract change).** `ValidatorCode` gains the code of an operator statement
+  that talks about levers, terms, refunds, restrictions, decisions or levels (regenerate,
+  ADR-14 decision 9), in every schema that lists validator codes. The mock generation of the
+  insufficient-evidence example now records it next to `DECISION_ECHO`.
+- **Customer texts (text only).** The registration says the refund is due "al più tardi per
+  {deadline}", with the Italian article of E22 in the field ("al più tardi per l'11 ottobre
+  2026"); Q3 and Q4 say that this return keeps the terms of its order (with the free size
+  exchange when granted), the restrictive terms are "these return terms", the notice is "These
+  terms take into account your previous returns" after them and names the next orders
+  otherwise, and insufficient evidence states the standard terms of the next orders. The coupon
+  block at checkout uses the notice that follows a stated term. The deduction sentence says "il
+  minor valore" in Italian, and Q3 and Q4 with a deduction take one extra, so every message
+  stays within 120 words before the clause (ADR-14 decision 12).
+- **Template statements (text only).** The fallback explanation names no lever ("the case view
+  shows the decision"; no "standard terms apply" or "no restrictive levers").
+- **Missing evidence (text only).** The items hold no number (ADR-14 decision 11), so the model
+  can restate them: "Too few order lines with a settled outcome for this customer", "Only an
+  email on file: no device, address or card".
+- **Agent and inspection checks.** `answer_codes` records the codes of
+  `llm.agent.answer_problems`, the checks `VllmAgent` runs on an answer (list markers removed,
+  identifiers of the tool results stripped before the banned terms, the comparison references
+  in grounding), and the notes of a vision checklist are checked with
+  `llm.text.foreign_characters`, the character allowlist that replaced `foreign_letters`.
+
+Schemas whose shape changed: the `entity` enum of a cited fact in `case_card`,
+`link_dispute_response`, `recompute_response`, `regenerate_response` and `openapi.json`; the
+validator codes in `agent_stream`, `audit_page`, `case_card`, `decision_result`, `inspection`,
+`inspection_confirm_response`, `link_dispute_response`, `recompute_response`,
+`regenerate_response` and `openapi.json` (and `llm_case.schema.json` of ADR-14). Examples whose
+shape changed: the drafts that lost their `policy` fact (`case_card.andrea`,
+`case_card.earlier`, `case_card.giulia`, `case_card.marco`, `link_dispute_response`,
+`regenerate_response`) and the generation records with `TERMS_TOPIC` (`case_card.insufficient`,
+`audit_page`). The other changed examples change texts only.
 
 
 ## Consequences

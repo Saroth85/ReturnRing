@@ -15,7 +15,7 @@ select = ["E", "F", "I", "B", "UP", "SIM"]
 [tool.mypy]
 python_version = "3.12"
 strict = true
-files = ["policy", "llm", "apps", "pipeline", "contracts", "scripts", "ml"]
+files = ["policy", "llm", "apps", "pipeline", "contracts", "scripts", "ml", "bench"]
 
 [[tool.mypy.overrides]]
 module = ["pyarrow.*", "pandas.*"]  # no type information shipped (pandas-stubs is not a dependency)
@@ -25,6 +25,19 @@ ignore_missing_imports = true
 module = ["xgboost.*", "sklearn.*", "scipy.*", "networkx.*"]  # no type information shipped
 ignore_missing_imports = true
 
+# ml/gnn (US-202, A4): PyTorch and DGL are optional (infra/requirements-gnn-cpu.txt, the
+# trainer-graphsage image), so the main environment type-checks ml/gnn without them: their types
+# are Any there, and subclassing nn.Module or decorating with torch.no_grad must be allowed.
+[[tool.mypy.overrides]]
+module = ["torch", "torch.*", "dgl", "dgl.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["ml.gnn.*"]
+disallow_subclassing_any = false
+disallow_untyped_decorators = false
+disallow_untyped_calls = false  # torch.autograd.Function.apply and Tensor.backward are untyped
+
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
@@ -32,4 +45,5 @@ markers = [
     "gpu: needs the AMD MI300X droplet",
     "asos: needs the real ASOS GraphReturns files in ASOS_DIR (skipped otherwise)",
     "e2e: the golden demo walk over the API (CI runs it on the tiny snapshot of the harness)",
+    "torch: needs PyTorch, CPU is enough (skipped when torch is not installed; docs/graphsage.md)",
 ]

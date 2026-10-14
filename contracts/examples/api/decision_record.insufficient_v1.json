@@ -14,8 +14,8 @@
     "evidence_quality": "insufficient",
     "quadrant": null,
     "missing_evidence": [
-      "Fewer than 4 order lines observed for this customer",
-      "One identifier kind on file: email only (no device, address or card)"
+      "Too few order lines with a settled outcome for this customer",
+      "Only an email on file: no device, address or card"
     ],
     "proposed_levers": [],
     "levers": [],

@@ -72,7 +72,7 @@ def _marco_inspection(with_message: bool) -> dict[str, Any]:
     if with_message:
         refund = s.Metric(value=79.2, unit="eur", provenance=confirm.claim.amount.provenance)
         message = bae.outbox_message("MSG-000102-9", view, "it", "ahmed", when, refund=refund)
-        assert "I tuoi prossimi ordini avranno nuove condizioni" in message.body
+        assert "I tuoi prossimi ordini avranno queste condizioni" in message.body
         message = message.model_dump(mode="json")
     return {
         "inspection": inspection,
@@ -175,7 +175,6 @@ def test_e3_no_cluster_is_stated_for_a_customer_without_one() -> None:
         ("cluster_size", {"entity": "customer"}, "", ""),  # P4 of E3
         ("risk_score", {"period": "as of 2020-01-01"}, "", ""),  # P4 of E10
         ("risk_score", {"entity": "cluster"}, "", ""),  # P5 of E10
-        ("return_window_days", {"value": 90}, "", ""),  # P6 of E10 (the proposal says 14)
     ],
 )
 def test_e3_e10_a_fact_is_written_as_llm_case_writes_it(
@@ -184,6 +183,25 @@ def test_e3_e10_a_fact_is_written_as_llm_case_writes_it(
     card = load("case_card.marco.json")
     s.CaseCard.model_validate(card)
     refused(s.CaseCard, _replace_text(_set_fact(card, metric_name, **changes), old, new))
+
+
+@pytest.mark.parametrize("entity", ["customer", "policy"])
+def test_e10_a_lever_is_never_a_fact(entity: str) -> None:
+    """P6 of E10 checked the window fact of the proposal; since ADR-14 decision 9 (ADR-15
+    section 14) a lever is never a fact and the entity "policy" is gone: a draft with the
+    window of the proposal as a fact is refused, whatever its value."""
+    card = load("case_card.marco.json")
+    window = next(
+        x["value"] for x in card["decision"]["proposed_levers"] if x["id"] == "return_window_days"
+    )
+    facts = card["draft"]["case_facts"]
+    assert all(f["metric"] != "return_window_days" for f in facts)
+    probe = copy.deepcopy(card)
+    probe["draft"]["case_facts"].append(
+        {"id": f"F{len(facts) + 1}", "entity": entity, "metric": "return_window_days",
+         "value": window, "period": "orders from 2026-09-28", "nature": "synthetic"}
+    )  # fmt: skip
+    refused(s.CaseCard, probe)
 
 
 def test_e10_a_draft_cannot_cite_invented_renamed_or_forbidden_facts() -> None:
@@ -432,7 +450,7 @@ def test_e17_the_deduction_is_stated_with_its_reason() -> None:
     assert message is not None and claim is not None and message.refund is not None
     deduction = format_amount(Decimal(str(claim.amount.value)), message.lang)
     assert message.fields.deduction == deduction == "17,98 €"
-    assert f"Abbiamo trattenuto {deduction} per la diminuzione di valore" in message.body
+    assert f"Abbiamo trattenuto {deduction} per il minor valore rilevato" in message.body
     assert "taglia" not in message.body  # no other size is offered for a damaged item
     assert Decimal(str(message.refund.value)) == claim.refund_eur() == Decimal("71.92")
     outbox = s.OutboxResponse.model_validate(load("outbox.json"))
@@ -667,7 +685,10 @@ def test_e22_no_example_says_per_il_before_a_vowel() -> None:
         text = path.read_text(encoding="utf-8")
         assert not re.search(r"\bil (1|8|11) [a-z]", text), path.name
     giulia = load("case_card.giulia.json")
-    assert "previsto per l'11 ottobre 2026" in giulia["draft"]["message"]["texts"][0]["text"]
+    assert (
+        "previsto al più tardi per l'11 ottobre 2026"
+        in giulia["draft"]["message"]["texts"][0]["text"]
+    )
 
 
 # ---- E24: an answer cites what it names --------------------------------------------------------

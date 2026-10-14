@@ -36,7 +36,7 @@
       "detail": null
     }
   ],
-  "contract_version": "1.4.0",
+  "contract_version": "1.4.1",
   "rules_version": "policy-2026-10-12",
   "assumptions_version": "assumptions-v1",
   "model_versions": {

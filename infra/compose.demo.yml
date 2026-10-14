@@ -8,7 +8,8 @@
 # Compose merges volumes by container path, so these mounts replace those of docker-compose.yml.
 # The API also reads the package's MANIFEST.json next to the snapshot, as in demo-cache/
 # (SERVING_DIR/../MANIFEST.json): /readyz shows "Precomputed on AMD MI300X" only when it says the
-# drafts were made on the MI300X by GEMMA_MODEL, a rehearsal label otherwise (rules 11 and 13).
+# drafts were made on the MI300X by the model it names (whatever GEMMA_MODEL this server has), a
+# rehearsal label otherwise (rules 11 and 13).
 # Public views are read-only by default (spec 11): PUBLIC_READ_ONLY=false in .env turns writes on,
 # behind basic auth on a public server.
 services:

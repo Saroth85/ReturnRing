@@ -28,12 +28,15 @@ GPU = "AMD Instinct MI300X"
 GEMMA = "google/gemma-4-31B-it"
 
 
-def _cache_entry(digest: str, model: str = "google/gemma-4-31B-it", path: str = "model") -> dict:
+def _cache_entry(
+    digest: str, model: str = "google/gemma-4-31B-it", path: str = "model", device: str = "gpu"
+) -> dict:
     return {
         "format": "returnring.llm_cache.v1",
         "input_digest": digest,
         "case_id": f"RET-{digest[:6]}",
         "model": model,
+        "device": device,
         "generation_path": path,
         "fallback_reason": None,
         "model_calls": 1,
@@ -126,6 +129,7 @@ def test_build_packs_the_snapshot_the_cache_and_the_pointed_runs(
     assert manifest["serving"]["seed"] == 42
     cache = manifest["llm_cache"]
     assert cache["entries"] == 2 and cache["models"] == {"google/gemma-4-31B-it": 2}
+    assert cache["devices"] == {"gpu": 2}
     assert cache["generation_paths"] == {"model": 2}
     assert cache["generated_on"] == GPU and "vLLM" in cache["nature"]
     assert cache["rehearsal"] is False and cache["gemma_model"] == GEMMA
@@ -262,6 +266,26 @@ def test_build_refuses_an_mi300x_package_without_the_gpu_or_the_model(
     with pytest.raises(PackageError, match="google/gemma-4-26B-A4B-it"):
         build(serving, bench, out, generated_on=GPU, model="google/gemma-4-26B-A4B-it", now=NOW)
     assert not out.exists()
+
+
+@pytest.mark.parametrize("device", ["cpu", None])
+def test_a_batch_that_did_not_run_on_the_gpu_is_packed_only_as_a_rehearsal(
+    tmp_path: Path, device: str | None
+) -> None:
+    """Second review of 14 Oct 2026: a fake vLLM server can be run under any model name, so
+    the drafts also say the device of the batch (DEVICE: gpu in the batch-generate service of
+    compose). A draft of a CPU batch, or of a batch that recorded none, is not the MI300X's."""
+    serving, bench, out = make_serving(tmp_path), make_bench(tmp_path), tmp_path / "out"
+    digest = hashlib.sha256(b"cpu").hexdigest()
+    entry = _cache_entry(digest)
+    entry["device"] = device
+    if device is None:
+        del entry["device"]
+    (serving / "llm_cache" / f"{digest}.json").write_text(json.dumps(entry))
+    with pytest.raises(PackageError, match="DEVICE=gpu"):
+        build(serving, bench, out, **MI300X)
+    manifest = build(serving, bench, out, rehearsal=True, now=NOW)
+    assert manifest["llm_cache"]["devices"] == {str(device): 1, "gpu": 2}
 
 
 def test_a_cache_of_another_model_is_packed_only_as_a_rehearsal(tmp_path: Path) -> None:

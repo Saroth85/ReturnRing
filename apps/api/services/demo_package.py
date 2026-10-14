@@ -4,12 +4,17 @@
 
 - the demo package's MANIFEST.json (scripts/demo_export.py), next to the serving snapshot as in
   demo-cache/ (SERVING_DIR/../MANIFEST.json; infra/compose.demo.yml mounts it there), says the
-  drafts are not a rehearsal and were made on hardware that names the MI300X;
-- every entry of SERVING_DIR/llm_cache/ was written by GEMMA_MODEL, the model this API is set to.
+  drafts are not a rehearsal, were made on hardware that names the MI300X, and names their
+  model (gemma_model: GEMMA_MODEL of the droplet, which the export checked every draft against
+  on a batch that ran with DEVICE=gpu);
+- every entry of SERVING_DIR/llm_cache/ was written by that model.
 
-Otherwise (a CPU rehearsal with a fake vLLM server, another model, no manifest) the label says
-it is a rehearsal, and the demo_cache check says why: a CPU package is never labelled MI300X.
-No server path reaches the public reason (H26).
+The drafts are compared with the package's model, not with GEMMA_MODEL of this API: in cached
+mode the API calls no model, and a demo server keeps the .env.example default while the package
+may hold the plan-B model's drafts (second review of 14 Oct 2026). Otherwise (a CPU rehearsal
+with a fake vLLM server, another model, no manifest) the label says it is a rehearsal, and the
+demo_cache check says why: a CPU package is never labelled MI300X. No server path reaches the
+public reason (H26).
 
 The answer is kept per cache folder and manifest until either changes (their modification
 times), so /readyz does not read every entry on each call.
@@ -39,7 +44,7 @@ class CacheOrigin:
     detail: str | None  # why the label is the rehearsal one
 
 
-_MEMO: dict[tuple[Path, Path, str], tuple[tuple[object, ...], CacheOrigin]] = {}
+_MEMO: dict[tuple[Path, Path], tuple[tuple[object, ...], CacheOrigin]] = {}
 _LOCK = threading.Lock()
 
 
@@ -63,48 +68,52 @@ def _read_json(path: Path) -> Any:
         return None
 
 
-def _manifest_problem(manifest: Any) -> str | None:
-    """Why the package manifest does not say MI300X, or None when it does."""
+def _package_model(manifest: Any) -> tuple[str | None, str | None]:
+    """The model of the drafts of an MI300X package, and None; or None and why the package
+    manifest does not say MI300X."""
     if not isinstance(manifest, dict) or manifest.get("format") != PACKAGE_FORMAT:
-        return "no MANIFEST.json of a demo package next to the serving snapshot"
+        return None, "no MANIFEST.json of a demo package next to the serving snapshot"
     cache = manifest.get("llm_cache")
     cache = cache if isinstance(cache, dict) else {}
     if cache.get("rehearsal") is not False:
-        return "the package MANIFEST.json declares a rehearsal"
+        return None, "the package MANIFEST.json declares a rehearsal"
     generated_on = cache.get("generated_on")
     if not isinstance(generated_on, str) or GPU_NAME not in generated_on:
-        return f"the package MANIFEST.json does not name the {GPU_NAME} the drafts were made on"
-    return None
+        return None, f"the package MANIFEST.json does not name the {GPU_NAME} of its drafts"
+    model = cache.get("gemma_model")
+    if not isinstance(model, str) or not model:
+        return None, "the package MANIFEST.json names no model for its drafts"
+    return model, None
 
 
-def _origin(cache_dir: Path, manifest: Path, model: str) -> CacheOrigin:
+def _origin(cache_dir: Path, manifest: Path) -> CacheOrigin:
     entries = sorted(cache_dir.glob("*.json")) if cache_dir.is_dir() else []
     if not entries:
         return CacheOrigin(0, None, None)
-    problem = _manifest_problem(_read_json(manifest))
-    if problem is None:
+    model, problem = _package_model(_read_json(manifest))
+    if model is not None:
         models = set()
         for path in entries:
             entry = _read_json(path)
             models.add(str(entry.get("model")) if isinstance(entry, dict) else "unreadable")
         others = sorted(models - {model})
         if others:
-            problem = f"drafts of {', '.join(others)} in the cache, not of GEMMA_MODEL {model}"
+            problem = f"drafts of {', '.join(others)} in the cache, not of the package's {model}"
     if problem is None:
         return CacheOrigin(len(entries), s.CACHED_LABEL, None)
     return CacheOrigin(len(entries), s.REHEARSAL_LABEL, f"{problem}: labelled a rehearsal")
 
 
-def cache_origin(serving_dir: Path, model: str) -> CacheOrigin:
-    """The origin of SERVING_DIR/llm_cache/ for GEMMA_MODEL `model` (see the module doc)."""
+def cache_origin(serving_dir: Path) -> CacheOrigin:
+    """The origin of SERVING_DIR/llm_cache/ (see the module doc)."""
     cache_dir, manifest = serving_dir / "llm_cache", manifest_path(serving_dir)
-    key = (cache_dir, manifest, model)
+    key = (cache_dir, manifest)
     stamp = (_stamp(cache_dir), _stamp(manifest))
     with _LOCK:
         found = _MEMO.get(key)
     if found is not None and found[0] == stamp:
         return found[1]
-    origin = _origin(cache_dir, manifest, model)
+    origin = _origin(cache_dir, manifest)
     with _LOCK:
         _MEMO[key] = (stamp, origin)
     return origin

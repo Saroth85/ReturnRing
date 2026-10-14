@@ -24,6 +24,7 @@ import json
 import shlex
 import subprocess
 import sys
+import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -47,7 +48,12 @@ LLM_WINDOW_S: Final = 300
 RETENTION: Final = timedelta(hours=24)
 DEFAULT_DEVICE: Final = "AMD Instinct MI300X"
 AMD_SMI: Final = ("amd-smi", "metric", "--json")
-CACHED_NOTE: Final = "GPU off: cached mode serves results precomputed on the AMD MI300X"
+# Where the precomputed results were made is the claim of the /readyz label alone, which checks
+# the demo package (apps/api/services/demo_package.py); a CPU rehearsal is cached mode too.
+CACHED_NOTE: Final = "GPU off: cached mode serves precomputed results"
+# The telemetry container rewrites its amd-smi file every INTERVAL_S seconds, into a volume
+# that survives a reboot: an older file is a reading of the past, not a sample (rule 11).
+SOURCE_MAX_AGE_S: Final = 3 * INTERVAL_S
 _MIB: Final[dict[str, float]] = {"b": 1 / 2**20, "kb": 1 / 1024, "kib": 1 / 1024, "mb": 1.0}
 _MIB.update({"mib": 1.0, "gb": 1024.0, "gib": 1024.0})
 
@@ -177,9 +183,13 @@ async def store_sample(
 def read_source(
     command: Sequence[str], source_file: Path | None
 ) -> tuple[list[GpuReading], str | None]:
-    """One reading of amd-smi: the file the telemetry container writes, or the command."""
+    """One reading of amd-smi: the file the telemetry container writes, when it was rewritten
+    in the last SOURCE_MAX_AGE_S seconds, or the command."""
     try:
         if source_file is not None:
+            age = time.time() - source_file.stat().st_mtime
+            if age > SOURCE_MAX_AGE_S:
+                return [], f"{source_file.name} not updated for {age:.0f} s: no live reading"
             text = source_file.read_text(encoding="utf-8")
         else:
             done = subprocess.run(  # noqa: S603 - a fixed command, no shell

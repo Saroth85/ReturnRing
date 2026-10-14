@@ -171,8 +171,9 @@ from policy.types import CouponRuleApplication as PolicyCouponRule
 # clock in /readyz, refund deadlines in the queue, the coupon block in the terms shown and stored,
 # a claim per return, the stale_proposal recompute, the write_request refusal, read-only mode);
 # 1.5.1: the review of the public deployment (ADR-15 section 16: the rehearsal label of a cached
-# demo not verified as made on the MI300X, Retry-After on every 429)
-API_CONTRACT_VERSION = "1.5.1"
+# demo not verified as made on the MI300X, Retry-After on every 429); 1.5.2: its second review
+# (ADR-15 section 17: the cached telemetry note no longer names the MI300X)
+API_CONTRACT_VERSION = "1.5.2"
 MODE_HEADER = "X-ReturnRing-Mode"  # every response: "live" or "cached" (US-901)
 REQUEST_ID_HEADER = "X-Request-Id"  # every response; also in the audit log (NFR-12)
 RETRY_AFTER_HEADER = "Retry-After"  # on a 429 rate_limited: whole seconds to wait (1.5.1)
@@ -184,7 +185,7 @@ RETRY_AFTER_OPENAPI: dict[str, Any] = {
     }
 }
 # The label of cached mode (US-901): the MI300X claim only when the demo package says the drafts
-# were made there by GEMMA_MODEL, the rehearsal label otherwise (1.5.1; rules 11 and 13).
+# were made there by the model it names, the rehearsal label otherwise (1.5.1; rules 11 and 13).
 CachedLabel = Literal[
     "Precomputed on AMD MI300X", "Precomputed in a rehearsal, not verified on AMD MI300X"
 ]

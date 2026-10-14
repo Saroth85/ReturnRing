@@ -74,11 +74,13 @@ The demo package comes from one GPU session: `make batch-generate` writes Gemma'
 open return into `serving/llm_cache/`, then `make demo-export DEMO_GPU="AMD Instinct MI300X (AMD
 Developer Cloud)"` packs the snapshot, the cache and the benchmark results into `demo-cache/`
 with a `MANIFEST.json` holding the sha256 of every file, the hardware and the model of every
-draft (`demo-cache.tar.gz` to copy). `DEMO_GPU` has no default, and the export refuses drafts of
-a model other than `GEMMA_MODEL` unless the package is declared a rehearsal (`REHEARSAL=1`). The
-API shows the MI300X label only when the package's `MANIFEST.json` says its drafts were made on
-the MI300X by `GEMMA_MODEL`; any other package, such as a CPU rehearsal, is labelled
-**"Precomputed in a rehearsal, not verified on AMD MI300X"**.
+draft (`demo-cache.tar.gz` to copy). The batch stops unless the local vLLM serves `GEMMA_MODEL`
+and records the device of each draft. `DEMO_GPU` has no default, and the export refuses drafts
+of a model other than `GEMMA_MODEL`, or of a batch that did not run with `DEVICE=gpu`, unless
+the package is declared a rehearsal (`REHEARSAL=1`). The API shows the MI300X label only when
+the package's `MANIFEST.json` says its drafts were made on the MI300X by the model it names;
+any other package, such as a CPU rehearsal, is labelled **"Precomputed in a rehearsal, not
+verified on AMD MI300X"**.
 
 The package is published as a GitHub release asset after the GPU session; until then the laptop
 path below is for the team, who copy `demo-cache.tar.gz` from the droplet. The `demo-*` targets
@@ -105,9 +107,9 @@ assistant answered the 503 documented for cached mode.
 The droplet runbook is [infra/spikes/README.md](infra/spikes/README.md): the spikes, "The GPU
 session" (benchmarks B1 to B4, GraphSAGE) and "The demo export" (live stack, batch generation,
 package). On the droplet, `make gpu-up` starts vLLM first, then the whole stack with HTTPS on
-`PUBLIC_HOST` and basic auth on the telemetry data and the writes (`make admin-password` prints
-the hash for `.env`; `PUBLIC_HOST` and the hash are required, `.env.example` leaves both
-empty).
+`PUBLIC_HOST` and basic auth on the telemetry data and the writes, for the user `admin` (`make
+admin-password` prints the hash for `.env`; `PUBLIC_HOST` and the hash are required,
+`.env.example` leaves both empty).
 
 ## Architecture
 

@@ -184,7 +184,8 @@ def test_readyz_cached_carries_its_label_and_needs_the_cache(
     serving: Any, serving_dir: Path, tmp_path: Path
 ) -> None:
     """The cached label is shown while the precomputed outputs are there (1.5.0, H6); the MI300X
-    one when the package's MANIFEST.json says so (1.5.1, tests/test_api_public_demo.py)."""
+    one when the package's MANIFEST.json says so and names the drafts' model (1.5.1, 1.5.2;
+    tests/test_api_public_demo.py)."""
     copy = tmp_path / "serving"
     shutil.copytree(serving_dir, copy)
     settings = settings_for(copy, tmp_path / "none.sqlite", demo_mode="cached")
@@ -193,7 +194,11 @@ def test_readyz_cached_carries_its_label_and_needs_the_cache(
     (copy / "llm_cache" / "entry.json").write_text(json.dumps(entry), encoding="utf-8")
     manifest = {
         "format": "returnring.demo_export.v1",
-        "llm_cache": {"rehearsal": False, "generated_on": "AMD Instinct MI300X"},
+        "llm_cache": {
+            "rehearsal": False,
+            "generated_on": "AMD Instinct MI300X",
+            "gemma_model": settings.gemma_model,
+        },
     }
     (tmp_path / "MANIFEST.json").write_text(json.dumps(manifest), encoding="utf-8")
     for api in open_api(serving, settings, tmp_path / "none.sqlite"):

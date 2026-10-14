@@ -1,11 +1,11 @@
 # ADR-17: Deployment, the reset before the API, one proxy everywhere and the demo package
 
-Status: accepted, 14 Oct 2026; amended the same day after the review of the public deployment
-(section "Amendments after the review"). Covers US-001, US-003, US-901, US-903, US-904 and
-US-905 on the infrastructure side (spec sections 9, 11 and 17; CLAUDE.md rules 2, 5, 11, 12, 13
-and 15). Changes `infra/`, the `Makefile`, `.env.example`, `.github/workflows/ci.yml`,
-`scripts/demo_export.py` and the README; the amendments change the API contract to 1.5.1
-(ADR-15 section 16).
+Status: accepted, 14 Oct 2026; amended the same day after two reviews of the public deployment
+(sections "Amendments after the review" and "Amendments after the second review"). Covers
+US-001, US-003, US-901, US-903, US-904 and US-905 on the infrastructure side (spec sections 9,
+11 and 17; CLAUDE.md rules 2, 5, 11, 12, 13 and 15). Changes `infra/`, the `Makefile`,
+`.env.example`, `.github/workflows/ci.yml`, `scripts/demo_export.py` and the README; the
+amendments change the API contract to 1.5.1 and 1.5.2 (ADR-15 sections 16 and 17).
 
 ## Context
 
@@ -125,9 +125,10 @@ The review of the deployment, the README and the public demo (docs/review-backlo
   reload of the benchmarks page. `@admin` is `/api/telemetry` and `/api/telemetry/*`: the admin
   page's data (spec 11, "the admin page and the telemetry are protected", met through the data
   the page shows; readiness and benchmarks are public views anyway). `make admin-password`
-  hashes at bcrypt cost 10 (`caddy hash-password --algorithm bcrypt --bcrypt-cost 10`, about
-  15 ms a check) instead of Caddy's default 14: every wrong attempt costs one comparison on the
-  small public droplet.
+  hashes at bcrypt cost 10 (`caddy hash-password --algorithm bcrypt --bcrypt-cost 10`) instead
+  of Caddy's default 14. This bounds only a wrong password of the configured user: the second
+  review below found that any other user name still cost Caddy's cost-14 fake comparison, and
+  that a check takes about 70 ms, not 15 ms.
 - **`PUBLIC_HOST` is empty in `.env.example`**, with the sslip.io example in the comment, so the
   `:?` guard of `compose.public.yml` stops a public start that names no host. The laptop
   profiles (`make dev-up`, `make demo-local`) and the tests need no host.
@@ -145,6 +146,44 @@ The review of the deployment, the README and the public demo (docs/review-backlo
 
 The verification sections above are kept as they ran: their `/system` 401 is the behaviour
 before these amendments.
+
+## Amendments after the second review (14 Oct 2026)
+
+A second review of the same branch found these gaps in the amendments above:
+
+- **A fake vLLM server could pass for Gemma on the MI300X.** The fake of `bench/fake_vllm.py`
+  answers any model name with its own drafts, and the batch recorded `GEMMA_MODEL`, the name it
+  asked for, in every cache entry; a cached draft was kept whatever server made it. `python -m
+  apps.api.batch_generate` now stops before the first case unless the local vLLM lists
+  `GEMMA_MODEL` (`/v1/models`, the probe of `/readyz`), records the batch's `DEVICE` in each
+  entry (`gpu` in the `batch-generate` service of compose), and makes again a cached draft of
+  another model. `make demo-export` packs only drafts of a `DEVICE=gpu` batch as the MI300X's
+  (`llm_cache.devices` in the manifest). A rehearsal against the fake runs with
+  `GEMMA_MODEL=fake/gemma-dry-run` and is packed with `REHEARSAL=1`. The batch cannot prove
+  the hardware: `DEVICE` and `DEMO_GPU` are declarations, checked to agree.
+- **The label of a plan-B package.** The API compared the drafts with its own `GEMMA_MODEL`,
+  which the runbook's demo server leaves at the `.env.example` default, so a genuine MI300X
+  package of the plan-B model was called a rehearsal. It now compares them with the model the
+  package's `MANIFEST.json` names (`llm_cache.gemma_model`, which the export checked).
+- **The MI300X claim outside the label.** The cached telemetry note named the MI300X beside the
+  rehearsal label; it is now neutral (ADR-15 section 17).
+- **Basic auth: any user name cost a bcrypt-14 comparison.** For an unknown user Caddy 2.11.7
+  compares the password with a fixed bcrypt cost-14 fake hash (`modules/caddyhttp/caddyauth/
+  bcrypt.go`, `FakeHash`), whatever the cost of `ADMIN_PASSWORD_HASH`. Measured with Caddy
+  2.11.7 and this Caddyfile on 4 shared vCPUs: a wrong user name 1.08 s a request, a wrong
+  password of the admin user 0.07 s, no credentials under 1 ms. The basic-auth user is now
+  fixed, `admin` (`ADMIN_USER` is gone from `.env.example` and compose), and the Caddyfile
+  answers 401, with the same `WWW-Authenticate` challenge, to any Basic credentials whose base64
+  does not start with `YWRtaW46` (`admin:`), before `basic_auth` (`order respond before
+  basic_auth`). Measured after: a wrong user name under 1 ms, the admin user unchanged. Caddy's
+  core has no rate limit, so a wrong password of `admin` still costs one cost-10 comparison.
+- **Restarts on the GPU server.** `vllm` and the amd-smi writer `telemetry` restart
+  `unless-stopped` too: after a reboot the sampler came back without its writer and stored the
+  file the reboot left in the `telemetry` volume as a fresh sample. The sampler also refuses a
+  file older than 15 s (three intervals) and stores an error instead (rule 11).
+- **The matrix off the event loop.** Only the database reads of `GET /api/portfolio/matrix`
+  run on the loop; the cards, the 12-month counts, the points and the encoding run in one
+  worker thread (timings in ADR-15 section 17).
 
 ## Consequences
 

@@ -2,14 +2,16 @@
 the README" and "Security of the public deployment"; spec 11; rules 11 and 13).
 
 - /readyz shows "Precomputed on AMD MI300X" only when the demo package's MANIFEST.json says the
-  drafts were made on the MI300X and every cache entry is GEMMA_MODEL's; a rehearsal label
-  otherwise;
+  drafts were made on the MI300X and every cache entry is the model the manifest names; a
+  rehearsal label otherwise, and no other public text claims the MI300X then (second review);
+- the MI300X batch refuses a server that does not serve GEMMA_MODEL (a fake vLLM), records the
+  device it ran on, and replaces the drafts of another model; the export refuses a CPU batch;
 - the public read-only agent counts its questions per client before per person, so one anonymous
   client cannot lock the agent for every visitor, and a 429 says when to retry (Retry-After);
 - the rate limiters forget idle clients and count an IPv6 client by its /64;
 - the access log cannot be forged by an encoded newline in the path;
 - no VLLM_BASE_URL reaches a public body;
-- the portfolio matrix is encoded off the event loop;
+- the portfolio matrix is built and encoded off the event loop;
 - the reset waits for a database that is still starting.
 """
 
@@ -28,18 +30,25 @@ from typing import Any
 import pytest
 from starlette.requests import Request
 
+from apps.api import batch_generate
 from apps.api import schemas as s
+from apps.api.batch_generate import batch
 from apps.api.ratelimit import RateLimiter
 from apps.api.reset import wait_for_database
 from apps.api.roles import client_key
 from apps.api.serving import Serving
+from bench.fake_vllm import FakeVllm
+from llm.client import MockClient
 from pipeline.generator.golden import GIULIA
+from scripts import demo_export
 from tests.api_harness import Api, golden_return, open_api, settings_for, validate_body
 
 GPU = "AMD Instinct MI300X (AMD Developer Cloud)"
+GEMMA = "google/gemma-4-31B-it"
+PLAN_B = "google/gemma-4-26B-A4B-it"  # the plan-B model of .env.example
 MI300X_MANIFEST: dict[str, Any] = {
     "format": "returnring.demo_export.v1",
-    "llm_cache": {"rehearsal": False, "generated_on": GPU, "gemma_model": "google/gemma-4-31B-it"},
+    "llm_cache": {"rehearsal": False, "generated_on": GPU, "gemma_model": GEMMA},
 }
 
 
@@ -65,12 +74,24 @@ def _package(
 
 def _readyz(serving: Serving, package: Path, tmp_path: Path) -> dict[str, Any]:
     settings = settings_for(package, tmp_path / "none.sqlite", demo_mode="cached")
+    assert settings.gemma_model == GEMMA  # the demo server's GEMMA_MODEL, as .env.example sets it
     for api in open_api(serving, settings, tmp_path / "none.sqlite"):
         body: dict[str, Any] = api.client.get("/readyz").json()
         validate_body("readyz_response", body)
         assert str(tmp_path) not in json.dumps(body)  # no server path in a public body (H26)
+        telemetry = api.client.get("/api/telemetry").json()
+        validate_body("telemetry", telemetry)
+        body["telemetry_note"] = telemetry["note"]
         return body
     raise AssertionError("no app")
+
+
+def _claims_mi300x(body: dict[str, Any]) -> bool:
+    """Whether the telemetry check of /readyz or the note of GET /api/telemetry says where the
+    precomputed outputs were made: only the label may, and the rehearsal label says they are
+    not verified on the MI300X."""
+    telemetry = next(c for c in body["checks"] if c["component"] == "telemetry")
+    return any("MI300X" in (text or "") for text in (telemetry["detail"], body["telemetry_note"]))
 
 
 def _cache_check(body: dict[str, Any]) -> dict[str, Any]:
@@ -80,11 +101,23 @@ def _cache_check(body: dict[str, Any]) -> dict[str, Any]:
 def test_the_mi300x_label_needs_the_package_to_say_so(
     serving: Serving, serving_dir: Path, tmp_path: Path
 ) -> None:
-    gemma = settings_for(serving_dir, tmp_path / "x").gemma_model
-    package = _package(serving_dir, tmp_path, models=(gemma, gemma), manifest=MI300X_MANIFEST)
+    package = _package(serving_dir, tmp_path, models=(GEMMA, GEMMA), manifest=MI300X_MANIFEST)
     body = _readyz(serving, package, tmp_path)
     assert body["label"] == s.CACHED_LABEL == "Precomputed on AMD MI300X"
     assert _cache_check(body)["status"] == "ok"
+
+
+def test_a_plan_b_package_made_on_the_mi300x_keeps_its_label(
+    serving: Serving, serving_dir: Path, tmp_path: Path
+) -> None:
+    """The drafts are checked against the model the package names (the export checked them
+    against GEMMA_MODEL of the droplet), not against GEMMA_MODEL of the demo server, which
+    calls no model: the runbook's demo server keeps the .env.example default."""
+    manifest = {**MI300X_MANIFEST, "llm_cache": {**MI300X_MANIFEST["llm_cache"]}}
+    manifest["llm_cache"]["gemma_model"] = PLAN_B
+    package = _package(serving_dir, tmp_path, models=(PLAN_B, PLAN_B), manifest=manifest)
+    body = _readyz(serving, package, tmp_path)
+    assert body["label"] == s.CACHED_LABEL
 
 
 @pytest.mark.parametrize(
@@ -102,8 +135,14 @@ def test_the_mi300x_label_needs_the_package_to_say_so(
             {**MI300X_MANIFEST, "llm_cache": {"rehearsal": False, "generated_on": "a CPU"}},
             "MI300X",
         ),
-        # drafts of another model than GEMMA_MODEL
-        (("google/gemma-4-31B-it", "fake-vllm"), MI300X_MANIFEST, "fake-vllm"),
+        # drafts of another model than the one the package names
+        ((GEMMA, PLAN_B), MI300X_MANIFEST, PLAN_B),
+        # a package that names no model
+        (
+            (GEMMA,),
+            {**MI300X_MANIFEST, "llm_cache": {"rehearsal": False, "generated_on": GPU}},
+            "model",
+        ),
         # no package manifest next to the snapshot, or one that is not a package manifest
         (("google/gemma-4-31B-it",), None, "MANIFEST.json"),
         (("google/gemma-4-31B-it",), {"format": "other"}, "MANIFEST.json"),
@@ -121,7 +160,7 @@ def test_anything_else_is_labelled_a_rehearsal(
     says why."""
     package = _package(serving_dir, tmp_path, models=models, manifest=manifest)
     body = _readyz(serving, package, tmp_path)
-    assert body["label"] == s.REHEARSAL_LABEL and "MI300X" not in body["label"].split("not")[0]
+    assert body["label"] == s.REHEARSAL_LABEL and not _claims_mi300x(body)
     check = _cache_check(body)
     assert check["status"] == "ok" and why in check["detail"]
 
@@ -134,6 +173,85 @@ def test_a_broken_manifest_or_entry_is_a_rehearsal(
     (package / "llm_cache" / "x.json").write_text("{not json", encoding="utf-8")
     body = _readyz(serving, package, tmp_path)
     assert body["label"] == s.REHEARSAL_LABEL
+
+
+# ---- The MI300X batch: where the drafts come from ------------------------------------------------
+
+
+def _batch_env(monkeypatch: pytest.MonkeyPatch, serving: Path, base_url: str, model: str) -> None:
+    """The environment of python -m apps.api.batch_generate on a host with a vLLM server."""
+    env = {
+        "LLM_MODE": "vllm",
+        "VLLM_BASE_URL": base_url,
+        "VLLM_API_KEY": "dry-run",
+        "GEMMA_MODEL": model,
+        "SERVING_DIR": str(serving),
+        "DEVICE": "cpu",
+        "DEMO_MODE": "live",
+    }
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+
+
+def test_the_batch_refuses_a_server_that_does_not_serve_gemma_model(
+    serving_dir: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The fake vLLM answers any model name with its own drafts: the batch asks the server
+    which models it serves before the first case, so they are never recorded as Gemma's."""
+    snapshot = tmp_path / "serving"
+    shutil.copytree(serving_dir, snapshot)
+    with FakeVllm() as fake:  # serves fake/gemma-dry-run
+        _batch_env(monkeypatch, snapshot, fake.base_url, GEMMA)
+        assert batch_generate.main(["--limit", "2"]) == 2
+        assert fake.requests == 0
+    assert f"model {GEMMA} not served" in capsys.readouterr().err
+    assert not list((snapshot / "llm_cache").glob("*.json"))
+
+
+def test_a_fake_vllm_rehearsal_is_never_packed_or_labelled_as_the_mi300x(
+    serving: Serving, serving_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A rehearsal batch against the fake server records the fake's model and the CPU it ran
+    on. The export refuses it as the MI300X package, with Gemma's name or with the fake's own
+    as GEMMA_MODEL, and packs it only as a rehearsal, which the demo labels as one."""
+    droplet = tmp_path / "droplet"
+    snapshot = droplet / "serving"
+    shutil.copytree(serving_dir, snapshot)
+    bench = droplet / "bench" / "results"
+    bench.mkdir(parents=True)
+    with FakeVllm() as fake:
+        _batch_env(monkeypatch, snapshot, fake.base_url, fake.model)
+        assert batch_generate.main(["--limit", "2"]) == 0
+    entries = [json.loads(p.read_text("utf-8")) for p in (snapshot / "llm_cache").glob("*.json")]
+    assert len(entries) == 2
+    assert {(e["model"], e["device"]) for e in entries} == {(fake.model, "cpu")}
+    out = droplet / "demo-cache"
+    for model in (GEMMA, fake.model):
+        with pytest.raises(demo_export.PackageError):
+            demo_export.build(snapshot, bench, out, generated_on=GPU, model=model)
+    demo_export.build(snapshot, bench, out, rehearsal=True, generated_on=GPU, model=GEMMA)
+    body = _readyz(serving, out / "serving", tmp_path)
+    assert body["label"] == s.REHEARSAL_LABEL and not _claims_mi300x(body)
+
+
+def test_the_real_batch_replaces_the_drafts_of_another_model(
+    serving: Serving, tmp_path: Path
+) -> None:
+    """The cache is keyed by the case, not by the server: a draft of another model (a rehearsal
+    against the fake server) is generated again, never kept as the MI300X batch's."""
+    copy = tmp_path / "serving"
+    shutil.copytree(serving.root, copy)
+    snapshot = Serving.load(copy)
+    assert not batch(snapshot, MockClient(), "fake/gemma-dry-run", limit=2)["failed"]
+    assert batch(snapshot, MockClient(), "fake/gemma-dry-run", limit=2)["skipped_cached"] == 2
+    real = batch(snapshot, MockClient(), GEMMA, limit=2, device="gpu")
+    assert real["skipped_cached"] == 0 and not real["failed"]
+    entries = [json.loads(p.read_text("utf-8")) for p in (copy / "llm_cache").glob("*.json")]
+    assert {(e["model"], e["device"]) for e in entries} == {(GEMMA, "gpu")}
+    assert batch(snapshot, MockClient(), GEMMA, limit=2, device="gpu")["skipped_cached"] == 2
 
 
 # ---- Rate limits of the public demo ------------------------------------------------------------
@@ -329,31 +447,45 @@ def test_the_agent_503_never_echoes_vllm_base_url(
 # ---- The portfolio matrix off the event loop -----------------------------------------------------
 
 
-def test_the_matrix_is_encoded_off_the_event_loop(
+def _on_loop() -> bool:
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return False
+    return True
+
+
+def test_the_matrix_is_built_and_encoded_off_the_event_loop(
     api: Api, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """json.dumps and gzip of about 20,000 points run in a worker thread, so the single worker
-    keeps answering other requests meanwhile."""
+    """Only the database reads run on the single worker's event loop. The case cards, the
+    12-month counts, the 20,000 points and their encoding (json.dumps, gzip) run in a worker
+    thread: they take about a second at full scale, and the loop keeps answering meanwhile."""
     from apps.api.routes import manager
+    from apps.api.services.manager import matrix
 
-    loops: list[bool] = []
-    encode = manager.encode_large
+    calls: dict[str, list[bool]] = {}
 
-    def spy(model: Any, gzipped: bool) -> tuple[bytes, bool]:
-        try:
-            asyncio.get_running_loop()
-            loops.append(True)
-        except RuntimeError:
-            loops.append(False)
-        return encode(model, gzipped)
+    def spy(module: Any, name: str) -> None:
+        real = getattr(module, name)
 
-    monkeypatch.setattr(manager, "encode_large", spy)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            calls.setdefault(name, []).append(_on_loop())
+            return real(*args, **kwargs)
+
+        monkeypatch.setattr(module, name, wrapper)
+
+    spy(manager, "encode_large")
+    for name in ("case_values", "history_counts", "quadrant_for"):
+        spy(matrix, name)
     plain = api.client.get("/api/portfolio/matrix", headers={"Accept-Encoding": "identity"})
     zipped = api.client.get("/api/portfolio/matrix", headers={"Accept-Encoding": "gzip"})
     assert plain.status_code == zipped.status_code == 200
     assert zipped.headers["Content-Encoding"] == "gzip" and "Content-Encoding" not in plain.headers
     assert zipped.json() == plain.json()  # the client decompresses
-    assert loops == [False, False]
+    assert calls["encode_large"] == [False, False]
+    assert calls["case_values"] == calls["history_counts"] == [False, False]
+    assert len(calls["quadrant_for"]) > 2 and not any(calls["quadrant_for"])
 
 
 # ---- The reset waits for a database that is still starting ---------------------------------------

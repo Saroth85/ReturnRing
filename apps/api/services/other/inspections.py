@@ -841,9 +841,7 @@ async def confirm(
     awaiting = after.state == "proposed" and after.requires_approval
     if claim is not None and not awaiting:
         draft = await load_draft(conn, after)
-        refund = s.Metric(
-            value=float(claim.refund_eur()), unit="eur", provenance=claim.amount.provenance
-        )
+        refund = claim.refund()  # its own provenance, not the claim's (rule 11)
         composed = await outbox.compose(
             conn,
             after,

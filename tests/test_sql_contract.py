@@ -168,6 +168,7 @@ def decision(decision_id: str, return_id: str, **changes: Any) -> Row:
         "risk_threshold": 0.6,
         "value_threshold_eur": Decimal("185.00"),
         "inputs_provenance": SCORES_PROVENANCE,
+        "snapshot_on": date(2026, 9, 1),
         "base_terms": BASE_TERMS,
         "order_terms": BASE_TERMS,
         "path": "withdrawal",
@@ -615,8 +616,13 @@ def test_naive_timestamps_are_refused(database_url: str) -> None:
 
 VIOLATIONS: list[tuple[str, dict[str, Any], str]] = [
     # decisions: spec 8.6, rules 3 to 5, US-306, US-307, US-607
-    ("decisions", {"path": "guarantee"}, "guarantee_unscored"),
-    ("decisions", {"path": "guarantee", "quadrant": None, "risk": None}, "guarantee_unscored"),
+    # (a guarantee case has no refund deadline: 1.6.0, ck_decisions_refund_due_on_withdrawal)
+    ("decisions", {"path": "guarantee", "refund_due_by": None}, "guarantee_unscored"),
+    (
+        "decisions",
+        {"path": "guarantee", "quadrant": None, "risk": None, "refund_due_by": None},
+        "guarantee_unscored",
+    ),
     ("decisions", {"evidence_quality": "insufficient"}, "insufficient_no_quadrant"),
     ("decisions", {"requires_approval": False, "review_at": None}, "q3_q4_need_approval"),
     ("decisions", {"review_at": None}, "restriction_has_review"),
@@ -637,6 +643,25 @@ VIOLATIONS: list[tuple[str, dict[str, Any], str]] = [
     ),  # fmt: skip
     # D1: the decision day is the day of the act, so the review rules count from it
     ("decisions", {"decided_on": DAY + timedelta(days=1)}, "decided_by_creation"),
+    # 1.6.0: the refund deadline is a withdrawal's only; the snapshot read precedes the decision
+    ("decisions", {"refund_due_by": None}, "refund_due_on_withdrawal"),
+    (
+        "decisions",
+        {
+            "path": "guarantee",
+            "quadrant": None,
+            "risk": None,
+            "proposed_levers": [],
+            "levers": [],
+            "requires_approval": False,
+            "review_at": None,
+            "coupon_rule_version": None,
+            "coupon_application_id": None,
+            "future_terms": BASE_TERMS,
+        },
+        "refund_due_on_withdrawal",
+    ),
+    ("decisions", {"snapshot_on": DAY + timedelta(days=1)}, "snapshot_by_decision"),
     (
         "decisions",
         {
@@ -704,7 +729,7 @@ VIOLATIONS: list[tuple[str, dict[str, Any], str]] = [
         "rejected_not_restrictive",
     ),
     ("decisions", {"state": "archived"}, "state"),
-    ("decisions", {"path": "exchange"}, "path"),
+    ("decisions", {"path": "exchange", "refund_due_by": None}, "path"),
     ("decisions", {"evidence_quality": "partial"}, "evidence_quality"),
     ("decisions", {"quadrant": "Q5"}, "quadrant"),
     (
@@ -1134,6 +1159,7 @@ def decision_row(view: s.DecisionView) -> Row:
         "risk_threshold": inputs.thresholds.risk,
         "value_threshold_eur": Decimal(str(inputs.thresholds.value_eur)),
         "inputs_provenance": inputs.provenance.model_dump(mode="json"),
+        "snapshot_on": inputs.snapshot_on,
         "base_terms": inputs.base_terms.model_dump(),
         "order_terms": inputs.order_terms.model_dump(),
         "path": view.path.value,

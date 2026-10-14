@@ -75,7 +75,7 @@
       "lever_ids": [],
       "review_at": null,
       "review_due": false,
-      "refund_due_by": "2026-10-10",
+      "refund_due_by": null,
       "refund_overdue": false,
       "risk": null,
       "value": {
@@ -452,7 +452,7 @@
       "lever_ids": [],
       "review_at": null,
       "review_due": false,
-      "refund_due_by": "2026-10-14",
+      "refund_due_by": null,
       "refund_overdue": false,
       "risk": null,
       "value": {

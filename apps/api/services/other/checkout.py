@@ -228,7 +228,9 @@ async def coupon_block(
 ) -> s.CouponBlock | None:
     """The confirmed cluster coupon application in force that names the customer (the latest
     confirmed when several do): confirmed, not reversed, its decision in force, before its
-    review date (CouponRuleRef.in_force)."""
+    review date (CouponRuleRef.in_force). Its text speaks of previous returns only to the
+    customer of the case; every other account sees the text that gives no cause, with the
+    review date (rule 11; contract 1.6.0)."""
     rows = (
         (
             await conn.execute(
@@ -254,7 +256,11 @@ async def coupon_block(
             rule_version=app["rule_version"],
             application_id=app["application_id"],
             review_at=app["review_at"],
-            text=s.COUPON_BLOCK,
+            text=(
+                s.COUPON_BLOCK
+                if row["customer_id"] == customer_id
+                else s.cluster_coupon_block(app["review_at"])
+            ),
         )
         key = (app["confirmed_at"], str(app["application_id"]))
         if best is None or key > best[0]:

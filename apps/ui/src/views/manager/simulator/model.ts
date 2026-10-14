@@ -35,11 +35,15 @@ function parse(text: string): number | null {
   return Number.isFinite(value) ? value : null;
 }
 
+/** Euro inputs (`*_eur`, NonNegativeEur): the API refuses more than two decimals (UI4). */
+const EUR_DECIMALS = /^\d*([.,]\d{1,2})?$/;
+
 /** Why a field is not a valid input, or null. */
 export function fieldError(key: InputKey, text: string): string | null {
   const value = parse(text);
   if (value === null || value < 0) return MANAGER.simulator.form.invalid;
   if (COUNT_KEYS.has(key) && !Number.isInteger(value)) return MANAGER.simulator.form.invalid;
+  if (key.endsWith('_eur') && !EUR_DECIMALS.test(text.trim())) return MANAGER.simulator.form.eurDecimals;
   return null;
 }
 

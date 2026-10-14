@@ -4,6 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import type { SimulatorAssumptionsResponse } from '@/api/models';
 import { readExample } from '@/test/examples';
+import { MANAGER } from '../copy';
 import { draftOf, fieldError, inputsFromDraft, isDirty, nextVersionLabel, scenarioViews, updateBody } from './model';
 
 const v1 = readExample<SimulatorAssumptionsResponse>('simulator_assumptions.v1.json').current;
@@ -30,6 +31,15 @@ describe('draft', () => {
     expect(fieldError('incentives_eur', '')).not.toBeNull();
     expect(fieldError('logistics_returns_avoided', '2.5')).not.toBeNull();
     expect(fieldError('minutes_saved', '2.5')).toBeNull();
+  });
+
+  it('refuses euro amounts with more than two decimals, as the API does (UI4)', () => {
+    expect(fieldError('logistics_cost_per_return_eur', '8.125')).toBe(MANAGER.simulator.form.eurDecimals);
+    expect(fieldError('logistics_cost_per_return_eur', '8,12')).toBeNull();
+    expect(fieldError('incentives_eur', '200.5')).toBeNull();
+    expect(inputsFromDraft({ ...draftOf(v1), logistics_cost_per_return_eur: '8.125' }, v1).logistics_cost_per_return_eur).toBe(
+      v1.net_benefit.assumptions.logistics_cost_per_return_eur,
+    );
   });
 });
 

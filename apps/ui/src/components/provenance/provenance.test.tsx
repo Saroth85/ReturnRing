@@ -1,5 +1,5 @@
 // Provenance on numbers (rule 11, US-906): every Figure carries origin, period and nature.
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import type { Metric, Provenance } from '@/api/models';
 import { Figure, PlainNumber, ProvenanceFooter, ProvenanceScope } from '@/components/provenance';
@@ -33,9 +33,20 @@ describe('Figure', () => {
     expect(description?.textContent).toContain('1 Oct 2025 – 30 Sep 2026');
   });
 
-  it('prints a threshold next to the value', () => {
-    render(<Figure metric={risk} compareTo={threshold} />);
-    expect(screen.getByRole('button', { name: /0\.87.*threshold 0\.60/ })).toBeInTheDocument();
+  it('prints a threshold next to the value, as its own figure with its own provenance (UI6)', async () => {
+    const thresholdOrigin = { ...synthetic, origin: 'Matrix thresholds chosen on the validation months' };
+    const { container } = render(<Figure metric={risk} compareTo={{ ...threshold, provenance: thresholdOrigin }} label="Risk" />);
+    expect(container.querySelector('[data-compare]')?.textContent).toMatch(/\(threshold\s0\.60/);
+    const buttons = screen.getAllByRole('button');
+    expect(buttons.map((b) => b.textContent?.match(/\d\.\d+/)?.[0])).toEqual(['0.87', '0.60']);
+    fireEvent.click(buttons[1] as HTMLElement);
+    expect(await screen.findByText(thresholdOrigin.origin, { selector: 'dd' })).toBeInTheDocument();
+  });
+
+  it('prints a value and a threshold that round alike with the digits that tell them apart (UI5)', () => {
+    const { container } = render(<Figure metric={{ ...risk, value: 0.5962 }} compareTo={threshold} />);
+    const buttons = Array.from(container.querySelectorAll('button')).map((b) => b.textContent?.match(/\d\.\d+/)?.[0]);
+    expect(buttons).toEqual(['0.596', '0.600']);
   });
 
   it('opens the provenance popover with the origin verbatim', async () => {
@@ -56,7 +67,8 @@ describe('Figure', () => {
     const badges = container.querySelectorAll('[data-provenance-badge]');
     expect(badges[0]?.textContent).toContain('Simulated');
     // Same nature as the scope: the glyph only (its word is screen-reader text).
-    expect(badges[1]?.querySelector(':scope > span:not([data-nature-mark])')).toBeNull();
+    expect(badges[1]?.querySelector('[data-nature-mark] ~ span')).toBeNull();
+    expect(badges[0]?.querySelector('[data-nature-mark] ~ span')?.textContent).toBe('Simulated');
   });
 
   it('prints the nature word and period on every figure in provenance mode', () => {
@@ -104,6 +116,51 @@ describe('PlainNumber and ProvenanceScope', () => {
 });
 
 describe('provenance scan (PROV-UI)', () => {
+  it('accepts plain numbers only in a scope with a footer (UI11)', () => {
+    const { container } = render(
+      <div>
+        <ProvenanceScope provenance={synthetic} covers="the price">
+          <p>Price 99</p>
+        </ProvenanceScope>
+        <ProvenanceScope provenance={synthetic} covers="the orders">
+          <p>Orders 12</p>
+          <ProvenanceFooter />
+        </ProvenanceScope>
+        <ProvenanceScope provenance={synthetic} covers="the item">
+          <p>Size 42</p>
+          <ProvenanceFooter compact />
+        </ProvenanceScope>
+      </div>,
+    );
+    const scopes = container.querySelectorAll('[data-provenance-scope]');
+    expect(Array.from(scopes).map((s) => s.hasAttribute('data-has-footer'))).toEqual([false, true, true]);
+    expect(findUnprovenancedNumbers(container).map((f) => f.text)).toEqual(['Price 99']);
+  });
+
+  it('judges a number by its nearest scope, not by an outer one with a footer', () => {
+    const { container } = render(
+      <ProvenanceScope provenance={synthetic} covers="outer">
+        <ProvenanceScope provenance={synthetic} covers="inner">
+          <p>Inner 7</p>
+        </ProvenanceScope>
+        <ProvenanceFooter />
+      </ProvenanceScope>,
+    );
+    expect(findUnprovenancedNumbers(container).map((f) => f.text)).toEqual(['Inner 7']);
+  });
+
+  it('the compact footer names the nature and opens the origin and period', async () => {
+    render(
+      <ProvenanceScope provenance={synthetic} covers="the item">
+        <ProvenanceFooter compact />
+      </ProvenanceScope>,
+    );
+    const footer = document.querySelector('[data-provenance-footer="compact"]') as HTMLElement;
+    expect(footer.textContent).toMatch(/synthetic/i);
+    fireEvent.click(within(footer).getByRole('button'));
+    expect(await screen.findByText(synthetic.origin)).toBeInTheDocument();
+  });
+
   it('flags a bare number and accepts figures, scopes, ids and dates', () => {
     const { container } = render(
       <div>

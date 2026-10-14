@@ -67,6 +67,16 @@ export const PLATFORM = {
     pending: 'checking',
     stateWords: { pass: 'Pass', fail: 'Fail', pending: 'Checking' },
     checks: {
+      adapter: {
+        label: 'The UI talks to the API',
+        foundMock: 'contract examples (mock adapter): every answer, including /readyz, is an example',
+        foundLive: 'the live adapter (/api on this origin)',
+        fix: 'Run the live build against the API: npm run dev:live, or the compose stack.',
+      },
+      contract: {
+        label: (ui: string) => `The API serves contract ${ui}, the one this UI was built for`,
+        fix: 'Regenerate the UI types from the API contract (npm run gen:types) and rebuild, or run the matching API.',
+      },
       readiness: { label: 'The API is ready in the expected mode', fixLive: 'Start the GPU profile and wait for /readyz, or switch the expected mode.', fixCached: 'Open the cached URL, or switch the expected mode.' },
       components: { live: 'vLLM and telemetry answer', cached: 'The demo cache answers', fix: 'Check the named components on the system page.' },
       marco: { label: 'Marco is proposed and at his first version', fix: 'Marco was already decided: run the demo reset (US-903).' },

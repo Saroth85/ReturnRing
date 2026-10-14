@@ -175,7 +175,10 @@ describe('CouponApplicationsTable', () => {
   it('reverses a pause with a reason, as the acting person', async () => {
     act(() => setPersona('luca'));
     const done = vi.fn();
-    renderWithProviders(<CouponApplicationsTable applications={coupons.applications} reversible onReversed={done} />);
+    // The contract's reverse example answers for CRA-000027: offer that one as still confirmed.
+    const reversed = coupons.applications.find((a) => a.application_id === 'CRA-000027')!;
+    const confirmed = { ...reversed, state: 'confirmed', reversed_by: null, reversed_at: null, reversal_reason: null } as typeof reversed;
+    renderWithProviders(<CouponApplicationsTable applications={[confirmed]} reversible onReversed={done} />);
     fireEvent.click(screen.getByRole('button', { name: 'Reverse…' }));
     const dialog = await screen.findByRole('dialog', { name: 'Reverse the coupon pause' });
     const confirm = within(dialog).getByRole('button', { name: 'Reverse the pause' });
@@ -184,7 +187,21 @@ describe('CouponApplicationsTable', () => {
     expect(confirm).toBeEnabled();
     fireEvent.click(confirm);
     await waitFor(() => expect(done).toHaveBeenCalled());
-    expect(done.mock.calls[0]?.[0]).toMatchObject({ state: 'reversed' });
+    expect(done.mock.calls[0]?.[0]).toMatchObject({ state: 'reversed', application_id: 'CRA-000027' });
+  });
+
+  it('never reports the reversal of another pause as done (UI7)', async () => {
+    act(() => setPersona('luca'));
+    const done = vi.fn();
+    renderWithProviders(<CouponApplicationsTable applications={coupons.applications} reversible onReversed={done} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Reverse…' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Reverse the coupon pause' });
+    fireEvent.change(within(dialog).getByLabelText('Reason (required)'), { target: { value: 'Shared pickup point only' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Reverse the pause' }));
+    const alert = await within(dialog).findByRole('alert');
+    expect(alert.textContent).toContain('CRA-000027');
+    expect(alert.textContent).toContain('CRA-000031');
+    expect(done).not.toHaveBeenCalled();
   });
 
   it('disables the reversal for the warehouse role, with the reason', () => {

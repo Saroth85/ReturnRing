@@ -20,7 +20,7 @@ interface ComposerProps {
   cached: boolean;
   /** Room for the mode corner tag under the drawer's footer. */
   cornerTagRoom?: boolean;
-  /** Whether a question was asked already (phones fold the suggestions then). */
+  /** Whether a question was asked already (the suggestions fold then). */
   hasTurns: boolean;
 }
 
@@ -55,7 +55,8 @@ export function Composer({ inputRef, onAsk, onStop, streaming, blockedReason, co
           onAsk(question);
         }}
         disabled={!canAsk}
-        collapsible={compact}
+        // Folded after the first question on every screen, so the answer has the room (UI34).
+        collapsible={compact || hasTurns}
         expanded={suggestionsExpanded}
         onToggle={() => setSuggestionsOpen(!suggestionsExpanded)}
       />

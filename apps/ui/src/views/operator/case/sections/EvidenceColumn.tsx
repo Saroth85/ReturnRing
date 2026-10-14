@@ -46,7 +46,10 @@ export function EvidenceColumn({ card, draftTimedOut, onReload }: { card: CaseCa
       {/* With not enough evidence the hero already shows the three bars and what is missing. */}
       {card.evidence.quality === 'sufficient' && (
         <Section id="evidence" title={e.title}>
-          <p className="mb-3 text-body text-ink-2">{e.sufficient}</p>
+          {/* Rule 4: a guarantee-path case is never scored, whatever its evidence (UI14). */}
+          <p className="mb-3 text-body text-ink-2" data-evidence-line>
+            {card.path === 'guarantee' ? e.sufficientGuarantee : e.sufficient}
+          </p>
           <EvidenceBars components={card.evidence.components} compact />
         </Section>
       )}

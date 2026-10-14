@@ -7,10 +7,9 @@ import { mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect as baseExpect, test, type Page } from '@playwright/test';
-import { RENDERED_TEXT_BANNED } from '../../src/copy/bannedTerms';
-import { PROVENANCE_EXEMPT_SELECTOR, VERBATIM_SELECTOR } from '../../src/test/exempt';
+import { scanPage } from './scan';
 
-// The dev server compiles on demand: under parallel workers a first page can take seconds.
+// A ceiling for a loaded machine; assertions return as soon as they hold.
 const expect = baseExpect.configure({ timeout: 15_000 });
 
 const SHOTS = process.env.PLATFORM_SCREENSHOT_DIR;
@@ -37,26 +36,7 @@ function watchConsole(page: Page): string[] {
 }
 
 /** The PROV-UI and wording rules of src/test/scan.ts, run in the page. */
-async function scan(page: Page): Promise<{ unprovenanced: string[]; banned: string[] }> {
-  const patterns = RENDERED_TEXT_BANNED.map((t) => t.pattern);
-  return page.evaluate(
-    ({ exempt, verbatim, patterns }) => {
-      const idToken = /(?<![\p{L}\p{N}])[A-Z][A-Z0-9]*(?:[-~][A-Za-z0-9]+)+(?![\p{L}\p{N}])/gu;
-      const banned = patterns.map((p) => new RegExp(`(?<![\\p{L}\\p{N}])(?:${p})(?![\\p{L}\\p{N}])`, 'iu'));
-      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-      const out = { unprovenanced: [] as string[], banned: [] as string[] };
-      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-        const text = node.textContent ?? '';
-        const parent = node.parentElement;
-        if (!text.trim() || !parent) continue;
-        if (/\d/.test(text.replace(idToken, '')) && !parent.closest(exempt)) out.unprovenanced.push(text.trim());
-        if (!parent.closest(verbatim) && banned.some((re) => re.test(text))) out.banned.push(text.trim());
-      }
-      return out;
-    },
-    { exempt: PROVENANCE_EXEMPT_SELECTOR, verbatim: VERBATIM_SELECTOR, patterns },
-  );
-}
+const scan = scanPage;
 
 async function expectClean(page: Page, errors: string[]): Promise<void> {
   await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
@@ -220,7 +200,9 @@ test.describe('system and benchmarks (US-901, US-902, US-905)', () => {
     await expect(page.locator('[data-cost-per-decision]')).toContainText('€0.01');
     await expect(page.locator('[data-cost-per-decision]')).toContainText('idle included');
     await expect(page.locator('[data-speedups]')).toHaveCount(0);
-    await expect(page.locator('[data-mode-facts]')).toContainText('ok · the API answers');
+    // On the mock adapter every fact is labelled as the /readyz contract example (UI12).
+    await expect(page.locator('[data-mode-facts]')).toContainText('ok · the mock adapter answers (no API)');
+    await expect(page.locator('[data-readiness-pill]')).toHaveAttribute('data-readiness-pill', 'contract');
     await expect(page.locator('[data-header-agreement="agrees"]')).toBeVisible();
     await expect(page.locator('#telemetry [data-telemetry-illustrative]')).toBeVisible();
     await expect(page.locator('#telemetry')).toContainText('1,450 tok/s');
@@ -236,7 +218,7 @@ test.describe('system and benchmarks (US-901, US-902, US-905)', () => {
     const banner = page.getByRole('region', { name: 'Service mode' });
     await expect(banner).toContainText('Precomputed on AMD MI300X');
     await expect(page).toHaveTitle(/^\[Cached\]/);
-    await expect(page.locator('[data-mode-facts] [data-mode]')).toHaveText('Cached');
+    await expect(page.locator('[data-mode-facts] [data-mode]')).toHaveText('contract example: Cached');
     await expect(page.locator('[data-component="vllm"]')).toContainText('GPU off in cached mode');
     await expect(page.locator('#telemetry [data-telemetry-cached]')).toContainText('GPU off: cached mode serves results precomputed');
     await expect(page.locator('#telemetry [data-figure]')).toHaveCount(0);
@@ -263,8 +245,11 @@ test.describe('demo path and coupon rules (US-903, US-402)', () => {
   test('the preflight checks the run on the contract examples and a beat opens with its persona', async ({ page }) => {
     const errors = watchConsole(page);
     await page.goto('/demo');
-    // The load time is measured for real: a cold dev server may miss the target, the rest is green.
-    for (const id of ['readiness', 'components', 'marco', 'rossi', 'assumptions']) {
+    // On contract examples the adapter line is red with its fix (UI12): never 'Ready for the pitch'.
+    await expect(page.locator('[data-preflight="adapter"]')).toHaveAttribute('data-state', 'fail');
+    await expect(page.locator('[data-preflight-state]')).toHaveAttribute('data-preflight-state', 'fail');
+    // The load time is measured for real: a cold server may miss the target, the rest is green.
+    for (const id of ['readiness', 'components', 'contract', 'marco', 'rossi', 'assumptions']) {
       await expect(page.locator(`[data-preflight="${id}"]`)).toHaveAttribute('data-state', 'pass');
     }
     await expect(page.locator('[data-preflight="load"] [data-figure][data-nature="real"]')).toBeVisible();

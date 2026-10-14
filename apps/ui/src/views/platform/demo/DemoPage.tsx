@@ -81,6 +81,7 @@ function Preflight() {
   const answer = <T,>(q: { data: T | undefined; isError: boolean }) => ({ data: q.data, failed: q.isError });
   const checks = preflightChecks({
     expected,
+    adapter: API_MODE,
     readyz: answer(readyz),
     marco: answer(marco),
     rossi: answer(rossi),

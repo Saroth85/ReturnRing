@@ -3,9 +3,11 @@
 // There is no "add unfavourable evidence": the operator can only add what speaks for the customer.
 import { useState } from 'react';
 import { EVIDENCE_KINDS } from '@/api/contract.gen';
-import type { LinkDisputeResponse as DisputeResponse, RecomputeResponse } from '@/api/models';
+import type { DecisionView, LinkDisputeResponse as DisputeResponse, RecomputeResponse } from '@/api/models';
 import { useAddEvidence, useDisputeLink } from '@/api/mutations';
+import { usePresent } from '@/app/display';
 import { usePersona } from '@/app/persona';
+import { Button } from '@/components/ui';
 import { InlineNotice } from '@/components/feedback';
 import { OPERATOR } from '../../copy';
 import { disputeBody, evidenceBody, LINK_EXPLAINING_KINDS, type EvidenceKind } from '../../state/requests';
@@ -15,7 +17,8 @@ import { reasonValid } from '../../ui/validation';
 import { useCaseUi } from '../context';
 import { activeLinks, linkState } from '../linked/linkModel';
 import { ActionError } from './ActionError';
-import { ActingAs, CaseIdsLine, ConfirmFooter, StaleOnOpen } from './common';
+import { ActingAs, CaseIdsLine, ConfirmFooter, StaleDecisionPanel } from './common';
+import { useNewerVersion } from './useNewerVersion';
 
 
 interface EvidenceSheetProps {
@@ -25,13 +28,15 @@ interface EvidenceSheetProps {
   onDone(recompute: RecomputeResponse, explainedLinks: string[]): void;
   onReload(): void;
   changes: string[] | null;
-  staleOnOpen: string | null;
+  /** The decision on screen when the sheet opened: the request names it (UI38). */
+  shown: DecisionView;
 }
 
-export function AddEvidenceSheet({ open, onOpenChange, linkId, onDone, onReload, changes, staleOnOpen }: EvidenceSheetProps) {
+export function AddEvidenceSheet({ open, onOpenChange, linkId, onDone, onReload, changes, shown }: EvidenceSheetProps) {
   const { card, gates } = useCaseUi();
   const persona = usePersona();
   const mutation = useAddEvidence(card.return_id);
+  const newer = useNewerVersion(shown);
   const links = card.linked_accounts ? activeLinks(card.linked_accounts.links) : [];
   const [kind, setKind] = useState<EvidenceKind>(
     linkId ? 'shared_payment_explained' : links.length > 0 ? 'household_members' : 'customer_contact',
@@ -43,6 +48,7 @@ export function AddEvidenceSheet({ open, onOpenChange, linkId, onDone, onReload,
   const e = OPERATOR.sheets.evidence;
   const explains = LINK_EXPLAINING_KINDS.includes(kind);
   const reasons = [
+    ...(newer ? [OPERATOR.sheets.staleReason] : []),
     ...(explains && targets.length === 0 ? [e.linksRequired] : []),
     ...(!reasonValid(note) ? [OPERATOR.sheets.reasonTooShort] : []),
     ...(!gates.evidence.allowed && gates.evidenceNote ? [gates.evidenceNote] : []),
@@ -51,7 +57,7 @@ export function AddEvidenceSheet({ open, onOpenChange, linkId, onDone, onReload,
     setTried(true);
     if (reasons.length > 0 || mutation.isPending) return;
     setMismatch(null);
-    mutation.mutate(evidenceBody(card.decision, kind, note, targets, persona.id), {
+    mutation.mutate(evidenceBody(shown, kind, note, targets, persona.id), {
       onSuccess: (result) => {
         if (result.return_id !== card.return_id) {
           setMismatch(OPERATOR.sheets.mismatch(result.return_id, card.return_id));
@@ -71,7 +77,7 @@ export function AddEvidenceSheet({ open, onOpenChange, linkId, onDone, onReload,
         onOpenChange(next);
       }}
       title={e.title}
-      description={<CaseIdsLine />}
+      description={<CaseIdsLine decision={shown} />}
       onConfirm={confirm}
       dirty={note.trim().length > 0}
       footer={
@@ -86,7 +92,7 @@ export function AddEvidenceSheet({ open, onOpenChange, linkId, onDone, onReload,
       }
     >
       <div className="flex flex-col gap-4">
-        <StaleOnOpen message={staleOnOpen} />
+        <StaleDecisionPanel shown={shown} onReload={onReload} changes={changes} />
         {mutation.isError && <ActionError error={mutation.error} onLoadNew={onReload} onShowCurrent={onReload} changes={changes} />}
         {mismatch && <InlineNotice tone="attention">{mismatch}</InlineNotice>}
         <fieldset className="flex flex-col gap-2">
@@ -127,6 +133,7 @@ export function AddEvidenceSheet({ open, onOpenChange, linkId, onDone, onReload,
           </fieldset>
         )}
         <ReasonField value={note} onChange={setNote} showError={tried} label={e.note} hint={e.noteHint} name="note" />
+        <DemoNote onUse={setNote} text={e.demoNote} label={e.useDemoNote} />
         <ActingAs />
       </div>
     </Sheet>
@@ -140,13 +147,15 @@ interface DisputeSheetProps {
   onDone(response: DisputeResponse): void;
   onReload(): void;
   changes: string[] | null;
-  staleOnOpen: string | null;
+  /** The decision on screen when the sheet opened: the request names it (UI38). */
+  shown: DecisionView;
 }
 
-export function DisputeLinkSheet({ open, onOpenChange, linkId, onDone, onReload, changes, staleOnOpen }: DisputeSheetProps) {
+export function DisputeLinkSheet({ open, onOpenChange, linkId, onDone, onReload, changes, shown }: DisputeSheetProps) {
   const { card, gates } = useCaseUi();
   const persona = usePersona();
   const mutation = useDisputeLink(card.return_id);
+  const newer = useNewerVersion(shown);
   const links = card.linked_accounts?.links ?? [];
   const [chosen, setChosen] = useState<string>(linkId ?? links.find((l) => linkState(l) === 'active')?.link_id ?? '');
   const [reason, setReason] = useState('');
@@ -154,6 +163,7 @@ export function DisputeLinkSheet({ open, onOpenChange, linkId, onDone, onReload,
   const d = OPERATOR.sheets.dispute;
   const link = links.find((l) => l.link_id === chosen);
   const reasons = [
+    ...(newer ? [OPERATOR.sheets.staleReason] : []),
     ...(!link || linkState(link) !== 'active' ? [d.alreadyDisputed] : []),
     ...(!reasonValid(reason) ? [OPERATOR.sheets.reasonTooShort] : []),
     ...(!gates.dispute.allowed && gates.evidenceNote ? [gates.evidenceNote] : []),
@@ -161,7 +171,7 @@ export function DisputeLinkSheet({ open, onOpenChange, linkId, onDone, onReload,
   const confirm = () => {
     setTried(true);
     if (reasons.length > 0 || mutation.isPending || !link) return;
-    mutation.mutate({ linkId: link.link_id, body: disputeBody(card, reason, persona.id) }, { onSuccess: onDone });
+    mutation.mutate({ linkId: link.link_id, body: disputeBody({ return_id: card.return_id, decision: shown }, reason, persona.id) }, { onSuccess: onDone });
   };
   return (
     <Sheet
@@ -172,7 +182,7 @@ export function DisputeLinkSheet({ open, onOpenChange, linkId, onDone, onReload,
         onOpenChange(next);
       }}
       title={d.title}
-      description={<CaseIdsLine />}
+      description={<CaseIdsLine decision={shown} />}
       onConfirm={confirm}
       dirty={reason.trim().length > 0}
       footer={
@@ -187,7 +197,7 @@ export function DisputeLinkSheet({ open, onOpenChange, linkId, onDone, onReload,
       }
     >
       <div className="flex flex-col gap-4">
-        <StaleOnOpen message={staleOnOpen} />
+        <StaleDecisionPanel shown={shown} onReload={onReload} changes={changes} />
         {mutation.isError && <ActionError error={mutation.error} onLoadNew={onReload} onShowCurrent={onReload} changes={changes} />}
         <p className="text-body text-ink-1">{d.body}</p>
         <label className="flex flex-col gap-1 text-body">
@@ -206,8 +216,23 @@ export function DisputeLinkSheet({ open, onOpenChange, linkId, onDone, onReload,
           </select>
         </label>
         <ReasonField value={reason} onChange={setReason} showError={tried} />
+        <DemoNote onUse={setReason} text={d.demoNote} label={d.useDemoNote} />
         <ActingAs />
       </div>
     </Sheet>
+  );
+}
+
+/**
+ * Presenter mode only: fills the note with a prepared sentence, so beat 3 needs no live typing
+ * (docs/ui-design.md 12, UI26). Typing stays the way outside presenter mode.
+ */
+function DemoNote({ onUse, text, label }: { onUse(text: string): void; text: string; label: string }) {
+  const present = usePresent();
+  if (!present) return null;
+  return (
+    <Button variant="quiet" className="self-start" onClick={() => onUse(text)} data-demo-note>
+      {label}
+    </Button>
   );
 }

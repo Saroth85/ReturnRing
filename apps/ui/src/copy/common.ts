@@ -29,6 +29,8 @@ export const PROVENANCE = {
   copy: 'Copy provenance',
   copied: 'Provenance copied',
   footerPrefix: 'Numbers in this section:',
+  compactLabel: (covers: string) => `Numbers of ${covers}`,
+  compactButton: (covers: string) => `Origin and period of ${covers}`,
   contractExamples: 'Mock data from contract examples, not results.',
   toggle: 'Provenance',
   toggleHint: 'Show the nature and period next to every figure',
@@ -58,9 +60,13 @@ export const MODE = {
   titleCached: '[Cached]',
   titleMock: '[Mock]',
   llmReady: 'LLM ready',
+  llmContract: 'LLM: contract example',
   llmOff: 'LLM off · templates and cache in use',
   llmUnavailable: 'LLM unavailable · templates in use',
   bannerLabel: 'Service mode',
+  contractMismatchTitle: 'Contract mismatch',
+  contractMismatch: (server: string, ui: string) =>
+    `the API serves contract ${server}, this UI was built for ${ui}: some screens may fail. Regenerate the UI types (npm run gen:types) and rebuild.`,
   scenarioLabel: 'Mock scenario',
 };
 
@@ -155,6 +161,49 @@ export const SHELL = {
   theme: 'Theme',
   themes: { system: 'System', light: 'Light', dark: 'Dark' } as Record<'system' | 'light' | 'dark', string>,
   navLabel: 'Main',
+  /** The visible toggle of the navigation drawer under 1024 px (UI35). */
+  menu: 'Menu',
+  shortcuts: 'Keyboard shortcuts',
+  shortcutsClose: 'Close',
+  shortcutsHint: 'Single keys work when the focus is not in a text field.',
+  shortcutGroups: [
+    {
+      scope: 'Everywhere',
+      keys: [
+        ['?', 'This list'],
+        ['/', 'Focus search or filter'],
+        ['P', 'Provenance mode: nature and period next to every figure'],
+        ['T', 'GPU dock'],
+      ],
+    },
+    { scope: 'Presenter mode', keys: [['Alt+← · Alt+→', 'Previous or next demo beat']] },
+    {
+      scope: 'Queue',
+      keys: [
+        ['J · K · ↓ · ↑', 'Move the selection'],
+        ['Enter', 'Open the case'],
+      ],
+    },
+    {
+      scope: 'Case',
+      keys: [
+        ['[ · ]', 'Previous or next case of the queue view'],
+        ['A', 'Approve: popover or sheet'],
+        ['O · R · L', 'Override · reject · review'],
+        ['E · D', 'Add favourable evidence · dispute the selected link'],
+        ['I · M', 'Ask about this case · message language'],
+      ],
+    },
+    {
+      scope: 'Sheets',
+      keys: [
+        ['Enter', 'Confirms only the non-restrictive popover and the recompute result'],
+        ['Ctrl+Enter · Cmd+Enter', 'Confirm any other sheet'],
+        ['Esc', 'Close (asks first when something was typed)'],
+      ],
+    },
+    { scope: 'Inspection', keys: [['Y · N · U', 'Yes · no · not observable on the focused row']] },
+  ] as ReadonlyArray<{ scope: string; keys: ReadonlyArray<readonly [string, string]> }>,
   navGroups: { work: 'Work', oversight: 'Oversight', demo: 'Demo', system: 'System' } as Record<
     'work' | 'oversight' | 'demo' | 'system',
     string

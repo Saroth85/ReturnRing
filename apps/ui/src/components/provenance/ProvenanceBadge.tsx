@@ -24,13 +24,23 @@ export function ProvenanceBadge({ provenance, showWord = false, status }: Proven
   const nature = displayNature(provenance, status);
   const differsFromScope = scope !== null && displayNature(scope.provenance) !== nature;
   const word = showWord || differsFromScope || provenanceMode;
+  // In provenance mode the period breaks only between its two dates (UI21).
+  const period = provenanceMode ? formatPeriod(provenance.period_start, provenance.period_end).split(' – ') : [];
   return (
-    <span className="inline-flex items-center gap-1 text-micro uppercase text-ink-2" data-provenance-badge={nature}>
-      <NatureMark nature={nature} decorative={word} />
-      {word && <span>{NATURE_WORD[nature]}</span>}
+    <span className="inline-flex flex-wrap items-center gap-x-1 text-micro uppercase text-ink-2" data-provenance-badge={nature}>
+      <span className="inline-flex items-center gap-1 whitespace-nowrap">
+        <NatureMark nature={nature} decorative={word} />
+        {word && <span>{NATURE_WORD[nature]}</span>}
+      </span>
       {provenanceMode && (
-        <span className="normal-case tracking-normal font-normal text-ink-3">
-          · {formatPeriod(provenance.period_start, provenance.period_end)}
+        <span className="inline-flex flex-wrap gap-x-1 normal-case tracking-normal font-normal text-ink-3" data-badge-period>
+          {period.map((part, i) => (
+            <span key={i} className="whitespace-nowrap">
+              {i === 0 ? '· ' : ''}
+              {part}
+              {i < period.length - 1 ? ' –' : ''}
+            </span>
+          ))}
         </span>
       )}
     </span>

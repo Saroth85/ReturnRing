@@ -4,7 +4,17 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CaseCard, DecisionResult, DecisionView, RecomputeResponse, Terms } from '@/api/models';
 import { readExample } from '@/test/examples';
-import { actionPlan, changedRows, changedSnapshotRows, echoMatches, queueRestrictionKind, restrictionStatus, termsRows } from './decision';
+import {
+  actionPlan,
+  changedRows,
+  changedSnapshotRows,
+  echoMatches,
+  overrideLock,
+  proposalNeedsApproval,
+  queueRestrictionKind,
+  restrictionStatus,
+  termsRows,
+} from './decision';
 import { hasRestrictiveLever, leverDirection, leverKey, leversFromValues, leverValues, parseLeverKey, sameLevers } from './levers';
 import { linkEnds, refAnchorId } from './refs';
 
@@ -178,5 +188,29 @@ describe('refs', () => {
   it('names anchors and link ends', () => {
     expect(refAnchorId({ kind: 'link', id: 'C-MARCO-1~C-MARCO-3' })).toBe('ref-link-C-MARCO-1~C-MARCO-3');
     expect(linkEnds('C-MARCO-1~C-MARCO-3')).toEqual(['C-MARCO-1', 'C-MARCO-3']);
+  });
+});
+
+describe('proposalNeedsApproval (UI3, rule 5)', () => {
+  it("reads the engine's proposal, not the current state: Martina's overridden Q3 proposal needed a person", () => {
+    const overridden = readExample<DecisionResult>('decision_result.override.json').decision;
+    expect(overridden.requires_approval).toBe(false);
+    expect(proposalNeedsApproval(overridden, overridden.inputs.base_terms)).toBe(true);
+  });
+
+  it('is true for Q3 and Q4 and for restrictive levers, false for a standard Q1 proposal', () => {
+    const marco = card('marco').decision;
+    expect(proposalNeedsApproval(marco, BASE)).toBe(true);
+    expect(proposalNeedsApproval({ quadrant: 'Q1', proposed_levers: [] }, BASE)).toBe(false);
+    expect(proposalNeedsApproval({ quadrant: null, proposed_levers: [] }, BASE)).toBe(false);
+    expect(proposalNeedsApproval({ quadrant: 'Q2', proposed_levers: [{ id: 'free_return_shipping', value: false, scope: 'future_orders' }] }, BASE)).toBe(true);
+  });
+});
+
+describe('overrideLock (UI13, rule 4, US-307)', () => {
+  it('locks the guarantee path and the not-enough-evidence case, nothing else', () => {
+    expect(overrideLock(card('elena'))).toBe('guarantee');
+    expect(overrideLock(card('insufficient'))).toBe('insufficient');
+    expect(overrideLock(card('marco'))).toBeNull();
   });
 });

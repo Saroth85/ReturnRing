@@ -5,7 +5,7 @@ import { Link } from 'react-router';
 import type { Provenance } from '@/api/models';
 import { EvidenceBadge, OutcomeBadge, PathBadge, RestrictionBadge, StateBadge } from '@/components/decision';
 import { RoleGate } from '@/components/feedback';
-import { DateText, IdText, Money, PlainNumber, ProvenanceScope } from '@/components/provenance';
+import { DateText, IdText, Money, PlainNumber, ProvenanceFooter, ProvenanceScope } from '@/components/provenance';
 import { Button, Kbd } from '@/components/ui';
 import { OPERATOR } from '../../copy';
 import { reasonLabel } from '../../format';
@@ -46,7 +46,7 @@ function NavLinks({ nav }: { nav: CaseNav }) {
         <Link to={nav.from === 'approval' ? '/queue' : `/queue?tab=${nav.from}`} className="text-accent underline underline-offset-2">
           {nav.tabLabel}
         </Link>{' '}
-        · {nav.position} / {nav.total}
+        · {nav.position} / {nav.total} <ProvenanceFooter compact />
       </ProvenanceScope>
       {link(nav.next, t.nextCase, 'next', ']')}
     </nav>
@@ -106,6 +106,7 @@ export function CaseHeader({ nav, onAsk }: { nav: CaseNav | null; onAsk(): void 
             {t.notice} <DateText value={request.notice_on} />, <PlainNumber value={request.days_since_delivery} unit="days" />{' '}
             {t.afterDelivery}
           </span>
+          <ProvenanceFooter compact />
         </p>
       </ProvenanceScope>
       <p className="flex flex-wrap items-baseline gap-1 text-caption text-ink-3">

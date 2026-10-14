@@ -35,13 +35,21 @@ export function ReverseCouponDialog({ application, open, onOpenChange, onDone }:
   const hintId = useId();
   const tooShort = reason.trim().length < MIN_REASON_CHARS;
   const error = reverse.error;
+  // An answer about another application (a mock fallback or a server bug) is reported, never
+  // shown as this reversal (UI7).
+  const [mismatch, setMismatch] = useState<string | null>(null);
 
   const submit = () => {
     if (tooShort || reverse.isPending) return;
+    setMismatch(null);
     reverse.mutate(
       { author: persona.id, reason: reason.trim() },
       {
         onSuccess: (result) => {
+          if (result.application_id !== application.application_id) {
+            setMismatch(R.mismatch(result.application_id, application.application_id));
+            return;
+          }
           onDone?.(result);
           setReason('');
           onOpenChange(false);
@@ -54,7 +62,10 @@ export function ReverseCouponDialog({ application, open, onOpenChange, onDone }:
     <Dialog.Root
       open={open}
       onOpenChange={(next) => {
-        if (!next) reverse.reset();
+        if (!next) {
+          reverse.reset();
+          setMismatch(null);
+        }
         onOpenChange(next);
       }}
     >
@@ -118,6 +129,11 @@ export function ReverseCouponDialog({ application, open, onOpenChange, onDone }:
                   <InlineNotice tone="info">{R.nothingSaved}</InlineNotice>
                 </div>
               ))}
+            {mismatch && (
+              <p role="alert" className="rounded-control border border-attn-border bg-attn-bg px-2 py-1 text-body text-attn-fg" data-reverse-mismatch>
+                <span data-verbatim>{mismatch}</span>
+              </p>
+            )}
             <div className="flex flex-wrap justify-end gap-2">
               <Dialog.Close asChild>
                 <Button>{R.cancel}</Button>

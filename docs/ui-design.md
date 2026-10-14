@@ -420,7 +420,12 @@ until measured.
 | `status: degraded` or `not_ready` | second line in attention style listing the failing `checks` with `detail` | attention |
 | `VITE_READ_ONLY` | appended: "· read-only public demo" | same |
 
-- **`ModeCornerTag`**: fixed bottom-right, 11 px, in cached and mock modes, so a cropped screenshot keeps it.
+- **`ModeCornerTag`**: 11 px, in cached and mock modes, so a cropped screenshot keeps it. Fixed at the bottom
+  left over the navigation column from 1024 px (that column holds no page content, so the tag never covers a
+  restrictive label), at the bottom right below 1024 px, and inline in the `DemoRail` in presenter mode.
+- **Contract version**: `/readyz` reports `contract_version`; when its major or minor differs from the version
+  the UI types were generated from (`CONTRACT_VERSION`), the banner gets an attention line "Contract mismatch"
+  and the `/demo` preflight turns red. The `/demo` preflight is also red on the mock adapter.
 - **`LlmStatusPill`**: from the `vllm` check: "LLM ready" · "LLM off · templates and cache in use" (cached,
   neutral) · "LLM unavailable · templates in use" (danger outline). It never blocks decisions.
 

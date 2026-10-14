@@ -31,9 +31,7 @@ const ROUTES = [
 ];
 
 async function settle() {
-  await waitFor(() => expect(document.querySelector('[data-data-check="pending"], [role="status"][aria-busy="true"]')).toBeNull(), {
-    timeout: 5000,
-  });
+  await waitFor(() => expect(document.querySelector('[data-data-check="pending"], [role="status"][aria-busy="true"]')).toBeNull());
 }
 
 afterEach(() => act(() => setPersona('sara')));
@@ -41,7 +39,7 @@ afterEach(() => act(() => setPersona('sara')));
 describe('routes', () => {
   it.each(ROUTES)('%s renders with provenance and clean wording', async (route) => {
     renderApp(route);
-    expect(await screen.findByRole('heading', { level: 1 }, { timeout: 5000 })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1 })).toBeInTheDocument();
     await settle();
     expect(document.querySelector('[data-error-state]')).toBeNull();
     expect(findUnprovenancedNumbers(document.body), JSON.stringify(findUnprovenancedNumbers(document.body))).toEqual([]);
@@ -62,7 +60,7 @@ describe('routes', () => {
 
   it('reports a missing return with its request id', async () => {
     renderApp('/returns/RET-999999');
-    const alert = await screen.findByRole('alert', {}, { timeout: 5000 });
+    const alert = await screen.findByRole('alert', {});
     expect(alert).toHaveAttribute('data-error-state', 'not_found');
     expect(alert.textContent).toContain('Return RET-999999 not found');
     expect(alert.querySelector('[data-id]')).not.toBeNull();
@@ -71,7 +69,7 @@ describe('routes', () => {
   it('disables a write for a role that may not call it, with the reason', async () => {
     act(() => setPersona('ahmed'));
     renderApp('/returns/RET-000102');
-    const button = await screen.findByRole('button', { name: /Ask about this case/ }, { timeout: 5000 });
+    const button = await screen.findByRole('button', { name: /Ask about this case/ });
     expect(button).toBeDisabled();
     expect(screen.getByText('This action is for operators and managers (warehouse can view).')).toBeInTheDocument();
   });

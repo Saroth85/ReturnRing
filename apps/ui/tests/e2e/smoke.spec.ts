@@ -5,42 +5,11 @@
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
-import { RENDERED_TEXT_BANNED } from '../../src/copy/bannedTerms';
-import { PROVENANCE_EXEMPT_SELECTOR, VERBATIM_SELECTOR } from '../../src/test/exempt';
 import { SMOKE_ROUTES } from './routes';
+import { scanPage } from './scan';
 
 const SCREENSHOT_DIR = process.env.SCREENSHOT_DIR;
 if (SCREENSHOT_DIR) mkdirSync(SCREENSHOT_DIR, { recursive: true });
-
-interface PageScan {
-  unprovenanced: string[];
-  banned: string[];
-  bannedVerbatim: string[];
-}
-
-/** Runs in the page: the same rules as src/test/scan.ts, self-contained. */
-async function scanPage(page: Page): Promise<PageScan> {
-  const patterns = RENDERED_TEXT_BANNED.map((t) => t.pattern);
-  return page.evaluate(
-    ({ exempt, verbatim, patterns }) => {
-      const idToken = /(?<![\p{L}\p{N}])[A-Z][A-Z0-9]*(?:[-~][A-Za-z0-9]+)+(?![\p{L}\p{N}])/gu;
-      const banned = patterns.map((p) => new RegExp(`(?<![\\p{L}\\p{N}])(?:${p})(?![\\p{L}\\p{N}])`, 'iu'));
-      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-      const result = { unprovenanced: [] as string[], banned: [] as string[], bannedVerbatim: [] as string[] };
-      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-        const text = node.textContent ?? '';
-        const parent = node.parentElement;
-        if (!text.trim() || !parent) continue;
-        if (/\d/.test(text.replace(idToken, '')) && !parent.closest(exempt)) result.unprovenanced.push(text.trim());
-        for (const re of banned) {
-          if (re.test(text)) (parent.closest(verbatim) ? result.bannedVerbatim : result.banned).push(text.trim());
-        }
-      }
-      return result;
-    },
-    { exempt: PROVENANCE_EXEMPT_SELECTOR, verbatim: VERBATIM_SELECTOR, patterns },
-  );
-}
 
 function watchConsole(page: Page, expectedStatuses: number[] = []): string[] {
   const errors: string[] = [];
@@ -84,6 +53,8 @@ for (const route of SMOKE_ROUTES) {
 test('/ leads Sara to the queue', async ({ page }) => {
   await page.goto('/');
   await expect(page).toHaveURL(/\/queue$/);
+  // The title follows the route once the page is on screen: wait for its heading first (UI39).
+  await expect(page.getByRole('heading', { level: 1, name: 'Returns queue' })).toBeVisible();
   await expect(page).toHaveTitle('[Mock] ReturnRing · Returns queue');
 });
 
@@ -125,6 +96,8 @@ test('the agent stream arrives event by event over the mock SSE', async ({ page 
 
 test('a warehouse persona sees writes disabled with the reason', async ({ page }) => {
   await page.goto('/returns/RET-000102');
+  // Switch persona once the case is on screen, not while its chunk and data are loading.
+  await expect(page.getByRole('button', { name: /Ask about this case/ })).toBeEnabled({ timeout: 15_000 });
   await page.getByLabel('Acting as').selectOption('ahmed');
   await expect(page.getByRole('button', { name: /Ask about this case/ })).toBeDisabled();
   await expect(page.getByText('This action is for operators and managers (warehouse can view).')).toBeVisible();

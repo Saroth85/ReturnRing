@@ -8,6 +8,7 @@ import type { DecisionRecord, Terms } from '@/api/models';
 import { useDecisionRecord } from '@/api/queries';
 import { ApproverLine, LeverList, leverLabel, RestrictionBadge, StateBadge } from '@/components/decision';
 import { ErrorState, InlineNotice, LoadingBlock } from '@/components/feedback';
+import { proposalNeedsApproval } from '@/domain/decision';
 import { DateText, Figure, IdText, PlainNumber, ProvenanceFooter, ProvenanceScope } from '@/components/provenance';
 import { OPERATOR } from '../copy';
 import { reasonLabel } from '../format';
@@ -108,8 +109,13 @@ function RecordBody({ record, returnId }: { record: DecisionRecord; returnId: st
           <Row label={t.levers}>
             <LeverList levers={d.proposed_levers} base={inputs.base_terms} />
           </Row>
-          <Row label={t.approval}>{d.requires_approval ? t.yes : t.no}</Row>
-          <Row label={t.reviewAt}>{d.review_at ? <DateText value={d.review_at} /> : t.none}</Row>
+          {/* From the proposal itself (rule 5): requires_approval and review_at follow the current
+              levers and move to the outcome below (UI3). */}
+          <Row label={t.approval}>
+            <span data-engine-approval={proposalNeedsApproval(d, inputs.base_terms) ? 'yes' : 'no'}>
+              {proposalNeedsApproval(d, inputs.base_terms) ? t.proposalApprovalYes : t.no}
+            </span>
+          </Row>
           <Row label={t.refundBy}>
             <DateText value={d.refund_due_by} />
           </Row>
@@ -138,6 +144,10 @@ function RecordBody({ record, returnId }: { record: DecisionRecord; returnId: st
           <Row label={t.levers}>
             <LeverList levers={d.levers} base={inputs.base_terms} />
           </Row>
+          <Row label={t.currentApproval}>
+            <span data-current-approval={d.requires_approval ? 'yes' : 'no'}>{d.requires_approval ? t.yes : t.no}</span>
+          </Row>
+          <Row label={t.currentReviewAt}>{d.review_at ? <DateText value={d.review_at} /> : t.none}</Row>
           {d.override_reason && (
             <Row label={t.overrideReason}>
               <span data-verbatim>“{d.override_reason}”</span>

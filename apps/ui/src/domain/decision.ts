@@ -2,8 +2,8 @@
 // actions a decision state allows, the decision-echo check and the terms diff. Server fields
 // only (P9): the client clock never decides whether a restriction is in force or lapsed.
 import { HAS_RENEW } from '@/api/models';
-import type { CaseSnapshot, DecisionView, DraftView, Lever, QueueItem, Terms } from '@/api/models';
-import { leverDirection, leverKey, type Direction, type LeverId, type TermKey } from './levers';
+import type { CaseCard, CaseSnapshot, DecisionView, DraftView, Lever, QueueItem, Terms } from '@/api/models';
+import { hasRestrictiveLever, leverDirection, leverKey, type Direction, type LeverId, type TermKey } from './levers';
 
 // ---------------------------------------------------------------------------------------------
 // Restriction status (RestrictionBadge)
@@ -101,6 +101,28 @@ export function actionPlan(
     return { primary: 'review', secondary: [], readOnly: false };
   }
   return { primary: null, secondary: [], readOnly: true };
+}
+
+/**
+ * Whether the engine's proposal itself needed a person (rule 5): a Q3 or Q4 quadrant, or any
+ * restrictive lever against the base terms. `requires_approval` and `review_at` describe the levers
+ * of the current state (ADR-15 section 4), so an overridden proposal reads them as false and null;
+ * the decision record's "Engine output" uses this instead (UI3).
+ */
+export function proposalNeedsApproval(proposal: Pick<DecisionView, 'quadrant' | 'proposed_levers'>, base: Terms): boolean {
+  return proposal.quadrant === 'Q3' || proposal.quadrant === 'Q4' || hasRestrictiveLever(proposal.proposed_levers, base);
+}
+
+/**
+ * Why an override may not move any lever away from the base terms: the guarantee path (rule 4) and
+ * a case without enough evidence, which is never treated as safe or suspicious (US-307; the legal
+ * guard refuses INSUFFICIENT_EVIDENCE_RESTRICTED). Null when the levers are free (UI13).
+ */
+export type OverrideLock = 'guarantee' | 'insufficient';
+export function overrideLock(card: Pick<CaseCard, 'path'> & { decision: Pick<DecisionView, 'evidence_quality'> }): OverrideLock | null {
+  if (card.path === 'guarantee') return 'guarantee';
+  if (card.decision.evidence_quality === 'insufficient') return 'insufficient';
+  return null;
 }
 
 /** Whether an action sends the customer message, and so waits for a ready draft (6.2.4). */

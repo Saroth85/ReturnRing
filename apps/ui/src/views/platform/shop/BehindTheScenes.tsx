@@ -6,6 +6,7 @@ import clsx from 'clsx';
 import { CalendarClock, CircleCheck, OctagonAlert, Ticket, TriangleAlert } from 'lucide-react';
 import { Link } from 'react-router';
 import { isApiError } from '@/api/errors';
+import { API_MODE } from '@/api/adapters';
 import type { CheckoutConfirmResponse, CheckoutEvaluateResponse, Metric } from '@/api/models';
 import { useCouponRules, useDecisionRecord } from '@/api/queries';
 import { QuadrantBadge, ReviewDateChip } from '@/components/decision';
@@ -21,20 +22,12 @@ import { SHOP } from './copy';
 const TH = 'px-2 py-1.5 text-left text-caption font-medium text-ink-3';
 const TD = 'px-2 py-1.5 align-top';
 
-function ApiErrorLine({ error, message }: { error: unknown; message: string }) {
-  if (isApiError(error) && error.status === 404) {
-    return (
-      <p className="flex flex-wrap items-center gap-x-1 text-caption text-ink-3" data-record-missing>
-        <span>{message}</span>
-        <span className="font-mono">{error.code}</span>
-        {error.requestId && (
-          <>
-            · <IdText id={error.requestId} className="text-caption" />
-          </>
-        )}
-      </p>
-    );
-  }
+/**
+ * A missing record (404) adds nothing to the decision id already shown: the presenter panel stays
+ * free of error codes (UI31). Any other error is shown with its request id.
+ */
+function ApiErrorLine({ error }: { error: unknown }) {
+  if (isApiError(error) && error.status === 404) return <span className="sr-only" data-record-missing />;
   return <ErrorState error={error} />;
 }
 
@@ -50,7 +43,7 @@ function DecisionSource({ decisionId }: { decisionId: string }) {
       </span>
     );
   }
-  if (record.isError) return <ApiErrorLine error={record.error} message={t.missing(decisionId)} />;
+  if (record.isError) return <ApiErrorLine error={record.error} />;
   const d = record.data.decision;
   return (
     <span className="flex flex-col gap-1" data-decision-source={d.state}>
@@ -331,11 +324,14 @@ function SnapshotFacts({ evaluation, latency }: { evaluation: CheckoutEvaluateRe
         {latency ? (
           <span className="flex flex-wrap items-center gap-x-2" data-latency={within ? 'within' : 'above'}>
             <Figure metric={latency} label={SHOP.latency} />
-            <span className="text-caption text-ink-3">{SHOP.latencyNote}</span>
-            <span className="text-caption text-ink-2">
-              · {SHOP.latencyTarget} <span data-constant>{formatValue(CHECKOUT_TARGET_MS / 1000, 'seconds')}</span>:{' '}
-              {within ? SHOP.latencyWithin : SHOP.latencyAbove}
-            </span>
+            {/* On the mock adapter the timing says nothing about the service: no verdict (UI31). */}
+            <span className="text-caption text-ink-3">{API_MODE === 'mock' ? SHOP.latencyNoteMock : SHOP.latencyNote}</span>
+            {API_MODE !== 'mock' && (
+              <span className="text-caption text-ink-2">
+                · {SHOP.latencyTarget} <span data-constant>{formatValue(CHECKOUT_TARGET_MS / 1000, 'seconds')}</span>:{' '}
+                {within ? SHOP.latencyWithin : SHOP.latencyAbove}
+              </span>
+            )}
           </span>
         ) : (
           <Skeleton className="h-4 w-24" />
@@ -436,11 +432,6 @@ export function BehindTheScenes({ evaluation, latency, order }: BehindTheScenesP
               </p>
             )}
             {lapse.kind === 'in_force' && fromDecision && <p className="text-caption text-ink-2">{SHOP.inForce}</p>}
-            {lapse.kind === 'unknown' && fromDecision && evaluation.review_at && (
-              <p className="text-caption text-ink-3" data-version>
-                {SHOP.lapseUnknown}
-              </p>
-            )}
             <LineProbabilities evaluation={evaluation} />
             <TermsDiffTable evaluation={evaluation} />
             <CouponPause evaluation={evaluation} />

@@ -6,6 +6,10 @@ import type { ReactElement } from 'react';
 import { createMemoryRouter, MemoryRouter, RouterProvider } from 'react-router';
 import { createQueryClient } from '@/api/queries';
 import { buildRoutes } from '@/app/router';
+import { preloadPagesBeforeAll } from './preload';
+
+// A file that renders the whole app preloads the page modules once, before its tests (UI39).
+preloadPagesBeforeAll();
 
 export function renderWithProviders(ui: ReactElement, { route = '/' }: { route?: string } = {}) {
   const client = createQueryClient();

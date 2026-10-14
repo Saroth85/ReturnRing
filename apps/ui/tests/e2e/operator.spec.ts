@@ -5,10 +5,9 @@
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { expect as baseExpect, test, type Page } from '@playwright/test';
-import { RENDERED_TEXT_BANNED } from '../../src/copy/bannedTerms';
-import { PROVENANCE_EXEMPT_SELECTOR, VERBATIM_SELECTOR } from '../../src/test/exempt';
+import { scanPage } from './scan';
 
-// The dev server compiles on demand: under parallel workers a first page can take seconds.
+// A ceiling for a loaded machine; assertions return as soon as they hold.
 const expect = baseExpect.configure({ timeout: 15_000 });
 
 const SHOTS = process.env.OPERATOR_SCREENSHOT_DIR;
@@ -24,26 +23,7 @@ function watchConsole(page: Page): string[] {
 }
 
 /** The PROV-UI and wording rules of src/test/scan.ts, run in the page. */
-async function scan(page: Page): Promise<{ unprovenanced: string[]; banned: string[] }> {
-  const patterns = RENDERED_TEXT_BANNED.map((t) => t.pattern);
-  return page.evaluate(
-    ({ exempt, verbatim, patterns }) => {
-      const idToken = /(?<![\p{L}\p{N}])[A-Z][A-Z0-9]*(?:[-~][A-Za-z0-9]+)+(?![\p{L}\p{N}])/gu;
-      const banned = patterns.map((p) => new RegExp(`(?<![\\p{L}\\p{N}])(?:${p})(?![\\p{L}\\p{N}])`, 'iu'));
-      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-      const out = { unprovenanced: [] as string[], banned: [] as string[] };
-      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-        const text = node.textContent ?? '';
-        const parent = node.parentElement;
-        if (!text.trim() || !parent) continue;
-        if (/\d/.test(text.replace(idToken, '')) && !parent.closest(exempt)) out.unprovenanced.push(text.trim());
-        if (!parent.closest(verbatim) && banned.some((re) => re.test(text))) out.banned.push(text.trim());
-      }
-      return out;
-    },
-    { exempt: PROVENANCE_EXEMPT_SELECTOR, verbatim: VERBATIM_SELECTOR, patterns },
-  );
-}
+const scan = scanPage;
 
 async function settle(page: Page): Promise<void> {
   await expect(page.locator('h1').first()).toBeVisible({ timeout: 15_000 });

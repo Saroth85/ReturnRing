@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { daysBetween, formatDate, formatPeriod, formatTimestamp, formatValue, MINUS } from '@/format';
+import { daysBetween, formatDate, formatDistinct, formatPeriod, formatTimestamp, formatValue, MINUS } from '@/format';
 
 describe('formatValue (docs/ui-design.md 4.7)', () => {
   it.each([
@@ -33,6 +33,39 @@ describe('formatValue (docs/ui-design.md 4.7)', () => {
   it('uses a true minus sign, never a hyphen', () => {
     expect(formatValue(-1, 'z_score')).toBe(`z = ${MINUS}1.00`);
     expect(formatValue(-1, 'count')).not.toContain('-');
+  });
+
+  it('never prints a signed zero, and picks day or days from the printed number (UI41)', () => {
+    expect(formatValue(-0.004, 'score', { signed: true })).toBe('0.00');
+    expect(formatValue(0.004, 'score', { signed: true })).toBe('0.00');
+    expect(formatValue(-0.003, 'eur')).toBe('€0.00');
+    expect(formatValue(-0.04, 'percentage_points')).toBe('0.0 pp');
+    expect(formatValue(-0.0004, 'ratio', { signed: true })).toBe('0.0%');
+    expect(formatValue(1.04, 'days')).toBe('1 day');
+    expect(formatValue(0.96, 'days')).toBe('1 day');
+    expect(formatValue(1.5, 'days')).toBe('1.5 days');
+    expect(formatValue(-0.006, 'score', { signed: true })).toBe(`${MINUS}0.01`);
+  });
+});
+
+describe('maxFractionDigits (UI10)', () => {
+  it('prints a float count with its decimal and a whole one without', () => {
+    expect(formatValue(7.5, 'count', { maxFractionDigits: 1 })).toBe('7.5');
+    expect(formatValue(240, 'count', { maxFractionDigits: 1 })).toBe('240');
+  });
+});
+
+describe('formatDistinct (UI5)', () => {
+  it('adds digits until a value and its threshold no longer print the same', () => {
+    expect(formatDistinct(0.5962, 0.6, 'probability')).toBe('0.596');
+    expect(formatDistinct(0.6, 0.5962, 'probability')).toBe('0.600');
+    expect(formatDistinct(184.996, 185, 'eur')).toBe('€184.996');
+    expect(formatDistinct(0.87, 0.6, 'probability')).toBe('0.87');
+  });
+
+  it('keeps the usual digits when the two values are equal', () => {
+    expect(formatDistinct(0.6, 0.6, 'probability')).toBe('0.60');
+    expect(formatDistinct(0.6, null, 'probability')).toBe('0.60');
   });
 });
 

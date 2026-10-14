@@ -6,8 +6,7 @@
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
-import { RENDERED_TEXT_BANNED } from '../../src/copy/bannedTerms';
-import { PROVENANCE_EXEMPT_SELECTOR, VERBATIM_SELECTOR } from '../../src/test/exempt';
+import { scanPage } from './scan';
 
 const SCREENSHOT_DIR = process.env.SCREENSHOT_DIR;
 if (SCREENSHOT_DIR) mkdirSync(SCREENSHOT_DIR, { recursive: true });
@@ -40,32 +39,13 @@ function watchConsole(page: Page): string[] {
 }
 
 async function settle(page: Page) {
-  // The first visit to a lazily loaded view compiles it on the dev server: allow for a busy machine.
+  // A ceiling for a busy machine (the E2E runs on a mock build, UI39); assertions return as soon as they hold.
   await expect(page.locator('h1').first()).toBeVisible({ timeout: 15_000 });
   await expect(page.locator('[aria-busy="true"], [data-data-check="pending"]')).toHaveCount(0, { timeout: 15_000 });
 }
 
 /** The PROV-UI and wording rules of the smoke test, in the page. */
-async function scan(page: Page) {
-  const patterns = RENDERED_TEXT_BANNED.map((t) => t.pattern);
-  return page.evaluate(
-    ({ exempt, verbatim, patterns }) => {
-      const idToken = /(?<![\p{L}\p{N}])[A-Z][A-Z0-9]*(?:[-~][A-Za-z0-9]+)+(?![\p{L}\p{N}])/gu;
-      const banned = patterns.map((p) => new RegExp(`(?<![\\p{L}\\p{N}])(?:${p})(?![\\p{L}\\p{N}])`, 'iu'));
-      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-      const out = { unprovenanced: [] as string[], banned: [] as string[] };
-      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-        const text = node.textContent ?? '';
-        const parent = node.parentElement;
-        if (!text.trim() || !parent) continue;
-        if (/\d/.test(text.replace(idToken, '')) && !parent.closest(exempt)) out.unprovenanced.push(text.trim());
-        if (!parent.closest(verbatim) && banned.some((re) => re.test(text))) out.banned.push(text.trim());
-      }
-      return { ...out, scrollWidth: document.documentElement.scrollWidth, width: document.documentElement.clientWidth };
-    },
-    { exempt: PROVENANCE_EXEMPT_SELECTOR, verbatim: VERBATIM_SELECTOR, patterns },
-  );
-}
+const scan = scanPage;
 
 for (const viewport of [
   { width: 1440, height: 900 },

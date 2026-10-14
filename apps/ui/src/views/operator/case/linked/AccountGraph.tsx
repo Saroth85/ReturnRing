@@ -6,14 +6,32 @@ import type { Core, ElementDefinition, StylesheetJson } from 'cytoscape';
 import { Maximize2, ZoomIn, ZoomOut } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { LinkedAccountsView } from '@/api/models';
+import { usePresent } from '@/app/display';
 import { Button } from '@/components/ui';
 import { OPERATOR } from '../../copy';
 import { accountsLabel } from '../../format';
 import { graphLayout, linkState, matchesKinds, orderedAccounts, strongestKind, type IdentifierKind } from './linkModel';
 
 const GRAPH_HEIGHT_PX = 300;
+/** Presenter mode: the graph is the centre of beat 2, read on a projector (UI25). */
+const GRAPH_HEIGHT_PRESENT_PX = 440;
 const ZOOM_STEP = 1.25;
 const FIT_PADDING = 28;
+/** The typography floor (docs/ui-design.md 4.4): labels never render below it, whatever the zoom. */
+const LABEL_FLOOR_PX = 11;
+const LABEL_FLOOR_PRESENT_PX = 14;
+
+/** Root font size: presenter mode raises it, and the canvas follows (UI25). */
+function remScale(): number {
+  const size = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
+  return Number.isFinite(size) && size > 0 ? size / 16 : 1;
+}
+
+/** Label sizes so that, at the current zoom, they render at least at the floor (UI25). */
+function fitLabels(cy: Core, floorPx: number): void {
+  const size = floorPx / Math.min(1, cy.zoom());
+  cy.style().selector('node').style('font-size', size).selector('edge').style('font-size', size).update();
+}
 
 function canvasSupported(): boolean {
   try {
@@ -141,10 +159,15 @@ export function AccountGraph({ view, selectedLinkId, selectedAccountId, filterKi
   const container = useRef<HTMLDivElement>(null);
   const cyRef = useRef<Core | null>(null);
   const handlers = useRef({ onSelectLink, onSelectAccount });
+  const present = usePresent();
+  const labelFloor = Math.round((present ? LABEL_FLOOR_PRESENT_PX : LABEL_FLOOR_PX) * remScale());
+  const floor = useRef(labelFloor);
+  const height = Math.round((present ? GRAPH_HEIGHT_PRESENT_PX : GRAPH_HEIGHT_PX) * remScale());
   const [status, setStatus] = useState<'loading' | 'ready' | 'unavailable'>(() => (canvasSupported() ? 'loading' : 'unavailable'));
 
   useEffect(() => {
     handlers.current = { onSelectLink, onSelectAccount };
+    floor.current = labelFloor;
   });
 
   useEffect(() => {
@@ -169,6 +192,9 @@ export function AccountGraph({ view, selectedLinkId, selectedAccountId, filterKi
         });
         cy.on('tap', 'edge', (event) => handlers.current.onSelectLink(event.target.id() as string));
         cy.on('tap', 'node', (event) => handlers.current.onSelectAccount(event.target.id() as string));
+        const current = cy;
+        cy.on('zoom', () => fitLabels(current, floor.current));
+        fitLabels(cy, floor.current);
         cyRef.current = cy;
         setStatus('ready');
       })
@@ -176,7 +202,11 @@ export function AccountGraph({ view, selectedLinkId, selectedAccountId, filterKi
         if (!cancelled) setStatus('unavailable');
       });
     // Re-style on a theme change (data-theme on <html> or the system preference).
-    const restyle = () => cy?.style(stylesheet());
+    const restyle = () => {
+      if (!cy) return;
+      cy.style(stylesheet());
+      fitLabels(cy, floor.current);
+    };
     const observer = new MutationObserver(restyle);
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
     const media = window.matchMedia?.('(prefers-color-scheme: dark)');
@@ -189,6 +219,15 @@ export function AccountGraph({ view, selectedLinkId, selectedAccountId, filterKi
       cyRef.current = null;
     };
   }, [view]);
+
+  // A new height (presenter mode on or off) fits the graph again, with labels at the floor.
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (!cy || status !== 'ready') return;
+    cy.resize();
+    cy.fit(undefined, FIT_PADDING);
+    fitLabels(cy, labelFloor);
+  }, [height, labelFloor, status]);
 
   useEffect(() => {
     const cy = cyRef.current;
@@ -226,7 +265,8 @@ export function AccountGraph({ view, selectedLinkId, selectedAccountId, filterKi
         role="img"
         aria-label={t.graphLabel(accountsLabel(view.accounts.length))}
         data-graph={status}
-        style={{ height: GRAPH_HEIGHT_PX }}
+        style={{ height }}
+        data-label-floor={labelFloor}
         className="relative w-full overflow-hidden rounded-control border border-border bg-surface"
       />
       <div className="flex flex-wrap items-center gap-2">

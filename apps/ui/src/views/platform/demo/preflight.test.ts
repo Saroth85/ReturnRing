@@ -14,6 +14,7 @@ const fast = loadMetric(240, '2026-10-13T20:00:00Z', 'mock');
 
 const green: PreflightInputs = {
   expected: 'live',
+  adapter: 'live',
   readyz: ok(live),
   marco: ok(marco),
   rossi: ok(rossi),
@@ -26,9 +27,23 @@ const stateOf = (inputs: PreflightInputs) => Object.fromEntries(preflightChecks(
 describe('preflightChecks (docs/ui-design.md 9.5)', () => {
   it('is green on the contract examples for a live run', () => {
     const checks = preflightChecks(green);
-    expect(checks.map((c) => c.id)).toEqual(['readiness', 'components', 'marco', 'rossi', 'assumptions', 'load']);
+    expect(checks.map((c) => c.id)).toEqual(['adapter', 'readiness', 'components', 'contract', 'marco', 'rossi', 'assumptions', 'load']);
     expect(checks.every((c) => c.state === 'pass' && c.fix === null)).toBe(true);
     expect(preflightState(checks)).toBe('pass');
+  });
+
+  it('is never green on the mock adapter: the answers are contract examples (UI12, UI29)', () => {
+    const checks = preflightChecks({ ...green, adapter: 'mock' });
+    expect(checks[0]).toMatchObject({ id: 'adapter', state: 'fail' });
+    expect(checks[0]?.fix).toContain('npm run dev:live');
+    expect(preflightState(checks)).toBe('fail');
+  });
+
+  it('fails when the API serves another contract version (UI1)', () => {
+    const check = preflightChecks({ ...green, readyz: ok({ ...live, contract_version: '1.4.0' }) }).find((c) => c.id === 'contract');
+    expect(check?.state).toBe('fail');
+    expect(check?.found).toContain('1.4.0');
+    expect(check?.fix).toContain('gen:types');
   });
 
   it('names the fix when Marco was already approved', () => {

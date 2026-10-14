@@ -2,6 +2,7 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { setPersona } from '@/app/persona';
+import { SHOP } from './copy';
 import { renderApp } from '@/test/render';
 import { findBannedWording, findUnprovenancedNumbers } from '@/test/scan';
 
@@ -9,7 +10,7 @@ afterEach(() => act(() => setPersona('sara')));
 
 async function ready(preset: 'giulia' | 'marco') {
   renderApp(`/shop?preset=${preset}`);
-  await waitFor(() => expect(document.querySelector('[data-evaluation-status="ready"]')).not.toBeNull(), { timeout: 5000 });
+  await waitFor(() => expect(document.querySelector('[data-evaluation-status="ready"]')).not.toBeNull());
   return {
     shop: document.querySelector('[data-shop-pane]') as HTMLElement,
     scenes: document.querySelector('[data-scenes-pane]') as HTMLElement,
@@ -64,7 +65,7 @@ describe('shop view (customer-facing)', () => {
     fireEvent.click(within(shop).getByRole('button', { name: 'Switch to M' }));
     expect(document.querySelector('[data-evaluation-status="evaluating"]')).not.toBeNull();
     // The mock answers only the preset carts: the answer is for M and L, the cart is M and M.
-    await waitFor(() => expect(document.querySelector('[data-cart-mismatch]')).not.toBeNull(), { timeout: 5000 });
+    await waitFor(() => expect(document.querySelector('[data-cart-mismatch]')).not.toBeNull());
     expect(within(shop).getByRole('button', { name: 'Place order' })).toBeDisabled();
   });
 });
@@ -129,7 +130,7 @@ describe('placing the order (US-403, E2E-02)', () => {
   it('binds the shown snapshot and confirms that the terms shown are the terms stored', async () => {
     const { shop, scenes } = await ready('giulia');
     fireEvent.click(within(shop).getByRole('button', { name: 'Place order' }));
-    await waitFor(() => expect(shop.querySelector('[data-order-placed]')).not.toBeNull(), { timeout: 5000 });
+    await waitFor(() => expect(shop.querySelector('[data-order-placed]')).not.toBeNull());
     expect(shop.querySelector('[data-order-placed]')?.textContent).toContain(
       'Order ORD-CHK-000001 placed. The terms above are saved with your order.',
     );
@@ -143,18 +144,21 @@ describe('placing the order (US-403, E2E-02)', () => {
     // The contract has a confirm example for Giulia only: Marco's order comes back with her snapshot.
     const { shop, scenes } = await ready('marco');
     fireEvent.click(within(shop).getByRole('button', { name: 'Place order' }));
-    await waitFor(() => expect(scenes.querySelector('[data-snapshot-receipt]')).not.toBeNull(), { timeout: 5000 });
+    await waitFor(() => expect(scenes.querySelector('[data-snapshot-receipt]')).not.toBeNull());
     const receipt = scenes.querySelector('[data-snapshot-receipt]') as HTMLElement;
     expect(receipt.getAttribute('data-snapshot-receipt')).toBe('differs');
     expect(within(receipt).getByRole('alert').textContent).toContain('snapshot id');
+    // The customer view never says "placed" for terms other than the ones shown (UI7).
+    expect(shop.querySelector('[data-order-placed]')).toBeNull();
+    expect(shop.querySelector('[data-order-mismatch]')?.textContent).toContain(SHOP.orderMismatch);
   });
 
   it('starts the test cart again after an order', async () => {
     const { shop } = await ready('giulia');
     fireEvent.click(within(shop).getByRole('button', { name: 'Place order' }));
-    const again = await within(shop).findByRole('button', { name: 'Start the test cart again' }, { timeout: 5000 });
+    const again = await within(shop).findByRole('button', { name: 'Start the test cart again' });
     fireEvent.click(again);
-    await waitFor(() => expect(within(shop).getByRole('button', { name: 'Place order' })).toBeEnabled(), { timeout: 5000 });
+    await waitFor(() => expect(within(shop).getByRole('button', { name: 'Place order' })).toBeEnabled());
   });
 });
 

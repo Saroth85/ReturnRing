@@ -11,11 +11,18 @@ import tseslint from 'typescript-eslint';
 
 const VIEWS = ['operator', 'agent', 'manager', 'platform'];
 const BOUNDARY = 'Views never import each other: navigate by URL (docs/ui-design.md 13.3).';
+// Contract examples reach the app only through the mock adapter's import.meta.glob (mock builds)
+// and the tests' file reads; a direct import would inline them into the production bundle.
+const NO_EXAMPLES = {
+  regex: 'contracts/examples',
+  message: 'Contract examples are read only by src/api/adapters/mock.ts and the tests (docs/ui-design.md 11.5).',
+};
 
 function viewBoundary(area) {
   const others = VIEWS.filter((v) => v !== area);
   const aliasBlocked = area === 'operator' ? others.filter((v) => v !== 'agent') : others;
   const patterns = [
+    NO_EXAMPLES,
     { regex: `^@/views/(${aliasBlocked.join('|')})(/|$)`, message: BOUNDARY },
     { regex: `^(\\.\\./)+(${others.join('|')})(/|$)`, message: BOUNDARY },
     { regex: '^(\\.\\./)+views(/|$)', message: BOUNDARY },
@@ -80,6 +87,10 @@ export default tseslint.config(
       'react-refresh/only-export-components': ['error', { allowConstantExport: true }],
     },
   },
+  {
+    files: ['src/**/*.{ts,tsx}'],
+    rules: { 'no-restricted-imports': ['error', { patterns: [NO_EXAMPLES] }] },
+  },
   ...VIEWS.map(viewBoundary),
   {
     files: ['src/{components,api,format,copy,domain,sim,styles,test}/**/*.{ts,tsx}'],
@@ -88,6 +99,7 @@ export default tseslint.config(
         'error',
         {
           patterns: [
+            NO_EXAMPLES,
             { regex: '^@/views(/|$)', message: 'Shared code never imports a view (docs/ui-design.md 13.3).' },
             { regex: '^(\\.\\./)+views(/|$)', message: 'Shared code never imports a view (docs/ui-design.md 13.3).' },
           ],
@@ -102,6 +114,7 @@ export default tseslint.config(
         'error',
         {
           patterns: [
+            NO_EXAMPLES,
             { regex: '^@/views/[^/]+/.+', message: 'The shell composes views through their index only.' },
           ],
         },

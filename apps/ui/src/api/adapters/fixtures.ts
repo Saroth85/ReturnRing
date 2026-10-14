@@ -10,4 +10,6 @@ export const UI_FIXTURE_SCENARIOS = [
   'empty',
   'draft_pending',
   'agent_error',
+  // /readyz reports another contract minor version: the shell's mismatch notice (UI1).
+  'contract_mismatch',
 ] as const;

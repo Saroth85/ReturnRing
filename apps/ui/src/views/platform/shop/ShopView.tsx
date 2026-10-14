@@ -7,9 +7,9 @@ import { useId, type ReactNode } from 'react';
 import { LEGAL_MINIMUM_WINDOW_DAYS } from '@/api/contract.gen';
 import type { CheckoutConfirmResponse, CheckoutEvaluateResponse, Provenance, Terms } from '@/api/models';
 import { ErrorState, RoleGate, Skeleton } from '@/components/feedback';
-import { DateText, IdText, PlainNumber, ProvenanceScope } from '@/components/provenance';
+import { DateText, IdText, PlainNumber, ProvenanceFooter, ProvenanceScope } from '@/components/provenance';
 import { Button } from '@/components/ui';
-import { adviceFor, type Cart } from './checkout';
+import { adviceFor, checkReceipt, type Cart } from './checkout';
 import { SHOP } from './copy';
 
 export type EvaluationStatus = 'evaluating' | 'ready' | 'mismatch' | 'error';
@@ -47,6 +47,7 @@ function TermsList({ terms, provenance }: { terms: Terms; provenance: Provenance
       <li>{terms.free_size_exchange ? t.freeExchange : t.paidExchange}</li>
       <li>{terms.coupons_enabled ? t.coupons : t.noCoupons}</li>
     </ul>
+    <ProvenanceFooter compact />
     </ProvenanceScope>
   );
 }
@@ -227,14 +228,25 @@ export function ShopView(props: ShopViewProps) {
           </div>
 
           {order ? (
-            <div role="status" className="flex flex-col gap-2 rounded-control border border-border bg-surface-2 px-3 py-3" data-order-placed>
-              <p className="font-medium">
-                {SHOP.orderPlaced(order.order_id)} {SHOP.orderPlacedTail}
-              </p>
-              <div>
-                <Button onClick={props.onRestart}>{SHOP.newCart}</Button>
+            // "Placed with the terms above" only when the stored snapshot is the one shown, for this
+            // customer (UI7); otherwise the mismatch is said, never a success.
+            evaluation && checkReceipt(evaluation, order.terms_snapshot).ok && order.terms_snapshot.customer_id === cart.customer_id ? (
+              <div role="status" className="flex flex-col gap-2 rounded-control border border-border bg-surface-2 px-3 py-3" data-order-placed>
+                <p className="font-medium">
+                  {SHOP.orderPlaced(order.order_id)} {SHOP.orderPlacedTail}
+                </p>
+                <div>
+                  <Button onClick={props.onRestart}>{SHOP.newCart}</Button>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div role="alert" className="flex flex-col gap-2 rounded-control border border-attn-border bg-attn-bg px-3 py-3 text-attn-fg" data-order-mismatch>
+                <p className="font-medium">{SHOP.orderMismatch}</p>
+                <div>
+                  <Button onClick={props.onRestart}>{SHOP.newCart}</Button>
+                </div>
+              </div>
+            )
           ) : (
             <RoleGate action="POST /api/checkout/confirm">
               {({ allowed }) => (

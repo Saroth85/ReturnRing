@@ -69,7 +69,7 @@ function DueRow({ item }: { item: QueueItem }) {
               <TriangleAlert aria-hidden="true" size={12} className="mt-0.5 shrink-0" />
               <span>
                 {R.lapsedOn} <DateText value={item.review_at} />
-                {R.lapsedTail}
+                {R.lapsedTail(HAS_RENEW)}
               </span>
             </span>
           )}

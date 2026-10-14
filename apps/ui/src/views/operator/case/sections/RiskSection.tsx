@@ -200,10 +200,10 @@ export function RiskSection({ card }: { card: CaseCard }) {
             <div>
               <p className="text-caption text-ink-3">{t.score}</p>
               <p className="text-hero">
-                <Figure metric={risk.score} label={t.score} size="hero" />
+                <Figure metric={risk.score} label={t.score} size="hero" distinctFrom={risk.threshold.value} />
               </p>
               <p className="text-caption text-ink-3">
-                {t.threshold} <Figure metric={risk.threshold} label={`${t.score} · ${t.threshold}`} />
+                {t.threshold} <Figure metric={risk.threshold} label={`${t.score} · ${t.threshold}`} distinctFrom={risk.score.value} />
               </p>
             </div>
             <ScoreTrack risk={risk} />

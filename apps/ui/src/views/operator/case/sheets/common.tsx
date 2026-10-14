@@ -2,17 +2,19 @@
 // confirm button (Ctrl/Cmd+Enter; a bare Enter never confirms a restrictive action) and the
 // reasons a confirm is disabled, printed under it.
 import * as Dialog from '@radix-ui/react-dialog';
+import type { DecisionView } from '@/api/models';
 import { usePersona } from '@/app/persona';
 import { IdText } from '@/components/provenance';
 import { Button, Kbd } from '@/components/ui';
-import { InlineNotice } from '@/components/feedback';
 import { OPERATOR } from '../../copy';
 import { roleWord } from '../../format';
 import { useCaseUi } from '../context';
+import { useNewerVersion } from './useNewerVersion';
 
-export function CaseIdsLine() {
+/** The ids of the case and of the decision version the sheet acts on (the one shown). */
+export function CaseIdsLine({ decision }: { decision?: DecisionView } = {}) {
   const { card } = useCaseUi();
-  const d = card.decision;
+  const d = decision ?? card.decision;
   return (
     <span className="flex flex-wrap items-center gap-x-2">
       <IdText id={card.return_id} />
@@ -77,11 +79,48 @@ export function ConfirmFooter({ label, restrictive = false, disabled, pending, r
   );
 }
 
-export function StaleOnOpen({ message }: { message: string | null }) {
-  if (!message) return null;
+/**
+ * The stale state of a sheet (docs/ui-design.md 6.4): the card loaded again names a newer version
+ * than the one the sheet was opened on. The confirm is blocked; "Load the new version" refetches,
+ * lists what changed and moves the sheet onto the new version, keeping what was typed.
+ */
+export function StaleDecisionPanel({
+  shown,
+  onReload,
+  changes,
+}: {
+  shown: Pick<DecisionView, 'decision_id'>;
+  onReload(): void;
+  changes?: string[] | null;
+}) {
+  const newer = useNewerVersion(shown);
+  const s = OPERATOR.sheets;
+  if (!newer) return null;
   return (
-    <InlineNotice tone="attention" title={OPERATOR.sheets.stale.title}>
-      <span data-verbatim>{message}</span>
-    </InlineNotice>
+    <div
+      role="alert"
+      className="flex flex-col gap-2 rounded-control border border-attn-border bg-attn-bg px-3 py-2 text-body text-attn-fg"
+      data-stale-panel
+    >
+      <p className="font-medium">{s.stale.title}</p>
+      <p className="text-ink-1" data-verbatim>
+        {s.stale.shownNotLatest(shown.decision_id, newer)}
+      </p>
+      {changes && changes.length > 0 && (
+        <ul className="list-disc pl-5 text-caption text-ink-1">
+          {changes.map((c) => (
+            <li key={c} data-verbatim>
+              {c}
+            </li>
+          ))}
+        </ul>
+      )}
+      <span className="flex flex-wrap items-center gap-2">
+        <Button onClick={onReload} data-load-new-version>
+          {s.stale.load}
+        </Button>
+        <span className="text-caption text-ink-2">{s.stale.kept}</span>
+      </span>
+    </div>
   );
 }

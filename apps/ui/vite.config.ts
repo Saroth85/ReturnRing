@@ -66,7 +66,10 @@ export default defineConfig(({ mode }) => {
       setupFiles: ['./src/test/setup.ts'],
       include: ['src/**/*.test.{ts,tsx}', 'scripts/**/*.test.mjs'],
       restoreMocks: true,
-      testTimeout: 15000,
+      // Above the async query ceiling of src/test/timing.ts (UI39): a whole-page test on a loaded
+      // machine renders, loads and waits several times.
+      testTimeout: 60_000,
+      hookTimeout: 120_000,
     },
   };
 });

@@ -12,8 +12,8 @@ afterEach(() => act(() => setScenario('default')));
 
 async function loaded() {
   renderApp('/system');
-  await waitFor(() => expect(document.querySelectorAll('[data-benchmark]')).toHaveLength(4), { timeout: 5000 });
-  await waitFor(() => expect(document.querySelector('[data-readiness]')).not.toBeNull(), { timeout: 5000 });
+  await waitFor(() => expect(document.querySelectorAll('[data-benchmark]')).toHaveLength(4));
+  await waitFor(() => expect(document.querySelector('[data-readiness]')).not.toBeNull());
 }
 
 describe('benchmarks (US-902)', () => {
@@ -70,8 +70,9 @@ describe('service mode and readiness (US-901)', () => {
   it('reads /healthz, /readyz and the mode header', async () => {
     await loaded();
     const facts = document.querySelector('[data-mode-facts]') as HTMLElement;
-    await waitFor(() => expect(facts.textContent).toContain('ok · the API answers'));
-    expect(facts.querySelector('[data-mode]')?.textContent).toBe('Live');
+    // On the mock adapter every fact is labelled as the /readyz contract example (UI12).
+    await waitFor(() => expect(facts.textContent).toContain('ok · the mock adapter answers (no API)'));
+    expect(facts.querySelector('[data-mode]')?.textContent).toBe('contract example: Live');
     expect(facts.textContent).toContain('Gemma 4 on vLLM');
     expect(facts.querySelector('[data-header-agreement]')?.getAttribute('data-header-agreement')).toBe('agrees');
     expect(facts.textContent).toContain('contract examples (mock adapter)');
@@ -82,14 +83,17 @@ describe('service mode and readiness (US-901)', () => {
     expect(checks).toContainEqual(['vllm', 'ok']);
     expect(checks).toContainEqual(['demo_cache', 'disabled']);
     expect(document.querySelector('[data-versions]')?.textContent).toContain('policy-2026-10-12');
-    expect(screen.getAllByText('Live · ready').length).toBeGreaterThan(0);
+    expect(screen.queryAllByText('Live · ready')).toEqual([]);
+    expect(document.querySelector('[data-readiness-pill]')?.getAttribute('data-readiness-pill')).toBe('contract');
+    expect(document.querySelector('[data-readiness-pill]')?.textContent).toBe('Contract examples · /readyz example: Live');
+    expect(document.querySelector('[data-contract-example-note]')).not.toBeNull();
   });
 
   it('says cached in the cached scenario, with the label and the GPU off', async () => {
     act(() => setScenario('cached'));
     await loaded();
     const facts = document.querySelector('[data-mode-facts]') as HTMLElement;
-    expect(facts.querySelector('[data-mode]')?.textContent).toBe('Cached');
+    expect(facts.querySelector('[data-mode]')?.textContent).toBe('contract example: Cached');
     expect(facts.textContent).toContain('Precomputed on AMD MI300X');
     expect(document.querySelector('[data-component="vllm"]')?.textContent).toContain('GPU off in cached mode');
   });
@@ -99,7 +103,7 @@ describe('telemetry (US-905)', () => {
   it('shows GPU, memory, power, the language model and the API, marked illustrative', async () => {
     await loaded();
     const panel = document.querySelector('#telemetry') as HTMLElement;
-    await waitFor(() => expect(panel.querySelector('[data-telemetry-illustrative]')).not.toBeNull(), { timeout: 5000 });
+    await waitFor(() => expect(panel.querySelector('[data-telemetry-illustrative]')).not.toBeNull());
     expect(panel.textContent).toContain('71%');
     expect(panel.textContent).toContain('143.0 GiB');
     expect(panel.textContent).toContain('192.0 GiB');
@@ -113,7 +117,7 @@ describe('telemetry (US-905)', () => {
     act(() => setScenario('cached'));
     await loaded();
     const panel = document.querySelector('#telemetry') as HTMLElement;
-    await waitFor(() => expect(panel.querySelector('[data-telemetry-cached]')).not.toBeNull(), { timeout: 5000 });
+    await waitFor(() => expect(panel.querySelector('[data-telemetry-cached]')).not.toBeNull());
     expect(panel.textContent).toContain('GPU off: cached mode serves results precomputed on the AMD MI300X');
     expect(panel.querySelectorAll('[data-figure]')).toHaveLength(0);
   });

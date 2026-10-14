@@ -3,6 +3,7 @@
 // Enter) in a popover; a restriction opens a sheet where only an explicit confirm commits it.
 import * as Popover from '@radix-ui/react-popover';
 import { useRef } from 'react';
+import type { DecisionView } from '@/api/models';
 import { usePersona } from '@/app/persona';
 import { Button, Kbd } from '@/components/ui';
 import type { ActionPlan, SecondaryAction } from '@/domain/decision';
@@ -10,8 +11,10 @@ import { OPERATOR } from '../../copy';
 import { roleWord } from '../../format';
 import { useCaseUi } from '../context';
 import { ActionError } from '../sheets/ActionError';
+import { StaleDecisionPanel } from '../sheets/common';
 import { LangChoice } from '../../ui/fields';
 import { InlineNotice } from '@/components/feedback';
+import { CompactMessage } from '@/components/message';
 
 export interface ActionBarProps {
   plan: ActionPlan;
@@ -21,14 +24,9 @@ export interface ActionBarProps {
   confirming: boolean;
   confirmError: unknown;
   confirmMismatch: string | null;
+  /** The decision the open confirm was shown, when a newer version has arrived since (UI38). */
+  confirmStale?: DecisionView | null;
   onReload(): void;
-}
-
-const PREVIEW_CHARS = 220;
-
-function firstLines(text: string): string {
-  const body = text.split('\n\n')[0] ?? text;
-  return body.length > PREVIEW_CHARS ? `${body.slice(0, PREVIEW_CHARS).trimEnd()}…` : body;
 }
 
 const SECONDARY_KEY: Record<SecondaryAction, string | null> = { override: 'O', reject: 'R', lift: 'L', renew: null };
@@ -41,6 +39,7 @@ export function ActionBar({
   confirming,
   confirmError,
   confirmMismatch,
+  confirmStale = null,
   onReload,
 }: ActionBarProps) {
   const { card, openSheet, gates, draftPending, sendLang, setSendLang } = useCaseUi();
@@ -112,15 +111,12 @@ export function ActionBar({
                     card.return_id,
                   )}
                 </p>
-                {message && (
-                  <p lang={message.lang} className="rounded-control bg-surface-2 px-2 py-1 text-caption text-ink-1" data-verbatim>
-                    {firstLines(message.rendered_text)}
-                  </p>
-                )}
+                {message && <CompactMessage message={message} stored={message.rendered_text} />}
                 <LangChoice value={sendLang} onChange={setSendLang} />
                 <p className="text-caption text-ink-3">
                   {OPERATOR.railCopy.actingAs} {persona.id} ({roleWord(persona.role)})
                 </p>
+                {confirmStale && <StaleDecisionPanel shown={confirmStale} onReload={onReload} />}
                 {confirmError ? <ActionError error={confirmError} onLoadNew={onReload} onShowCurrent={onReload} /> : null}
                 {confirmMismatch && <InlineNotice tone="attention">{confirmMismatch}</InlineNotice>}
                 <div className="flex flex-wrap justify-end gap-2">
@@ -129,7 +125,7 @@ export function ActionBar({
                       {s.cancel} <Kbd>Esc</Kbd>
                     </Button>
                   </Popover.Close>
-                  <Button variant="primary" disabled={confirming || blocked} onClick={onConfirm} data-confirm-send>
+                  <Button variant="primary" disabled={confirming || blocked || confirmStale !== null} onClick={onConfirm} data-confirm-send>
                     {s.confirmSend} <Kbd>Enter</Kbd>
                   </Button>
                 </div>

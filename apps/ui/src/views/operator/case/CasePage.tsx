@@ -7,6 +7,7 @@ import { isApiError } from '@/api/errors';
 import type { CaseCard, DecisionResult, EntityRef, Lang, LinkDisputeResponse, RecomputeResponse } from '@/api/models';
 import { useQueue } from '@/api/queries';
 import { useHotkeys } from '@/app/hotkeys';
+import { usePresent } from '@/app/display';
 import { usePersona } from '@/app/persona';
 import { ErrorState, LoadingBlock, READ_ONLY, useRoleGate } from '@/components/feedback';
 import { actionPlan, type ActionPlan } from '@/domain/decision';
@@ -71,7 +72,7 @@ function useCaseNav(returnId: string, from: QueueTab | null): CaseNav | null {
 }
 
 /** The sheet a `?action=` deep link opens, when the decision state allows that action. */
-function deepLinkSheet(action: string | null, plan: ActionPlan): SheetRequest | null {
+function deepLinkSheet(action: string | null, plan: ActionPlan): Omit<SheetRequest, 'shown'> | null {
   if (!action || !DEEP_ACTIONS.has(action)) return null;
   if (action === 'evidence') return { kind: 'evidence' };
   if (action === 'approve') {
@@ -137,8 +138,12 @@ function CaseScreen({ card, sentMessage, refetch }: CaseScreenProps) {
   const nav = useCaseNav(card.return_id, from);
 
   const plan = actionPlan(card.decision);
-  const [sheet, setSheet] = useState<SheetRequest | null>(() => deepLinkSheet(params.get('action'), plan));
-  const [staleOnOpen, setStaleOnOpen] = useState<string | null>(null);
+  // Every sheet carries the decision it was opened on (`shown`, UI38): its request names that
+  // version, and a newer card blocks the confirm until "Load the new version".
+  const [sheet, setSheet] = useState<SheetRequest | null>(() => {
+    const request = deepLinkSheet(params.get('action'), plan);
+    return request ? { ...request, shown: card.decision } : null;
+  });
   const [changes, setChanges] = useState<string[] | null>(null);
   const [recompute, setRecompute] = useState<{ response: RecomputeResponse; also: string[] } | null>(null);
   const [selectedLinkId, setSelectedLinkId] = useState<string | null>(() => params.get('link'));
@@ -197,23 +202,25 @@ function CaseScreen({ card, sentMessage, refetch }: CaseScreenProps) {
 
   const openSheet = useCallback(
     (request: SheetRequest) => {
-      const shown = cardRef.current.decision.decision_id;
-      setSheet(request.kind === 'dispute' && !request.linkId ? { ...request, linkId: selectedLinkId ?? undefined } : request);
-      setStaleOnOpen(null);
+      const shown = request.shown ?? cardRef.current.decision;
+      const linkId = request.kind === 'dispute' && !request.linkId ? (selectedLinkId ?? undefined) : request.linkId;
+      setSheet({ ...request, linkId, shown });
       setChanges(null);
-      // Every sheet first loads the card again: a newer version opens the stale state (6.3).
-      void fresh().then((now) => {
-        if (now && now.decision.decision_id !== shown) setStaleOnOpen(`${shown} → ${now.decision.decision_id}`);
-      });
+      // Every sheet first loads the card again: a newer version shows the stale state (6.3), since
+      // the sheet compares the card with the decision it was opened on.
+      void fresh();
     },
     [fresh, selectedLinkId],
   );
 
+  /** "Load the new version": refetch, list what changed, and move an open sheet onto it (6.4). */
   const reload = useCallback(() => {
     const before = cardRef.current;
     void fresh().then((now) => {
       setChanges(now ? cardChanges(before, now) : []);
-      if (now) setSeenDecisionId(now.decision.decision_id);
+      if (!now) return;
+      setSeenDecisionId(now.decision.decision_id);
+      setSheet((open) => (open ? { ...open, shown: now.decision } : open));
     });
   }, [fresh]);
 
@@ -308,6 +315,22 @@ function CaseScreen({ card, sentMessage, refetch }: CaseScreenProps) {
     draftPending,
   };
 
+  // Presenter mode on a wide screen opens a case with the grid under the banner: the sticky rail
+  // then has the whole viewport, so the approval and the terms table are on screen (UI22).
+  const present = usePresent();
+  const presented = useRef(false);
+  useEffect(() => {
+    if (!present || presented.current || params.has('focus') || params.has('link')) return;
+    presented.current = true;
+    if (!window.matchMedia?.('(min-width: 1280px)').matches) return;
+    requestAnimationFrame(() => {
+      const rail = document.querySelector<HTMLElement>('[data-decision-rail]');
+      if (!rail) return;
+      const stickyTop = Number.parseFloat(getComputedStyle(rail).top) || 0;
+      window.scrollTo({ top: Math.max(0, rail.getBoundingClientRect().top + window.scrollY - stickyTop) });
+    });
+  }, [present, params]);
+
   // Deep links (docs/ui-design.md 3.2): ?action= opened the sheet at first render (initial state),
   // ?focus= and ?link= scroll to a section or a link; the action parameter is then dropped.
   const deepLinked = useRef(false);
@@ -320,13 +343,25 @@ function CaseScreen({ card, sentMessage, refetch }: CaseScreenProps) {
       requestAnimationFrame(() =>
         pulse(document.getElementById(`section-${focus}`) ?? document.querySelector(`[data-section="${focus}"]`)),
       );
-    if (link) requestAnimationFrame(() => pulse(document.getElementById(refAnchorId({ kind: 'link', id: link }))));
+    // The selected link's detail panel (with "Explain with evidence…") is what the link deep link
+    // is for: it comes into view, under the banner (UI33).
+    if (link)
+      requestAnimationFrame(() => {
+        pulse(document.getElementById(refAnchorId({ kind: 'link', id: link })));
+        requestAnimationFrame(() =>
+          Array.from(document.querySelectorAll<HTMLElement>('[data-link-detail]'))
+            .find((el) => el.dataset.linkDetail === link)
+            ?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }),
+        );
+      });
     if (params.has('action')) {
+      // A deep-linked sheet loads the card again like any other (UI38).
+      void fresh();
       const next = new URLSearchParams(params);
       next.delete('action');
       setParams(next, { replace: true });
     }
-  }, [params, setParams]);
+  }, [params, setParams, fresh]);
 
   // A navigation is a transition: the previous card can still be on screen for a moment after
   // the URL changed. Its shortcuts must not act on a case that is no longer the URL's.
@@ -339,7 +374,10 @@ function CaseScreen({ card, sentMessage, refetch }: CaseScreenProps) {
     a: () => {
       if (!can(decide.allowed) || draftPending) return;
       if (plan.primary === 'approve_restriction') openSheet({ kind: 'approve' });
-      else if (plan.primary === 'confirm' || plan.primary === 'confirm_guarantee') setSheet({ kind: 'confirm' });
+      else if (plan.primary === 'confirm' || plan.primary === 'confirm_guarantee') {
+        setSheet({ kind: 'confirm', shown: card.decision });
+        void fresh();
+      }
       else if (plan.primary === 'review') openSheet({ kind: 'review' });
     },
     o: () => can(decide.allowed) && !draftPending && plan.secondary.includes('override') && openSheet({ kind: 'override' }),
@@ -355,13 +393,15 @@ function CaseScreen({ card, sentMessage, refetch }: CaseScreenProps) {
     m: () => !busy() && sendLangStore.set(sendLang === 'it' ? 'en' : 'it'),
   });
 
+  const shown = sheet?.shown ?? card.decision;
   const sheetProps = {
     onOpenChange: (open: boolean) => !open && setSheet(null),
     onDone: onDecisionDone,
     onReload: reload,
     changes,
-    staleOnOpen,
+    shown,
   };
+  const confirmNewer = sheet?.kind === 'confirm' && shown.decision_id !== card.decision.decision_id ? shown : null;
   const changedTo = card.decision.decision_id !== seenDecisionId ? card.decision.decision_id : null;
 
   return (
@@ -385,9 +425,14 @@ function CaseScreen({ card, sentMessage, refetch }: CaseScreenProps) {
               confirmOpen={sheet?.kind === 'confirm'}
               onConfirmOpenChange={(open) => {
                 if (!open) confirmAction.reset();
-                setSheet(open ? { kind: 'confirm' } : null);
+                setSheet(open ? { kind: 'confirm', shown: cardRef.current.decision } : null);
+                if (open) void fresh();
               }}
-              onConfirm={() => confirmAction.submit(approveBody(card.decision, sendLang, persona.id))}
+              onConfirm={() => {
+                if (confirmNewer) return;
+                confirmAction.submit(approveBody(shown, sendLang, persona.id));
+              }}
+              confirmStale={confirmNewer}
               confirming={confirmAction.pending}
               confirmError={confirmAction.error}
               confirmMismatch={confirmAction.mismatch}

@@ -2,7 +2,7 @@
 // (spec 16). Both read what a person reads: text nodes, plus labels and titles that assistive
 // technology announces.
 import { findBannedTerms, RENDERED_TEXT_BANNED, type BannedMatch } from '@/copy/bannedTerms';
-import { PROVENANCE_EXEMPT_SELECTOR, VERBATIM_SELECTOR } from './exempt';
+import { PROVENANCE_EXEMPT_SELECTOR, PROVENANCE_SCOPE_SELECTOR, SCOPE_FOOTER_ATTRIBUTE, VERBATIM_SELECTOR } from './exempt';
 
 export interface Unprovenanced {
   text: string;
@@ -42,6 +42,7 @@ export function findUnprovenancedNumbers(root: Element): Unprovenanced[] {
     if (!/\d/.test(text.replace(ID_TOKEN, ''))) continue;
     const parent = node.parentElement;
     if (parent?.closest(PROVENANCE_EXEMPT_SELECTOR)) continue;
+    if (parent?.closest(PROVENANCE_SCOPE_SELECTOR)?.hasAttribute(SCOPE_FOOTER_ATTRIBUTE)) continue;
     found.push({ text: text.trim(), where: describe(parent) });
   }
   return found;

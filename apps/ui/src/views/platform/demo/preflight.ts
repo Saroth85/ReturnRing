@@ -1,5 +1,6 @@
 // Preflight of the pitch (docs/ui-design.md 9.5): green or red, each red line names its fix. Pure
 // logic over the API answers, so the page and the tests read the same rules.
+import { compareContract, contractVersionOf } from '@/api/contractVersion';
 import type { CaseCard, Metric, ReadyzResponse, SimulatorAssumptionsResponse } from '@/api/models';
 import { PLATFORM } from '../copy';
 import {
@@ -13,7 +14,7 @@ export type ExpectedMode = 'live' | 'cached';
 export type CheckState = 'pass' | 'fail' | 'pending';
 
 export interface PreflightCheck {
-  id: 'readiness' | 'components' | 'marco' | 'rossi' | 'assumptions' | 'load';
+  id: 'adapter' | 'readiness' | 'components' | 'contract' | 'marco' | 'rossi' | 'assumptions' | 'load';
   label: string;
   state: CheckState;
   /** What was found, in words (shown on red lines and as a hint on green ones). */
@@ -30,6 +31,8 @@ export interface Answer<T> {
 
 export interface PreflightInputs {
   expected: ExpectedMode;
+  /** The UI's adapter: on `mock` every answer is a contract example, so the run is never ready. */
+  adapter: 'mock' | 'live';
   readyz: Answer<ReadyzResponse>;
   marco: Answer<CaseCard>;
   rossi: Answer<CaseCard>;
@@ -53,15 +56,24 @@ function check(
   return { id, label, state: ok ? 'pass' : 'fail', found, fix: ok ? null : fix };
 }
 
-/** The six checks of docs/ui-design.md 9.5, in order. */
-export function preflightChecks({ expected, readyz, marco, rossi, assumptions, load }: PreflightInputs): PreflightCheck[] {
+/** The checks of docs/ui-design.md 9.5, in order, after the adapter and before the cases. */
+export function preflightChecks({ expected, adapter, readyz, marco, rossi, assumptions, load }: PreflightInputs): PreflightCheck[] {
   const r = readyz.data;
   const components = expected === 'live' ? (['vllm', 'telemetry'] as const) : (['demo_cache'] as const);
   const notOk = r ? components.filter((c) => r.checks.find((k) => k.component === c)?.status !== 'ok') : [];
   const m = marco.data?.decision;
   const latestRossi = rossi.data?.decision.decision_id;
   const current = assumptions.data?.current.version;
+  const contract = compareContract(contractVersionOf(r));
+  const onMock = adapter === 'mock';
   return [
+    {
+      id: 'adapter',
+      label: C.adapter.label,
+      state: onMock ? 'fail' : 'pass',
+      found: onMock ? C.adapter.foundMock : C.adapter.foundLive,
+      fix: onMock ? C.adapter.fix : null,
+    },
     check(
       'readiness',
       C.readiness.label,
@@ -77,6 +89,14 @@ export function preflightChecks({ expected, readyz, marco, rossi, assumptions, l
       notOk.length === 0,
       r ? components.map((c) => `${c} ${r.checks.find((k) => k.component === c)?.status ?? PLATFORM.demo.unreachable}`).join(' · ') : null,
       C.components.fix,
+    ),
+    check(
+      'contract',
+      C.contract.label(contract.ui),
+      readyz,
+      contract.status === 'same' || contract.status === 'patch',
+      r ? (contract.server ?? PLATFORM.demo.unreachable) : null,
+      C.contract.fix,
     ),
     check(
       'marco',

@@ -225,11 +225,14 @@ def test_elena_follows_the_guarantee_path_with_a_catalogue_anomaly() -> None:
     anomaly = c.product_anomaly
     # E23: at the demo clock the anomaly is open; Luca opens CT-000012 from it at 18:45
     assert anomaly is not None and anomaly.status == "open" and anomaly.catalog_task_id is None
-    assert c.return_id in anomaly.return_ids
+    # her return is requested after the anomaly's snapshot: only her card offers it to a task
+    assert c.return_id in anomaly.queued_return_ids and c.return_id not in anomaly.return_ids
     task = s.CatalogTask.model_validate(load("catalog_task.elena.json"))
     assert task.anomaly_id == anomaly.anomaly_id and task.created_at > c.as_of
     listed = s.ProductAnomaliesResponse.model_validate(load("product_anomalies.json"))
-    assert listed.as_of == c.as_of and anomaly in listed.items
+    in_list = next(a for a in listed.items if a.anomaly_id == anomaly.anomaly_id)
+    assert listed.as_of == c.as_of and c.return_id not in in_list.queued_return_ids
+    assert anomaly.model_copy(update={"queued_return_ids": in_list.queued_return_ids}) == in_list
     after = s.ProductAnomaliesResponse.model_validate(load("product_anomalies.task_opened.json"))
     opened = next(a for a in after.items if a.anomaly_id == anomaly.anomaly_id)
     assert (opened.status, opened.catalog_task_id) == ("task_opened", task.task_id)

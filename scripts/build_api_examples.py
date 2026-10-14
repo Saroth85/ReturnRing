@@ -17,6 +17,7 @@ these numbers are not results.
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import math
 import random
@@ -31,6 +32,15 @@ from typing import Any, Literal, cast
 from pydantic import BaseModel
 
 from apps.api import schemas as s
+from apps.api.services.other.checkout import P_RETURN_THRESHOLD, advice_for
+from apps.api.services.other.inspections import (
+    MockOutcome,
+    MockVision,
+    Photo,
+    assess,
+    generation_of,
+    mock_outcome,
+)
 from contracts.io import Nature
 from contracts.vocab import (
     DEMO_USERS,
@@ -48,6 +58,7 @@ from llm.client import MockClient
 from llm.decision import ExpectedDecision, serialize_decision
 from llm.generate import generate
 from llm.templates import format_value, lever_ids_of
+from pipeline.serving.manifest import MODEL_VERSION_KEYS
 from policy.engine import NAVIGLI_BASE_TERMS, Thresholds, approve, decide, quadrant_for
 from policy.legal_guard import check, is_restrictive
 from policy.simulator import PROPOSAL_EXAMPLE
@@ -76,13 +87,18 @@ DATA_START, DATA_END = date(2025, 10, 1), date(2026, 9, 30)
 NEXT_START, NEXT_END = date(2026, 10, 1), date(2027, 9, 30)
 BASE = NAVIGLI_BASE_TERMS
 THRESHOLDS = Thresholds(risk=0.6, value_eur=Decimal("185.00"))
-MODEL_VERSIONS = {
+EXAMPLE_VERSIONS = {
     "risk": "risk-xgb-0.1.0",
-    "propensity": "propensity-xgb-0.1.0",
-    "graph": "graph-0.1.0",
-    "evidence": "evidence-0.1.0",
+    "risk_customer": "risk-customer-xgb-0.1.0",
+    "checkout": "propensity-xgb-0.1.0",
+    "reference": "reference-xgb-0.1.0",
     "value": "value-0.1.0",
+    "evidence": "evidence-0.1.0",
+    "anomalies": "anomalies-0.1.0",
 }
+# The model_versions of a decision: the keys of the serving manifest, as the live API records them.
+MODEL_VERSIONS = {key: EXAMPLE_VERSIONS[key] for key in MODEL_VERSION_KEYS}
+assert set(EXAMPLE_VERSIONS) == set(MODEL_VERSION_KEYS)
 ASSUMPTIONS_V1 = "assumptions-v1"
 V1 = s.Assumptions.from_policy(PROPOSAL_EXAMPLE)  # the stored version: unit costs 8, 12, 22 EUR
 assert V1.version == ASSUMPTIONS_V1
@@ -1081,8 +1097,8 @@ def model_output(
 
 
 def model_generation(generation_id: str, created_at: datetime, latency_ms: int) -> s.GenerationInfo:
-    """The record of a mock-model output validated on its first call (the vision checklist and
-    the agent answers, which do not go through llm.generate)."""
+    """The record of a mock-model output validated on its first call (the agent answers, which
+    do not go through llm.generate)."""
     return s.GenerationInfo(
         generation_id=generation_id,
         generation_path="model",
@@ -1712,7 +1728,13 @@ def rossi(card_shared: bool) -> Case:
     return Case("rossi_card" if card_shared else "rossi", card, engine, queue_item(card))
 
 
-def jacket_anomaly(task_id: str | None = "CT-000012") -> s.ProductAnomaly:
+def jacket_anomaly(
+    task_id: str | None = "CT-000012", card_return: str | None = None
+) -> s.ProductAnomaly:
+    """The anomaly of the Elena beat. Its returns are those of its week known at its snapshot
+    (none queued); Elena's return is requested after the snapshot, so it is not among them.
+    On a case card, `card_return` is the case's own return, which the card offers to a
+    catalogue task (ADR-15 section 18); the manager's list does not."""
     week = date(2026, 9, 21)
     observed, expected = 11, 1.8
     trend = []
@@ -1740,8 +1762,8 @@ def jacket_anomaly(task_id: str | None = "CT-000012") -> s.ProductAnomaly:
         sales=m(46, "count", ANOMALIES),
         status="open" if task_id is None else "task_opened",
         catalog_task_id=task_id,
-        return_ids=["RET-000097", "RET-000099", "RET-000105"],
-        queued_return_ids=["RET-000105"],
+        return_ids=["RET-000097", "RET-000099"],
+        queued_return_ids=[] if card_return is None else [card_return],
         trend=trend,
     )
 
@@ -1811,7 +1833,8 @@ def elena() -> Case:
             outputs=answer,
             latency_ms=31,
         ),  # fmt: skip
-        anomaly=jacket_anomaly(None),  # open at the demo clock: the task is created at 18:45
+        # open at the demo clock (the task is created at 18:45); the card offers her return
+        anomaly=jacket_anomaly(None, "RET-000105"),
     )
     return Case("elena", card, engine, queue_item(card))
 
@@ -2938,10 +2961,37 @@ def decision_records(
     return out
 
 
+# What the live checkout reads for the size advice (apps/api/services/other/checkout.py): the size
+# range of each cart variant and the reason of its flagged anomaly (none here).
+CART_CATALOGUE: dict[str, tuple[str | None, str | None]] = {
+    "V-DRS-2500": ("XS-XL", None),
+    "V-JKT-2207": ("XS-XL", None),
+}
+
+
+def checkout_lines(
+    lines: Sequence[s.CartLine], p_return: Mapping[str, float]
+) -> list[s.CheckoutLine]:
+    """The lines as the live checkout answers them: the personalized predictor's probability of
+    each variant for the customer (it has no size feature, so two sizes of one variant get one
+    probability) and, above the live threshold, the advice of checkout.advice_for (the size guide:
+    never a specific size, US-401)."""
+    out = []
+    for line in lines:
+        p = p_return[line.variant_id]
+        advice = advice_for(*CART_CATALOGUE[line.variant_id]) if p >= P_RETURN_THRESHOLD else None
+        out.append(
+            s.CheckoutLine(
+                variant_id=line.variant_id, size=line.size, p_return=p, size_advice=advice
+            )
+        )
+    return out
+
+
 def checkout_examples(giulia_case: Case, marco_approved: s.DecisionView) -> dict[str, BaseModel]:
     shown = AS_OF + timedelta(minutes=30)
     model = prov("return-propensity model propensity-xgb-0.1.0 on a synthetic cart")
-    threshold = 0.35
+    threshold = P_RETURN_THRESHOLD
     base_terms = s.Terms.from_policy(BASE)
     giulia_view = giulia_case.card.decision
     g_request = s.CheckoutEvaluateRequest(
@@ -2954,15 +3004,7 @@ def checkout_examples(giulia_case: Case, marco_approved: s.DecisionView) -> dict
     g_response = s.CheckoutEvaluateResponse(
         customer_id="C-GIULIA",
         quadrant=giulia_view.quadrant,
-        lines=[
-            s.CheckoutLine(variant_id="V-DRS-2500", size="M", p_return=0.18, size_advice=None),
-            s.CheckoutLine(
-                variant_id="V-DRS-2500",
-                size="L",
-                p_return=0.47,
-                size_advice=s.SizeAdvice.of("specific", "M"),
-            ),
-        ],
+        lines=checkout_lines(g_request.lines, {"V-DRS-2500": 0.47}),
         terms=giulia_view.future_terms,
         base_terms=base_terms,
         coupon_eligible=True,
@@ -2972,7 +3014,7 @@ def checkout_examples(giulia_case: Case, marco_approved: s.DecisionView) -> dict
         review_at=None,
         shown_at=shown,
         p_return_threshold=threshold,
-        model_version=MODEL_VERSIONS["propensity"],
+        model_version=MODEL_VERSIONS["checkout"],
         provenance=model,
     )
     confirm_request = s.CheckoutConfirmRequest(
@@ -3005,7 +3047,7 @@ def checkout_examples(giulia_case: Case, marco_approved: s.DecisionView) -> dict
     m_response = s.CheckoutEvaluateResponse(
         customer_id="C-MARCO-1",
         quadrant=marco_approved.quadrant,
-        lines=[s.CheckoutLine(variant_id="V-JKT-2207", size="M", p_return=0.29, size_advice=None)],
+        lines=checkout_lines(m_request.lines, {"V-JKT-2207": 0.29}),
         terms=marco_approved.future_terms,
         base_terms=base_terms,
         coupon_eligible=False,
@@ -3020,7 +3062,7 @@ def checkout_examples(giulia_case: Case, marco_approved: s.DecisionView) -> dict
         review_at=marco_approved.review_at,
         shown_at=shown + timedelta(minutes=5),
         p_return_threshold=threshold,
-        model_version=MODEL_VERSIONS["propensity"],
+        model_version=MODEL_VERSIONS["checkout"],
         provenance=model,
     )
     m_confirm_request = s.CheckoutConfirmRequest(
@@ -3058,81 +3100,60 @@ def checkout_examples(giulia_case: Case, marco_approved: s.DecisionView) -> dict
 
 CLAIM = prov("diminished-value rule DV-RULE-1 applied to a synthetic return")
 VISION = prov("vision checklist of the mock model on a synthetic photo (declared confidences)")
+TINY_JPEG = base64.b64decode("/9j/4AAQSkZJRgABAQAAAQABAAD/2Q==")  # SOI, a JFIF header, EOI
+
+
+def mock_photo(outcome: MockOutcome) -> Photo:
+    """A tiny JPEG that the mock vision of LLM_MODE=mock reads as `outcome` (its checklist is
+    chosen by the photo's sha256): the first padding byte before EOI that gives it."""
+    for n in range(256):
+        data = TINY_JPEG[:-2] + bytes([n]) + TINY_JPEG[-2:]
+        if mock_outcome(data, "image/jpeg") == outcome:
+            return Photo(data, "image/jpeg")
+    raise AssertionError(f"no tiny JPEG reads as {outcome}")
+
+
+def mock_inspection(
+    case: Case, inspection_id: str, created: datetime, photo: Photo
+) -> s.InspectionView:
+    """An inspection as POST /api/inspections answers it with LLM_MODE=mock: the checklist of
+    MockVision for the photo, then the gate and the proposal of the live service (assess) on the
+    price of the returned line."""
+    view = case.card.decision
+    number = inspection_id.removeprefix("INS-")
+    result = MockVision().checklist(photo, view.return_id)
+    verdict = assess(result, view.path, Decimal(str(case.card.item.price_eur)), CLAIM)
+    return s.InspectionView(
+        inspection_id=inspection_id,
+        return_id=view.return_id,
+        decision_id=view.decision_id,
+        path=view.path,
+        inspector="ahmed",
+        photo_id=f"PH-{number}",
+        created_at=created,
+        state=verdict.state,
+        checklist=result.items,
+        manual_review_reason=verdict.manual_review_reason,
+        proposal=verdict.proposal,
+        confirmed_observations=None,
+        confirmed_by=None,
+        confirmed_at=None,
+        generation=generation_of(result, f"GEN-INS-{number}", created),
+        provenance=VISION,
+    )
 
 
 def inspection_examples(valentina: Case, simone: Case) -> dict[str, BaseModel]:
     view = valentina.card.decision
     created = AS_OF + timedelta(minutes=41)
-    gen = model_generation("GEN-INS-000014", created, latency_ms=22)
-    checklist = [
-        s.ChecklistSuggestion(
-            item="tag_attached", suggestion="no", model_confidence=0.78, note="No tag visible"
-        ),
-        s.ChecklistSuggestion(
-            item="visible_damage",
-            suggestion="yes",
-            model_confidence=0.71,
-            note="Make-up stain near the collar",
-        ),
-        s.ChecklistSuggestion(
-            item="photo_quality", suggestion="yes", model_confidence=0.93, note=None
-        ),
-    ]
-    rule_text = "Visible damage, not resellable as new: 20% of the line price (rule DV-RULE-1)"
-    amount = eur(Decimal(str(valentina.card.item.price_eur)) * Decimal("0.20"))
-    claim_prov = CLAIM
-    awaiting = s.InspectionView(
-        inspection_id="INS-000014",
-        return_id=view.return_id,
-        decision_id=view.decision_id,
-        path=view.path,
-        inspector="ahmed",
-        photo_id="PH-000014",
-        created_at=created,
-        state="awaiting_confirmation",
-        checklist=checklist,
-        manual_review_reason=None,
-        proposal=s.CompensationProposal(
-            rule_id="DV-RULE-1",
-            amount=m(amount, "eur", claim_prov),
-            basis=["visible_damage"],
-            text=rule_text,
-        ),
-        confirmed_observations=None,
-        confirmed_by=None,
-        confirmed_at=None,
-        generation=gen,
-        provenance=VISION,
-    )
+    damaged, unclear = mock_photo("damaged"), mock_photo("unclear")
+    awaiting = mock_inspection(valentina, "INS-000014", created, damaged)
+    assert awaiting.state == "awaiting_confirmation" and awaiting.proposal is not None
+    amount = awaiting.proposal.amount.value
+    claim_prov = awaiting.proposal.amount.provenance
     manual_view = simone.card.decision
-    manual = s.InspectionView(
-        inspection_id="INS-000015",
-        return_id=manual_view.return_id,
-        decision_id=manual_view.decision_id,
-        path=manual_view.path,
-        inspector="ahmed",
-        photo_id="PH-000015",
-        created_at=created + timedelta(minutes=12),
-        state="manual_review",
-        checklist=[
-            s.ChecklistSuggestion(
-                item="tag_attached", suggestion="not_observable", model_confidence=0.35, note=None
-            ),
-            s.ChecklistSuggestion(
-                item="visible_damage", suggestion="not_observable", model_confidence=0.3, note=None
-            ),
-            s.ChecklistSuggestion(
-                item="photo_quality", suggestion="no", model_confidence=0.88, note="Too dark"
-            ),
-        ],
-        manual_review_reason="Photo too dark to check the tag and the fabric: verify by hand",
-        proposal=None,
-        confirmed_observations=None,
-        confirmed_by=None,
-        confirmed_at=None,
-        generation=revalidate(gen, generation_id="GEN-INS-000015", latency_ms=19),
-        provenance=VISION,
-    )
+    manual = mock_inspection(simone, "INS-000015", created + timedelta(minutes=12), unclear)
+    assert manual.state == "manual_review" and manual.proposal is None
     observations = [
         s.ConfirmedObservation(item="tag_attached", observation="no"),
         s.ConfirmedObservation(item="visible_damage", observation="yes"),
@@ -3189,14 +3210,14 @@ def inspection_examples(valentina: Case, simone: Case) -> dict[str, BaseModel]:
             return_id=view.return_id,
             inspector="ahmed",
             photo=s.PhotoUpload(
-                media_type="image/jpeg", data_base64="/9j/4AAQSkZJRgABAQAAAQABAAD/2Q=="
+                media_type="image/jpeg", data_base64=base64.b64encode(damaged.data).decode()
             ),
         ),  # fmt: skip
         "inspection_create_request.manual_review": s.InspectionCreateRequest(
             return_id=manual_view.return_id,
             inspector="ahmed",
             photo=s.PhotoUpload(
-                media_type="image/jpeg", data_base64="/9j/4AAQSkZJRgABAQAAAQABAAD/2Q=="
+                media_type="image/jpeg", data_base64=base64.b64encode(unclear.data).decode()
             ),
         ),  # fmt: skip
         "inspection.awaiting": awaiting,
@@ -4136,6 +4157,8 @@ def demo_cases_example(
             cluster_id=chiara.linked_accounts.cluster_id,
             cluster_size_before=before,
             cluster_size_after=after or 1,
+            changes_decision=(recompute.before.quadrant, recompute.before.lever_ids)
+            != (recompute.after.quadrant, recompute.after.lever_ids),
         ),
         carts=[
             s.DemoCart(key="giulia", request=giulia_cart),

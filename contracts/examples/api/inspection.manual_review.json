@@ -28,7 +28,7 @@
     }
   ],
   "confidence_is_calibrated": false,
-  "manual_review_reason": "Photo too dark to check the tag and the fabric: verify by hand",
+  "manual_review_reason": "The photo is not clear enough to check the item: verify by hand",
   "proposal": null,
   "confirmed_observations": null,
   "confirmed_by": null,
@@ -42,8 +42,8 @@
     "model": "mock",
     "model_calls": 1,
     "validator_codes": [],
-    "created_at": "2026-09-30T18:41:00Z",
-    "latency_ms": 19
+    "created_at": "2026-09-30T18:53:00Z",
+    "latency_ms": null
   },
   "provenance": {
     "origin": "Contract example: vision checklist of the mock model on a synthetic photo (declared confidences)",

@@ -18,7 +18,7 @@
       "item": "visible_damage",
       "suggestion": "yes",
       "model_confidence": 0.71,
-      "note": "Make-up stain near the collar"
+      "note": "Stain near the collar"
     },
     {
       "item": "photo_quality",
@@ -59,7 +59,7 @@
     "model_calls": 1,
     "validator_codes": [],
     "created_at": "2026-09-30T18:41:00Z",
-    "latency_ms": 22
+    "latency_ms": null
   },
   "provenance": {
     "origin": "Contract example: vision checklist of the mock model on a synthetic photo (declared confidences)",

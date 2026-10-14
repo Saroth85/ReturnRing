@@ -1392,7 +1392,15 @@ _CONTRIBUTION_AFTER = word_set(
     "play plays played playing outweigh outweighs outweighed outranks outrank make makes made "
     "pull pulls pulled move moves moved nudge nudges nudged tip tips tipped bring brings brought "
     "carry carries carried tops ranks stands influence influences "
-    "influenced decrease decreases decreased boost boosts boosted"
+    "influenced decrease decreases decreased boost boosts boosted "
+    # final check of round 6: "(0.87) comes mostly from", "(4) accounts for most of"
+    "come comes came stem stems stemmed result results resulted account accounts accounted "
+    "reflect reflects reflected derive derives derived"
+)
+# Adverbs that may stand between such a number and its contribution verb ("(6) slightly lowers",
+# "(7) strongly pushes", "(4) also raises").
+_CONTRIBUTION_ADVERBS = word_set(
+    "also mostly mainly largely slightly strongly partly clearly only further somewhat most"
 )
 # Participles a count may follow with "by" ("the welcome coupons used by 7 linked accounts"):
 # round 5, finding V17. Elsewhere "by" is a comparator ("short by 7").
@@ -1568,6 +1576,10 @@ def _end_ok(tokens: Sequence[_Token], index: int, opened: bool, verbs: bool = Fa
     if token.word:
         if verbs and token.text in _CONTRIBUTION_AFTER:
             return True
+        if verbs and token.text in _CONTRIBUTION_ADVERBS:
+            following = tokens[index + 1].text if index + 1 < len(tokens) else ""
+            if following in _CONTRIBUTION_AFTER:
+                return True
         following = tokens[index + 1].text if index + 1 < len(tokens) else ""
         if token.text == "even" and following in _EVEN_CONJUNCTIONS:
             return True

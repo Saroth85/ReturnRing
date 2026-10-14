@@ -427,11 +427,13 @@ def test_example_drafts_take_every_path_of_llm_generate() -> None:
     insufficient = s.CaseCard.model_validate(load("case_card.insufficient.json")).draft
     assert insufficient is not None
     g = insufficient.generation
+    # The answer that misreads the decision also states a level in words (TERMS_TOPIC, ADR-14
+    # decision 11): both codes are recorded, and the echo sends it to the template at once.
     assert (g.generation_path, g.fallback_reason, g.model_calls, g.validator_codes) == (
         "template",
         "decision_echo",
         1,
-        ["DECISION_ECHO"],
+        ["DECISION_ECHO", "TERMS_TOPIC"],
     )
     marco = s.CaseCard.model_validate(load("case_card.marco.json")).draft
     assert marco is not None and marco.generation.generation_path == "model"

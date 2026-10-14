@@ -241,7 +241,7 @@
       {
         "label": "OBSERVED",
         "fact_ids": [],
-        "text": "The rules engine placed the case in Q1; the levers are listed with the decision.",
+        "text": "The rules engine placed the case in Q1; the case view shows the decision.",
         "facts": []
       },
       {

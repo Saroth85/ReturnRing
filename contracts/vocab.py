@@ -71,6 +71,7 @@ ValidatorCode = Literal[
     "SCHEMA",
     "CASE_INVALID",
     "DECISION_ECHO",
+    "TERMS_TOPIC",
     "UNKNOWN_FACT",
     "MISSING_FACT",
     "LABEL_MISMATCH",

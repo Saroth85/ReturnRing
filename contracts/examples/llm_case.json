@@ -88,14 +88,6 @@
       "value": 6,
       "period": "2026-10-08/2026-10-14",
       "nature": "synthetic"
-    },
-    {
-      "id": "F6",
-      "entity": "policy",
-      "metric": "return_window_days",
-      "value": 14,
-      "period": "orders from 2026-10-14",
-      "nature": "synthetic"
     }
   ],
   "risk": {

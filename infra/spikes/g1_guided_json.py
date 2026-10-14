@@ -40,8 +40,9 @@ CASE_SYSTEM = (
     "extras, one closing last. You do not write the customer message: code writes it from the ids."
 )
 CASE_USER = (
-    "Case: withdrawal path, quadrant Q4, lever instant_refund:false, risk 0.87, 7 linked accounts. "
-    "Explain to the operator and write the customer message with the placeholder {terms}."
+    "Case: withdrawal path, quadrant Q4, lever instant_refund:false, facts F1 risk_score 0.87 and "
+    "F2 cluster_size 7. Explain the scores and facts to the operator, citing the fact ids, and "
+    "choose the sentence ids of the customer message."
 )
 
 # Spike-only schema for SPK-G5 (US-501 items), not a contract: categorical confidence because the

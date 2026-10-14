@@ -313,7 +313,7 @@ def test_insufficient_evidence_case_lists_missing_evidence_and_has_no_quadrant()
     assert errors("llm_case", case)  # US-307: the missing evidence must be listed
     case["missing_evidence"] = []
     assert errors("llm_case", case)
-    case["missing_evidence"] = ["fewer than 3 orders observed"]
+    case["missing_evidence"] = ["too few orders observed"]  # no bare number (round 5, V14)
     assert not errors("llm_case", case)
     assert errors("llm_case", {**case, "quadrant": "Q4"})
     lever = {"id": "transparency_notice", "value": True, "scope": "communication"}

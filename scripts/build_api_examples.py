@@ -815,6 +815,7 @@ def decision_view(
             ),
             provenance=prov(INPUTS_ORIGIN, DATA_START, d.decided_on),  # data up to the decision
             snapshot_on=snapshot_day(req.notice_on),
+            scored_on=req.notice_on if scored else None,  # scored at the request (1.7.0)
         ),
         rules_version=d.rules_version,
         model_versions=MODEL_VERSIONS,
@@ -1034,6 +1035,7 @@ def draft(
         customer_text=customer_text,
         nature=view.inputs.provenance.nature,
         as_of=view.inputs.snapshot_on,
+        risk_as_of=view.inputs.scored_on,
         languages=languages,
     )
     _, expected = serialize_decision(decision, BASE)
@@ -4087,7 +4089,7 @@ RESET_WALL = datetime(2026, 10, 18, 8, 0, tzinfo=UTC)  # the demo reset, wall cl
 def demo_clock(now: datetime, *, frozen: bool = False) -> s.ClockView:
     """The demo clock of the examples: the snapshot instant (AS_OF) plus the time since the
     reset, which ran on the morning of the demo (ADR-15 section 15); frozen at AS_OF on the
-    public read-only and the cached demo (section 16)."""
+    read-only demo (section 16; the cached example is read-only, as compose.demo.yml starts it)."""
     return s.ClockView(
         kind="demo",
         now=AS_OF if frozen else now,

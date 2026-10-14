@@ -131,6 +131,7 @@ def llm_case(inputs: DraftInputs) -> LlmCase:
         customer_text=inputs.customer_text,
         nature=view.inputs.provenance.nature,
         as_of=view.inputs.snapshot_on,  # the customer snapshot the engine read (rule 11)
+        risk_as_of=view.inputs.scored_on,  # the risk is scored at the request (1.7.0)
         languages=list(inputs.languages),
     )
     _, expected = serialize_decision(decision, base)

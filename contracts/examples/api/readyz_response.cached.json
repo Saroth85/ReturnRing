@@ -36,7 +36,7 @@
       "detail": null
     }
   ],
-  "contract_version": "1.6.0",
+  "contract_version": "1.7.0",
   "rules_version": "policy-2026-10-12",
   "assumptions_version": "assumptions-v1",
   "model_versions": {
@@ -52,7 +52,7 @@
     "snapshot_as_of": "2026-09-30T18:00:00Z",
     "started_at": "2026-10-18T08:00:00Z",
     "frozen": true,
-    "note": "Demo clock, frozen at the instant of the serving snapshot: the public read-only or cached demo, whose refund deadlines never pass while it stays up"
+    "note": "Demo clock, frozen at the instant of the serving snapshot: the read-only demo, whose refund deadlines never pass while it stays up"
   },
   "public_read_only": true
 }

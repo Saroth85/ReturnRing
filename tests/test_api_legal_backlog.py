@@ -91,11 +91,20 @@ def test_a_frozen_demo_clock_stands_at_the_snapshot_instant() -> None:
     assert not DemoClock().frozen
 
 
-def test_the_public_and_the_cached_demo_freeze_the_clock() -> None:
+def test_only_the_read_only_demo_freezes_the_clock() -> None:
+    """1.7.0 (review of section 16): a frozen clock dates every act at the same instant, so it
+    stands only where writes are refused. The cached demo is read-only by default
+    (infra/compose.demo.yml); with writes on, its clock runs."""
     assert not Settings.from_env({}).frozen_clock
     assert Settings.from_env({"PUBLIC_READ_ONLY": "on"}).frozen_clock
-    assert Settings.from_env({"DEMO_MODE": "cached"}).frozen_clock
-    for env in ({}, {"PUBLIC_READ_ONLY": "on"}, {"DEMO_MODE": "cached"}):
+    assert not Settings.from_env({"DEMO_MODE": "cached"}).frozen_clock
+    assert Settings.from_env({"DEMO_MODE": "cached", "PUBLIC_READ_ONLY": "on"}).frozen_clock
+    for env in (
+        {},
+        {"PUBLIC_READ_ONLY": "on"},
+        {"DEMO_MODE": "cached"},
+        {"DEMO_MODE": "cached", "PUBLIC_READ_ONLY": "on"},
+    ):
         settings = Settings.from_env(env)
         clock = create_app(settings).state.runtime.clock
         assert isinstance(clock, DemoClock) and clock.frozen == settings.frozen_clock
@@ -136,8 +145,13 @@ def _started(database: Path, at: datetime) -> None:
 
 @pytest.mark.parametrize(
     "switch",
-    [{}, {"public_read_only": True}, {"demo_mode": "cached"}],
-    ids=["live", "public", "cached"],
+    [
+        {},
+        {"public_read_only": True},
+        {"demo_mode": "cached", "public_read_only": True},
+        {"demo_mode": "cached"},
+    ],
+    ids=["live", "public", "cached", "cached-writes"],
 )
 def test_no_open_return_drifts_into_an_overdue_refund_on_the_public_demo(
     serving: Serving,
@@ -147,14 +161,15 @@ def test_no_open_return_drifts_into_an_overdue_refund_on_the_public_demo(
     switch: Mapping[str, Any],
 ) -> None:
     """Backlog item 1: a month after the reset, the live demo clock has moved past the refund
-    deadlines of the reset's proposals; the public and the cached demo keep the clock at the
-    snapshot instant, and /readyz tells the truth (kind, now, snapshot, start, frozen)."""
+    deadlines of the reset's proposals; the read-only demo (public, or cached as compose.demo.yml
+    starts it) keeps the clock at the snapshot instant, and /readyz tells the truth (kind, now,
+    snapshot, start, frozen). A cached demo with writes on keeps a running clock (1.7.0)."""
     database = tmp_path / "clock.sqlite"
     shutil.copyfile(seeded_db[0], database)
     month_ago = datetime.now(UTC) - timedelta(days=30)
     _started(database, month_ago)
     settings = settings_for(serving_dir, database, **switch)
-    frozen = bool(switch)
+    frozen = bool(switch.get("public_read_only"))
     with TestClient(create_app(settings, serving=serving)) as client:
         body = client.get("/readyz").json()
         validate_body("readyz_response", body)
@@ -179,6 +194,47 @@ def test_no_open_return_drifts_into_an_overdue_refund_on_the_public_demo(
         else:
             assert now - serving.as_of >= timedelta(days=29)
             assert overdue > at_reset  # the live demo clock runs: deadlines pass
+
+
+def test_a_cached_demo_with_writes_on_can_lift_a_restriction_after_a_reversal(
+    serving: Serving,
+    serving_dir: Path,
+    seeded_db: tuple[Path, dict[str, Any]],
+    tmp_path: Path,
+) -> None:
+    """Review of section 16: on a frozen clock every act has the same instant, so a lift after
+    someone reversed the cluster coupon application looked like a reversal at the lift itself,
+    and the lift answered 500. A cached demo with writes on keeps a running clock (1.7.0)."""
+    database = tmp_path / "cached.sqlite"
+    shutil.copyfile(seeded_db[0], database)
+    settings = settings_for(serving_dir, database, demo_mode="cached")
+    app = create_app(settings, serving=serving)
+    with TestClient(app) as client:
+        clock = app.state.runtime.clock
+        assert isinstance(clock, DemoClock) and not clock.frozen
+        api = Api(app, client, clock, serving, settings, database)  # type: ignore[arg-type]
+        return_id = ring_return(api)
+        if card(api, return_id)["decision"]["coupon_rule"] is None:
+            pytest.skip("the ring case of the tiny store proposes no cluster block")
+        approved = ok(decide(api, return_id, "approve"), "decision_result")
+        application = approved["coupon_application"]["application_id"]
+        reversed_ = client.post(
+            f"/api/coupon-rules/applications/{application}/reverse",
+            json={"author": "luca", "reason": "The linked accounts share a pickup point only"},
+        )
+        assert reversed_.status_code == 200, reversed_.text
+        lifted = ok(
+            decide(
+                api, return_id, "lift", approver="luca", override_reason=REASON,
+                override_category="customer_context",
+            ),
+            "decision_result",
+        )  # fmt: skip
+        reversal = lifted["coupon_application"]
+        assert reversal["reversed_by"] == "luca"
+        assert datetime.fromisoformat(reversal["reversed_at"]) < datetime.fromisoformat(
+            lifted["decision"]["approved_at"]
+        )
 
 
 # ---- 2. A guarantee case states no refund deadline (rule 4, NFR-17) -----------------------------
@@ -267,8 +323,11 @@ def test_after_the_refund_deadline_a_restriction_can_still_be_rejected(api: Api)
         "decision_result",
     )  # fmt: skip
     assert rejected["decision"]["state"] == "rejected" and rejected["outbox_message"] is None
+    # 1.7.0: no message has stated the refund, so the queue still flags it as overdue
     item = next(i for i in _queued(api.client) if i["return_id"] == return_id)
-    assert item["state"] == "rejected" and not item["refund_overdue"]
+    assert item["state"] == "rejected" and item["refund_overdue"]
+    overdue = _queued(api.client, sort="refund_due_by")
+    assert any(i["return_id"] == return_id and i["refund_overdue"] for i in overdue)
 
 
 def test_after_the_refund_deadline_the_standard_terms_send_no_message(api: Api) -> None:
@@ -283,6 +342,65 @@ def test_after_the_refund_deadline_the_standard_terms_send_no_message(api: Api) 
     )  # fmt: skip
     assert result["decision"]["state"] == "overridden" and result["decision"]["levers"] == []
     assert result["outbox_message"] is None
+    item = next(i for i in _queued(api.client) if i["return_id"] == return_id)
+    assert item["state"] == "overridden" and item["refund_overdue"]  # still unstated (1.7.0)
+
+
+def test_a_case_decided_in_time_is_never_flagged_overdue(api: Api) -> None:
+    """The refund of a case decided before its deadline was stated by the act's message: the
+    case is not flagged once the deadline passes (1.5.0, H1; kept by 1.7.0)."""
+    return_id = golden_return(api.serving, GIULIA)
+    result = ok(
+        decide(
+            api, return_id, "override", levers=[], override_reason=REASON,
+            override_category="customer_context",
+        ),
+        "decision_result",
+    )  # fmt: skip
+    assert result["outbox_message"] is not None
+    _past_the_deadline(api, return_id)
+    item = next(i for i in _queued(api.client) if i["return_id"] == return_id)
+    assert item["state"] == "overridden" and not item["refund_overdue"]
+
+
+def _queue_with(item: Mapping[str, Any], **changes: Any) -> dict[str, Any]:
+    queue = _load("queue_response.json")
+    return {**queue, "items": [{**item, **changes}], "total": 1}
+
+
+def test_the_queue_flags_an_overdue_refund_no_message_stated() -> None:
+    """refund_overdue: past refund_due_by and no message has stated the refund; a proposal, or a
+    rejection or the standard terms after the deadline (1.7.0). An approval, or levers other
+    than the standard ones, always sent a message."""
+    queue = _load("queue_response.json")
+    item = next(
+        i
+        for i in queue["items"]
+        if i["refund_due_by"] is not None and not i["lever_ids"] and not i["requires_approval"]
+    )  # a withdrawal on the standard terms
+    past = (date.fromisoformat(queue["as_of"][:10]) - timedelta(days=1)).isoformat()
+    proposed = {"state": "proposed", "refund_due_by": past}
+    s.QueueResponse.model_validate(_queue_with(item, **proposed, refund_overdue=True))
+    with pytest.raises(ValidationError, match="refund_overdue"):
+        s.QueueResponse.model_validate(_queue_with(item, **proposed, refund_overdue=False))
+    for state in ("rejected", "overridden"):  # in time or late: the queue cannot tell
+        for flag in (True, False):
+            late = {"state": state, "refund_due_by": past, "refund_overdue": flag}
+            s.QueueResponse.model_validate(_queue_with(item, **late))
+    with pytest.raises(ValidationError, match="refund_overdue"):
+        s.QueueResponse.model_validate(
+            _queue_with(item, state="approved", refund_due_by=past, refund_overdue=True)
+        )
+    benefit = next(i for i in queue["items"] if i["lever_ids"] and not i["requires_approval"])
+    with pytest.raises(ValidationError, match="refund_overdue"):
+        s.QueueResponse.model_validate(
+            _queue_with(benefit, state="overridden", refund_due_by=past, refund_overdue=True)
+        )
+    future = (date.fromisoformat(queue["as_of"][:10]) + timedelta(days=1)).isoformat()
+    with pytest.raises(ValidationError, match="refund_overdue"):
+        s.QueueResponse.model_validate(
+            _queue_with(item, state="rejected", refund_due_by=future, refund_overdue=True)
+        )
 
 
 def _late_without_message(result: Mapping[str, Any]) -> dict[str, Any]:
@@ -314,16 +432,25 @@ def test_a_result_without_a_message_is_only_a_late_act_on_the_standard_terms() -
 
 
 def test_draft_and_agent_facts_are_dated_with_the_customer_snapshot(api: Api) -> None:
+    """Value, score factors and cluster are facts of the customer snapshot the engine read; the
+    risk score is computed at the request (request features and that snapshot), so its fact is
+    dated with the day it was scored (review of section 16, 1.7.0). The agent's case summary
+    states no risk figure: it keeps the snapshot day of its factors."""
     return_id = ring_return(api)
     shown = card(api, return_id)
     decision = shown["decision"]
     snapshot = decision["inputs"]["snapshot_on"]
     assert snapshot < decision["decided_on"]  # the engine read a snapshot before the request
     assert shown["value"]["value_eur"]["provenance"]["period_end"] == snapshot  # as the card
+    record = api.serving.store_return(return_id)
+    assert record is not None
+    scored = s.utc_day(api.serving.request_score(record).decided_at).isoformat()
+    assert decision["inputs"]["scored_on"] == scored
+    assert snapshot < scored <= decision["decided_on"]  # the request came after the snapshot
     draft = shown["draft"]
     assert draft is not None
     periods = {f["metric"]: f["period"] for f in draft["case_facts"]}
-    assert periods.pop("risk_score") == f"as of {snapshot}"
+    assert periods.pop("risk_score") == f"as of {scored}"
     assert periods.pop("value_eur_12m") == f"12 months to {snapshot}"
     periods.pop("days_since_delivery")
     assert periods and set(periods.values()) == {f"as of {snapshot}"}
@@ -350,6 +477,34 @@ def test_a_draft_dated_with_the_decision_day_is_refused() -> None:
     late = {**decision["inputs"], "snapshot_on": "2026-12-01"}
     with pytest.raises(ValidationError, match="snapshot"):
         s.DecisionView.model_validate({**decision, "inputs": late})
+
+
+def test_a_risk_score_dated_with_the_snapshot_is_refused() -> None:
+    """The risk score is dated with the day it was scored, at the request: after the customer
+    snapshot, by the decision day, and only when there is a risk (1.7.0)."""
+    marco = _load("case_card.marco.json")
+    decision, inputs = marco["decision"], marco["decision"]["inputs"]
+    assert inputs["snapshot_on"] < inputs["scored_on"] <= decision["decided_on"]
+
+    def dated(facts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        period = f"as of {inputs['snapshot_on']}"
+        return [{**f, "period": period} if f["metric"] == "risk_score" else f for f in facts]
+
+    draft = marco["draft"]
+    statements = [{**x, "facts": dated(x["facts"])} for x in draft["explanation"]]
+    wrong_draft = {**draft, "case_facts": dated(draft["case_facts"]), "explanation": statements}
+    with pytest.raises(ValidationError, match="risk_score"):
+        s.CaseCard.model_validate({**marco, "draft": wrong_draft})
+    for scored_on in ("2026-08-31", "2026-12-01", None):
+        wrong = {**inputs, "scored_on": scored_on}
+        with pytest.raises(ValidationError, match="scored"):
+            s.DecisionView.model_validate({**decision, "inputs": wrong})
+    elena = _load("case_card.elena.json")["decision"]  # the guarantee path: never scored
+    assert elena["inputs"]["risk"] is None and elena["inputs"]["scored_on"] is None
+    with pytest.raises(ValidationError, match="scored"):
+        s.DecisionView.model_validate(
+            {**elena, "inputs": {**elena["inputs"], "scored_on": elena["decided_on"]}}
+        )
 
 
 # ---- 5. The refund of a message has its own provenance (rule 11) --------------------------------
@@ -392,17 +547,28 @@ def _check_refund(message: Mapping[str, Any], claim: Mapping[str, Any]) -> None:
     assert refund == {**paid, "origin": origin}
 
 
-def test_after_the_refund_deadline_a_claim_still_needs_its_message(api: Api) -> None:
-    """Item 3 keeps the 409 for a case with a diminished-value claim: its message must state
-    the deduction and its reason, and it would state a past deadline."""
+def test_after_the_refund_deadline_a_claim_case_can_still_be_rejected(api: Api) -> None:
+    """Review of section 16: a claim confirmed while a restriction awaits approval sends no
+    message; once the refund deadline passed, every act answered 409 and the case stayed
+    proposed for good. A rejection goes on without a message (1.7.0), the claim stays on the
+    decision, and the queue flags the refund: no message has stated it, nor the deduction."""
     return_id, held = _claimed(api, awaiting=True)
     assert held["outbox_message"] is None and held["claim"] is not None
     _past_the_deadline(api, return_id)
-    refused = decide(
-        api, return_id, "reject", override_reason=REASON,
-        override_category="evidence_disagreement",
+    refused = error(decide(api, return_id, "approve"), 409, "conflict")
+    assert "overdue" in refused["message"]  # its message would state the past deadline
+    rejected = ok(
+        decide(
+            api, return_id, "reject", override_reason=REASON,
+            override_category="evidence_disagreement",
+        ),
+        "decision_result",
     )  # fmt: skip
-    assert "overdue" in error(refused, 409, "conflict")["message"]
+    decision = rejected["decision"]
+    assert decision["state"] == "rejected" and rejected["outbox_message"] is None
+    assert decision["diminished_value_claim"]["inspection_id"] == held["claim"]["inspection_id"]
+    item = next(i for i in _queued(api.client) if i["return_id"] == return_id)
+    assert item["state"] == "rejected" and item["refund_overdue"]
 
 
 def test_the_refund_stated_by_a_message_has_its_own_provenance(api: Api) -> None:

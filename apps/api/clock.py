@@ -6,10 +6,10 @@
   the snapshot instant; with this clock the acts that follow happen minutes after it, so refund
   deadlines, review dates and the KPI week stay coherent however many days after the reset the
   demo runs. Before any reset the clock starts at the snapshot instant when the service starts;
-  without a snapshot it is the wall clock. A frozen DemoClock (the public read-only demo and
-  the cached demo, Settings.frozen_clock; contract 1.6.0) stands at the snapshot instant: no
-  refund deadline of the reset's proposals passes however long the demo stays up, and the acts
-  of a cached demo with writes on are dated at that instant too.
+  without a snapshot it is the wall clock. A frozen DemoClock (the public read-only demo,
+  Settings.frozen_clock; contract 1.6.0) stands at the snapshot instant: no refund deadline of
+  the reset's proposals passes however long the demo stays up. It is never used with writes on
+  (1.7.0): acts at one instant could not follow one another.
 - SystemClock (DEMO_CLOCK=off): the wall clock, UTC.
 - FixedClock: a clock that stands still until moved (tests, the demo reset itself).
 

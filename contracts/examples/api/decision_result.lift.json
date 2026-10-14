@@ -86,7 +86,8 @@
         "period_end": "2026-09-30",
         "nature": "synthetic"
       },
-      "snapshot_on": "2026-06-01"
+      "snapshot_on": "2026-06-01",
+      "scored_on": "2026-06-29"
     },
     "rules_version": "policy-2026-10-12",
     "model_versions": {
@@ -200,7 +201,8 @@
         "period_end": "2026-06-29",
         "nature": "synthetic"
       },
-      "snapshot_on": "2026-06-01"
+      "snapshot_on": "2026-06-01",
+      "scored_on": "2026-06-29"
     },
     "rules_version": "policy-2026-10-12",
     "model_versions": {

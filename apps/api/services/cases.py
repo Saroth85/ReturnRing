@@ -226,6 +226,8 @@ def propose(
         ),
         provenance=inputs_provenance(serving, score, context, decided_on),
         snapshot_on=s.utc_day(context.as_of),  # the period of the draft's facts (rule 11)
+        # the risk is scored at the request: the period of its fact (rule 11, 1.7.0)
+        scored_on=s.utc_day(score.decided_at) if withdrawal and score is not None else None,
     )
     coupon_rule = None
     if decision.coupon_rule is not None:

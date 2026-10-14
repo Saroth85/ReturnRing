@@ -101,7 +101,8 @@
         "period_end": "2026-09-27",
         "nature": "synthetic"
       },
-      "snapshot_on": "2026-09-01"
+      "snapshot_on": "2026-09-01",
+      "scored_on": "2026-09-27"
     },
     "rules_version": "policy-2026-10-12",
     "model_versions": {
@@ -141,7 +142,7 @@
         "entity": "customer",
         "metric": "risk_score",
         "value": 0.12,
-        "period": "as of 2026-09-01",
+        "period": "as of 2026-09-27",
         "nature": "synthetic"
       },
       {
@@ -198,7 +199,7 @@
             "entity": "customer",
             "metric": "risk_score",
             "value": 0.12,
-            "period": "as of 2026-09-01",
+            "period": "as of 2026-09-27",
             "nature": "synthetic"
           }
         ]

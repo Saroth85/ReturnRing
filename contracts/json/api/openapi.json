@@ -3,7 +3,7 @@
   "info": {
     "title": "ReturnRing API",
     "description": "Contract of the ReturnRing API (ADR-15). Every response carries the headers X-ReturnRing-Mode (live or cached) and X-Request-Id.",
-    "version": "1.6.0"
+    "version": "1.6.1"
   },
   "paths": {
     "/healthz": {

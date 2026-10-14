@@ -3,7 +3,7 @@
 Status: accepted, 13 Oct 2026; amended the same day after four reviews (sections 9 to 12), and on
 14 Oct 2026 by the phase 4 integration (section 13), the merge of the LLM layer's closing
 rounds (section 14), the review of the running API (section 15) and the examples checked
-against the live service (section 16). API contract version `1.6.0`. Covers spec section 9 (API table, flows F1 to F7), the stories of E3,
+against the live service (section 16). API contract version `1.6.1`. Covers spec section 9 (API table, flows F1 to F7), the stories of E3,
 E4, E5, E6, E7 and E9, NFR-16 and CLAUDE.md rules 1, 3, 4, 5, 9, 10, 11 and 12. Changes
 `contracts/` (new `contracts/vocab.py`, `contracts/sql.py`, `contracts/json/api/`,
 `contracts/examples/api/`), removes two v1 API schemas, and adds `apps/api/schemas.py` and two
@@ -1238,6 +1238,17 @@ regeneration, the audit page, both readyz). Examples whose values changed:
 `checkout_evaluate_response.giulia` and the six inspection examples. The rule
 `queued_return_ids` ⊆ `return_ids` moved from `ProductAnomaly` to the anomaly list, and the
 case card has its own (models only). No table changes.
+
+**Amendment (14 Oct 2026, contract 1.6.1).** The examples of the Elena beat still put her
+return `RET-000105` among the jacket anomaly's `return_ids`, and the anomaly list offered it
+in `queued_return_ids`. Live, her return is requested after the anomaly's snapshot: it is
+never among `return_ids`, and the list offers nothing for this anomaly. The examples now
+show that: `return_ids` are the week's returns only, the list item's `queued_return_ids` is
+empty and the card's anomaly offers her return alone (`scripts/build_api_examples.py`
+`jacket_anomaly`; `test_a_card_anomaly_lists_the_case_return_among_the_returns_a_task_can_name`
+requires it). Examples whose values changed: `case_card.elena`, `product_anomalies`,
+`product_anomalies.task_opened`, and the version in both readyz examples, `endpoints.json` and
+`openapi.json`. No model or table changes.
 
 ## Consequences
 

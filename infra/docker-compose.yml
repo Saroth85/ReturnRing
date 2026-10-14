@@ -12,9 +12,10 @@
 # never mount data/, data/truth/ or artifacts/; they read the serving snapshot (ADR-16), the
 # benchmark results and the database. Only offline jobs read data/: the pipeline job writes it.
 # Start order (make dev-up): postgres healthy -> reset exits 0 -> api healthy -> ui, proxy.
-# Restarts: the long-running services (postgres, api, ui, proxy, telemetry-sampler) restart
-# unless stopped, so a crash or a reboot of a public server does not take the demo down; the
-# reset stays one-shot ("no"), so a daemon restart keeps the database (pgdata) as it was.
+# Restarts: the long-running services (postgres, api, ui, proxy; on the GPU server vllm and the
+# amd-smi writer telemetry with its telemetry-sampler) restart unless stopped, so a crash or a
+# reboot of a public server does not take the demo down; the reset stays one-shot ("no"), so a
+# daemon restart keeps the database (pgdata) as it was.
 name: returnring
 
 x-gpu: &gpu
@@ -150,7 +151,6 @@ services:
     environment:
       SITE_ADDRESS: ":80"
       ADMIN_AUTH: "off"
-      ADMIN_USER: ${ADMIN_USER:-admin}
       ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:-}
       PUBLIC_READ_ONLY: ${PUBLIC_READ_ONLY:-false}
     ports:
@@ -262,6 +262,7 @@ services:
       # The first start downloads about 62.6 GB of weights before the server answers.
       start_period: 45m
     # No published port: reachable only by the api on the internal network (NFR-11).
+    restart: unless-stopped
 
   trainer-gbm:
     <<: *gpu
@@ -325,7 +326,8 @@ services:
 
   # amd-smi every 5 s (US-905, spec 9), written atomically to a named volume that only the
   # sampler reads: no host folder, so no running service sees artifacts/ (review F2). A failed
-  # reading removes the file, so the sampler stores an error instead of a stale reading.
+  # reading removes the file, so the sampler stores an error instead of a stale reading; the
+  # sampler also refuses a file older than 15 s, such as the one a reboot leaves in the volume.
   telemetry:
     build:
       context: ..
@@ -345,6 +347,7 @@ services:
         sleep 5; done
     volumes:
       - telemetry:/telemetry
+    restart: unless-stopped
 
   # Stores each amd-smi reading in telemetry_samples for GET /api/telemetry and /readyz
   # (python -m apps.api.services.other.telemetry, ADR-15 section 13).

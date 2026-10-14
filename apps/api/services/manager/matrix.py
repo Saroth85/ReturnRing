@@ -19,7 +19,9 @@ sits in another quadrant of the matrix than on its card.
 
 About 20,000 points at full scale: the customer snapshot of the cards is read in one pass
 (case_values, the same rule as Serving.customer_context) and the order lines of the snapshot are
-kept as arrays per snapshot (line_arrays), so a matrix costs one pass over them.
+kept as arrays per snapshot (line_arrays), so a matrix costs one pass over them. That pass, the
+cards and the points still take about a second of CPU: the route reads the database on the event
+loop (case_rows) and builds the matrix (portfolio_matrix, no database) in a worker thread.
 
 Customer value orients benefits and service, never the risk (rule 6): the legend says so.
 """
@@ -184,17 +186,18 @@ def case_values(serving: Serving, known: Mapping[str, datetime]) -> dict[str, De
     return out
 
 
-async def case_points(
-    conn: AsyncConnection, serving: Serving
-) -> tuple[dict[str, CasePoint], set[str]]:
-    """customer_id -> the card of the customer's latest return (by request time, then id), and
-    the order lines of the returns the shop adapter sent."""
-    rets = {
-        r["return_id"]: dict(r)
-        for r in (await conn.execute(select(return_requests))).mappings().all()
-    }
-    adapter = {r["line_id"] for r in rets.values() if r["source"] == "adapter"}
-    latest: dict[str, dict[str, Any]] = {}
+@dataclass(frozen=True)
+class CaseRows:
+    """What the matrix reads from the database: every return request and every decision
+    version (the fields of a card)."""
+
+    returns: list[dict[str, Any]]
+    versions: list[dict[str, Any]]
+
+
+async def case_rows(conn: AsyncConnection) -> CaseRows:
+    """The database reads of the matrix; the rest runs without a connection."""
+    returns = [dict(r) for r in (await conn.execute(select(return_requests))).mappings().all()]
     query = select(
         decisions.c.return_id,
         decisions.c.version,
@@ -203,10 +206,20 @@ async def case_points(
         decisions.c.risk,
         decisions.c.cluster_id,
     )
-    for version in (await conn.execute(query)).mappings().all():
+    versions = [dict(v) for v in (await conn.execute(query)).mappings().all()]
+    return CaseRows(returns, versions)
+
+
+def case_points(serving: Serving, rows: CaseRows) -> tuple[dict[str, CasePoint], set[str]]:
+    """customer_id -> the card of the customer's latest return (by request time, then id), and
+    the order lines of the returns the shop adapter sent."""
+    rets = {r["return_id"]: r for r in rows.returns}
+    adapter = {r["line_id"] for r in rets.values() if r["source"] == "adapter"}
+    latest: dict[str, dict[str, Any]] = {}
+    for version in rows.versions:
         found = latest.get(version["return_id"])
         if found is None or version["version"] > found["version"]:
-            latest[version["return_id"]] = dict(version)
+            latest[version["return_id"]] = version
     batch = serving.frame("scores/scores").set_index("customer_id")["risk"]
     chosen: dict[str, dict[str, Any]] = {}
     for return_id in latest:
@@ -256,15 +269,15 @@ def _clusters(serving: Serving, at: datetime) -> Mapping[str, str]:
     return dict(zip(rows["customer_id"], rows["cluster_id"].astype(str), strict=True))
 
 
-async def portfolio_matrix(
-    conn: AsyncConnection, serving: Serving, now: datetime
-) -> s.PortfolioMatrix:
+def portfolio_matrix(serving: Serving, rows: CaseRows, now: datetime) -> s.PortfolioMatrix:
+    """The matrix at `now` from the database rows of case_rows (CPU only: run it off the event
+    loop)."""
     scores = serving.frame("scores/scores").sort_values("customer_id", kind="stable")
     scored_at = serving.as_of
     model = serving.models.customer
     risk_threshold = model.threshold if model.threshold is not None else 1.0
     thresholds = Thresholds(risk=risk_threshold, value_eur=serving.value_threshold(scored_at))
-    cases, adapter = await case_points(conn, serving)
+    cases, adapter = case_points(serving, rows)
     returns, welcome = history_counts(serving, now, adapter)
     clusters = _clusters(serving, scored_at)
     names = serving.display_names

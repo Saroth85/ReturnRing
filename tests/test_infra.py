@@ -8,6 +8,7 @@ ubuntu-24.04 runners) and are skipped otherwise.
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import re
@@ -910,7 +911,7 @@ def test_a_public_server_puts_basic_auth_on_admin_telemetry_and_writes() -> None
     on = text.split("(admin_auth_on) {", 1)[1].split("\n}\n", 1)[0]
     assert "@admin path /api/telemetry /api/telemetry/*" in on
     assert not re.search(r"^\s*@\w+ path .*/system", text, re.M)
-    assert on.count("{$ADMIN_USER} {$ADMIN_PASSWORD_HASH}") == 2
+    assert on.count(f"{ADMIN_USER} {{$ADMIN_PASSWORD_HASH}}") == 2
     assert "basic_auth @admin {" in on and "basic_auth @write {" in on
     write = on.split("@write {", 1)[1].split("\n\t}", 1)[0]
     assert "path /api/*" in write and "not method GET HEAD OPTIONS" in write
@@ -921,9 +922,8 @@ def test_a_public_server_puts_basic_auth_on_admin_telemetry_and_writes() -> None
     assert env["ADMIN_AUTH"] == "on"
     assert env["SITE_ADDRESS"].startswith("${PUBLIC_HOST:?")
     assert env["ADMIN_PASSWORD_HASH"].startswith("${ADMIN_PASSWORD_HASH:?")
-    assert env["ADMIN_USER"].startswith("${ADMIN_USER:?")
     example = env_example()
-    assert example["ADMIN_USER"] and example["ADMIN_PASSWORD_HASH"] == ""  # no secret in git
+    assert example["ADMIN_PASSWORD_HASH"] == ""  # no secret in git
     # Empty, so the :? guard stops a public start that names no host; the example is a comment.
     assert example["PUBLIC_HOST"] == ""
     assert "203-0-113-10.sslip.io" in (ROOT / ".env.example").read_text(encoding="utf-8")
@@ -947,21 +947,84 @@ def test_cpu_images_pinned_by_tag_and_digest() -> None:
 
 
 def test_the_admin_password_hash_is_cheap_enough_for_a_small_public_server() -> None:
-    """Every wrong basic-auth attempt costs one bcrypt comparison on the public droplet: the
-    hash is made at cost 10 (about 15 ms), not Caddy's default 14 (16 times that)."""
+    """A wrong password of the admin user costs one bcrypt comparison on the public droplet:
+    the hash is made at cost 10 (about 70 ms measured with Caddy 2.11.7 on 4 shared vCPUs), not
+    Caddy's default 14 (16 times that)."""
     recipe = " ".join(makefile_targets()["admin-password"][1])
     assert "caddy hash-password --algorithm bcrypt --bcrypt-cost 10" in recipe
     example = (ROOT / ".env.example").read_text(encoding="utf-8")
     assert "ADMIN_PASSWORD_HASH='$2a$10$...'" in example and "$2a$14$" not in example
 
 
+ADMIN_USER = "admin"
+ADMIN_BASIC = "Basic " + base64.b64encode(f"{ADMIN_USER}:".encode()).decode()  # "Basic YWRtaW46"
+
+
+def test_basic_credentials_of_another_user_get_a_401_before_bcrypt() -> None:
+    """Caddy compares the password of an unknown user with its fixed bcrypt cost-14 fake hash
+    (about 1.1 s of CPU, measured): any user name would cost the public droplet that per
+    request. Basic credentials that do not start with the admin user's get a 401 first, with
+    the challenge basic_auth sends, so a wrong user name costs no hash at all. The admin user is
+    fixed (its base64 prefix is in the Caddyfile); ADMIN_USER is gone from the environment."""
+    assert ADMIN_BASIC == "Basic YWRtaW46"  # 6 bytes: "admin:" encodes to whole base64 groups
+    text = CADDYFILE.read_text(encoding="utf-8")
+    head = text.split("(admin_auth_off) {", 1)[0]
+    assert re.search(r"^{\n\torder respond before basic_auth\n}$", head, re.M)
+    on = text.split("(admin_auth_on) {", 1)[1].split("\n}\n", 1)[0]
+    matcher = re.search(r"^\t@other_user expression `(.+)`$", on, re.M)
+    assert matcher is not None
+    assert matcher.group(1) == (
+        '{http.request.header.Authorization}.matches("(?i)^basic ") && '
+        f'!{{http.request.header.Authorization}}.startsWith("{ADMIN_BASIC}")'
+    )
+    assert '\theader @other_user WWW-Authenticate `Basic realm="restricted"`' in on
+    refuse = on.index("\trespond @other_user 401")
+    assert refuse < on.index("basic_auth @admin") and refuse < on.index("basic_auth @write")
+    assert "ADMIN_USER" not in text
+    assert "ADMIN_USER" not in compose_service("proxy")["environment"]
+    assert "ADMIN_USER" not in services("compose.public.yml")["proxy"]["environment"]
+    assert "ADMIN_USER" not in env_example()
+
+
+@pytest.mark.skipif(shutil.which("caddy") is None, reason="caddy not installed")
+def test_caddy_refuses_another_user_before_basic_auth() -> None:
+    """The Caddyfile as Caddy reads it on a public server: the 401 route comes before both
+    basic-auth routes (respond is ordered before basic_auth)."""
+    env = {
+        **os.environ,
+        "SITE_ADDRESS": ":8080",
+        "ADMIN_AUTH": "on",
+        "ADMIN_PASSWORD_HASH": "$2a$10$" + "x" * 53,
+        "PUBLIC_READ_ONLY": "false",
+    }
+    done = subprocess.run(
+        ["caddy", "adapt", "--config", str(CADDYFILE), "--adapter", "caddyfile"],  # noqa: S607
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    assert done.returncode == 0, done.stderr
+    routes = json.loads(done.stdout)["apps"]["http"]["servers"]["srv0"]["routes"]
+    handlers = [[h["handler"] for h in route.get("handle", [])] for route in routes]
+    refuse = handlers.index(["static_response"])
+    assert routes[refuse]["handle"][0]["status_code"] == 401
+    assert ADMIN_BASIC in routes[refuse]["match"][0]["expression"]["expr"]
+    auth = [n for n, h in enumerate(handlers) if h == ["authentication"]]
+    assert len(auth) == 2 and refuse < min(auth)
+
+
 def test_the_long_running_services_restart_after_a_crash_or_a_reboot() -> None:
     """A crash or a reboot of the public server must not take the demo down until someone logs
-    in. The reset stays one-shot: a daemon restart keeps the database (pgdata persists) instead
-    of resetting it, and the API reconnects to it lazily."""
+    in: on the GPU server vLLM and the amd-smi writer restart too (a sampler without its writer
+    would read the file a reboot left behind). The reset stays one-shot: a daemon restart keeps
+    the database (pgdata persists) instead of resetting it, and the API reconnects lazily."""
     compose = services("docker-compose.yml")
-    for name in ("postgres", "api", "ui", "proxy", "telemetry-sampler"):
+    for name in ("postgres", "api", "ui", "proxy", "telemetry-sampler", "telemetry", "vllm"):
         assert compose[name]["restart"] == "unless-stopped", name
+    assert set(RUNNING_SERVICES) - {"reset"} == {
+        name for name, service in compose.items() if service.get("restart") == "unless-stopped"
+    }
     assert compose["reset"]["restart"] == "no"
     for name in OFFLINE_SERVICES - {"spike-client"}:
         assert "restart" not in compose[name], name

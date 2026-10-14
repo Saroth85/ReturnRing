@@ -12,14 +12,15 @@
 - bench/results/: the benchmark pointers (latest*.json) and the run files they name, as
   GET /api/benchmarks reads them;
 - MANIFEST.json, written last: the sha256 and size of every file, the snapshot instant and seed,
-  what the cache holds (entries by model, generation path and fallback reason), the hardware it
-  ran on, whether it is a rehearsal, and the nature of each part (rule 11).
+  what the cache holds (entries by model, device, generation path and fallback reason), the
+  hardware it ran on, whether it is a rehearsal, and the nature of each part (rule 11).
 
 The demo labels its drafts "Precomputed on AMD MI300X" only when the package says so (rules 11
 and 13; apps/api/services/demo_package.py): `build` therefore needs the hardware (DEMO_GPU, no
 default, naming the MI300X) and the model the drafts must come from (GEMMA_MODEL), and refuses a
-cache with drafts of another model. A rehearsal (`--rehearsal`, or `--allow-empty-cache`: a fake
-vLLM server on a CPU, another model, no draft at all) is packed without those checks and
+cache with drafts of another model or of a batch that did not run with DEVICE=gpu (a fake vLLM
+server can be run under any model name). A rehearsal (`--rehearsal`, or `--allow-empty-cache`: a
+fake vLLM server on a CPU, another model, no draft at all) is packed without those checks and
 recorded as one, so the demo labels it as a rehearsal, never as MI300X.
 
 `verify` recomputes every hash of a package, and of its serving manifest; `make demo-up` and
@@ -30,7 +31,7 @@ project's Python environment is not installed. No container image is part of the
 
 Exit codes: 0 done, 1 the package (or the snapshot) is not what its manifest says, the cache is
 empty without --allow-empty-cache, or an MI300X package without its hardware or with drafts of
-another model, 2 usage.
+another model or of a batch off the GPU, 2 usage.
 """
 
 from __future__ import annotations
@@ -132,8 +133,9 @@ def check_serving(serving: Path) -> dict[str, Any]:
 
 
 def cache_summary(cache: Path) -> dict[str, Any]:
-    """What llm_cache/ holds: entries by model, generation path and fallback reason."""
+    """What llm_cache/ holds: entries by model, device, generation path and fallback reason."""
     models: Counter[str] = Counter()
+    devices: Counter[str] = Counter()
     paths: Counter[str] = Counter()
     fallbacks: Counter[str] = Counter()
     created: list[str] = []
@@ -145,12 +147,14 @@ def cache_summary(cache: Path) -> dict[str, Any]:
         if path.stem != entry.get("input_digest"):
             raise PackageError(f"{path}: the file name is not the entry's input_digest")
         models[str(entry.get("model"))] += 1
+        devices[str(entry.get("device"))] += 1
         paths[str(entry.get("generation_path"))] += 1
         fallbacks[str(entry.get("fallback_reason") or "none")] += 1
         created.append(str(entry.get("created_at")))
     return {
         "entries": len(entries),
         "models": dict(sorted(models.items())),
+        "devices": dict(sorted(devices.items())),
         "generation_paths": dict(sorted(paths.items())),
         "fallback_reasons": dict(sorted(fallbacks.items())),
         "snapshot_instants": sorted(set(created)),
@@ -195,7 +199,8 @@ def git_commit(repo: Path) -> str | None:
 
 
 def check_mi300x(cache: Mapping[str, Any], generated_on: str | None, model: str | None) -> None:
-    """An MI300X package names its GPU, and every draft in it is GEMMA_MODEL's (rules 11, 13)."""
+    """An MI300X package names its GPU, and every draft in it is GEMMA_MODEL's, made by a batch
+    that ran with DEVICE=gpu (rules 11, 13)."""
     if not generated_on or GPU_NAME not in generated_on:
         raise PackageError(
             f"name the GPU the batch ran on: make demo-export DEMO_GPU='AMD Instinct {GPU_NAME} "
@@ -211,6 +216,13 @@ def check_mi300x(cache: Mapping[str, Any], generated_on: str | None, model: str 
         raise PackageError(
             f"llm_cache/ holds drafts of {', '.join(others)}, not only of GEMMA_MODEL {model}: "
             "not packed as the MI300X demo (REHEARSAL=1 packs a rehearsal, labelled as such)"
+        )
+    off_gpu = sorted(set(cache["devices"]) - {"gpu"})
+    if off_gpu:
+        raise PackageError(
+            f"llm_cache/ holds drafts of a batch run with DEVICE {', '.join(off_gpu)}, not only "
+            "DEVICE=gpu (make batch-generate): not packed as the MI300X demo (REHEARSAL=1 packs a "
+            "rehearsal, labelled as such)"
         )
 
 

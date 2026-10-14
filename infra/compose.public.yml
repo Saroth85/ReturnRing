@@ -4,15 +4,14 @@
 # Spec 11: HTTPS by Caddy on PUBLIC_HOST (an sslip.io name derived from the IP, no domain needed),
 # demo views public and read-only, basic auth on the telemetry data (/api/telemetry: the admin
 # page's client route /system stays public, its data does not) and on every write while
-# PUBLIC_READ_ONLY is not true. PUBLIC_HOST and ADMIN_PASSWORD_HASH are required (.env.example
-# leaves both empty). The firewall opens 22, 80 and 443 only; the API stays on loopback, vLLM on
-# the internal network (NFR-11).
+# PUBLIC_READ_ONLY is not true, for the user admin (infra/Caddyfile). PUBLIC_HOST and
+# ADMIN_PASSWORD_HASH are required (.env.example leaves both empty). The firewall opens 22, 80
+# and 443 only; the API stays on loopback, vLLM on the internal network (NFR-11).
 services:
   proxy:
     environment:
       SITE_ADDRESS: ${PUBLIC_HOST:?set PUBLIC_HOST in .env (for example 203-0-113-10.sslip.io)}
       ADMIN_AUTH: "on"
-      ADMIN_USER: ${ADMIN_USER:?set ADMIN_USER in .env (see .env.example)}
       ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:?set ADMIN_PASSWORD_HASH in .env (make admin-password)}
     ports:
       - "80:80"

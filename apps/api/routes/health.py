@@ -9,9 +9,10 @@ the vLLM probe follows no redirect (rule 2, H23) and checks that GEMMA_MODEL is 
 no server path reaches the public body (H26).
 
 Contract 1.5.1 (ADR-15 section 16): the label "Precomputed on AMD MI300X" only when the demo
-package says the drafts were made on the MI300X by GEMMA_MODEL (services.demo_package), the
-rehearsal label otherwise (rules 11 and 13); a refused VLLM_BASE_URL is named by its refused
-part, never echoed."""
+package says the drafts were made on the MI300X by the model it names (services.demo_package;
+section 17), the rehearsal label otherwise (rules 11 and 13); a refused VLLM_BASE_URL is named
+by its refused part, never echoed. Contract 1.5.2 (section 17): the cached telemetry check names
+no hardware: the label alone does."""
 
 from __future__ import annotations
 
@@ -148,7 +149,7 @@ async def readiness(rt: Runtime) -> s.ReadyzResponse:
         checks.append(_check("vllm", "unavailable" if problem else "ok", problem))
     origin = CacheOrigin(0, None, None)
     if settings.cached:
-        origin = await asyncio.to_thread(cache_origin, settings.serving_dir, settings.gemma_model)
+        origin = await asyncio.to_thread(cache_origin, settings.serving_dir)
         entries = origin.entries > 0
         checks.append(
             _check(

@@ -195,15 +195,18 @@ def cache_path(cache_dir: Path, digest: str) -> Path:
 
 
 def cache_entry(
-    item: LlmCase, result: Generation, model: str, created_at: datetime, latency_ms: int | None,
-    completion_tokens: int | None,
+    item: LlmCase, result: Generation, model: str, device: str, created_at: datetime,
+    latency_ms: int | None, completion_tokens: int | None,
 ) -> dict[str, Any]:  # fmt: skip
-    """The cache entry of a vLLM generation (written by python -m apps.api.batch_generate)."""
+    """The cache entry of a vLLM generation (written by python -m apps.api.batch_generate):
+    `model` is GEMMA_MODEL, which the batch checked the server serves, and `device` the DEVICE
+    of the batch (scripts/demo_export.py packs only gpu entries as the MI300X's)."""
     return {
         "format": CACHE_FORMAT,
         "input_digest": item.digest,
         "case_id": item.case["case_id"],
         "model": model,
+        "device": device,
         "generation_path": result.path.value,
         "fallback_reason": result.fallback_reason,
         "model_calls": result.model_calls,

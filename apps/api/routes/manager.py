@@ -36,7 +36,7 @@ from apps.api.services.manager.coupons import (
 )
 from apps.api.services.manager.evaluation import ReportUnavailable, fairness, load_report
 from apps.api.services.manager.kpi import default_week, kpi, latest_decision_at
-from apps.api.services.manager.matrix import portfolio_matrix
+from apps.api.services.manager.matrix import case_rows, portfolio_matrix
 from apps.api.services.manager.records import audit_csv, audit_page, outbox_page
 
 router = APIRouter()
@@ -96,12 +96,13 @@ def encode_large(model: BaseModel, gzip_ok: bool) -> tuple[bytes, bool]:
     return data, False
 
 
-async def large_answer(request: Request, model: BaseModel) -> Response:
+async def large_answer(request: Request, build: Callable[[], BaseModel]) -> Response:
     """A large JSON body (the matrix: about 20,000 points), gzipped when the client accepts it
-    (ADR-15 section 4). The serialization and the compression take seconds at full scale: they
-    run in a worker thread, so the single worker's event loop keeps serving other requests."""
+    (ADR-15 section 4). Building it (`build`, no database), serializing it and compressing it
+    take about a second of CPU at full scale: they run in one worker thread, so the single
+    worker's event loop keeps serving other requests."""
     gzip_ok = accepts_gzip(request.headers.get("accept-encoding"))
-    data, gzipped = await asyncio.to_thread(encode_large, model, gzip_ok)
+    data, gzipped = await asyncio.to_thread(lambda: encode_large(build(), gzip_ok))
     headers = {"Vary": "Accept-Encoding"}
     if gzipped:
         headers["Content-Encoding"] = "gzip"
@@ -117,8 +118,9 @@ async def get_portfolio_matrix(request: Request) -> Response:
     rt = runtime(request)
     serving = rt.require_serving()
     async with rt.transaction() as conn:
-        body = await portfolio_matrix(conn, serving, rt.now())
-    return await large_answer(request, body)
+        rows = await case_rows(conn)
+    now = rt.now()
+    return await large_answer(request, lambda: portfolio_matrix(serving, rows, now))
 
 
 @route("GET", ASSUMPTIONS)

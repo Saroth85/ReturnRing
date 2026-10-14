@@ -2,13 +2,12 @@
 
 Status: accepted, 13 Oct 2026; amended the same day after four reviews (sections 9 to 12), and on
 14 Oct 2026 by the phase 4 integration (section 13), the merge of the LLM layer's closing
-rounds (section 14), the review of the running API (section 15) and the review of the public
-deployment (section 16). API contract version `1.5.1`. Covers spec section 9 (API table, flows
-F1 to F7), the stories of E3,
-E4, E5, E6, E7 and E9, NFR-16 and CLAUDE.md rules 1, 3, 4, 5, 9, 10, 11 and 12. Changes
-`contracts/` (new `contracts/vocab.py`, `contracts/sql.py`, `contracts/json/api/`,
-`contracts/examples/api/`), removes two v1 API schemas, and adds `apps/api/schemas.py` and two
-scripts.
+rounds (section 14), the review of the running API (section 15) and the two reviews of the
+public deployment (sections 16 and 17). API contract version `1.5.2`. Covers spec section 9
+(API table, flows F1 to F7), the stories of E3, E4, E5, E6, E7 and E9, NFR-16 and CLAUDE.md
+rules 1, 3, 4, 5, 9, 10, 11 and 12. Changes `contracts/` (new `contracts/vocab.py`,
+`contracts/sql.py`, `contracts/json/api/`, `contracts/examples/api/`), removes two v1 API
+schemas, and adds `apps/api/schemas.py` and two scripts.
 
 ## Context
 
@@ -1192,6 +1191,37 @@ Schemas whose shape changed: `readyz_response.schema.json` (the `label` enum),
 `endpoints.json` (`headers`) and `openapi.json` (the label, the `Retry-After` header of the 429
 of `POST /api/checkout/evaluate` and `POST /api/agent/ask`). Examples: the contract version of
 both readyz responses.
+
+### 17. Second review of the public deployment (14 Oct 2026, contract 1.5.2)
+
+A second review of the same branch found the MI300X claim still made, or refused, where section
+16 did not look. The version is 1.5.2: one example text changes, no schema.
+
+- **The cached telemetry note.** In cached mode the telemetry check of `/readyz` and the `note`
+  of `GET /api/telemetry` said "GPU off: cached mode serves results precomputed on the AMD
+  MI300X", also beside the rehearsal label. The note is now "GPU off: cached mode serves
+  precomputed results" (`telemetry.cached.json`): where the outputs were made is the claim of
+  the label alone. The UI's own badges must follow `readyz.label` (docs/review-backlog.md, UI
+  migration).
+- **Not contract changes, recorded here because they change behaviour.** The label compares the
+  drafts with the model the package's `MANIFEST.json` names (`llm_cache.gemma_model`, which the
+  export checked against `GEMMA_MODEL` of the droplet), not with `GEMMA_MODEL` of the demo
+  server: in cached mode the API calls no model, and the runbook's demo server keeps the
+  `.env.example` default while the package may hold the plan-B model's drafts. A manifest that
+  names no model is a rehearsal. `python -m apps.api.batch_generate` stops before the first case
+  unless the local vLLM lists `GEMMA_MODEL` (the fake server of `bench/fake_vllm.py` answers any
+  model name with its own drafts), records the `device` of the batch in each cache entry, and
+  makes again a cached draft of another model instead of keeping it; `make demo-export` packs
+  only `device` gpu drafts as the MI300X's. `GET /api/portfolio/matrix` reads the database on
+  the event loop and builds, serializes and gzips the matrix in one worker thread. On the full
+  snapshot with the database of a reset (623 decided returns, 4 shared vCPUs): before, 0.36 to
+  0.95 s on the loop per request (the longest stall of a 5 ms ticker 0.34 to 0.91 s); after,
+  0.015 to 0.024 s on the loop and 0.48 to 1.21 s in the thread, during which the loop's longest
+  stall was 0.031 to 0.044 s (the thread holds the interpreter lock in turns). Nature: real
+  timings of three runs each, measured once.
+
+Schemas whose shape changed: none (`endpoints.json` and `openapi.json` carry the version).
+Examples: `telemetry.cached.json` (the note) and the contract version of both readyz responses.
 
 ## Consequences
 

@@ -23,8 +23,9 @@ export function linkState(link: Pick<AccountLink, 'disputed' | 'explained_by_evi
 
 export const isWeak = (link: Pick<AccountLink, 'max_sharers'>): boolean => link.max_sharers >= WEAK_SHARERS;
 
-export function strongestKind(link: Pick<AccountLink, 'kinds'>): IdentifierKind {
-  return KIND_ORDER.find((k) => link.kinds.includes(k)) ?? link.kinds[0];
+/** The strongest kind of a link, or null when it has none (the API requires one; the edge then takes the base style). */
+export function strongestKind(link: Pick<AccountLink, 'kinds'>): IdentifierKind | null {
+  return KIND_ORDER.find((k) => link.kinds.includes(k)) ?? link.kinds[0] ?? null;
 }
 
 /** How many links share each kind (the identifier filter chips). */

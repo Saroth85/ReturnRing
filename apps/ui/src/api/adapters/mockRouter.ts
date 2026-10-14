@@ -122,16 +122,32 @@ function sameValue(a: unknown, b: unknown): boolean {
   return a === b;
 }
 
-/** Fields compared between a request body and the request example (free text never is). */
-const BODY_KEYS: Record<string, (body: Record<string, unknown> | null) => unknown> = {
-  'POST /api/returns/{return_id}/decision': (b) => b?.action,
-  'POST /api/agent/ask': (b) => b?.question,
-  'POST /api/checkout/evaluate': (b) => b?.customer_id,
-  'POST /api/checkout/confirm': (b) => b?.customer_id,
+type BodyKey = (body: Record<string, unknown> | null) => unknown;
+
+/**
+ * Fields compared between a request body and the request example (free text never is), most
+ * specific first. Only the first key ties an example to the body, so an error example is served
+ * for it alone; the looser keys pick a success example, or a route of the scenario asked for.
+ */
+const BODY_KEYS: Record<string, readonly BodyKey[]> = {
+  // The approver too: an example of another approver (a contract refusal of their role) is not
+  // this request. The action alone still picks a success example for any other approver.
+  'POST /api/returns/{return_id}/decision': [(b) => ({ action: b?.action, approver: b?.approver }), (b) => b?.action],
+  'POST /api/agent/ask': [(b) => b?.question],
+  'POST /api/checkout/evaluate': [(b) => b?.customer_id],
+  'POST /api/checkout/confirm': [(b) => b?.customer_id],
   // The two inspection examples carry the same photo, so the return decides (RET-000111 is the
   // manual review), together with the photo of docs/ui-design.md 11.5.
-  'POST /api/inspections': (b) => [b?.return_id, (b?.photo as Record<string, unknown> | undefined)?.data_base64],
+  'POST /api/inspections': [(b) => [b?.return_id, (b?.photo as Record<string, unknown> | undefined)?.data_base64]],
 };
+
+/**
+ * The example file that holds a route's answer. A `.sse` stream is read from its `.json` sibling,
+ * which carries the same events as a list (the adapters write the frames themselves).
+ */
+export function responseFile(response: string): string {
+  return response.endsWith('.sse') ? `${response.slice(0, -'.sse'.length)}.json` : response;
+}
 
 /** QueueQuery.matches of apps/api/schemas.py, the reference meaning of the queue filters. */
 export function queueItemMatches(item: QueueItem, q: Record<string, unknown>): boolean {
@@ -263,9 +279,44 @@ export function createMockRouter(index: MockIndex, load: ExampleLoader, options:
       return reply(404, { kind: 'json', value: { ...notFound, message: `${method} ${pathname} is not a route of the contract`, request_id: requestId } }, 'error.not_found.json', 'no such route');
     }
     const key = `${endpoint.method} ${endpoint.path}`;
+    const samePath = index.routes.filter((r) => r.method === method && r.path === pathname);
+    const endpointRoutes = index.routes.filter((r) => r.method === method && r.endpoint === endpoint.path);
+    const asked = scenario === 'default' ? [] : samePath.filter((r) => r.scenario === scenario);
+    const askedEndpoint = scenario === 'default' ? [] : endpointRoutes.filter((r) => r.scenario === scenario);
+    const defaults = samePath.filter((r) => r.scenario === 'default');
+
+    // Body matching for writes: 0 when the most specific key of BODY_KEYS matches, a higher level
+    // for a looser key, null for none. An endpoint without keys matches every route at 0.
+    const keys = BODY_KEYS[key] ?? [];
+    const requestOf = async (r: MockRoute) => (r.request === null ? null : ((await load(r.request)) as Record<string, unknown>));
+    const matchLevel = async (r: MockRoute): Promise<number | null> => {
+      if (keys.length === 0) return 0;
+      const example = await requestOf(r);
+      if (!example) return null;
+      const level = keys.findIndex((k) => sameValue(k(body), k(example)));
+      return level < 0 ? null : level;
+    };
+    const strict = async (r: MockRoute) => (await matchLevel(r)) === 0;
+    const loose = async (r: MockRoute) => (await matchLevel(r)) !== null;
+    const firstOf = async (routes: MockRoute[], ok: (r: MockRoute) => Promise<boolean> | boolean) => {
+      for (const r of routes) if (await ok(r)) return r;
+      return null;
+    };
+
+    // A contract route for this very request (its example names the same actor, and its first
+    // key matches) is served as the contract states it, a 403 included, unless the scenario asked
+    // for has its own route: the role check below applies only when the contract has no such route.
+    const actorOf = (value: Record<string, unknown> | null) => (endpoint.actorField ? value?.[endpoint.actorField] : undefined);
+    const contractRoute =
+      method === 'GET'
+        ? null
+        : await firstOf([...asked, ...askedEndpoint, ...defaults], async (r) => {
+            const example = await requestOf(r);
+            return example !== null && (await strict(r)) && sameValue(actorOf(example), actorOf(body));
+          });
 
     // Roles (ADR-15 section 5): the actor field of the body names a demo user and their role.
-    if (endpoint.actorField && method !== 'GET') {
+    if (endpoint.actorField && method !== 'GET' && !contractRoute) {
       const actor = body?.[endpoint.actorField];
       const user = DEMO_USERS.find((u) => u.id === actor);
       if (!user || !(endpoint.roles as readonly string[]).includes(user.role)) {
@@ -295,8 +346,6 @@ export function createMockRouter(index: MockIndex, load: ExampleLoader, options:
     }
 
     // Example lookup: method and concrete path, then scenario, then query or body keys.
-    const samePath = index.routes.filter((r) => r.method === method && r.path === pathname);
-    const endpointRoutes = index.routes.filter((r) => r.method === method && r.endpoint === endpoint.path);
     const notFoundReply = async (note: string, message?: string) => {
       const notFound = (await load('error.not_found.json')) as ErrorResponse;
       return reply(404, { kind: 'json', value: { ...notFound, ...(message ? { message } : {}), request_id: requestId } }, 'error.not_found.json', note);
@@ -341,28 +390,25 @@ export function createMockRouter(index: MockIndex, load: ExampleLoader, options:
       }
       if (fallbackNote) notes.push(fallbackNote);
     } else {
-      // Writes (UI2): an error example is served only when its request matches the body or its
-      // scenario was asked for. Otherwise a success example of the same endpoint, with a note, so
-      // a valid action is never answered with a refusal that belongs to another request.
-      const keyOf = BODY_KEYS[key];
-      const wanted = keyOf ? keyOf(body) : undefined;
-      const matches = async (r: MockRoute) =>
-        keyOf ? r.request !== null && sameValue(wanted, keyOf((await load(r.request)) as Record<string, unknown>)) : true;
-      const firstOf = async (routes: MockRoute[], ok: (r: MockRoute) => Promise<boolean> | boolean) => {
-        for (const r of routes) if (await ok(r)) return r;
-        return null;
-      };
-      const asked = scenario === 'default' ? [] : samePath.filter((r) => r.scenario === scenario);
-      const askedEndpoint = scenario === 'default' ? [] : endpointRoutes.filter((r) => r.scenario === scenario);
-      const defaults = samePath.filter((r) => r.scenario === 'default');
+      // Writes (UI2): an error example is served only when its request matches the body on the
+      // first key or its scenario was asked for. Otherwise a success example of the same endpoint,
+      // with a note, so a valid action is never answered with a refusal that belongs to another
+      // request. Within each step the most specific match wins.
+      const inScenario = async (routes: MockRoute[]) =>
+        (await firstOf(routes, async (r) => r.request === null || (await strict(r)))) ?? (await firstOf(routes, loose));
       chosen =
-        (await firstOf(asked, (r) => r.request === null || matches(r))) ??
-        (await firstOf(askedEndpoint, (r) => r.request === null || matches(r))) ??
-        (await firstOf(defaults, async (r) => (keyOf ? matches(r) : r.status < 400))) ??
+        (await inScenario(asked)) ??
+        (await inScenario(askedEndpoint)) ??
+        contractRoute ??
+        (await firstOf(defaults, async (r) => (keys.length > 0 ? strict(r) : r.status < 400))) ??
         null;
+      if (!chosen && keys.length > 1) {
+        chosen = await firstOf(defaults, async (r) => r.status < 400 && (await loose(r)));
+        if (chosen) notes.push(`no example for this request body on ${pathname}; served ${chosen.response} (a looser match)`);
+      }
       if (!chosen) {
         const successes = endpointRoutes.filter((r) => r.scenario === 'default' && r.status < 400);
-        chosen = (await firstOf(successes, matches)) ?? successes[0] ?? null;
+        chosen = (await firstOf(successes, strict)) ?? (await firstOf(successes, loose)) ?? successes[0] ?? null;
         if (chosen) {
           const where = chosen.path === pathname ? '' : ` (an example for ${chosen.path})`;
           notes.push(`no example for this request body on ${pathname}; served ${chosen.response}${where}`);
@@ -374,10 +420,10 @@ export function createMockRouter(index: MockIndex, load: ExampleLoader, options:
       return reply(404, { kind: 'json', value: { ...notFound, request_id: requestId } }, 'error.not_found.json', 'no example matched');
     }
 
-    const example = await load(chosen.response);
+    const example = await load(responseFile(chosen.response));
 
     // Streams: the contract's event list, written frame by frame by the adapter.
-    if (chosen.media_type === 'text/event-stream') {
+    if (chosen.media_type === 'text/event-stream' || chosen.response.endsWith('.sse')) {
       let events = example as AgentEvent[];
       if (scenario === 'agent_error') {
         const done = events.find((e) => e.type === 'done');

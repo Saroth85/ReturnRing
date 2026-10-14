@@ -4,7 +4,15 @@ import { MOCK_SCENARIOS } from './contract.gen';
 import { UI_FIXTURE_SCENARIOS } from './adapters/fixtures';
 import { createStore, safeStorage, useStore } from './store';
 
-export const SCENARIOS: readonly string[] = [...MOCK_SCENARIOS, ...UI_FIXTURE_SCENARIOS];
+/**
+ * The contract scenarios in their order, then the UI fixtures the contract does not ship. A
+ * fixture named like a contract scenario is the contract's (one entry, one key in the switcher).
+ */
+export function mergeScenarios(contract: readonly string[], fixtures: readonly string[]): string[] {
+  return [...new Set([...contract, ...fixtures])];
+}
+
+export const SCENARIOS: readonly string[] = mergeScenarios(MOCK_SCENARIOS, UI_FIXTURE_SCENARIOS);
 const KEY = 'returnring.mockScenario';
 
 function initialScenario(): string {

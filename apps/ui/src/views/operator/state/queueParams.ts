@@ -1,6 +1,6 @@
 // Queue tabs and filters (docs/ui-design.md 6.1). Each tab is a QueueQuery; the filters refine it
 // and live in the URL, so a queue view can be shared and `?from=<tab>` keeps the case loop.
-import { DECISION_STATES, EVIDENCE_QUALITIES, PATHS, QUADRANTS } from '@/api/contract.gen';
+import { DECISION_STATES, EVIDENCE_QUALITIES, PATHS, QUADRANTS, QUEUE_SORTS } from '@/api/contract.gen';
 import type { DecisionState, EvidenceQualityId, PathId, QuadrantId, QueueQuery } from '@/api/models';
 import type { QueueQueryParams } from '@/api/queries';
 
@@ -19,7 +19,8 @@ export const TAB_QUERIES: Record<QueueTab, QueueQueryParams> = {
 };
 
 export type QueueSort = NonNullable<QueueQuery['sort']>;
-export const SORTS: readonly QueueSort[] = ['-expected_net_benefit', 'expected_net_benefit', '-requested_at', 'requested_at', '-risk'];
+/** The sort orders of the contract (QueueQuery.sort), in its order. */
+export const SORTS: readonly QueueSort[] = QUEUE_SORTS;
 export const DEFAULT_SORT: QueueSort = '-expected_net_benefit';
 export type QuadrantFilter = QuadrantId | 'none';
 export const QUADRANT_FILTERS: readonly QuadrantFilter[] = [...QUADRANTS, 'none'];

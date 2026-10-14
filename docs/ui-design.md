@@ -1299,7 +1299,8 @@ Tablet first, 48 px targets, a stepper:
    the guarantee path: "The inspection documents the item; no diminished-value claim applies (art. 14(2)
    concerns withdrawals)."
 2. **Photo**: drop, choose a file or camera (`capture`); JPEG, PNG or WebP; read as base64 into
-   `photo.data_base64`; files above 8 MB are refused client-side with a reason. POST `/api/inspections` (201).
+   `photo.data_base64`; files whose base64 would exceed `PhotoUpload.data_base64` maxLength (7,000,000
+   characters: 5,250,000 bytes, shown as 5.25 MB) are refused client-side with a reason. POST `/api/inspections` (201).
 3. **Checklist** (tag attached, visible damage, photo quality): the suggestion as a ghost hint ("Suggested:
    no · No tag visible") with "model confidence 0.78 · declared by the model, not calibrated" as muted text,
    never a progress bar; Ahmed's answer as Yes / No / Not observable with **nothing preselected**; all three
@@ -1773,7 +1774,7 @@ behaviour.
 | O-23 | Telemetry has no illustrative flag (benchmarks have `status: illustrative`); add one rather than parsing the origin | The origin text is parsed for "Illustrative" |
 | O-24 | Customer level vs return level: Elena is Q2 as a customer while her open return is on the guarantee path; confirm it is intended | Explained in the matrix tooltip |
 | O-25 | Does `renew` take a reason and a category like `lift`? | Assumed yes |
-| O-26 | Maximum photo size for `POST /api/inspections` (base64 in JSON) | 8 MB client limit |
+| O-26 | Maximum photo size for `POST /api/inspections` (base64 in JSON) | Derived from the contract: 3 bytes per 4 characters of `PhotoUpload.data_base64` maxLength (5.25 MB on 1.1.0) |
 
 ---
 

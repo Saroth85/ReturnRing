@@ -47,8 +47,15 @@ def test_the_bench_job_mounts_code_read_only_and_never_the_ground_truth() -> Non
     args = bench["build"]["args"]
     assert args["ROCM_BASE_IMAGE"].startswith("${ROCM_BASE_IMAGE:?")
     assert args["AMD_PYPI_INDEX_URL"].startswith("${AMD_PYPI_INDEX_URL:?")
-    gnn = services(BENCH_FILE)["trainer-gnn"]
-    assert ((ROOT / "bench").resolve(), "/app/bench", True) in bind_mounts(gnn)
+    # B2 runs in trainer-graphsage (rocm/dgl plus what ml.gnn imports), with the code mounted
+    # read-only over the copy in the image, never in the bare rocm/dgl service (review G12).
+    assert "trainer-gnn" not in services(BENCH_FILE)
+    gnn = services(BENCH_FILE)["trainer-graphsage"]
+    gnn_mounts = {target: (source, ro) for source, target, ro in bind_mounts(gnn)}
+    for name in ("bench", "ml", "pipeline", "contracts", "policy"):
+        assert gnn_mounts[f"/app/{name}"] == ((ROOT / name).resolve(), True), name
+    assert all(ro for _, ro in gnn_mounts.values()), "artifacts/ comes from docker-compose.yml"
+    assert gnn["environment"]["DEVICE"] == "gpu"
 
 
 def test_no_running_service_sees_the_bench_work_folder() -> None:
@@ -101,6 +108,7 @@ def test_make_bench_targets() -> None:
     assert re.search(r"^DEVICE \?= cpu$", makefile, re.M)
     assert targets["bench-gpu"][0].split() == [
         "bench-build",
+        "gnn-image",
         "bench-b1",
         "bench-b2",
         "bench-vllm",
@@ -113,9 +121,19 @@ def test_make_bench_targets() -> None:
     assert "python -m bench report" in cpu and "$(BENCH_DOC)" in cpu
     for target in ("bench-b1", "bench-b2"):
         assert targets[target][1][0] == "@$(VLLM_DOWN)", target  # alone on the GPU and CPU
-    assert "trainer-gnn python -m bench run --device gpu --parts B2" in " ".join(
+    assert "trainer-graphsage python -m bench run --device gpu --parts B2" in " ".join(
         targets["bench-b2"][1]
     )
+    # Reviews G7 and G15: the start is timed with the page cache dropped (and says so), and the
+    # first request right after it, before B4's batch generation warms vLLM.
+    start = " ".join(targets["bench-vllm-start"][1])
+    assert "drop_caches" in start and "vllm-start-conditions.txt" in start
+    vllm = " ".join(targets["bench-vllm"][1])
+    assert "python -m bench first-request --run-id $(BENCH_RUN)" in vllm
+    order = targets["bench-gpu"][0].split()
+    assert order.index("bench-vllm") < order.index("bench-b4") < order.index("bench-b3")
+    # Review G5: the disk the snapshot will hold, measured before B3 prices the scenario.
+    assert "disk-used-gb.txt" in " ".join(targets["bench-b3"][1])
     b4 = " ".join(targets["bench-b4"][1])
     assert "python3 -m bench.amdsmi --out $(BENCH_DIR)/amdsmi.jsonl" in b4
     assert "--b4-samples" in b4 and "--b4-sampler inprocess" in b4
@@ -140,21 +158,50 @@ def test_make_bench_targets() -> None:
         assert re.search(rf"(^|\s){re.escape(target)}(\s|$)", phony.group(1)), target
 
 
-def test_the_gpu_runbook_has_the_benchmark_session() -> None:
+def test_the_gpu_runbook_is_one_ordered_list() -> None:
+    """The droplet session (US-202, A4 and B1-B4) is one ordered list of commands, each with
+    what it writes, and the steps that need the ground truth run on the laptop (review G14)."""
     runbook = (INFRA / "spikes" / "README.md").read_text(encoding="utf-8")
     spikes_end = runbook.index("### 15. Record")
-    section = runbook.index("## Benchmarks B1-B4")
+    section = runbook.index("## The GPU session")
     assert spikes_end < section < runbook.index("## Files")
-    text = runbook[section:]
+    text = runbook[section : runbook.index("## Files")]
+    order = [
+        "make spike-down",
+        "export BENCH_RUN=",
+        "make bench-build DEVICE=gpu",
+        "make gnn-image",
+        "make gnn-test-gpu",
+        "make bench-b1 DEVICE=gpu",
+        "make bench-b2 DEVICE=gpu",
+        "make embeddings-gpu",
+        "make bench-vllm DEVICE=gpu",
+        "make bench-b4 DEVICE=gpu",
+        "make bench-b3 DEVICE=gpu",
+        "make bench-merge DEVICE=gpu",
+        "make bench-report",
+        "make risk",
+        "make gnn-results",
+    ]
+    positions = [text.index(step) for step in order]
+    assert positions == sorted(positions), "the steps are listed in the order they run"
     for needle in (
-        "make bench DEVICE=gpu",
         "bench/results",
         "artifacts/bench/",
-        "bench-report",
-        "BENCH_RUN",
         "data/raw/asos_",
+        "us-202-asos-cpu.json",
+        "first-request.json",
+        "vllm-start-conditions.txt",
+        "disk-used-gb.txt",
+        "customer_embeddings.parquet",
+        "laptop",
     ):
         assert needle in text, needle
+    assert "data/truth" in text  # never copied to the droplet
+    graphsage = (ROOT / "docs" / "graphsage.md").read_text(encoding="utf-8")
+    droplet_block = graphsage.split("## On the MI300X droplet", 1)[1].split("```")[1]
+    assert "make bench-b2 DEVICE=gpu" in droplet_block
+    assert "# then, on the laptop" in droplet_block  # never a host command on the droplet
 
 
 @pytest.mark.skipif(not compose_available(), reason="docker compose not installed")
@@ -180,6 +227,6 @@ def test_rendered_bench_compose_config(tmp_path: Path) -> None:
     rendered = json.loads(out.stdout)["services"]
     assert "ports" not in rendered["bench"] and "ports" not in rendered["vllm"]
     assert rendered["bench"]["environment"]["DEVICE"] == "gpu"
-    assert rendered["trainer-gnn"]["environment"]["DEVICE"] == "gpu"
+    assert rendered["trainer-graphsage"]["environment"]["DEVICE"] == "gpu"
     for volume in rendered["bench"]["volumes"]:
         assert "/data/truth" not in volume["source"]

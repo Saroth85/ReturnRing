@@ -94,6 +94,8 @@ class FitResult:
             if self.epoch_seconds
             else None,
             "epoch_seconds_first": round(self.epoch_seconds[0], 4) if self.epoch_seconds else None,
+            # Every epoch, the first included: B2 reads the list (ml.gnn.b2), the report the median.
+            "epoch_seconds": [round(v, 4) for v in self.epoch_seconds],
             "train_loss": [round(v, 6) for v in self.train_loss],
             "valid_loss": [round(v, 6) for v in self.valid_loss],
         }

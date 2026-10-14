@@ -58,6 +58,7 @@ from ml.gnn.identity_graph import (
 )
 from ml.gnn.model import Encoder, EncoderConfig, count_parameters, to_device_graph
 from ml.gnn.runtime import (
+    TIMING_NATURE,
     Backend,
     Stopwatch,
     environment,
@@ -65,6 +66,7 @@ from ml.gnn.runtime import (
     load_average,
     seed_everything,
     synchronize,
+    utc_now,
 )
 from ml.gnn.scaling import Standardizer
 from pipeline.graph.snapshot import StoreSnapshot, load_snapshot
@@ -361,6 +363,7 @@ def run_embed(
         torch.set_num_threads(config.threads)
     seed_everything(config.seed, config.deterministic)
     watch = Stopwatch(device)
+    measured_at = utc_now()
     # The store's decision times are read only when an instant is not given.
     need = not as_ofs or (encoder is None and fit_as_of is None)
     instants = feature_instants(store) if need else []
@@ -471,7 +474,9 @@ def run_embed(
         "timings": {
             "cold_start": {k: round(v, 4) for k, v in cold_start.items()},
             **{f"{k}_seconds": v for k, v in watch.rounded().items()},
-            "nature": "measured on this machine; varies between runs and machines",
+            "measured_at": measured_at,
+            "finished_at": utc_now(),
+            "nature": TIMING_NATURE,
         },
     }
     _write_json(artifacts / "eval" / "gnn" / f"us-202-embeddings-{store_name(store)}.json", doc)

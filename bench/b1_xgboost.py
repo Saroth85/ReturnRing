@@ -16,10 +16,15 @@ crescenti") and device:
 - training with early stopping (the product's configuration), `repeats` times after the cold
   start: median wall time, rounds run, validation log loss and AUC of the kept trees, so a time
   never stands without the quality it bought;
-- training with a fixed number of rounds and no early stopping: identical work on both devices;
-- scoring with the early-stopping model of the largest size: one batch over every fit row,
-  and single-row calls (the
-  latency an API call would see, DMatrix build included), p50 and p95.
+- training with a fixed number of rounds and no early stopping: identical work on both devices,
+  the only training runs a CPU-over-GPU speedup is computed from (spec 12, 'Qualità
+  comparabile'); early stopping ends at a different round on each device (other quantile cuts,
+  other floating point sums), so its runs are shown side by side with their rounds and a ratio
+  of seconds per 100 rounds, and a speedup only when every repeat ran the same rounds;
+- scoring with the fixed-rounds model of the largest size (all its trees: the same model size on
+  both devices; the early-stopping model when no fixed-rounds run is asked): one batch over every
+  fit row, and single-row calls (the latency an API call would see, DMatrix build included), p50
+  and p95; a CPU-over-GPU scoring ratio only between models with the same number of trees.
 
 A requested GPU run that trained on the CPU stops the part (train.check_device): it is never
 reported as a GPU number. The CPU baseline must run alone on the machine; the 1-minute load
@@ -29,7 +34,7 @@ average before and after each training is kept next to its time.
 from __future__ import annotations
 
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -136,10 +141,82 @@ def _train(
         device=device,
         seed=config.seed,
         max_rounds=rounds or config.max_rounds,
-        # Patience longer than the rounds: early stopping never triggers (identical work).
+        # Patience longer than the rounds: early stopping never triggers (identical work), and
+        # the model keeps all its trees (the same model size to score on every device).
         early_stopping_rounds=rounds + 1 if rounds else EARLY_STOPPING_ROUNDS,
         threads=config.threads,
+        keep_all_rounds=bool(rounds),
     )
+
+
+def compare_devices(
+    runs: Sequence[Mapping[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """CPU against GPU for each (protocol, size, variant) timed on both devices: speedups of
+    identical work (fixed rounds), and the early-stopping runs side by side with their rounds
+    and the ratio of seconds per 100 rounds (labelled as such, never as a speedup); an
+    early-stopping speedup only when every repeat ran the same rounds on both devices."""
+    by_key: dict[tuple[str, float, str], dict[str, Mapping[str, Any]]] = {}
+    for run in runs:
+        key = (run["protocol"], run["fraction"], run["variant"])
+        by_key.setdefault(key, {})[run["device"]] = run
+    speedups: list[dict[str, Any]] = []
+    early: list[dict[str, Any]] = []
+    for (protocol, fraction, variant), pair in sorted(by_key.items()):
+        if "cpu" not in pair or "cuda" not in pair:
+            continue
+        cpu, gpu = pair["cpu"], pair["cuda"]
+        rounds = {"cpu": list(cpu["rounds_each"]), "mi300x": list(gpu["rounds_each"])}
+        same = len(set(rounds["cpu"]) | set(rounds["mi300x"])) == 1
+        ratio = (
+            round(cpu["train_seconds_median"] / gpu["train_seconds_median"], 3)
+            if gpu["train_seconds_median"] > 0
+            else None
+        )
+        row: dict[str, Any] = {
+            "protocol": protocol,
+            "fraction": fraction,
+            "variant": variant,
+            "rounds": rounds,
+        }
+        if variant != "es":
+            if same and ratio is not None:
+                speedups.append({**row, "cpu_over_gpu": ratio})
+            continue
+        row["same_rounds"] = same
+        row["train_seconds_median"] = {
+            "cpu": cpu["train_seconds_median"],
+            "mi300x": gpu["train_seconds_median"],
+        }
+        cpu_100 = cpu["seconds_per_100_rounds_median"]
+        gpu_100 = gpu["seconds_per_100_rounds_median"]
+        if gpu_100 > 0:
+            row["per_100_rounds_cpu_over_gpu"] = round(cpu_100 / gpu_100, 3)
+        if same and ratio is not None:
+            row["cpu_over_gpu"] = ratio
+        early.append(row)
+    return speedups, early
+
+
+def compare_scoring(protocol: str, scoring: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """CPU over GPU scoring times, only between models with the same number of trees."""
+    by_device = {s["device"]: s for s in scoring}
+    if "cpu" not in by_device or "cuda" not in by_device:
+        return []
+    cpu, gpu = by_device["cpu"], by_device["cuda"]
+    row: dict[str, Any] = {
+        "protocol": protocol,
+        "trees": {"cpu": cpu["trees"], "mi300x": gpu["trees"]},
+        "model": {"cpu": cpu.get("model"), "mi300x": gpu.get("model")},
+    }
+    if cpu["trees"] != gpu["trees"]:
+        row["not_computed"] = f"trees differ (cpu {cpu['trees']}, mi300x {gpu['trees']})"
+        return [row]
+    for name, field_name in (("batch", "batch_seconds"), ("single_row_p50", "single_row_ms")):
+        g = gpu[field_name]["p50"]
+        if g:
+            row[f"{name}_cpu_over_gpu"] = round(cpu[field_name]["p50"] / g, 3)
+    return [row]
 
 
 def _pct(fraction: float) -> str:
@@ -192,7 +269,12 @@ def run_b1(config: B1Config, log: Log = lambda _m: None) -> Part:
         )
 
     ctx = _Context(config, origin_of, started.date())
-    details: dict[str, Any] = {"protocols": {}, "speedups": []}
+    details: dict[str, Any] = {
+        "protocols": {},
+        "speedups": [],
+        "early_stopping": [],
+        "scoring_speedups": [],
+    }
     cold_done: set[str] = set()
     for protocol in config.protocols:
         t0 = time.perf_counter()
@@ -212,7 +294,6 @@ def run_b1(config: B1Config, log: Log = lambda _m: None) -> Part:
             "prepare_seconds": round(prepare_s, 3),
             "runs": [],
         }
-        medians: dict[tuple[float, str, str], float] = {}
         for device in config.devices:
             if device not in cold_done:
                 warm = np.arange(min(config.warmup_rows, data.y_fit.size))
@@ -251,7 +332,8 @@ def run_b1(config: B1Config, log: Log = lambda _m: None) -> Part:
                 if config.fixed_rounds
                 else []
             )
-            largest: TrainedBooster | None = None
+            largest: tuple[str, TrainedBooster] | None = None
+            scoring_variant = variants[-1][0]  # fixed rounds when asked: the same trees
             for fraction in config.fractions:
                 fit, valid = fits[fraction], valids[fraction]
                 for variant, rounds in variants:
@@ -265,11 +347,10 @@ def run_b1(config: B1Config, log: Log = lambda _m: None) -> Part:
                         timing.logloss.append(loss)
                         if auc is not None:
                             timing.auc.append(auc)
-                    if variant == "es" and fraction == max(config.fractions):
-                        largest = timing.trained[-1]
+                    if variant == scoring_variant and fraction == max(config.fractions):
+                        largest = (variant, timing.trained[-1])
                     run = _record_training(ctx, protocol, device, fraction, variant, timing)
                     proto_detail["runs"].append(run)
-                    medians[(fraction, variant, device)] = run["train_seconds_median"]
                     log(
                         f"B1 {protocol} {device} {_pct(fraction)}% {variant}: "
                         f"{run['train_seconds_median']:.2f} s, {run['rounds_run']} rounds"
@@ -278,16 +359,10 @@ def run_b1(config: B1Config, log: Log = lambda _m: None) -> Part:
                 proto_detail.setdefault("scoring", []).append(
                     _record_scoring(ctx, protocol, device, data, largest, config)
                 )
-        for (fraction, variant, timed_on), seconds in sorted(medians.items()):
-            if timed_on == "cuda" and (fraction, variant, "cpu") in medians and seconds > 0:
-                details["speedups"].append(
-                    {
-                        "protocol": protocol,
-                        "fraction": fraction,
-                        "variant": variant,
-                        "cpu_over_gpu": round(medians[(fraction, variant, "cpu")] / seconds, 3),
-                    }
-                )
+        speedups, early = compare_devices(proto_detail["runs"])
+        details["speedups"] += speedups
+        details["early_stopping"] += early
+        details["scoring_speedups"] += compare_scoring(protocol, proto_detail.get("scoring", []))
         details["protocols"][protocol] = proto_detail
         del data
     finished = utc_now()
@@ -409,11 +484,18 @@ def _record_scoring(
     protocol: Protocol,
     device: Device,
     data: TrainingData,
-    model: TrainedBooster,
+    scored: tuple[str, TrainedBooster],
     config: B1Config,
 ) -> dict[str, Any]:
-    """Batch scoring of every fit row, and single-row calls, with the early-stopping model
-    trained on the largest size of the run."""
+    """Batch scoring of every fit row, and single-row calls, with the model of the largest size
+    (fixed rounds when the run has them: the same trees on every device)."""
+    variant, model = scored
+    trees = model.booster.num_boosted_rounds()
+    what = (
+        f"{trees} trees, {variant[5:]} fixed rounds"
+        if variant != "es"
+        else f"{trees} trees, early stopping"
+    )
     x = data.x_fit
     batch = []
     for _ in range(config.repeats):
@@ -436,8 +518,8 @@ def _record_scoring(
         metric=f"score_batch_seconds_{protocol.lower()}",
         label=short(
             f"Batch scoring, protocol {protocol}: {x.shape[0]:,} rows with the model of the "
-            f"largest size ({model.rows_fit:,} fit rows, {model.best_iteration + 1} trees), "
-            f"DMatrix build included; median of {len(batch)}"
+            f"largest size ({model.rows_fit:,} fit rows, {what}), DMatrix build included; "
+            f"median of {len(batch)}"
         ),
         value=batch_s,
         unit="seconds",
@@ -445,7 +527,10 @@ def _record_scoring(
         rows=int(x.shape[0]),
         warm=True,
         repeats=len(batch),
-        detail={"rows_per_second": round(x.shape[0] / batch_s, 1) if batch_s else None},
+        detail={
+            "rows_per_second": round(x.shape[0] / batch_s, 1) if batch_s else None,
+            "trees": trees,
+        },
     )
     for q in ("p50", "p95"):
         ctx.add(
@@ -454,7 +539,7 @@ def _record_scoring(
             metric=f"score_single_row_{q}_ms_{protocol.lower()}",
             label=short(
                 f"Single-row scoring latency {q}, protocol {protocol}: {len(single)} calls of one "
-                "row each, DMatrix build included"
+                f"row each ({what}), DMatrix build included"
             ),
             value=round(float(ms[q]), 3),
             unit="milliseconds",
@@ -469,5 +554,6 @@ def _record_scoring(
         "rows": int(x.shape[0]),
         "batch_seconds": summary(batch),
         "single_row_ms": ms,
-        "trees": model.best_iteration + 1,
+        "trees": trees,
+        "model": variant,
     }

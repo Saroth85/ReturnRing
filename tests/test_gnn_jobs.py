@@ -18,8 +18,10 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
+from bench.b2_gnn import B2Config, check_timing, run_b2  # noqa: E402
 from contracts.io import read_table  # noqa: E402
 from contracts.parquet import EMBEDDING_COLUMNS  # noqa: E402
+from ml.gnn import b2  # noqa: E402
 from ml.gnn.__main__ import main as gnn_main  # noqa: E402
 from ml.gnn.report import load_inputs, render  # noqa: E402
 from ml.propensity.features import FeatureError  # noqa: E402
@@ -48,10 +50,15 @@ def raw_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return write_raw(root, events, customers, variants)
 
 
-def asos(raw_dir: Path, out: Path, *extra: str) -> dict[str, Any]:
+def asos(raw_dir: Path, out: Path, *extra: str, device: str = "cpu") -> dict[str, Any]:
+    """The job on `device`, whatever DEVICE says: `make gnn-test-gpu` runs these tests in the
+    trainer-graphsage container, where DEVICE=gpu (review G13). The CPU tests stay on the CPU,
+    where a rerun is exact; the gpu-marked tests below ask for the GPU and read its files."""
     argv = ["asos", "--raw", str(raw_dir), "--out", str(out), "--max-epochs", "3"]
-    assert gnn_main([*argv, "--backend", "torch", "--seed", "42", "--threads", "1", *extra]) == 0
-    doc: dict[str, Any] = json.loads((out / "eval/gnn/us-202-asos-cpu.json").read_text())
+    backend = "torch" if device == "cpu" else "auto"
+    common = ["--backend", backend, "--seed", "42", "--threads", "1", "--device", device]
+    assert gnn_main([*argv, *common, *extra]) == 0
+    doc: dict[str, Any] = json.loads((out / f"eval/gnn/us-202-asos-{device}.json").read_text())
     return doc
 
 
@@ -138,7 +145,8 @@ def test_a_customer_sample_runs_every_model_on_the_same_rows(raw_dir: Path, tmp_
 
 def test_the_job_refuses_a_folder_that_is_not_raw(tmp_path: Path) -> None:
     with pytest.raises(FeatureError):
-        gnn_main(["asos", "--raw", str(tmp_path), "--out", str(tmp_path), "--backend", "torch"])
+        argv = ["asos", "--raw", str(tmp_path), "--out", str(tmp_path), "--backend", "torch"]
+        gnn_main([*argv, "--device", "cpu"])  # whatever DEVICE says (review G13)
 
 
 def test_a_gpu_run_without_a_gpu_exits_2(raw_dir: Path, tmp_path: Path) -> None:
@@ -146,6 +154,75 @@ def test_a_gpu_run_without_a_gpu_exits_2(raw_dir: Path, tmp_path: Path) -> None:
         pytest.skip("a GPU is visible here")
     argv = ["asos", "--raw", str(raw_dir), "--out", str(tmp_path), "--device", "gpu"]
     assert gnn_main(argv) == 2
+
+
+def test_the_cpu_tests_ignore_device_gpu_in_the_environment(
+    raw_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review G13: under DEVICE=gpu (the trainer-graphsage container) the CPU helpers still run
+    on the CPU and read the CPU files."""
+    monkeypatch.setenv("DEVICE", "gpu")
+    doc = asos(raw_dir, tmp_path, "--protocols", "B", "--no-mlp", "--no-xgboost")
+    assert doc["environment"]["device"] == "cpu"
+    assert (tmp_path / "gnn/models/asos_B_graphsage_cpu.pt").exists()
+
+
+# ---- B2 through ml.gnn.b2_timing (US-902) ----------------------------------------------------
+
+TINY = ("--max-epochs", "2", "--backend", "torch", "--threads", "1")
+
+
+def test_b2_timing_runs_the_us202_job_once_and_projects_both_protocols(
+    raw_dir: Path, tmp_path: Path
+) -> None:
+    b2.clear_cache()
+    out = tmp_path / "artifacts"
+    records = {
+        p: b2.b2_timing(raw_dir, protocol=p, device="cpu", seed=42, out=out, extra_args=TINY)
+        for p in ("A", "B")
+    }
+    first = (out / "eval/gnn/us-202-asos-cpu.json").stat().st_mtime_ns
+    for protocol, record in records.items():
+        assert check_timing(record, protocol, "cpu") == record
+        assert record["population"] == ("all" if protocol == "A" else "decision_time")
+        assert record["epochs"] == len(record["epoch_seconds"]) <= 2
+    assert records["A"]["cold_start_seconds"] == records["B"]["cold_start_seconds"]  # one job
+    b2.b2_timing(raw_dir, protocol="B", device="cpu", seed=42, out=out, extra_args=TINY)
+    assert (out / "eval/gnn/us-202-asos-cpu.json").stat().st_mtime_ns == first  # cached
+    part = run_b2(
+        B2Config(raw_dir=raw_dir, samples=(1.0,), out=out, run_dir=tmp_path, job_args=TINY)
+    )
+    assert part.status == "measured" and part.details["speedups"] == []
+    assert {m.metric for m in part.measurements} >= {"gnn_f1_a", "gnn_f1_b"}
+    b2.clear_cache()
+
+
+@pytest.mark.gpu
+def test_the_asos_job_on_the_gpu_writes_and_reads_the_gpu_files(
+    raw_dir: Path, tmp_path: Path
+) -> None:
+    if not torch.cuda.is_available():
+        pytest.skip("no GPU visible")
+    doc = asos(raw_dir, tmp_path, "--protocols", "B", "--no-xgboost", device="gpu")
+    assert doc["environment"]["device"].startswith("cuda")
+    assert doc["environment"]["gpu_visible"] is True
+    assert (tmp_path / "gnn/models/asos_B_graphsage_gpu.pt").exists()
+    training = doc["protocols"]["B"]["models"]["graphsage"]["training"]
+    assert training["peak_allocated_gb"] > 0
+
+
+@pytest.mark.gpu
+def test_b2_timing_on_the_gpu_passes_the_bench_checks(raw_dir: Path, tmp_path: Path) -> None:
+    if not torch.cuda.is_available():
+        pytest.skip("no GPU visible")
+    b2.clear_cache()
+    args = ("--max-epochs", "2", "--threads", "1")
+    record = b2.b2_timing(
+        raw_dir, protocol="B", device="cuda", seed=42, out=tmp_path, extra_args=args
+    )
+    assert check_timing(record, "B", "cuda") == record
+    assert record["device_effective"].startswith("cuda")
+    b2.clear_cache()
 
 
 def test_the_report_renders_the_run(run: tuple[Path, dict[str, Any]], tmp_path: Path) -> None:
@@ -196,7 +273,17 @@ def ring_store() -> MiniStore:
 
 def embed(store: Path, out: Path, art: Path, *extra: str) -> dict[str, Any]:
     argv = ["embed", "--store", str(store), "--out", str(out), "--models", str(art)]
-    extra = ("--backend", "torch", "--max-epochs", "30", "--threads", "1", *extra)
+    extra = (
+        "--backend",
+        "torch",
+        "--max-epochs",
+        "30",
+        "--threads",
+        "1",
+        "--device",
+        "cpu",
+        *extra,
+    )
     assert gnn_main([*argv, *extra]) == 0
     name = "ood" if store.name == "ood" else "main"
     doc: dict[str, Any] = json.loads((art / f"eval/gnn/us-202-embeddings-{name}.json").read_text())

@@ -15,7 +15,7 @@ select = ["E", "F", "I", "B", "UP", "SIM"]
 [tool.mypy]
 python_version = "3.12"
 strict = true
-files = ["policy", "llm", "apps", "pipeline", "contracts", "scripts", "ml"]
+files = ["policy", "llm", "apps", "pipeline", "contracts", "scripts", "ml", "bench"]
 
 [[tool.mypy.overrides]]
 module = ["pyarrow.*", "pandas.*"]  # no type information shipped (pandas-stubs is not a dependency)

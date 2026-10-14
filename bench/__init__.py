@@ -1,0 +1,25 @@
+"""Benchmarks B1-B4 of docs/spec.md section 12 (US-902): how much AMD does, measured.
+
+- B1 (b1_xgboost): XGBoost training and scoring time on ASOS GraphReturns, protocols A and B of
+  ADR-10, CPU against the MI300X, several data sizes; same data, version and parameters on both.
+- B2 (b2_gnn): GraphSAGE timings and F1, through the hook ml.gnn.b2_timing; skipped when ml.gnn
+  is absent.
+- B3 (b3_llm): Gemma on the local vLLM, through llm.client.VllmClient only (rule 2): latency
+  p50 and p95, tokens per second for single requests, batches of 1, 8 and 32 and concurrency
+  levels, on llm_case inputs built by llm.case from the synthetic store, golden cases first; a
+  dry run against a local fake OpenAI-compatible server (fake_vllm); the cost per decision in a
+  declared, versioned operating scenario (cost).
+- B4 (b4_pipeline): the nightly pipeline duration per step, with GPU utilisation sampled from
+  `amd-smi metric --json` every 5 s (amdsmi).
+
+Every measurement carries origin, period and nature (rule 11). The parts write
+artifacts/bench/<run-id>/<B>.json; `python -m bench merge` assembles bench/results/<run-id>.json
+with a projection on the API contract (GET /api/benchmarks) and moves the latest pointer.
+Method and the four rules of spec 12: docs/benchmarks.md.
+
+This package and bench.record, bench.amdsmi, bench.stats, bench.api_view and bench.report use the
+standard library only, so the sampler runs on the droplet host and the merge in any container.
+"""
+
+SCHEMA = "returnring.bench/1"
+STORY = "US-902"

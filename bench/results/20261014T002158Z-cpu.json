@@ -1,0 +1,5168 @@
+{
+  "api": {
+    "items": [
+      {
+        "config": {
+          "cpu": "Intel(R) Xeon(R) Processor @ 2.80GHz",
+          "devices": "cpu",
+          "early_stopping_rounds": 5,
+          "eta": 0.1,
+          "eval_metric": "logloss",
+          "fixed_rounds": 50,
+          "fractions": "0.02,0.05,0.1",
+          "gamma": 1.0,
+          "lambda": 2.0,
+          "max_depth": 4,
+          "max_rounds": 2000,
+          "min_child_weight": 1.0,
+          "objective": "binary:logistic",
+          "repeats": 1,
+          "seed": 42,
+          "threads": 4,
+          "tree_method": "hist"
+        },
+        "dataset": "ASOS GraphReturns train split (ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; nature real), protocols A (paper) and B (decision time) of ADR-10",
+        "id": "B1",
+        "measured_at": "2026-10-14T00:39:31Z",
+        "notes": [
+          "Protocol A numbers measure the dataset, not the product (ADR-10, NFR-16); B1 compares times, not accuracy.",
+          "Times are wall clock of one process; the CPU baseline ran with the load average shown next to each run (details).",
+          "CPU only: the MI300X half of B1 runs on the droplet (make bench DEVICE=gpu)."
+        ],
+        "results": [
+          {
+            "batch_size": null,
+            "concurrency": null,
+            "device": "cpu",
+            "label": "Cold start: first training call on the cpu in the process (20,000 rows, 10 rounds), device initialisation included",
+            "metric": "cold_start_seconds",
+            "phase": "cold_start",
+            "protocol": null,
+            "value": {
+              "provenance": {
+                "nature": "real",
+                "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol A and B (ADR-10)",
+                "period_end": "2026-10-14",
+                "period_start": "2026-10-14"
+              },
+              "unit": "seconds",
+              "value": 11.272
+            }
+          },
+          {
+            "batch_size": null,
+            "concurrency": null,
+            "device": "cpu",
+            "label": "Training time, protocol A, 2% of the train split (24,644 rows), early stopping; median of 1, 78 rounds, validation log loss 0.5043",
+            "metric": "train_seconds_a_es_2pct",
+            "phase": "training",
+            "protocol": "paper",
+            "value": {
+              "provenance": {
+                "nature": "real",
+                "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol A (ADR-10)",
+                "period_end": "2026-10-14",
+                "period_start": "2026-10-14"
+              },
+              "unit": "seconds",
+              "value": 99.464
+            }
+          },
+          {
+            "batch_size": null,
+            "concurrency": null,
+            "device": "cpu",
+            "label": "Training time, protocol A, 2% of the train split (24,644 rows), 50 rounds, no early stopping; median of 1, 50 rounds, validation log loss 0.5058",
+            "metric": "train_seconds_a_fixed50_2pct",
+            "phase": "training",
+            "protocol": "paper",
+            "value": {
+              "provenance": {
+                "nature": "real",
+                "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol A (ADR-10)",
+                "period_end": "2026-10-14",
+                "period_start": "2026-10-14"
+              },
+              "unit": "seconds",
+              "value": 46.273
+            }
+          },
+          {
+            "batch_size": null,
+            "concurrency": null,
+            "device": "cpu",
+            "label": "Training time, protocol A, 5% of the train split (61,611 rows), early stopping; median of 1, 84 rounds, validation log loss 0.5025",
+            "metric": "train_seconds_a_es_5pct",
+            "phase": "training",
+            "protocol": "paper",
+            "value": {
+              "provenance": {
+                "nature": "real",
+                "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol A (ADR-10)",
+                "period_end": "2026-10-14",
+                "period_start": "2026-10-14"
+              },
+              "unit": "seconds",
+              "value": 89.873
+            }
+          },
+          {
+            "batch_size": null,
+            "concurrency": null,
+            "device": "cpu",
+            "label": "Training time, protocol A, 5% of the train split (61,611 rows), 50 rounds, no early stopping; median of 1, 50 rounds, validation log loss 0.5044",
+            "metric": "train_seconds_a_fixed50_5pct",
+            "phase": "training",
+            "protocol": "paper",
+            "value": {
+              "provenance": {
+                "nature": "real",
+                "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol A (ADR-10)",
+                "period_end": "2026-10-14",
+                "period_start": "2026-10-14"
+              },
+              "unit": "seconds",
+              "value": 62.556
+            }
+          },
+          {
+            "batch_size": null,
+            "concurrency": null,
+            "device": "cpu",
+            "label": "Training time, protocol A, 10% of the train split (123,222 rows), early stopping; median of 1, 113 rounds, validation log loss 0.4998",
+            "metric": "train_seconds_a_es_10pct",
+            "phase": "training",
+            "protocol": "paper",
+            "value": {
+              "provenance": {
+                "nature": "real",
+                "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol A (ADR-10)",
+                "period_end": "2026-10-14",
+                "period_start": "2026-10-14"
+              },
+              "unit": "seconds",
+              "value": 154.289
+            }
+          },
+          {
+            "batch_size": null,
+            "concurrency": null,
+            "device": "cpu",
+            "label": "Training time, protocol A, 10% of the train split (123,222 rows), 50 rounds, no early stopping; median of 1, 50 rounds, validation log loss 0.5028",
+            "metric": "train_seconds_a_fixed50_10pct",
+            "phase": "training",
+            "protocol": "paper",
+            "value": {
+              "provenance": {
+                "nature": "real",
+                "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol A (ADR-10)",
+                "period_end": "2026-10-14",
+                "period_start": "2026-10-14"
+              },
+              "unit": "seconds",
+              "value": 52.397
+            }
+          },
+          {
+            "batch_size": null,
+            "concurrency": null,
+            "device": "cpu",
+            "label": "Batch scoring, protocol A: 1,232,220 rows with the model of the largest size (123,222 fit rows, 108 trees), DMatrix build included; median of 1",
+            "metric": "score_batch_seconds_a",
+            "phase": "scoring",
+            "protocol": "paper",
+            "value": {
+              "provenance": {
+                "nature": "real",
+                "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol A (ADR-10)",
+                "period_end": "2026-10-14",
+                "period_start": "2026-10-14"
+              },
+              "unit": "seconds",
+              "value": 6.448
+            }
+          },
+          {
+            "batch_size": null,
+            "concurrency": null,
+            "device": "cpu",
+            "label": "Single-row scoring latency p50, protocol A: 200 calls of one row each, DMatrix build included",
+            "metric": "score_single_row_p50_ms_a",
+            "phase": "scoring",
+            "protocol": "paper",
+            "value": {
+              "provenance": {
+                "nature": "real",
+                "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol A (ADR-10)",
+                "period_end": "2026-10-14",
+                "period_start": "2026-10-14"
+              },
+              "unit": "milliseconds",
+              "value": 156.056
+            }
+          },
+          {
+            "batch_size": null,
+            "concurrency": null,
+            "device": "cpu",
+            "label": "Single-row scoring latency p95, protocol A: 200 calls of one row each, DMatrix build included",
+            "metric": "score_single_row_p95_ms_a",
+            "phase": "scoring",
+            "protocol": "paper",
+            "value": {
+              "provenance": {
+                "nature": "real",
+                "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol A (ADR-10)",
+                "period_end": "2026-10-14",
+                "period_start": "2026-10-14"
+              },
+              "unit": "milliseconds",
+              "value": 244.077
+            }
+          },
+          {
+            "batch_size": null,
+            "concurrency": null,
+            "device": "cpu",
+            "label": "Training time, protocol B, 2% of the train split (23,556 rows), early stopping; median of 1, 89 rounds, validation log loss 0.5859",
+            "metric": "train_seconds_b_es_2pct",
+            "phase": "training",
+            "protocol": "decision_time",
+            "value": {
+              "provenance": {
+                "nature": "real",
+                "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol B (ADR-10)",
+                "period_end": "2026-10-14",
+                "period_start": "2026-10-14"
+              },
+              "unit": "seconds",
+              "value": 85.365
+            }
+          },
+          {
+            "batch_size": null,
+            "concurrency": null,
+            "device": "cpu",
+            "label": "Training time, protocol B, 2% of the train split (23,556 rows), 50 rounds, no early stopping; median of 1, 50 rounds, validation log loss 0.5895",
+            "metric": "train_seconds_b_fixed50_2pct",
+            "phase": "training",
+            "protocol": "decision_time",
+            "value": {
+              "provenance": {
+                "nature": "real",
+                "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol B (ADR-10)",
+                "period_end": "2026-10-14",
+                "period_start": "2026-10-14"
+              },
+              "unit": "seconds",
+              "value": 48.129
+            }
+          },
+          {
+            "batch_size": null,
+            "concurrency": null,
+            "device": "cpu",
+            "label": "Training time, protocol B, 5% of the train split (58,889 rows), early stopping; median of 1, 142 rounds, validation log loss 0.5807",
+            "metric": "train_seconds_b_es_5pct",
+            "phase": "training",
+            "protocol": "decision_time",
+            "value": {
+              "provenance": {
+                "nature": "real",
+                "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol B (ADR-10)",
+                "period_end": "2026-10-14",
+                "period_start": "2026-10-14"
+              },
+              "unit": "seconds",
+              "value": 109.474
+            }
+          },
+          {
+            "batch_size": null,
+            "concurrency": null,
+            "device": "cpu",
+            "label": "Training time, protocol B, 5% of the train split (58,889 rows), 50 rounds, no early stopping; median of 1, 50 rounds, validation log loss 0.5883",
+            "metric": "train_seconds_b_fixed50_5pct",
+            "phase": "training",
+            "protocol": "decision_time",
+            "value": {
+              "provenance": {
+                "nature": "real",
+                "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol B (ADR-10)",
+                "period_end": "2026-10-14",
+                "period_start": "2026-10-14"
+              },
+              "unit": "seconds",
+              "value": 27.291
+            }
+          },
+          {
+            "batch_size": null,
+            "concurrency": null,
+            "device": "cpu",
+            "label": "Training time, protocol B, 10% of the train split (117,778 rows), early stopping; median of 1, 202 rounds, validation log loss 0.5816",
+            "metric": "train_seconds_b_es_10pct",
+            "phase": "training",
+            "protocol": "decision_time",
+            "value": {
+              "provenance": {
+                "nature": "real",
+                "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol B (ADR-10)",
+                "period_end": "2026-10-14",
+                "period_start": "2026-10-14"
+              },
+              "unit": "seconds",
+              "value": 130.986
+            }
+          },
+          {
+            "batch_size": null,
+            "concurrency": null,
+            "device": "cpu",
+            "label": "Training time, protocol B, 10% of the train split (117,778 rows), 50 rounds, no early stopping; median of 1, 50 rounds, validation log loss 0.5903",
+            "metric": "train_seconds_b_fixed50_10pct",
+            "phase": "training",
+            "protocol": "decision_time",
+            "value": {
+              "provenance": {
+                "nature": "real",
+                "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol B (ADR-10)",
+                "period_end": "2026-10-14",
+                "period_start": "2026-10-14"
+              },
+              "unit": "seconds",
+              "value": 23.264
+            }
+          },
+          {
+            "batch_size": null,
+            "concurrency": null,
+            "device": "cpu",
+            "label": "Batch scoring, protocol B: 1,177,783 rows with the model of the largest size (117,778 fit rows, 197 trees), DMatrix build included; median of 1",
+            "metric": "score_batch_seconds_b",
+            "phase": "scoring",
+            "protocol": "decision_time",
+            "value": {
+              "provenance": {
+                "nature": "real",
+                "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol B (ADR-10)",
+                "period_end": "2026-10-14",
+                "period_start": "2026-10-14"
+              },
+              "unit": "seconds",
+              "value": 2.994
+            }
+          },
+          {
+            "batch_size": null,
+            "concurrency": null,
+            "device": "cpu",
+            "label": "Single-row scoring latency p50, protocol B: 200 calls of one row each, DMatrix build included",
+            "metric": "score_single_row_p50_ms_b",
+            "phase": "scoring",
+            "protocol": "decision_time",
+            "value": {
+              "provenance": {
+                "nature": "real",
+                "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol B (ADR-10)",
+                "period_end": "2026-10-14",
+                "period_start": "2026-10-14"
+              },
+              "unit": "milliseconds",
+              "value": 79.241
+            }
+          },
+          {
+            "batch_size": null,
+            "concurrency": null,
+            "device": "cpu",
+            "label": "Single-row scoring latency p95, protocol B: 200 calls of one row each, DMatrix build included",
+            "metric": "score_single_row_p95_ms_b",
+            "phase": "scoring",
+            "protocol": "decision_time",
+            "value": {
+              "provenance": {
+                "nature": "real",
+                "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol B (ADR-10)",
+                "period_end": "2026-10-14",
+                "period_start": "2026-10-14"
+              },
+              "unit": "milliseconds",
+              "value": 135.699
+            }
+          }
+        ],
+        "status": "measured",
+        "title": "XGBoost training and scoring on ASOS GraphReturns: CPU (MI300X pending)",
+        "versions": {
+          "numpy": "2.5.4",
+          "polars": "2.0.0",
+          "python": "3.12.3",
+          "sklearn": "1.9.1",
+          "xgboost": "3.2.0",
+          "xgboost_use_cuda": "False",
+          "xgboost_use_hip": "False"
+        }
+      },
+      {
+        "config": {},
+        "dataset": "ASOS GraphReturns, paper and decision-time protocols (ADR-10)",
+        "id": "B2",
+        "measured_at": null,
+        "notes": [
+          "Skipped in run 20261014T002158Z-cpu",
+          "ml.gnn is not in this checkout (US-202 is built in parallel): B2 skipped"
+        ],
+        "results": [],
+        "status": "pending",
+        "title": "GraphSAGE on ASOS GraphReturns: CPU against MI300X, F1",
+        "versions": {}
+      },
+      {
+        "config": {},
+        "dataset": "llm_case inputs built by llm.case from the synthetic store, golden cases first",
+        "id": "B3",
+        "measured_at": null,
+        "notes": [
+          "Dry run only in run 20261014T002158Z-cpu (simulated numbers, not served)",
+          "Dry run against bench.fake_vllm on 127.0.0.1: simulated numbers that check the harness; no Gemma, no MI300X."
+        ],
+        "results": [],
+        "status": "pending",
+        "title": "Gemma on vLLM: latency, throughput and cost per decision",
+        "versions": {}
+      },
+      {
+        "config": {
+          "cpu": "Intel(R) Xeon(R) Processor @ 2.80GHz",
+          "device": "cpu",
+          "generation_concurrency": 32,
+          "gpu_sampler": "none",
+          "llm_mode": "mock",
+          "logical_cpus": 4,
+          "sample_interval_s": 5.0,
+          "scale": 1.0,
+          "seed": 42,
+          "steps": "generate,graph,features,anomalies,risk,scoring,batch_generation"
+        },
+        "dataset": "Navigli Fashion synthetic store generated from the committed ASOS calibration, seed 42, scale 1 (main and OOD scenarios)",
+        "id": "B4",
+        "measured_at": "2026-10-14T00:57:52Z",
+        "notes": [
+          "Steps run one after the other in one container or machine, as `make pipeline`, `make score` and the batch generation would; the store is generated (a stand-in for the nightly ingest).",
+          "batch_generation ran with the mock model (LLM_MODE=mock): it times case building and validation, not a language model.",
+          "No GPU sampling in this run (CPU only)."
+        ],
+        "results": [
+          {
+            "batch_size": null,
+            "concurrency": null,
+            "device": "cpu",
+            "label": "Nightly pipeline step generate: synthetic store, main and OOD scenarios (stand-in for the nightly ingest)",
+            "metric": "step_seconds_generate",
+            "phase": "pipeline",
+            "protocol": null,
+            "value": {
+              "provenance": {
+                "nature": "real",
+                "origin": "B4, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 CPUs: wall time of each nightly pipeline step (seed 42, scale 1); no GPU sampling",
+                "period_end": "2026-10-14",
+                "period_start": "2026-10-14"
+              },
+              "unit": "seconds",
+              "value": 25.82
+            }
+          },
+          {
+            "batch_size": null,
+            "concurrency": null,
+            "device": "cpu",
+            "label": "Nightly pipeline step graph: account graph and clusters, main and OOD",
+            "metric": "step_seconds_graph",
+            "phase": "pipeline",
+            "protocol": null,
+            "value": {
+              "provenance": {
+                "nature": "real",
+                "origin": "B4, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 CPUs: wall time of each nightly pipeline step (seed 42, scale 1); no GPU sampling",
+                "period_end": "2026-10-14",
+                "period_start": "2026-10-14"
+              },
+              "unit": "seconds",
+              "value": 4.727
+            }
+          },
+          {
+            "batch_size": null,
+            "concurrency": null,
+            "device": "cpu",
+            "label": "Nightly pipeline step features: customer features, value and evidence snapshots, main and OOD",
+            "metric": "step_seconds_features",
+            "phase": "pipeline",
+            "protocol": null,
+            "value": {
+              "provenance": {
+                "nature": "real",
+                "origin": "B4, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 CPUs: wall time of each nightly pipeline step (seed 42, scale 1); no GPU sampling",
+                "period_end": "2026-10-14",
+                "period_start": "2026-10-14"
+              },
+              "unit": "seconds",
+              "value": 246.148
+            }
+          },
+          {
+            "batch_size": null,
+            "concurrency": null,
+            "device": "cpu",
+            "label": "Nightly pipeline step anomalies: product anomalies, main and OOD",
+            "metric": "step_seconds_anomalies",
+            "phase": "pipeline",
+            "protocol": null,
+            "value": {
+              "provenance": {
+                "nature": "real",
+                "origin": "B4, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 CPUs: wall time of each nightly pipeline step (seed 42, scale 1); no GPU sampling",
+                "period_end": "2026-10-14",
+                "period_start": "2026-10-14"
+              },
+              "unit": "seconds",
+              "value": 64.667
+            }
+          },
+          {
+            "batch_size": null,
+            "concurrency": null,
+            "device": "cpu",
+            "label": "Nightly pipeline step risk: risk models: training, evaluation and batch scores (offline job)",
+            "metric": "step_seconds_risk",
+            "phase": "pipeline",
+            "protocol": null,
+            "value": {
+              "provenance": {
+                "nature": "real",
+                "origin": "B4, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 CPUs: wall time of each nightly pipeline step (seed 42, scale 1); no GPU sampling",
+                "period_end": "2026-10-14",
+                "period_start": "2026-10-14"
+              },
+              "unit": "seconds",
+              "value": 150.32
+            }
+          },
+          {
+            "batch_size": null,
+            "concurrency": null,
+            "device": "cpu",
+            "label": "Nightly pipeline step scoring: batch scoring with the saved models at the last snapshot",
+            "metric": "step_seconds_scoring",
+            "phase": "pipeline",
+            "protocol": null,
+            "value": {
+              "provenance": {
+                "nature": "real",
+                "origin": "B4, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 CPUs: wall time of each nightly pipeline step (seed 42, scale 1); no GPU sampling",
+                "period_end": "2026-10-14",
+                "period_start": "2026-10-14"
+              },
+              "unit": "seconds",
+              "value": 19.864
+            }
+          },
+          {
+            "batch_size": null,
+            "concurrency": null,
+            "device": "cpu",
+            "label": "Nightly pipeline step batch_generation: drafts of every open return through llm.generate (ADR-03)",
+            "metric": "step_seconds_batch_generation",
+            "phase": "pipeline",
+            "protocol": null,
+            "value": {
+              "provenance": {
+                "nature": "real",
+                "origin": "B4, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 CPUs: wall time of each nightly pipeline step (seed 42, scale 1); no GPU sampling",
+                "period_end": "2026-10-14",
+                "period_start": "2026-10-14"
+              },
+              "unit": "seconds",
+              "value": 5.75
+            }
+          },
+          {
+            "batch_size": null,
+            "concurrency": null,
+            "device": "cpu",
+            "label": "Nightly pipeline, 7 steps one after the other: generate, graph, features, anomalies, risk, scoring, batch_generation",
+            "metric": "pipeline_seconds_total",
+            "phase": "pipeline",
+            "protocol": null,
+            "value": {
+              "provenance": {
+                "nature": "real",
+                "origin": "B4, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 CPUs: wall time of each nightly pipeline step (seed 42, scale 1); no GPU sampling",
+                "period_end": "2026-10-14",
+                "period_start": "2026-10-14"
+              },
+              "unit": "seconds",
+              "value": 517.296
+            }
+          }
+        ],
+        "status": "measured",
+        "title": "Nightly pipeline: duration per step and GPU utilisation (CPU, no GPU)",
+        "versions": {
+          "networkx": "3.7",
+          "numpy": "2.5.4",
+          "polars": "2.0.0",
+          "pyarrow": "26.0.0",
+          "python": "3.12.3",
+          "sklearn": "1.9.1",
+          "xgboost": "3.2.0"
+        }
+      }
+    ]
+  },
+  "benchmarks": {
+    "B1": {
+      "benchmark": "B1",
+      "config": {
+        "cpu": "Intel(R) Xeon(R) Processor @ 2.80GHz",
+        "devices": "cpu",
+        "early_stopping_rounds": 5,
+        "eta": 0.1,
+        "eval_metric": "logloss",
+        "fixed_rounds": 50,
+        "fractions": "0.02,0.05,0.1",
+        "gamma": 1.0,
+        "lambda": 2.0,
+        "max_depth": 4,
+        "max_rounds": 2000,
+        "min_child_weight": 1.0,
+        "objective": "binary:logistic",
+        "repeats": 1,
+        "seed": 42,
+        "threads": 4,
+        "tree_method": "hist"
+      },
+      "dataset": "ASOS GraphReturns train split (ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; nature real), protocols A (paper) and B (decision time) of ADR-10",
+      "details": {
+        "cold_start": [
+          {
+            "device": "cpu",
+            "device_effective": "cpu",
+            "load_average_before_after": [
+              11.2,
+              11.4
+            ],
+            "seconds": 11.272
+          }
+        ],
+        "protocols": {
+          "A": {
+            "features": 59,
+            "fit_rows": 1232220,
+            "label": "Paper protocol: features computed over the labelled window, not available at decision time",
+            "prepare_seconds": 22.858,
+            "runs": [
+              {
+                "best_iteration_each": [
+                  72
+                ],
+                "device": "cpu",
+                "device_effective": "cpu",
+                "dmatrix_seconds_median": 0.239,
+                "fraction": 0.02,
+                "load_average_before_after": [
+                  [
+                    11.4,
+                    13.21
+                  ]
+                ],
+                "protocol": "A",
+                "rounds_each": [
+                  78
+                ],
+                "rounds_run": 78,
+                "rows_fit": 24644,
+                "rows_valid": 2738,
+                "seconds_per_100_rounds_median": 127.518,
+                "threads": 4,
+                "train_seconds": {
+                  "max": 99.464,
+                  "mean": 99.464,
+                  "min": 99.464,
+                  "n": 1,
+                  "p50": 99.464,
+                  "p95": 99.464
+                },
+                "train_seconds_median": 99.464,
+                "validation_auc_median": 0.823091,
+                "validation_logloss_median": 0.504294,
+                "variant": "es"
+              },
+              {
+                "best_iteration_each": [
+                  49
+                ],
+                "device": "cpu",
+                "device_effective": "cpu",
+                "dmatrix_seconds_median": 0.161,
+                "fraction": 0.02,
+                "load_average_before_after": [
+                  [
+                    13.21,
+                    12.61
+                  ]
+                ],
+                "protocol": "A",
+                "rounds_each": [
+                  50
+                ],
+                "rounds_run": 50,
+                "rows_fit": 24644,
+                "rows_valid": 2738,
+                "seconds_per_100_rounds_median": 92.545,
+                "threads": 4,
+                "train_seconds": {
+                  "max": 46.273,
+                  "mean": 46.273,
+                  "min": 46.273,
+                  "n": 1,
+                  "p50": 46.273,
+                  "p95": 46.273
+                },
+                "train_seconds_median": 46.273,
+                "validation_auc_median": 0.821831,
+                "validation_logloss_median": 0.505847,
+                "variant": "fixed50"
+              },
+              {
+                "best_iteration_each": [
+                  78
+                ],
+                "device": "cpu",
+                "device_effective": "cpu",
+                "dmatrix_seconds_median": 0.247,
+                "fraction": 0.05,
+                "load_average_before_after": [
+                  [
+                    12.61,
+                    12.23
+                  ]
+                ],
+                "protocol": "A",
+                "rounds_each": [
+                  84
+                ],
+                "rounds_run": 84,
+                "rows_fit": 61611,
+                "rows_valid": 6846,
+                "seconds_per_100_rounds_median": 106.991,
+                "threads": 4,
+                "train_seconds": {
+                  "max": 89.873,
+                  "mean": 89.873,
+                  "min": 89.873,
+                  "n": 1,
+                  "p50": 89.873,
+                  "p95": 89.873
+                },
+                "train_seconds_median": 89.873,
+                "validation_auc_median": 0.823483,
+                "validation_logloss_median": 0.502459,
+                "variant": "es"
+              },
+              {
+                "best_iteration_each": [
+                  49
+                ],
+                "device": "cpu",
+                "device_effective": "cpu",
+                "dmatrix_seconds_median": 0.322,
+                "fraction": 0.05,
+                "load_average_before_after": [
+                  [
+                    12.29,
+                    13.72
+                  ]
+                ],
+                "protocol": "A",
+                "rounds_each": [
+                  50
+                ],
+                "rounds_run": 50,
+                "rows_fit": 61611,
+                "rows_valid": 6846,
+                "seconds_per_100_rounds_median": 125.113,
+                "threads": 4,
+                "train_seconds": {
+                  "max": 62.556,
+                  "mean": 62.556,
+                  "min": 62.556,
+                  "n": 1,
+                  "p50": 62.556,
+                  "p95": 62.556
+                },
+                "train_seconds_median": 62.556,
+                "validation_auc_median": 0.822496,
+                "validation_logloss_median": 0.504394,
+                "variant": "fixed50"
+              },
+              {
+                "best_iteration_each": [
+                  107
+                ],
+                "device": "cpu",
+                "device_effective": "cpu",
+                "dmatrix_seconds_median": 0.39,
+                "fraction": 0.1,
+                "load_average_before_after": [
+                  [
+                    13.72,
+                    13.95
+                  ]
+                ],
+                "protocol": "A",
+                "rounds_each": [
+                  113
+                ],
+                "rounds_run": 113,
+                "rows_fit": 123222,
+                "rows_valid": 13691,
+                "seconds_per_100_rounds_median": 136.539,
+                "threads": 4,
+                "train_seconds": {
+                  "max": 154.289,
+                  "mean": 154.289,
+                  "min": 154.289,
+                  "n": 1,
+                  "p50": 154.289,
+                  "p95": 154.289
+                },
+                "train_seconds_median": 154.289,
+                "validation_auc_median": 0.825857,
+                "validation_logloss_median": 0.499807,
+                "variant": "es"
+              },
+              {
+                "best_iteration_each": [
+                  49
+                ],
+                "device": "cpu",
+                "device_effective": "cpu",
+                "dmatrix_seconds_median": 0.544,
+                "fraction": 0.1,
+                "load_average_before_after": [
+                  [
+                    13.95,
+                    12.61
+                  ]
+                ],
+                "protocol": "A",
+                "rounds_each": [
+                  50
+                ],
+                "rounds_run": 50,
+                "rows_fit": 123222,
+                "rows_valid": 13691,
+                "seconds_per_100_rounds_median": 104.793,
+                "threads": 4,
+                "train_seconds": {
+                  "max": 52.397,
+                  "mean": 52.397,
+                  "min": 52.397,
+                  "n": 1,
+                  "p50": 52.397,
+                  "p95": 52.397
+                },
+                "train_seconds_median": 52.397,
+                "validation_auc_median": 0.824105,
+                "validation_logloss_median": 0.502751,
+                "variant": "fixed50"
+              }
+            ],
+            "scoring": [
+              {
+                "batch_seconds": {
+                  "max": 6.448,
+                  "mean": 6.448,
+                  "min": 6.448,
+                  "n": 1,
+                  "p50": 6.448,
+                  "p95": 6.448
+                },
+                "device": "cpu",
+                "rows": 1232220,
+                "single_row_ms": {
+                  "max": 409.418,
+                  "mean": 155.352,
+                  "min": 0.594,
+                  "n": 200,
+                  "p50": 156.056,
+                  "p95": 244.077
+                },
+                "trees": 108
+              }
+            ],
+            "validation_rows": 136913
+          },
+          "B": {
+            "features": 30,
+            "fit_rows": 1177783,
+            "label": "Decision-time protocol",
+            "prepare_seconds": 18.187,
+            "runs": [
+              {
+                "best_iteration_each": [
+                  83
+                ],
+                "device": "cpu",
+                "device_effective": "cpu",
+                "dmatrix_seconds_median": 0.258,
+                "fraction": 0.02,
+                "load_average_before_after": [
+                  [
+                    12.57,
+                    12.12
+                  ]
+                ],
+                "protocol": "B",
+                "rounds_each": [
+                  89
+                ],
+                "rounds_run": 89,
+                "rows_fit": 23556,
+                "rows_valid": 2618,
+                "seconds_per_100_rounds_median": 95.915,
+                "threads": 4,
+                "train_seconds": {
+                  "max": 85.365,
+                  "mean": 85.365,
+                  "min": 85.365,
+                  "n": 1,
+                  "p50": 85.365,
+                  "p95": 85.365
+                },
+                "train_seconds_median": 85.365,
+                "validation_auc_median": 0.749405,
+                "validation_logloss_median": 0.585907,
+                "variant": "es"
+              },
+              {
+                "best_iteration_each": [
+                  49
+                ],
+                "device": "cpu",
+                "device_effective": "cpu",
+                "dmatrix_seconds_median": 0.263,
+                "fraction": 0.02,
+                "load_average_before_after": [
+                  [
+                    12.12,
+                    12.55
+                  ]
+                ],
+                "protocol": "B",
+                "rounds_each": [
+                  50
+                ],
+                "rounds_run": 50,
+                "rows_fit": 23556,
+                "rows_valid": 2618,
+                "seconds_per_100_rounds_median": 96.258,
+                "threads": 4,
+                "train_seconds": {
+                  "max": 48.129,
+                  "mean": 48.129,
+                  "min": 48.129,
+                  "n": 1,
+                  "p50": 48.129,
+                  "p95": 48.129
+                },
+                "train_seconds_median": 48.129,
+                "validation_auc_median": 0.747319,
+                "validation_logloss_median": 0.589452,
+                "variant": "fixed50"
+              },
+              {
+                "best_iteration_each": [
+                  136
+                ],
+                "device": "cpu",
+                "device_effective": "cpu",
+                "dmatrix_seconds_median": 0.251,
+                "fraction": 0.05,
+                "load_average_before_after": [
+                  [
+                    12.55,
+                    11.32
+                  ]
+                ],
+                "protocol": "B",
+                "rounds_each": [
+                  142
+                ],
+                "rounds_run": 142,
+                "rows_fit": 58889,
+                "rows_valid": 6545,
+                "seconds_per_100_rounds_median": 77.094,
+                "threads": 4,
+                "train_seconds": {
+                  "max": 109.474,
+                  "mean": 109.474,
+                  "min": 109.474,
+                  "n": 1,
+                  "p50": 109.474,
+                  "p95": 109.474
+                },
+                "train_seconds_median": 109.474,
+                "validation_auc_median": 0.756867,
+                "validation_logloss_median": 0.580726,
+                "variant": "es"
+              },
+              {
+                "best_iteration_each": [
+                  49
+                ],
+                "device": "cpu",
+                "device_effective": "cpu",
+                "dmatrix_seconds_median": 0.141,
+                "fraction": 0.05,
+                "load_average_before_after": [
+                  [
+                    11.32,
+                    10.69
+                  ]
+                ],
+                "protocol": "B",
+                "rounds_each": [
+                  50
+                ],
+                "rounds_run": 50,
+                "rows_fit": 58889,
+                "rows_valid": 6545,
+                "seconds_per_100_rounds_median": 54.582,
+                "threads": 4,
+                "train_seconds": {
+                  "max": 27.291,
+                  "mean": 27.291,
+                  "min": 27.291,
+                  "n": 1,
+                  "p50": 27.291,
+                  "p95": 27.291
+                },
+                "train_seconds_median": 27.291,
+                "validation_auc_median": 0.753031,
+                "validation_logloss_median": 0.588261,
+                "variant": "fixed50"
+              },
+              {
+                "best_iteration_each": [
+                  196
+                ],
+                "device": "cpu",
+                "device_effective": "cpu",
+                "dmatrix_seconds_median": 0.284,
+                "fraction": 0.1,
+                "load_average_before_after": [
+                  [
+                    10.69,
+                    11.44
+                  ]
+                ],
+                "protocol": "B",
+                "rounds_each": [
+                  202
+                ],
+                "rounds_run": 202,
+                "rows_fit": 117778,
+                "rows_valid": 13090,
+                "seconds_per_100_rounds_median": 64.844,
+                "threads": 4,
+                "train_seconds": {
+                  "max": 130.986,
+                  "mean": 130.986,
+                  "min": 130.986,
+                  "n": 1,
+                  "p50": 130.986,
+                  "p95": 130.986
+                },
+                "train_seconds_median": 130.986,
+                "validation_auc_median": 0.755461,
+                "validation_logloss_median": 0.581606,
+                "variant": "es"
+              },
+              {
+                "best_iteration_each": [
+                  49
+                ],
+                "device": "cpu",
+                "device_effective": "cpu",
+                "dmatrix_seconds_median": 0.125,
+                "fraction": 0.1,
+                "load_average_before_after": [
+                  [
+                    11.44,
+                    11.16
+                  ]
+                ],
+                "protocol": "B",
+                "rounds_each": [
+                  50
+                ],
+                "rounds_run": 50,
+                "rows_fit": 117778,
+                "rows_valid": 13090,
+                "seconds_per_100_rounds_median": 46.528,
+                "threads": 4,
+                "train_seconds": {
+                  "max": 23.264,
+                  "mean": 23.264,
+                  "min": 23.264,
+                  "n": 1,
+                  "p50": 23.264,
+                  "p95": 23.264
+                },
+                "train_seconds_median": 23.264,
+                "validation_auc_median": 0.749877,
+                "validation_logloss_median": 0.59033,
+                "variant": "fixed50"
+              }
+            ],
+            "scoring": [
+              {
+                "batch_seconds": {
+                  "max": 2.994,
+                  "mean": 2.994,
+                  "min": 2.994,
+                  "n": 1,
+                  "p50": 2.994,
+                  "p95": 2.994
+                },
+                "device": "cpu",
+                "rows": 1177783,
+                "single_row_ms": {
+                  "max": 176.229,
+                  "mean": 80.861,
+                  "min": 0.548,
+                  "n": 200,
+                  "p50": 79.241,
+                  "p95": 135.699
+                },
+                "trees": 197
+              }
+            ],
+            "validation_rows": 130899
+          }
+        },
+        "speedups": []
+      },
+      "finished_at": "2026-10-14T00:39:31Z",
+      "hardware": {
+        "cpu": "Intel(R) Xeon(R) Processor @ 2.80GHz",
+        "in_container": false,
+        "kernel": "6.18.44-fc-v114",
+        "logical_cpus": 4,
+        "machine": "x86_64",
+        "memory_gib": 15.7
+      },
+      "measurements": [
+        {
+          "batch_size": null,
+          "benchmark": "B1",
+          "concurrency": null,
+          "data_nature": "real",
+          "detail": {},
+          "device": "cpu",
+          "label": "Cold start: first training call on the cpu in the process (20,000 rows, 10 rounds), device initialisation included",
+          "metric": "cold_start_seconds",
+          "phase": "cold_start",
+          "protocol": null,
+          "provenance": {
+            "nature": "real",
+            "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol A and B (ADR-10)",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": 1,
+          "rows": 20000,
+          "unit": "seconds",
+          "value": 11.272,
+          "warm": false
+        },
+        {
+          "batch_size": null,
+          "benchmark": "B1",
+          "concurrency": null,
+          "data_nature": "real",
+          "detail": {
+            "device_effective": "cpu",
+            "dmatrix_seconds_median": 0.239,
+            "rounds_run": 78,
+            "seconds_per_100_rounds_median": 127.518,
+            "validation_auc_median": 0.823091,
+            "validation_logloss_median": 0.504294
+          },
+          "device": "cpu",
+          "label": "Training time, protocol A, 2% of the train split (24,644 rows), early stopping; median of 1, 78 rounds, validation log loss 0.5043",
+          "metric": "train_seconds_a_es_2pct",
+          "phase": "training",
+          "protocol": "paper",
+          "provenance": {
+            "nature": "real",
+            "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol A (ADR-10)",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": 1,
+          "rows": 24644,
+          "unit": "seconds",
+          "value": 99.464,
+          "warm": true
+        },
+        {
+          "batch_size": null,
+          "benchmark": "B1",
+          "concurrency": null,
+          "data_nature": "real",
+          "detail": {
+            "device_effective": "cpu",
+            "dmatrix_seconds_median": 0.161,
+            "rounds_run": 50,
+            "seconds_per_100_rounds_median": 92.545,
+            "validation_auc_median": 0.821831,
+            "validation_logloss_median": 0.505847
+          },
+          "device": "cpu",
+          "label": "Training time, protocol A, 2% of the train split (24,644 rows), 50 rounds, no early stopping; median of 1, 50 rounds, validation log loss 0.5058",
+          "metric": "train_seconds_a_fixed50_2pct",
+          "phase": "training",
+          "protocol": "paper",
+          "provenance": {
+            "nature": "real",
+            "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol A (ADR-10)",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": 1,
+          "rows": 24644,
+          "unit": "seconds",
+          "value": 46.273,
+          "warm": true
+        },
+        {
+          "batch_size": null,
+          "benchmark": "B1",
+          "concurrency": null,
+          "data_nature": "real",
+          "detail": {
+            "device_effective": "cpu",
+            "dmatrix_seconds_median": 0.247,
+            "rounds_run": 84,
+            "seconds_per_100_rounds_median": 106.991,
+            "validation_auc_median": 0.823483,
+            "validation_logloss_median": 0.502459
+          },
+          "device": "cpu",
+          "label": "Training time, protocol A, 5% of the train split (61,611 rows), early stopping; median of 1, 84 rounds, validation log loss 0.5025",
+          "metric": "train_seconds_a_es_5pct",
+          "phase": "training",
+          "protocol": "paper",
+          "provenance": {
+            "nature": "real",
+            "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol A (ADR-10)",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": 1,
+          "rows": 61611,
+          "unit": "seconds",
+          "value": 89.873,
+          "warm": true
+        },
+        {
+          "batch_size": null,
+          "benchmark": "B1",
+          "concurrency": null,
+          "data_nature": "real",
+          "detail": {
+            "device_effective": "cpu",
+            "dmatrix_seconds_median": 0.322,
+            "rounds_run": 50,
+            "seconds_per_100_rounds_median": 125.113,
+            "validation_auc_median": 0.822496,
+            "validation_logloss_median": 0.504394
+          },
+          "device": "cpu",
+          "label": "Training time, protocol A, 5% of the train split (61,611 rows), 50 rounds, no early stopping; median of 1, 50 rounds, validation log loss 0.5044",
+          "metric": "train_seconds_a_fixed50_5pct",
+          "phase": "training",
+          "protocol": "paper",
+          "provenance": {
+            "nature": "real",
+            "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol A (ADR-10)",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": 1,
+          "rows": 61611,
+          "unit": "seconds",
+          "value": 62.556,
+          "warm": true
+        },
+        {
+          "batch_size": null,
+          "benchmark": "B1",
+          "concurrency": null,
+          "data_nature": "real",
+          "detail": {
+            "device_effective": "cpu",
+            "dmatrix_seconds_median": 0.39,
+            "rounds_run": 113,
+            "seconds_per_100_rounds_median": 136.539,
+            "validation_auc_median": 0.825857,
+            "validation_logloss_median": 0.499807
+          },
+          "device": "cpu",
+          "label": "Training time, protocol A, 10% of the train split (123,222 rows), early stopping; median of 1, 113 rounds, validation log loss 0.4998",
+          "metric": "train_seconds_a_es_10pct",
+          "phase": "training",
+          "protocol": "paper",
+          "provenance": {
+            "nature": "real",
+            "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol A (ADR-10)",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": 1,
+          "rows": 123222,
+          "unit": "seconds",
+          "value": 154.289,
+          "warm": true
+        },
+        {
+          "batch_size": null,
+          "benchmark": "B1",
+          "concurrency": null,
+          "data_nature": "real",
+          "detail": {
+            "device_effective": "cpu",
+            "dmatrix_seconds_median": 0.544,
+            "rounds_run": 50,
+            "seconds_per_100_rounds_median": 104.793,
+            "validation_auc_median": 0.824105,
+            "validation_logloss_median": 0.502751
+          },
+          "device": "cpu",
+          "label": "Training time, protocol A, 10% of the train split (123,222 rows), 50 rounds, no early stopping; median of 1, 50 rounds, validation log loss 0.5028",
+          "metric": "train_seconds_a_fixed50_10pct",
+          "phase": "training",
+          "protocol": "paper",
+          "provenance": {
+            "nature": "real",
+            "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol A (ADR-10)",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": 1,
+          "rows": 123222,
+          "unit": "seconds",
+          "value": 52.397,
+          "warm": true
+        },
+        {
+          "batch_size": null,
+          "benchmark": "B1",
+          "concurrency": null,
+          "data_nature": "real",
+          "detail": {
+            "rows_per_second": 191101.1
+          },
+          "device": "cpu",
+          "label": "Batch scoring, protocol A: 1,232,220 rows with the model of the largest size (123,222 fit rows, 108 trees), DMatrix build included; median of 1",
+          "metric": "score_batch_seconds_a",
+          "phase": "scoring",
+          "protocol": "paper",
+          "provenance": {
+            "nature": "real",
+            "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol A (ADR-10)",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": 1,
+          "rows": 1232220,
+          "unit": "seconds",
+          "value": 6.448,
+          "warm": true
+        },
+        {
+          "batch_size": null,
+          "benchmark": "B1",
+          "concurrency": null,
+          "data_nature": "real",
+          "detail": {
+            "summary_ms": {
+              "max": 409.418,
+              "mean": 155.352,
+              "min": 0.594,
+              "n": 200,
+              "p50": 156.056,
+              "p95": 244.077
+            }
+          },
+          "device": "cpu",
+          "label": "Single-row scoring latency p50, protocol A: 200 calls of one row each, DMatrix build included",
+          "metric": "score_single_row_p50_ms_a",
+          "phase": "scoring",
+          "protocol": "paper",
+          "provenance": {
+            "nature": "real",
+            "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol A (ADR-10)",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": 200,
+          "rows": 1,
+          "unit": "milliseconds",
+          "value": 156.056,
+          "warm": true
+        },
+        {
+          "batch_size": null,
+          "benchmark": "B1",
+          "concurrency": null,
+          "data_nature": "real",
+          "detail": {
+            "summary_ms": {
+              "max": 409.418,
+              "mean": 155.352,
+              "min": 0.594,
+              "n": 200,
+              "p50": 156.056,
+              "p95": 244.077
+            }
+          },
+          "device": "cpu",
+          "label": "Single-row scoring latency p95, protocol A: 200 calls of one row each, DMatrix build included",
+          "metric": "score_single_row_p95_ms_a",
+          "phase": "scoring",
+          "protocol": "paper",
+          "provenance": {
+            "nature": "real",
+            "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol A (ADR-10)",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": 200,
+          "rows": 1,
+          "unit": "milliseconds",
+          "value": 244.077,
+          "warm": true
+        },
+        {
+          "batch_size": null,
+          "benchmark": "B1",
+          "concurrency": null,
+          "data_nature": "real",
+          "detail": {
+            "device_effective": "cpu",
+            "dmatrix_seconds_median": 0.258,
+            "rounds_run": 89,
+            "seconds_per_100_rounds_median": 95.915,
+            "validation_auc_median": 0.749405,
+            "validation_logloss_median": 0.585907
+          },
+          "device": "cpu",
+          "label": "Training time, protocol B, 2% of the train split (23,556 rows), early stopping; median of 1, 89 rounds, validation log loss 0.5859",
+          "metric": "train_seconds_b_es_2pct",
+          "phase": "training",
+          "protocol": "decision_time",
+          "provenance": {
+            "nature": "real",
+            "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol B (ADR-10)",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": 1,
+          "rows": 23556,
+          "unit": "seconds",
+          "value": 85.365,
+          "warm": true
+        },
+        {
+          "batch_size": null,
+          "benchmark": "B1",
+          "concurrency": null,
+          "data_nature": "real",
+          "detail": {
+            "device_effective": "cpu",
+            "dmatrix_seconds_median": 0.263,
+            "rounds_run": 50,
+            "seconds_per_100_rounds_median": 96.258,
+            "validation_auc_median": 0.747319,
+            "validation_logloss_median": 0.589452
+          },
+          "device": "cpu",
+          "label": "Training time, protocol B, 2% of the train split (23,556 rows), 50 rounds, no early stopping; median of 1, 50 rounds, validation log loss 0.5895",
+          "metric": "train_seconds_b_fixed50_2pct",
+          "phase": "training",
+          "protocol": "decision_time",
+          "provenance": {
+            "nature": "real",
+            "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol B (ADR-10)",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": 1,
+          "rows": 23556,
+          "unit": "seconds",
+          "value": 48.129,
+          "warm": true
+        },
+        {
+          "batch_size": null,
+          "benchmark": "B1",
+          "concurrency": null,
+          "data_nature": "real",
+          "detail": {
+            "device_effective": "cpu",
+            "dmatrix_seconds_median": 0.251,
+            "rounds_run": 142,
+            "seconds_per_100_rounds_median": 77.094,
+            "validation_auc_median": 0.756867,
+            "validation_logloss_median": 0.580726
+          },
+          "device": "cpu",
+          "label": "Training time, protocol B, 5% of the train split (58,889 rows), early stopping; median of 1, 142 rounds, validation log loss 0.5807",
+          "metric": "train_seconds_b_es_5pct",
+          "phase": "training",
+          "protocol": "decision_time",
+          "provenance": {
+            "nature": "real",
+            "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol B (ADR-10)",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": 1,
+          "rows": 58889,
+          "unit": "seconds",
+          "value": 109.474,
+          "warm": true
+        },
+        {
+          "batch_size": null,
+          "benchmark": "B1",
+          "concurrency": null,
+          "data_nature": "real",
+          "detail": {
+            "device_effective": "cpu",
+            "dmatrix_seconds_median": 0.141,
+            "rounds_run": 50,
+            "seconds_per_100_rounds_median": 54.582,
+            "validation_auc_median": 0.753031,
+            "validation_logloss_median": 0.588261
+          },
+          "device": "cpu",
+          "label": "Training time, protocol B, 5% of the train split (58,889 rows), 50 rounds, no early stopping; median of 1, 50 rounds, validation log loss 0.5883",
+          "metric": "train_seconds_b_fixed50_5pct",
+          "phase": "training",
+          "protocol": "decision_time",
+          "provenance": {
+            "nature": "real",
+            "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol B (ADR-10)",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": 1,
+          "rows": 58889,
+          "unit": "seconds",
+          "value": 27.291,
+          "warm": true
+        },
+        {
+          "batch_size": null,
+          "benchmark": "B1",
+          "concurrency": null,
+          "data_nature": "real",
+          "detail": {
+            "device_effective": "cpu",
+            "dmatrix_seconds_median": 0.284,
+            "rounds_run": 202,
+            "seconds_per_100_rounds_median": 64.844,
+            "validation_auc_median": 0.755461,
+            "validation_logloss_median": 0.581606
+          },
+          "device": "cpu",
+          "label": "Training time, protocol B, 10% of the train split (117,778 rows), early stopping; median of 1, 202 rounds, validation log loss 0.5816",
+          "metric": "train_seconds_b_es_10pct",
+          "phase": "training",
+          "protocol": "decision_time",
+          "provenance": {
+            "nature": "real",
+            "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol B (ADR-10)",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": 1,
+          "rows": 117778,
+          "unit": "seconds",
+          "value": 130.986,
+          "warm": true
+        },
+        {
+          "batch_size": null,
+          "benchmark": "B1",
+          "concurrency": null,
+          "data_nature": "real",
+          "detail": {
+            "device_effective": "cpu",
+            "dmatrix_seconds_median": 0.125,
+            "rounds_run": 50,
+            "seconds_per_100_rounds_median": 46.528,
+            "validation_auc_median": 0.749877,
+            "validation_logloss_median": 0.59033
+          },
+          "device": "cpu",
+          "label": "Training time, protocol B, 10% of the train split (117,778 rows), 50 rounds, no early stopping; median of 1, 50 rounds, validation log loss 0.5903",
+          "metric": "train_seconds_b_fixed50_10pct",
+          "phase": "training",
+          "protocol": "decision_time",
+          "provenance": {
+            "nature": "real",
+            "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol B (ADR-10)",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": 1,
+          "rows": 117778,
+          "unit": "seconds",
+          "value": 23.264,
+          "warm": true
+        },
+        {
+          "batch_size": null,
+          "benchmark": "B1",
+          "concurrency": null,
+          "data_nature": "real",
+          "detail": {
+            "rows_per_second": 393381.1
+          },
+          "device": "cpu",
+          "label": "Batch scoring, protocol B: 1,177,783 rows with the model of the largest size (117,778 fit rows, 197 trees), DMatrix build included; median of 1",
+          "metric": "score_batch_seconds_b",
+          "phase": "scoring",
+          "protocol": "decision_time",
+          "provenance": {
+            "nature": "real",
+            "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol B (ADR-10)",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": 1,
+          "rows": 1177783,
+          "unit": "seconds",
+          "value": 2.994,
+          "warm": true
+        },
+        {
+          "batch_size": null,
+          "benchmark": "B1",
+          "concurrency": null,
+          "data_nature": "real",
+          "detail": {
+            "summary_ms": {
+              "max": 176.229,
+              "mean": 80.861,
+              "min": 0.548,
+              "n": 200,
+              "p50": 79.241,
+              "p95": 135.699
+            }
+          },
+          "device": "cpu",
+          "label": "Single-row scoring latency p50, protocol B: 200 calls of one row each, DMatrix build included",
+          "metric": "score_single_row_p50_ms_b",
+          "phase": "scoring",
+          "protocol": "decision_time",
+          "provenance": {
+            "nature": "real",
+            "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol B (ADR-10)",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": 200,
+          "rows": 1,
+          "unit": "milliseconds",
+          "value": 79.241,
+          "warm": true
+        },
+        {
+          "batch_size": null,
+          "benchmark": "B1",
+          "concurrency": null,
+          "data_nature": "real",
+          "detail": {
+            "summary_ms": {
+              "max": 176.229,
+              "mean": 80.861,
+              "min": 0.548,
+              "n": 200,
+              "p50": 79.241,
+              "p95": 135.699
+            }
+          },
+          "device": "cpu",
+          "label": "Single-row scoring latency p95, protocol B: 200 calls of one row each, DMatrix build included",
+          "metric": "score_single_row_p95_ms_b",
+          "phase": "scoring",
+          "protocol": "decision_time",
+          "provenance": {
+            "nature": "real",
+            "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol B (ADR-10)",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": 200,
+          "rows": 1,
+          "unit": "milliseconds",
+          "value": 135.699,
+          "warm": true
+        }
+      ],
+      "notes": [
+        "Protocol A numbers measure the dataset, not the product (ADR-10, NFR-16); B1 compares times, not accuracy.",
+        "Times are wall clock of one process; the CPU baseline ran with the load average shown next to each run (details).",
+        "CPU only: the MI300X half of B1 runs on the droplet (make bench DEVICE=gpu)."
+      ],
+      "schema": "returnring.bench/1",
+      "started_at": "2026-10-14T00:22:05Z",
+      "status": "measured",
+      "title": "XGBoost training and scoring on ASOS GraphReturns: CPU (MI300X pending)",
+      "versions": {
+        "numpy": "2.5.4",
+        "polars": "2.0.0",
+        "python": "3.12.3",
+        "sklearn": "1.9.1",
+        "xgboost": "3.2.0",
+        "xgboost_use_cuda": "False",
+        "xgboost_use_hip": "False"
+      }
+    },
+    "B2": {
+      "benchmark": "B2",
+      "config": {},
+      "dataset": "ASOS GraphReturns, paper and decision-time protocols (ADR-10)",
+      "details": {
+        "interface": "ml.gnn.b2_timing(raw_dir, *, protocol, device, seed) -> GnnTiming (bench/b2_gnn.py)"
+      },
+      "finished_at": "2026-10-14T00:39:32Z",
+      "hardware": {
+        "cpu": "Intel(R) Xeon(R) Processor @ 2.80GHz",
+        "in_container": false,
+        "kernel": "6.18.44-fc-v114",
+        "logical_cpus": 4,
+        "machine": "x86_64",
+        "memory_gib": 15.7
+      },
+      "measurements": [],
+      "notes": [
+        "ml.gnn is not in this checkout (US-202 is built in parallel): B2 skipped"
+      ],
+      "schema": "returnring.bench/1",
+      "started_at": "2026-10-14T00:39:32Z",
+      "status": "skipped",
+      "title": "GraphSAGE on ASOS GraphReturns: CPU against MI300X, F1",
+      "versions": {
+        "python": "3.12.3"
+      }
+    },
+    "B3": {
+      "benchmark": "B3",
+      "config": {
+        "batch_repeats": 2,
+        "batch_sizes": "1,8,32",
+        "concurrency": "1,8,32",
+        "cost_assumptions": "cost-v1",
+        "guided_json": "response_format json_schema strict (llm_output)",
+        "max_tokens": 1200,
+        "mode": "dry_run",
+        "model": "fake/gemma-dry-run",
+        "requests_per_level": 16,
+        "temperature": 0.2,
+        "timeout_s": 180.0,
+        "warmup": 2
+      },
+      "dataset": "623 llm_case inputs built by llm.case from the open returns of the synthetic Navigli Fashion store as of 2026-10-01, golden cases first",
+      "details": {
+        "batches": {
+          "1": {
+            "decisions": 2,
+            "decisions_per_second": 5.7071,
+            "failed": 0,
+            "fallbacks": {},
+            "latency_ms": {
+              "max": 189.7,
+              "mean": 175.2,
+              "min": 160.8,
+              "n": 2,
+              "p50": 175.2,
+              "p95": 188.2
+            },
+            "model_calls": 2,
+            "output_tokens": 556,
+            "output_tokens_per_decision": {
+              "max": 298.0,
+              "mean": 278.0,
+              "min": 258.0,
+              "n": 2,
+              "p50": 278.0,
+              "p95": 296.0
+            },
+            "output_tokens_per_second": 1586.56,
+            "paths": {
+              "model": 2
+            },
+            "per_request_tokens_per_second": {
+              "max": 1672.7,
+              "mean": 1648.89,
+              "min": 1625.08,
+              "n": 2,
+              "p50": 1648.89,
+              "p95": 1670.31
+            },
+            "prompt_tokens_per_call": {
+              "max": 1319.0,
+              "mean": 1232.0,
+              "min": 1145.0,
+              "n": 2,
+              "p50": 1232.0,
+              "p95": 1310.3
+            },
+            "wall_seconds": {
+              "max": 0.19,
+              "mean": 0.175,
+              "min": 0.161,
+              "n": 2,
+              "p50": 0.175,
+              "p95": 0.188
+            }
+          },
+          "32": {
+            "decisions": 64,
+            "decisions_per_second": 38.0722,
+            "failed": 0,
+            "fallbacks": {},
+            "latency_ms": {
+              "max": 537.0,
+              "mean": 230.5,
+              "min": 130.4,
+              "n": 64,
+              "p50": 194.1,
+              "p95": 454.1
+            },
+            "model_calls": 64,
+            "output_tokens": 10022,
+            "output_tokens_per_decision": {
+              "max": 269.0,
+              "mean": 156.6,
+              "min": 116.0,
+              "n": 64,
+              "p50": 116.0,
+              "p95": 244.8
+            },
+            "output_tokens_per_second": 5961.86,
+            "paths": {
+              "model": 64
+            },
+            "per_request_tokens_per_second": {
+              "max": 1150.55,
+              "mean": 746.3,
+              "min": 219.09,
+              "n": 64,
+              "p50": 761.9,
+              "p95": 1098.49
+            },
+            "prompt_tokens_per_call": {
+              "max": 1265.0,
+              "mean": 925.9,
+              "min": 819.0,
+              "n": 64,
+              "p50": 820.0,
+              "p95": 1187.3
+            },
+            "wall_seconds": {
+              "max": 0.851,
+              "mean": 0.841,
+              "min": 0.83,
+              "n": 2,
+              "p50": 0.841,
+              "p95": 0.85
+            }
+          },
+          "8": {
+            "decisions": 16,
+            "decisions_per_second": 26.2357,
+            "failed": 0,
+            "fallbacks": {},
+            "latency_ms": {
+              "max": 220.9,
+              "mean": 99.6,
+              "min": 83.8,
+              "n": 16,
+              "p50": 87.8,
+              "p95": 136.0
+            },
+            "model_calls": 16,
+            "output_tokens": 1998,
+            "output_tokens_per_decision": {
+              "max": 258.0,
+              "mean": 124.9,
+              "min": 116.0,
+              "n": 16,
+              "p50": 116.0,
+              "p95": 151.5
+            },
+            "output_tokens_per_second": 3276.18,
+            "paths": {
+              "model": 16
+            },
+            "per_request_tokens_per_second": {
+              "max": 1442.5,
+              "mean": 1314.65,
+              "min": 1115.36,
+              "n": 16,
+              "p50": 1366.32,
+              "p95": 1438.0
+            },
+            "prompt_tokens_per_call": {
+              "max": 1179.0,
+              "mean": 849.5,
+              "min": 819.0,
+              "n": 16,
+              "p50": 819.5,
+              "p95": 933.0
+            },
+            "wall_seconds": {
+              "max": 0.385,
+              "mean": 0.305,
+              "min": 0.225,
+              "n": 2,
+              "p50": 0.305,
+              "p95": 0.377
+            }
+          }
+        },
+        "cases": {
+          "as_of": "2026-10-01T00:00:00+00:00",
+          "by_decision": {
+            "Q1": 168,
+            "Q2": 202,
+            "Q3": 1,
+            "Q4": 22,
+            "guarantee": 142,
+            "insufficient": 88
+          },
+          "cases": 623,
+          "golden": [
+            "RET-0060361",
+            "RET-0060386",
+            "RET-0060411",
+            "RET-0060430",
+            "RET-0060525"
+          ],
+          "nature": "synthetic",
+          "origin": "ReturnRing risk scoring (ml.scoring, US-204): customer model risk-customer-xgboost-v1@2026-07-01T00:00Z, request model risk-request-xgboost-v1@2026-07-01T00:00Z; as of 2026-10-01T00:00:00+00:00",
+          "skipped": {}
+        },
+        "concurrency": {
+          "1": {
+            "decisions": 16,
+            "decisions_per_second": 7.3782,
+            "failed": 0,
+            "fallbacks": {},
+            "latency_ms": {
+              "max": 169.4,
+              "mean": 135.3,
+              "min": 83.5,
+              "n": 16,
+              "p50": 148.6,
+              "p95": 164.4
+            },
+            "model_calls": 16,
+            "output_tokens": 3365,
+            "output_tokens_per_decision": {
+              "max": 269.0,
+              "mean": 210.3,
+              "min": 116.0,
+              "n": 16,
+              "p50": 233.5,
+              "p95": 269.0
+            },
+            "output_tokens_per_second": 1551.73,
+            "paths": {
+              "model": 16
+            },
+            "per_request_tokens_per_second": {
+              "max": 1705.86,
+              "mean": 1603.43,
+              "min": 1363.33,
+              "n": 16,
+              "p50": 1672.13,
+              "p95": 1691.54
+            },
+            "prompt_tokens_per_call": {
+              "max": 1266.0,
+              "mean": 1069.2,
+              "min": 819.0,
+              "n": 16,
+              "p50": 1099.5,
+              "p95": 1265.2
+            },
+            "wall_seconds": {
+              "max": 2.169,
+              "mean": 2.169,
+              "min": 2.169,
+              "n": 1,
+              "p50": 2.169,
+              "p95": 2.169
+            }
+          },
+          "32": {
+            "decisions": 64,
+            "decisions_per_second": 46.6809,
+            "failed": 0,
+            "fallbacks": {},
+            "latency_ms": {
+              "max": 373.4,
+              "mean": 252.4,
+              "min": 128.2,
+              "n": 64,
+              "p50": 262.8,
+              "p95": 343.9
+            },
+            "model_calls": 64,
+            "output_tokens": 12304,
+            "output_tokens_per_decision": {
+              "max": 269.0,
+              "mean": 192.2,
+              "min": 116.0,
+              "n": 64,
+              "p50": 231.5,
+              "p95": 266.2
+            },
+            "output_tokens_per_second": 8974.41,
+            "paths": {
+              "model": 64
+            },
+            "per_request_tokens_per_second": {
+              "max": 1454.83,
+              "mean": 807.43,
+              "min": 382.84,
+              "n": 64,
+              "p50": 788.58,
+              "p95": 1166.39
+            },
+            "prompt_tokens_per_call": {
+              "max": 1265.0,
+              "mean": 1024.3,
+              "min": 819.0,
+              "n": 64,
+              "p50": 1096.0,
+              "p95": 1216.4
+            },
+            "wall_seconds": {
+              "max": 1.371,
+              "mean": 1.371,
+              "min": 1.371,
+              "n": 1,
+              "p50": 1.371,
+              "p95": 1.371
+            }
+          },
+          "8": {
+            "decisions": 16,
+            "decisions_per_second": 37.8384,
+            "failed": 0,
+            "fallbacks": {},
+            "latency_ms": {
+              "max": 189.3,
+              "mean": 126.9,
+              "min": 85.2,
+              "n": 16,
+              "p50": 128.6,
+              "p95": 174.7
+            },
+            "model_calls": 16,
+            "output_tokens": 2867,
+            "output_tokens_per_decision": {
+              "max": 270.0,
+              "mean": 179.2,
+              "min": 116.0,
+              "n": 16,
+              "p50": 173.0,
+              "p95": 251.2
+            },
+            "output_tokens_per_second": 6780.16,
+            "paths": {
+              "model": 16
+            },
+            "per_request_tokens_per_second": {
+              "max": 1631.78,
+              "mean": 1449.71,
+              "min": 1197.51,
+              "n": 16,
+              "p50": 1435.06,
+              "p95": 1624.15
+            },
+            "prompt_tokens_per_call": {
+              "max": 1267.0,
+              "mean": 987.6,
+              "min": 819.0,
+              "n": 16,
+              "p50": 961.0,
+              "p95": 1214.5
+            },
+            "wall_seconds": {
+              "max": 0.423,
+              "mean": 0.423,
+              "min": 0.423,
+              "n": 1,
+              "p50": 0.423,
+              "p95": 0.423
+            }
+          }
+        },
+        "cost": {
+          "assumptions": {
+            "billing": "per second while the droplet exists, powered on or off (assumption)",
+            "boot_seconds": "600",
+            "eur_per_usd": "0.86",
+            "eur_per_usd_source": "assumption, a round figure near the ECB EUR/USD reference rates of 2025-2026; replace with the ECB reference rate of the day before quoting a cost",
+            "idle_margin_seconds": "600",
+            "target_eur_per_decision": "0.01",
+            "usd_per_hour": "1.99",
+            "usd_per_hour_source": "AMD Developer Cloud MI300X droplet price in spec 10 and 11",
+            "version": "cost-v1",
+            "vllm_start_seconds_if_unmeasured": "600"
+          },
+          "declared_scenario": "nightly-batch",
+          "inputs": {
+            "decisions_per_day": "151.43",
+            "decisions_per_day_origin": "return requests per day in the 28 days before 2026-10-01 in the store B3 read (synthetic)",
+            "pipeline_seconds": null,
+            "seconds_per_decision": null,
+            "vllm_start_seconds": null
+          },
+          "scenarios": {
+            "always-on": {
+              "break_even_decisions_per_day": 4108,
+              "breakdown": {
+                "on_hours": "24"
+              },
+              "description": "Droplet on 24 hours a day",
+              "droplet_seconds_per_day": "86400.0",
+              "eur_per_1000_decisions": "271.24",
+              "eur_per_day": "41.07",
+              "eur_per_decision": "0.271238",
+              "meets_target": false,
+              "scenario": "always-on",
+              "target_eur_per_decision": "0.01",
+              "usd_per_day": "47.76"
+            },
+            "business-hours": {
+              "break_even_decisions_per_day": 2054,
+              "breakdown": {
+                "on_hours": "12"
+              },
+              "description": "Droplet on 12 hours a day for live generation, idle or busy",
+              "droplet_seconds_per_day": "43200.0",
+              "eur_per_1000_decisions": "135.62",
+              "eur_per_day": "20.54",
+              "eur_per_decision": "0.135619",
+              "meets_target": false,
+              "scenario": "business-hours",
+              "target_eur_per_decision": "0.01",
+              "usd_per_day": "23.88"
+            },
+            "nightly-batch": {
+              "scenario": "nightly-batch",
+              "unavailable": "nightly-batch needs the measured batch-32 generation rate (B3 live) and the measured nightly pipeline (B4)"
+            }
+          }
+        },
+        "fake_server": {
+          "latency_model": "0.02 s + tokens / 2000.0",
+          "max_in_flight": 32,
+          "requests": 180
+        },
+        "server": {
+          "max_model_len": 16384,
+          "served_model": "fake/gemma-dry-run",
+          "vllm_version": "fake-openai-0"
+        },
+        "warmup": {
+          "decisions": 2,
+          "decisions_per_second": 8.1807,
+          "failed": 0,
+          "fallbacks": {},
+          "latency_ms": {
+            "max": 157.1,
+            "mean": 122.2,
+            "min": 87.4,
+            "n": 2,
+            "p50": 122.2,
+            "p95": 153.6
+          },
+          "model_calls": 2,
+          "output_tokens": 353,
+          "output_tokens_per_decision": {
+            "max": 237.0,
+            "mean": 176.5,
+            "min": 116.0,
+            "n": 2,
+            "p50": 176.5,
+            "p95": 230.9
+          },
+          "output_tokens_per_second": 1443.89,
+          "paths": {
+            "model": 2
+          },
+          "per_request_tokens_per_second": {
+            "max": 1616.76,
+            "mean": 1516.17,
+            "min": 1415.58,
+            "n": 2,
+            "p50": 1516.17,
+            "p95": 1606.7
+          },
+          "prompt_tokens_per_call": {
+            "max": 1170.0,
+            "mean": 994.5,
+            "min": 819.0,
+            "n": 2,
+            "p50": 994.5,
+            "p95": 1152.5
+          },
+          "wall_seconds": {
+            "max": 0.157,
+            "mean": 0.122,
+            "min": 0.087,
+            "n": 2,
+            "p50": 0.122,
+            "p95": 0.154
+          }
+        }
+      },
+      "finished_at": "2026-10-14T00:48:44Z",
+      "hardware": {
+        "cpu": "Intel(R) Xeon(R) Processor @ 2.80GHz",
+        "in_container": false,
+        "kernel": "6.18.44-fc-v114",
+        "logical_cpus": 4,
+        "machine": "x86_64",
+        "memory_gib": 15.7
+      },
+      "measurements": [
+        {
+          "batch_size": 1,
+          "benchmark": "B3",
+          "concurrency": 1,
+          "data_nature": "synthetic",
+          "detail": {},
+          "device": "cpu",
+          "label": "First decision of the run (warm-up, not in the percentiles), one request",
+          "metric": "first_request_ms",
+          "phase": "cold_start",
+          "protocol": null,
+          "provenance": {
+            "nature": "simulated",
+            "origin": "B3, measured by bench through llm.client.VllmClient: Illustrative dry run against the local fake OpenAI-compatible server, not Gemma; inputs from the synthetic store",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": 1,
+          "rows": null,
+          "unit": "milliseconds",
+          "value": 87.4,
+          "warm": false
+        },
+        {
+          "batch_size": 1,
+          "benchmark": "B3",
+          "concurrency": 1,
+          "data_nature": "synthetic",
+          "detail": {
+            "latency_ms": {
+              "max": 189.7,
+              "mean": 175.2,
+              "min": 160.8,
+              "n": 2,
+              "p50": 175.2,
+              "p95": 188.2
+            }
+          },
+          "device": "cpu",
+          "label": "Latency p50 of one decision, batch 1 sent at once, 2 repeats (2 decisions)",
+          "metric": "latency_p50_ms_batch_1",
+          "phase": "generation",
+          "protocol": null,
+          "provenance": {
+            "nature": "simulated",
+            "origin": "B3, measured by bench through llm.client.VllmClient: Illustrative dry run against the local fake OpenAI-compatible server, not Gemma; inputs from the synthetic store",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": 2,
+          "rows": null,
+          "unit": "milliseconds",
+          "value": 175.2,
+          "warm": true
+        },
+        {
+          "batch_size": 1,
+          "benchmark": "B3",
+          "concurrency": 1,
+          "data_nature": "synthetic",
+          "detail": {
+            "latency_ms": {
+              "max": 189.7,
+              "mean": 175.2,
+              "min": 160.8,
+              "n": 2,
+              "p50": 175.2,
+              "p95": 188.2
+            }
+          },
+          "device": "cpu",
+          "label": "Latency p95 of one decision, batch 1 sent at once, 2 repeats (2 decisions)",
+          "metric": "latency_p95_ms_batch_1",
+          "phase": "generation",
+          "protocol": null,
+          "provenance": {
+            "nature": "simulated",
+            "origin": "B3, measured by bench through llm.client.VllmClient: Illustrative dry run against the local fake OpenAI-compatible server, not Gemma; inputs from the synthetic store",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": 2,
+          "rows": null,
+          "unit": "milliseconds",
+          "value": 188.2,
+          "warm": true
+        },
+        {
+          "batch_size": 1,
+          "benchmark": "B3",
+          "concurrency": 1,
+          "data_nature": "synthetic",
+          "detail": {},
+          "device": "cpu",
+          "label": "Wall time of a batch of 1 decisions (median of 2)",
+          "metric": "batch_wall_seconds_1",
+          "phase": "generation",
+          "protocol": null,
+          "provenance": {
+            "nature": "simulated",
+            "origin": "B3, measured by bench through llm.client.VllmClient: Illustrative dry run against the local fake OpenAI-compatible server, not Gemma; inputs from the synthetic store",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": 2,
+          "rows": null,
+          "unit": "seconds",
+          "value": 0.175,
+          "warm": true
+        },
+        {
+          "batch_size": 1,
+          "benchmark": "B3",
+          "concurrency": 1,
+          "data_nature": "synthetic",
+          "detail": {},
+          "device": "cpu",
+          "label": "Output tokens per second, aggregate, batch 1 sent at once, 2 repeats",
+          "metric": "output_tokens_per_second_batch_1",
+          "phase": "generation",
+          "protocol": null,
+          "provenance": {
+            "nature": "simulated",
+            "origin": "B3, measured by bench through llm.client.VllmClient: Illustrative dry run against the local fake OpenAI-compatible server, not Gemma; inputs from the synthetic store",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": 2,
+          "rows": null,
+          "unit": "tokens_per_second",
+          "value": 1586.56,
+          "warm": true
+        },
+        {
+          "batch_size": 8,
+          "benchmark": "B3",
+          "concurrency": 8,
+          "data_nature": "synthetic",
+          "detail": {
+            "latency_ms": {
+              "max": 220.9,
+              "mean": 99.6,
+              "min": 83.8,
+              "n": 16,
+              "p50": 87.8,
+              "p95": 136.0
+            }
+          },
+          "device": "cpu",
+          "label": "Latency p50 of one decision, batch 8 sent at once, 2 repeats (16 decisions)",
+          "metric": "latency_p50_ms_batch_8",
+          "phase": "generation",
+          "protocol": null,
+          "provenance": {
+            "nature": "simulated",
+            "origin": "B3, measured by bench through llm.client.VllmClient: Illustrative dry run against the local fake OpenAI-compatible server, not Gemma; inputs from the synthetic store",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": 16,
+          "rows": null,
+          "unit": "milliseconds",
+          "value": 87.8,
+          "warm": true
+        },
+        {
+          "batch_size": 8,
+          "benchmark": "B3",
+          "concurrency": 8,
+          "data_nature": "synthetic",
+          "detail": {
+            "latency_ms": {
+              "max": 220.9,
+              "mean": 99.6,
+              "min": 83.8,
+              "n": 16,
+              "p50": 87.8,
+              "p95": 136.0
+            }
+          },
+          "device": "cpu",
+          "label": "Latency p95 of one decision, batch 8 sent at once, 2 repeats (16 decisions)",
+          "metric": "latency_p95_ms_batch_8",
+          "phase": "generation",
+          "protocol": null,
+          "provenance": {
+            "nature": "simulated",
+            "origin": "B3, measured by bench through llm.client.VllmClient: Illustrative dry run against the local fake OpenAI-compatible server, not Gemma; inputs from the synthetic store",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": 16,
+          "rows": null,
+          "unit": "milliseconds",
+          "value": 136.0,
+          "warm": true
+        },
+        {
+          "batch_size": 8,
+          "benchmark": "B3",
+          "concurrency": 8,
+          "data_nature": "synthetic",
+          "detail": {},
+          "device": "cpu",
+          "label": "Wall time of a batch of 8 decisions (median of 2)",
+          "metric": "batch_wall_seconds_8",
+          "phase": "generation",
+          "protocol": null,
+          "provenance": {
+            "nature": "simulated",
+            "origin": "B3, measured by bench through llm.client.VllmClient: Illustrative dry run against the local fake OpenAI-compatible server, not Gemma; inputs from the synthetic store",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": 2,
+          "rows": null,
+          "unit": "seconds",
+          "value": 0.305,
+          "warm": true
+        },
+        {
+          "batch_size": 8,
+          "benchmark": "B3",
+          "concurrency": 8,
+          "data_nature": "synthetic",
+          "detail": {},
+          "device": "cpu",
+          "label": "Output tokens per second, aggregate, batch 8 sent at once, 2 repeats",
+          "metric": "output_tokens_per_second_batch_8",
+          "phase": "generation",
+          "protocol": null,
+          "provenance": {
+            "nature": "simulated",
+            "origin": "B3, measured by bench through llm.client.VllmClient: Illustrative dry run against the local fake OpenAI-compatible server, not Gemma; inputs from the synthetic store",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": 2,
+          "rows": null,
+          "unit": "tokens_per_second",
+          "value": 3276.18,
+          "warm": true
+        },
+        {
+          "batch_size": 32,
+          "benchmark": "B3",
+          "concurrency": 32,
+          "data_nature": "synthetic",
+          "detail": {
+            "latency_ms": {
+              "max": 537.0,
+              "mean": 230.5,
+              "min": 130.4,
+              "n": 64,
+              "p50": 194.1,
+              "p95": 454.1
+            }
+          },
+          "device": "cpu",
+          "label": "Latency p50 of one decision, batch 32 sent at once, 2 repeats (64 decisions)",
+          "metric": "latency_p50_ms_batch_32",
+          "phase": "generation",
+          "protocol": null,
+          "provenance": {
+            "nature": "simulated",
+            "origin": "B3, measured by bench through llm.client.VllmClient: Illustrative dry run against the local fake OpenAI-compatible server, not Gemma; inputs from the synthetic store",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": 64,
+          "rows": null,
+          "unit": "milliseconds",
+          "value": 194.1,
+          "warm": true
+        },
+        {
+          "batch_size": 32,
+          "benchmark": "B3",
+          "concurrency": 32,
+          "data_nature": "synthetic",
+          "detail": {
+            "latency_ms": {
+              "max": 537.0,
+              "mean": 230.5,
+              "min": 130.4,
+              "n": 64,
+              "p50": 194.1,
+              "p95": 454.1
+            }
+          },
+          "device": "cpu",
+          "label": "Latency p95 of one decision, batch 32 sent at once, 2 repeats (64 decisions)",
+          "metric": "latency_p95_ms_batch_32",
+          "phase": "generation",
+          "protocol": null,
+          "provenance": {
+            "nature": "simulated",
+            "origin": "B3, measured by bench through llm.client.VllmClient: Illustrative dry run against the local fake OpenAI-compatible server, not Gemma; inputs from the synthetic store",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": 64,
+          "rows": null,
+          "unit": "milliseconds",
+          "value": 454.1,
+          "warm": true
+        },
+        {
+          "batch_size": 32,
+          "benchmark": "B3",
+          "concurrency": 32,
+          "data_nature": "synthetic",
+          "detail": {},
+          "device": "cpu",
+          "label": "Wall time of a batch of 32 decisions (median of 2)",
+          "metric": "batch_wall_seconds_32",
+          "phase": "generation",
+          "protocol": null,
+          "provenance": {
+            "nature": "simulated",
+            "origin": "B3, measured by bench through llm.client.VllmClient: Illustrative dry run against the local fake OpenAI-compatible server, not Gemma; inputs from the synthetic store",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": 2,
+          "rows": null,
+          "unit": "seconds",
+          "value": 0.841,
+          "warm": true
+        },
+        {
+          "batch_size": 32,
+          "benchmark": "B3",
+          "concurrency": 32,
+          "data_nature": "synthetic",
+          "detail": {},
+          "device": "cpu",
+          "label": "Output tokens per second, aggregate, batch 32 sent at once, 2 repeats",
+          "metric": "output_tokens_per_second_batch_32",
+          "phase": "generation",
+          "protocol": null,
+          "provenance": {
+            "nature": "simulated",
+            "origin": "B3, measured by bench through llm.client.VllmClient: Illustrative dry run against the local fake OpenAI-compatible server, not Gemma; inputs from the synthetic store",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": 2,
+          "rows": null,
+          "unit": "tokens_per_second",
+          "value": 5961.86,
+          "warm": true
+        },
+        {
+          "batch_size": null,
+          "benchmark": "B3",
+          "concurrency": 1,
+          "data_nature": "synthetic",
+          "detail": {
+            "latency_ms": {
+              "max": 169.4,
+              "mean": 135.3,
+              "min": 83.5,
+              "n": 16,
+              "p50": 148.6,
+              "p95": 164.4
+            }
+          },
+          "device": "cpu",
+          "label": "Latency p50 of one decision, concurrency 1, 16 decisions in a closed loop",
+          "metric": "latency_p50_ms_concurrency_1",
+          "phase": "generation",
+          "protocol": null,
+          "provenance": {
+            "nature": "simulated",
+            "origin": "B3, measured by bench through llm.client.VllmClient: Illustrative dry run against the local fake OpenAI-compatible server, not Gemma; inputs from the synthetic store",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": 16,
+          "rows": null,
+          "unit": "milliseconds",
+          "value": 148.6,
+          "warm": true
+        },
+        {
+          "batch_size": null,
+          "benchmark": "B3",
+          "concurrency": 1,
+          "data_nature": "synthetic",
+          "detail": {
+            "latency_ms": {
+              "max": 169.4,
+              "mean": 135.3,
+              "min": 83.5,
+              "n": 16,
+              "p50": 148.6,
+              "p95": 164.4
+            }
+          },
+          "device": "cpu",
+          "label": "Latency p95 of one decision, concurrency 1, 16 decisions in a closed loop",
+          "metric": "latency_p95_ms_concurrency_1",
+          "phase": "generation",
+          "protocol": null,
+          "provenance": {
+            "nature": "simulated",
+            "origin": "B3, measured by bench through llm.client.VllmClient: Illustrative dry run against the local fake OpenAI-compatible server, not Gemma; inputs from the synthetic store",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": 16,
+          "rows": null,
+          "unit": "milliseconds",
+          "value": 164.4,
+          "warm": true
+        },
+        {
+          "batch_size": null,
+          "benchmark": "B3",
+          "concurrency": 1,
+          "data_nature": "synthetic",
+          "detail": {},
+          "device": "cpu",
+          "label": "Output tokens per second, aggregate, concurrency 1, 16 decisions in a closed loop",
+          "metric": "output_tokens_per_second_concurrency_1",
+          "phase": "generation",
+          "protocol": null,
+          "provenance": {
+            "nature": "simulated",
+            "origin": "B3, measured by bench through llm.client.VllmClient: Illustrative dry run against the local fake OpenAI-compatible server, not Gemma; inputs from the synthetic store",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": 1,
+          "rows": null,
+          "unit": "tokens_per_second",
+          "value": 1551.73,
+          "warm": true
+        },
+        {
+          "batch_size": null,
+          "benchmark": "B3",
+          "concurrency": 1,
+          "data_nature": "synthetic",
+          "detail": {},
+          "device": "cpu",
+          "label": "Output tokens per second of one request (median, prefill included), concurrency 1, 16 decisions in a closed loop",
+          "metric": "request_tokens_per_second_concurrency_1",
+          "phase": "generation",
+          "protocol": null,
+          "provenance": {
+            "nature": "simulated",
+            "origin": "B3, measured by bench through llm.client.VllmClient: Illustrative dry run against the local fake OpenAI-compatible server, not Gemma; inputs from the synthetic store",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": 16,
+          "rows": null,
+          "unit": "tokens_per_second",
+          "value": 1672.13,
+          "warm": true
+        },
+        {
+          "batch_size": null,
+          "benchmark": "B3",
+          "concurrency": 8,
+          "data_nature": "synthetic",
+          "detail": {
+            "latency_ms": {
+              "max": 189.3,
+              "mean": 126.9,
+              "min": 85.2,
+              "n": 16,
+              "p50": 128.6,
+              "p95": 174.7
+            }
+          },
+          "device": "cpu",
+          "label": "Latency p50 of one decision, concurrency 8, 16 decisions in a closed loop",
+          "metric": "latency_p50_ms_concurrency_8",
+          "phase": "generation",
+          "protocol": null,
+          "provenance": {
+            "nature": "simulated",
+            "origin": "B3, measured by bench through llm.client.VllmClient: Illustrative dry run against the local fake OpenAI-compatible server, not Gemma; inputs from the synthetic store",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": 16,
+          "rows": null,
+          "unit": "milliseconds",
+          "value": 128.6,
+          "warm": true
+        },
+        {
+          "batch_size": null,
+          "benchmark": "B3",
+          "concurrency": 8,
+          "data_nature": "synthetic",
+          "detail": {
+            "latency_ms": {
+              "max": 189.3,
+              "mean": 126.9,
+              "min": 85.2,
+              "n": 16,
+              "p50": 128.6,
+              "p95": 174.7
+            }
+          },
+          "device": "cpu",
+          "label": "Latency p95 of one decision, concurrency 8, 16 decisions in a closed loop",
+          "metric": "latency_p95_ms_concurrency_8",
+          "phase": "generation",
+          "protocol": null,
+          "provenance": {
+            "nature": "simulated",
+            "origin": "B3, measured by bench through llm.client.VllmClient: Illustrative dry run against the local fake OpenAI-compatible server, not Gemma; inputs from the synthetic store",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": 16,
+          "rows": null,
+          "unit": "milliseconds",
+          "value": 174.7,
+          "warm": true
+        },
+        {
+          "batch_size": null,
+          "benchmark": "B3",
+          "concurrency": 8,
+          "data_nature": "synthetic",
+          "detail": {},
+          "device": "cpu",
+          "label": "Output tokens per second, aggregate, concurrency 8, 16 decisions in a closed loop",
+          "metric": "output_tokens_per_second_concurrency_8",
+          "phase": "generation",
+          "protocol": null,
+          "provenance": {
+            "nature": "simulated",
+            "origin": "B3, measured by bench through llm.client.VllmClient: Illustrative dry run against the local fake OpenAI-compatible server, not Gemma; inputs from the synthetic store",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": 1,
+          "rows": null,
+          "unit": "tokens_per_second",
+          "value": 6780.16,
+          "warm": true
+        },
+        {
+          "batch_size": null,
+          "benchmark": "B3",
+          "concurrency": 8,
+          "data_nature": "synthetic",
+          "detail": {},
+          "device": "cpu",
+          "label": "Output tokens per second of one request (median, prefill included), concurrency 8, 16 decisions in a closed loop",
+          "metric": "request_tokens_per_second_concurrency_8",
+          "phase": "generation",
+          "protocol": null,
+          "provenance": {
+            "nature": "simulated",
+            "origin": "B3, measured by bench through llm.client.VllmClient: Illustrative dry run against the local fake OpenAI-compatible server, not Gemma; inputs from the synthetic store",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": 16,
+          "rows": null,
+          "unit": "tokens_per_second",
+          "value": 1435.06,
+          "warm": true
+        },
+        {
+          "batch_size": null,
+          "benchmark": "B3",
+          "concurrency": 32,
+          "data_nature": "synthetic",
+          "detail": {
+            "latency_ms": {
+              "max": 373.4,
+              "mean": 252.4,
+              "min": 128.2,
+              "n": 64,
+              "p50": 262.8,
+              "p95": 343.9
+            }
+          },
+          "device": "cpu",
+          "label": "Latency p50 of one decision, concurrency 32, 64 decisions in a closed loop",
+          "metric": "latency_p50_ms_concurrency_32",
+          "phase": "generation",
+          "protocol": null,
+          "provenance": {
+            "nature": "simulated",
+            "origin": "B3, measured by bench through llm.client.VllmClient: Illustrative dry run against the local fake OpenAI-compatible server, not Gemma; inputs from the synthetic store",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": 64,
+          "rows": null,
+          "unit": "milliseconds",
+          "value": 262.8,
+          "warm": true
+        },
+        {
+          "batch_size": null,
+          "benchmark": "B3",
+          "concurrency": 32,
+          "data_nature": "synthetic",
+          "detail": {
+            "latency_ms": {
+              "max": 373.4,
+              "mean": 252.4,
+              "min": 128.2,
+              "n": 64,
+              "p50": 262.8,
+              "p95": 343.9
+            }
+          },
+          "device": "cpu",
+          "label": "Latency p95 of one decision, concurrency 32, 64 decisions in a closed loop",
+          "metric": "latency_p95_ms_concurrency_32",
+          "phase": "generation",
+          "protocol": null,
+          "provenance": {
+            "nature": "simulated",
+            "origin": "B3, measured by bench through llm.client.VllmClient: Illustrative dry run against the local fake OpenAI-compatible server, not Gemma; inputs from the synthetic store",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": 64,
+          "rows": null,
+          "unit": "milliseconds",
+          "value": 343.9,
+          "warm": true
+        },
+        {
+          "batch_size": null,
+          "benchmark": "B3",
+          "concurrency": 32,
+          "data_nature": "synthetic",
+          "detail": {},
+          "device": "cpu",
+          "label": "Output tokens per second, aggregate, concurrency 32, 64 decisions in a closed loop",
+          "metric": "output_tokens_per_second_concurrency_32",
+          "phase": "generation",
+          "protocol": null,
+          "provenance": {
+            "nature": "simulated",
+            "origin": "B3, measured by bench through llm.client.VllmClient: Illustrative dry run against the local fake OpenAI-compatible server, not Gemma; inputs from the synthetic store",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": 1,
+          "rows": null,
+          "unit": "tokens_per_second",
+          "value": 8974.41,
+          "warm": true
+        },
+        {
+          "batch_size": null,
+          "benchmark": "B3",
+          "concurrency": 32,
+          "data_nature": "synthetic",
+          "detail": {},
+          "device": "cpu",
+          "label": "Output tokens per second of one request (median, prefill included), concurrency 32, 64 decisions in a closed loop",
+          "metric": "request_tokens_per_second_concurrency_32",
+          "phase": "generation",
+          "protocol": null,
+          "provenance": {
+            "nature": "simulated",
+            "origin": "B3, measured by bench through llm.client.VllmClient: Illustrative dry run against the local fake OpenAI-compatible server, not Gemma; inputs from the synthetic store",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": 64,
+          "rows": null,
+          "unit": "tokens_per_second",
+          "value": 788.58,
+          "warm": true
+        },
+        {
+          "batch_size": null,
+          "benchmark": "B3",
+          "concurrency": null,
+          "data_nature": "synthetic",
+          "detail": {
+            "break_even_decisions_per_day": 2054,
+            "breakdown": {
+              "on_hours": "12"
+            },
+            "description": "Droplet on 12 hours a day for live generation, idle or busy",
+            "droplet_seconds_per_day": "43200.0",
+            "eur_per_1000_decisions": "135.62",
+            "eur_per_day": "20.54",
+            "eur_per_decision": "0.135619",
+            "meets_target": false,
+            "scenario": "business-hours",
+            "target_eur_per_decision": "0.01",
+            "usd_per_day": "23.88"
+          },
+          "device": "mi300x",
+          "label": "Cost per 1,000 decisions, scenario business-hours (cost-v1): 0.135619 EUR per decision, target 0.01; break-even 2054 decisions per day",
+          "metric": "cost_eur_per_1000_decisions_business_hours",
+          "phase": "cost",
+          "protocol": null,
+          "provenance": {
+            "nature": "simulated",
+            "origin": "B3 cost, simulated from cost-v1: 23.88 USD per day at 1.99 USD/h, 0.86 EUR/USD (assumed), 151.43 decisions per day (synthetic store)",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": null,
+          "rows": null,
+          "unit": "eur",
+          "value": 135.62,
+          "warm": null
+        },
+        {
+          "batch_size": null,
+          "benchmark": "B3",
+          "concurrency": null,
+          "data_nature": "synthetic",
+          "detail": {
+            "break_even_decisions_per_day": 4108,
+            "breakdown": {
+              "on_hours": "24"
+            },
+            "description": "Droplet on 24 hours a day",
+            "droplet_seconds_per_day": "86400.0",
+            "eur_per_1000_decisions": "271.24",
+            "eur_per_day": "41.07",
+            "eur_per_decision": "0.271238",
+            "meets_target": false,
+            "scenario": "always-on",
+            "target_eur_per_decision": "0.01",
+            "usd_per_day": "47.76"
+          },
+          "device": "mi300x",
+          "label": "Cost per 1,000 decisions, scenario always-on (cost-v1): 0.271238 EUR per decision, target 0.01; break-even 4108 decisions per day",
+          "metric": "cost_eur_per_1000_decisions_always_on",
+          "phase": "cost",
+          "protocol": null,
+          "provenance": {
+            "nature": "simulated",
+            "origin": "B3 cost, simulated from cost-v1: 47.76 USD per day at 1.99 USD/h, 0.86 EUR/USD (assumed), 151.43 decisions per day (synthetic store)",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": null,
+          "rows": null,
+          "unit": "eur",
+          "value": 271.24,
+          "warm": null
+        }
+      ],
+      "notes": [
+        "Dry run against bench.fake_vllm on 127.0.0.1: simulated numbers that check the harness; no Gemma, no MI300X."
+      ],
+      "schema": "returnring.bench/1",
+      "started_at": "2026-10-14T00:48:33Z",
+      "status": "dry_run",
+      "title": "Gemma on vLLM: latency, throughput and cost per decision (dry run, fake server)",
+      "versions": {
+        "python": "3.12.3",
+        "served_model": "fake/gemma-dry-run",
+        "vllm_version": "fake-openai-0"
+      }
+    },
+    "B4": {
+      "benchmark": "B4",
+      "config": {
+        "cpu": "Intel(R) Xeon(R) Processor @ 2.80GHz",
+        "device": "cpu",
+        "generation_concurrency": 32,
+        "gpu_sampler": "none",
+        "llm_mode": "mock",
+        "logical_cpus": 4,
+        "sample_interval_s": 5.0,
+        "scale": 1.0,
+        "seed": 42,
+        "steps": "generate,graph,features,anomalies,risk,scoring,batch_generation"
+      },
+      "dataset": "Navigli Fashion synthetic store generated from the committed ASOS calibration, seed 42, scale 1 (main and OOD scenarios)",
+      "details": {
+        "gpu_timeline": [],
+        "gpu_whole_pipeline": null,
+        "steps": [
+          {
+            "commands": [
+              {
+                "argv": [
+                  "python",
+                  "-m",
+                  "pipeline.generator",
+                  "--calibration",
+                  "pipeline/calibration/asos_calibration.json",
+                  "--out",
+                  "bench-work/20261014T002158Z-cpu/data",
+                  "--seed",
+                  "42",
+                  "--scale",
+                  "1",
+                  "--scenario",
+                  "main"
+                ],
+                "exit_code": 0,
+                "log": "artifacts/bench/20261014T002158Z-cpu/b4-logs/generate-1.log",
+                "seconds": 12.956
+              },
+              {
+                "argv": [
+                  "python",
+                  "-m",
+                  "pipeline.generator",
+                  "--calibration",
+                  "pipeline/calibration/asos_calibration.json",
+                  "--out",
+                  "bench-work/20261014T002158Z-cpu/data",
+                  "--seed",
+                  "42",
+                  "--scale",
+                  "1",
+                  "--scenario",
+                  "ood"
+                ],
+                "exit_code": 0,
+                "log": "artifacts/bench/20261014T002158Z-cpu/b4-logs/generate-2.log",
+                "seconds": 12.864
+              }
+            ],
+            "end_unix": 1791938980.8971515,
+            "gpu": null,
+            "name": "generate",
+            "ok": true,
+            "seconds": 25.82,
+            "start_unix": 1791938955.0767114,
+            "title": "synthetic store, main and OOD scenarios (stand-in for the nightly ingest)"
+          },
+          {
+            "commands": [
+              {
+                "argv": [
+                  "python",
+                  "-m",
+                  "pipeline.graph",
+                  "--store",
+                  "bench-work/20261014T002158Z-cpu/data"
+                ],
+                "exit_code": 0,
+                "log": "artifacts/bench/20261014T002158Z-cpu/b4-logs/graph-1.log",
+                "seconds": 2.485
+              },
+              {
+                "argv": [
+                  "python",
+                  "-m",
+                  "pipeline.graph",
+                  "--store",
+                  "bench-work/20261014T002158Z-cpu/data/ood"
+                ],
+                "exit_code": 0,
+                "log": "artifacts/bench/20261014T002158Z-cpu/b4-logs/graph-2.log",
+                "seconds": 2.242
+              }
+            ],
+            "end_unix": 1791938985.6244204,
+            "gpu": null,
+            "name": "graph",
+            "ok": true,
+            "seconds": 4.727,
+            "start_unix": 1791938980.8972213,
+            "title": "account graph and clusters, main and OOD"
+          },
+          {
+            "commands": [
+              {
+                "argv": [
+                  "python",
+                  "-m",
+                  "pipeline.features",
+                  "--store",
+                  "bench-work/20261014T002158Z-cpu/data",
+                  "--out",
+                  "bench-work/20261014T002158Z-cpu/data"
+                ],
+                "exit_code": 0,
+                "log": "artifacts/bench/20261014T002158Z-cpu/b4-logs/features-1.log",
+                "seconds": 120.558
+              },
+              {
+                "argv": [
+                  "python",
+                  "-m",
+                  "pipeline.features",
+                  "--store",
+                  "bench-work/20261014T002158Z-cpu/data/ood",
+                  "--out",
+                  "bench-work/20261014T002158Z-cpu/data/ood",
+                  "--source",
+                  "bench-work/20261014T002158Z-cpu/data"
+                ],
+                "exit_code": 0,
+                "log": "artifacts/bench/20261014T002158Z-cpu/b4-logs/features-2.log",
+                "seconds": 125.589
+              }
+            ],
+            "end_unix": 1791939231.7722929,
+            "gpu": null,
+            "name": "features",
+            "ok": true,
+            "seconds": 246.148,
+            "start_unix": 1791938985.6244745,
+            "title": "customer features, value and evidence snapshots, main and OOD"
+          },
+          {
+            "commands": [
+              {
+                "argv": [
+                  "python",
+                  "-m",
+                  "pipeline.anomalies",
+                  "--store",
+                  "bench-work/20261014T002158Z-cpu/data",
+                  "--out",
+                  "bench-work/20261014T002158Z-cpu/data"
+                ],
+                "exit_code": 0,
+                "log": "artifacts/bench/20261014T002158Z-cpu/b4-logs/anomalies-1.log",
+                "seconds": 33.453
+              },
+              {
+                "argv": [
+                  "python",
+                  "-m",
+                  "pipeline.anomalies",
+                  "--store",
+                  "bench-work/20261014T002158Z-cpu/data/ood",
+                  "--out",
+                  "bench-work/20261014T002158Z-cpu/data/ood"
+                ],
+                "exit_code": 0,
+                "log": "artifacts/bench/20261014T002158Z-cpu/b4-logs/anomalies-2.log",
+                "seconds": 31.214
+              }
+            ],
+            "end_unix": 1791939296.439441,
+            "gpu": null,
+            "name": "anomalies",
+            "ok": true,
+            "seconds": 64.667,
+            "start_unix": 1791939231.7723658,
+            "title": "product anomalies, main and OOD"
+          },
+          {
+            "commands": [
+              {
+                "argv": [
+                  "python",
+                  "-m",
+                  "ml.risk",
+                  "--data",
+                  "bench-work/20261014T002158Z-cpu/data",
+                  "--out",
+                  "bench-work/20261014T002158Z-cpu/artifacts",
+                  "--scores",
+                  "bench-work/20261014T002158Z-cpu/data",
+                  "--results",
+                  "bench-work/20261014T002158Z-cpu/artifacts/us-204-risk.md"
+                ],
+                "exit_code": 0,
+                "log": "artifacts/bench/20261014T002158Z-cpu/b4-logs/risk-1.log",
+                "seconds": 150.319
+              }
+            ],
+            "end_unix": 1791939446.759025,
+            "gpu": null,
+            "name": "risk",
+            "ok": true,
+            "seconds": 150.32,
+            "start_unix": 1791939296.4394913,
+            "title": "risk models: training, evaluation and batch scores (offline job)"
+          },
+          {
+            "commands": [
+              {
+                "argv": [
+                  "python",
+                  "-m",
+                  "ml.scoring",
+                  "--data",
+                  "bench-work/20261014T002158Z-cpu/data",
+                  "--models",
+                  "bench-work/20261014T002158Z-cpu/artifacts/risk/models",
+                  "--out",
+                  "bench-work/20261014T002158Z-cpu/data",
+                  "--fairness",
+                  "bench-work/20261014T002158Z-cpu/artifacts/eval/scores/fairness.json"
+                ],
+                "exit_code": 0,
+                "log": "artifacts/bench/20261014T002158Z-cpu/b4-logs/scoring-1.log",
+                "seconds": 19.864
+              }
+            ],
+            "end_unix": 1791939466.623208,
+            "gpu": null,
+            "name": "scoring",
+            "ok": true,
+            "seconds": 19.864,
+            "start_unix": 1791939446.7591102,
+            "title": "batch scoring with the saved models at the last snapshot"
+          },
+          {
+            "commands": [
+              {
+                "argv": [
+                  "python",
+                  "-m",
+                  "bench.batch_generation",
+                  "--data",
+                  "bench-work/20261014T002158Z-cpu/data",
+                  "--out",
+                  "bench-work/20261014T002158Z-cpu/artifacts/generation.jsonl",
+                  "--concurrency",
+                  "32"
+                ],
+                "exit_code": 0,
+                "log": "artifacts/bench/20261014T002158Z-cpu/b4-logs/batch_generation-1.log",
+                "seconds": 5.75
+              }
+            ],
+            "end_unix": 1791939472.3729434,
+            "gpu": null,
+            "name": "batch_generation",
+            "ok": true,
+            "seconds": 5.75,
+            "start_unix": 1791939466.6232576,
+            "title": "drafts of every open return through llm.generate (ADR-03)"
+          }
+        ]
+      },
+      "finished_at": "2026-10-14T00:57:52Z",
+      "hardware": {
+        "cpu": "Intel(R) Xeon(R) Processor @ 2.80GHz",
+        "in_container": false,
+        "kernel": "6.18.44-fc-v114",
+        "logical_cpus": 4,
+        "machine": "x86_64",
+        "memory_gib": 15.7
+      },
+      "measurements": [
+        {
+          "batch_size": null,
+          "benchmark": "B4",
+          "concurrency": null,
+          "data_nature": "synthetic",
+          "detail": {
+            "commands": [
+              12.956,
+              12.864
+            ]
+          },
+          "device": "cpu",
+          "label": "Nightly pipeline step generate: synthetic store, main and OOD scenarios (stand-in for the nightly ingest)",
+          "metric": "step_seconds_generate",
+          "phase": "pipeline",
+          "protocol": null,
+          "provenance": {
+            "nature": "real",
+            "origin": "B4, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 CPUs: wall time of each nightly pipeline step (seed 42, scale 1); no GPU sampling",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": 1,
+          "rows": null,
+          "unit": "seconds",
+          "value": 25.82,
+          "warm": false
+        },
+        {
+          "batch_size": null,
+          "benchmark": "B4",
+          "concurrency": null,
+          "data_nature": "synthetic",
+          "detail": {
+            "commands": [
+              2.485,
+              2.242
+            ]
+          },
+          "device": "cpu",
+          "label": "Nightly pipeline step graph: account graph and clusters, main and OOD",
+          "metric": "step_seconds_graph",
+          "phase": "pipeline",
+          "protocol": null,
+          "provenance": {
+            "nature": "real",
+            "origin": "B4, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 CPUs: wall time of each nightly pipeline step (seed 42, scale 1); no GPU sampling",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": 1,
+          "rows": null,
+          "unit": "seconds",
+          "value": 4.727,
+          "warm": false
+        },
+        {
+          "batch_size": null,
+          "benchmark": "B4",
+          "concurrency": null,
+          "data_nature": "synthetic",
+          "detail": {
+            "commands": [
+              120.558,
+              125.589
+            ]
+          },
+          "device": "cpu",
+          "label": "Nightly pipeline step features: customer features, value and evidence snapshots, main and OOD",
+          "metric": "step_seconds_features",
+          "phase": "pipeline",
+          "protocol": null,
+          "provenance": {
+            "nature": "real",
+            "origin": "B4, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 CPUs: wall time of each nightly pipeline step (seed 42, scale 1); no GPU sampling",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": 1,
+          "rows": null,
+          "unit": "seconds",
+          "value": 246.148,
+          "warm": false
+        },
+        {
+          "batch_size": null,
+          "benchmark": "B4",
+          "concurrency": null,
+          "data_nature": "synthetic",
+          "detail": {
+            "commands": [
+              33.453,
+              31.214
+            ]
+          },
+          "device": "cpu",
+          "label": "Nightly pipeline step anomalies: product anomalies, main and OOD",
+          "metric": "step_seconds_anomalies",
+          "phase": "pipeline",
+          "protocol": null,
+          "provenance": {
+            "nature": "real",
+            "origin": "B4, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 CPUs: wall time of each nightly pipeline step (seed 42, scale 1); no GPU sampling",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": 1,
+          "rows": null,
+          "unit": "seconds",
+          "value": 64.667,
+          "warm": false
+        },
+        {
+          "batch_size": null,
+          "benchmark": "B4",
+          "concurrency": null,
+          "data_nature": "synthetic",
+          "detail": {
+            "commands": [
+              150.319
+            ]
+          },
+          "device": "cpu",
+          "label": "Nightly pipeline step risk: risk models: training, evaluation and batch scores (offline job)",
+          "metric": "step_seconds_risk",
+          "phase": "pipeline",
+          "protocol": null,
+          "provenance": {
+            "nature": "real",
+            "origin": "B4, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 CPUs: wall time of each nightly pipeline step (seed 42, scale 1); no GPU sampling",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": 1,
+          "rows": null,
+          "unit": "seconds",
+          "value": 150.32,
+          "warm": false
+        },
+        {
+          "batch_size": null,
+          "benchmark": "B4",
+          "concurrency": null,
+          "data_nature": "synthetic",
+          "detail": {
+            "commands": [
+              19.864
+            ]
+          },
+          "device": "cpu",
+          "label": "Nightly pipeline step scoring: batch scoring with the saved models at the last snapshot",
+          "metric": "step_seconds_scoring",
+          "phase": "pipeline",
+          "protocol": null,
+          "provenance": {
+            "nature": "real",
+            "origin": "B4, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 CPUs: wall time of each nightly pipeline step (seed 42, scale 1); no GPU sampling",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": 1,
+          "rows": null,
+          "unit": "seconds",
+          "value": 19.864,
+          "warm": false
+        },
+        {
+          "batch_size": null,
+          "benchmark": "B4",
+          "concurrency": null,
+          "data_nature": "synthetic",
+          "detail": {
+            "commands": [
+              5.75
+            ]
+          },
+          "device": "cpu",
+          "label": "Nightly pipeline step batch_generation: drafts of every open return through llm.generate (ADR-03)",
+          "metric": "step_seconds_batch_generation",
+          "phase": "pipeline",
+          "protocol": null,
+          "provenance": {
+            "nature": "real",
+            "origin": "B4, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 CPUs: wall time of each nightly pipeline step (seed 42, scale 1); no GPU sampling",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": 1,
+          "rows": null,
+          "unit": "seconds",
+          "value": 5.75,
+          "warm": false
+        },
+        {
+          "batch_size": null,
+          "benchmark": "B4",
+          "concurrency": null,
+          "data_nature": "synthetic",
+          "detail": {},
+          "device": "cpu",
+          "label": "Nightly pipeline, 7 steps one after the other: generate, graph, features, anomalies, risk, scoring, batch_generation",
+          "metric": "pipeline_seconds_total",
+          "phase": "pipeline",
+          "protocol": null,
+          "provenance": {
+            "nature": "real",
+            "origin": "B4, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 CPUs: wall time of each nightly pipeline step (seed 42, scale 1); no GPU sampling",
+            "period_end": "2026-10-14",
+            "period_start": "2026-10-14"
+          },
+          "repeats": 1,
+          "rows": null,
+          "unit": "seconds",
+          "value": 517.296,
+          "warm": false
+        }
+      ],
+      "notes": [
+        "Steps run one after the other in one container or machine, as `make pipeline`, `make score` and the batch generation would; the store is generated (a stand-in for the nightly ingest).",
+        "batch_generation ran with the mock model (LLM_MODE=mock): it times case building and validation, not a language model.",
+        "No GPU sampling in this run (CPU only)."
+      ],
+      "schema": "returnring.bench/1",
+      "started_at": "2026-10-14T00:49:15Z",
+      "status": "measured",
+      "title": "Nightly pipeline: duration per step and GPU utilisation (CPU, no GPU)",
+      "versions": {
+        "networkx": "3.7",
+        "numpy": "2.5.4",
+        "polars": "2.0.0",
+        "pyarrow": "26.0.0",
+        "python": "3.12.3",
+        "sklearn": "1.9.1",
+        "xgboost": "3.2.0"
+      }
+    }
+  },
+  "created_at": "2026-10-14T00:57:55Z",
+  "device": "cpu",
+  "git": {
+    "commit": "9125fc2c57f2fe2c79366a4a2d3ac2d37e525dee",
+    "dirty": true
+  },
+  "hardware": {
+    "B1": {
+      "cpu": "Intel(R) Xeon(R) Processor @ 2.80GHz",
+      "in_container": false,
+      "kernel": "6.18.44-fc-v114",
+      "logical_cpus": 4,
+      "machine": "x86_64",
+      "memory_gib": 15.7
+    },
+    "B2": {
+      "cpu": "Intel(R) Xeon(R) Processor @ 2.80GHz",
+      "in_container": false,
+      "kernel": "6.18.44-fc-v114",
+      "logical_cpus": 4,
+      "machine": "x86_64",
+      "memory_gib": 15.7
+    },
+    "B3": {
+      "cpu": "Intel(R) Xeon(R) Processor @ 2.80GHz",
+      "in_container": false,
+      "kernel": "6.18.44-fc-v114",
+      "logical_cpus": 4,
+      "machine": "x86_64",
+      "memory_gib": 15.7
+    },
+    "B4": {
+      "cpu": "Intel(R) Xeon(R) Processor @ 2.80GHz",
+      "in_container": false,
+      "kernel": "6.18.44-fc-v114",
+      "logical_cpus": 4,
+      "machine": "x86_64",
+      "memory_gib": 15.7
+    }
+  },
+  "measurements": [
+    {
+      "batch_size": null,
+      "benchmark": "B1",
+      "concurrency": null,
+      "data_nature": "real",
+      "detail": {},
+      "device": "cpu",
+      "label": "Cold start: first training call on the cpu in the process (20,000 rows, 10 rounds), device initialisation included",
+      "metric": "cold_start_seconds",
+      "phase": "cold_start",
+      "protocol": null,
+      "provenance": {
+        "nature": "real",
+        "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol A and B (ADR-10)",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": 1,
+      "rows": 20000,
+      "unit": "seconds",
+      "value": 11.272,
+      "warm": false
+    },
+    {
+      "batch_size": null,
+      "benchmark": "B1",
+      "concurrency": null,
+      "data_nature": "real",
+      "detail": {
+        "device_effective": "cpu",
+        "dmatrix_seconds_median": 0.239,
+        "rounds_run": 78,
+        "seconds_per_100_rounds_median": 127.518,
+        "validation_auc_median": 0.823091,
+        "validation_logloss_median": 0.504294
+      },
+      "device": "cpu",
+      "label": "Training time, protocol A, 2% of the train split (24,644 rows), early stopping; median of 1, 78 rounds, validation log loss 0.5043",
+      "metric": "train_seconds_a_es_2pct",
+      "phase": "training",
+      "protocol": "paper",
+      "provenance": {
+        "nature": "real",
+        "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol A (ADR-10)",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": 1,
+      "rows": 24644,
+      "unit": "seconds",
+      "value": 99.464,
+      "warm": true
+    },
+    {
+      "batch_size": null,
+      "benchmark": "B1",
+      "concurrency": null,
+      "data_nature": "real",
+      "detail": {
+        "device_effective": "cpu",
+        "dmatrix_seconds_median": 0.161,
+        "rounds_run": 50,
+        "seconds_per_100_rounds_median": 92.545,
+        "validation_auc_median": 0.821831,
+        "validation_logloss_median": 0.505847
+      },
+      "device": "cpu",
+      "label": "Training time, protocol A, 2% of the train split (24,644 rows), 50 rounds, no early stopping; median of 1, 50 rounds, validation log loss 0.5058",
+      "metric": "train_seconds_a_fixed50_2pct",
+      "phase": "training",
+      "protocol": "paper",
+      "provenance": {
+        "nature": "real",
+        "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol A (ADR-10)",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": 1,
+      "rows": 24644,
+      "unit": "seconds",
+      "value": 46.273,
+      "warm": true
+    },
+    {
+      "batch_size": null,
+      "benchmark": "B1",
+      "concurrency": null,
+      "data_nature": "real",
+      "detail": {
+        "device_effective": "cpu",
+        "dmatrix_seconds_median": 0.247,
+        "rounds_run": 84,
+        "seconds_per_100_rounds_median": 106.991,
+        "validation_auc_median": 0.823483,
+        "validation_logloss_median": 0.502459
+      },
+      "device": "cpu",
+      "label": "Training time, protocol A, 5% of the train split (61,611 rows), early stopping; median of 1, 84 rounds, validation log loss 0.5025",
+      "metric": "train_seconds_a_es_5pct",
+      "phase": "training",
+      "protocol": "paper",
+      "provenance": {
+        "nature": "real",
+        "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol A (ADR-10)",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": 1,
+      "rows": 61611,
+      "unit": "seconds",
+      "value": 89.873,
+      "warm": true
+    },
+    {
+      "batch_size": null,
+      "benchmark": "B1",
+      "concurrency": null,
+      "data_nature": "real",
+      "detail": {
+        "device_effective": "cpu",
+        "dmatrix_seconds_median": 0.322,
+        "rounds_run": 50,
+        "seconds_per_100_rounds_median": 125.113,
+        "validation_auc_median": 0.822496,
+        "validation_logloss_median": 0.504394
+      },
+      "device": "cpu",
+      "label": "Training time, protocol A, 5% of the train split (61,611 rows), 50 rounds, no early stopping; median of 1, 50 rounds, validation log loss 0.5044",
+      "metric": "train_seconds_a_fixed50_5pct",
+      "phase": "training",
+      "protocol": "paper",
+      "provenance": {
+        "nature": "real",
+        "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol A (ADR-10)",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": 1,
+      "rows": 61611,
+      "unit": "seconds",
+      "value": 62.556,
+      "warm": true
+    },
+    {
+      "batch_size": null,
+      "benchmark": "B1",
+      "concurrency": null,
+      "data_nature": "real",
+      "detail": {
+        "device_effective": "cpu",
+        "dmatrix_seconds_median": 0.39,
+        "rounds_run": 113,
+        "seconds_per_100_rounds_median": 136.539,
+        "validation_auc_median": 0.825857,
+        "validation_logloss_median": 0.499807
+      },
+      "device": "cpu",
+      "label": "Training time, protocol A, 10% of the train split (123,222 rows), early stopping; median of 1, 113 rounds, validation log loss 0.4998",
+      "metric": "train_seconds_a_es_10pct",
+      "phase": "training",
+      "protocol": "paper",
+      "provenance": {
+        "nature": "real",
+        "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol A (ADR-10)",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": 1,
+      "rows": 123222,
+      "unit": "seconds",
+      "value": 154.289,
+      "warm": true
+    },
+    {
+      "batch_size": null,
+      "benchmark": "B1",
+      "concurrency": null,
+      "data_nature": "real",
+      "detail": {
+        "device_effective": "cpu",
+        "dmatrix_seconds_median": 0.544,
+        "rounds_run": 50,
+        "seconds_per_100_rounds_median": 104.793,
+        "validation_auc_median": 0.824105,
+        "validation_logloss_median": 0.502751
+      },
+      "device": "cpu",
+      "label": "Training time, protocol A, 10% of the train split (123,222 rows), 50 rounds, no early stopping; median of 1, 50 rounds, validation log loss 0.5028",
+      "metric": "train_seconds_a_fixed50_10pct",
+      "phase": "training",
+      "protocol": "paper",
+      "provenance": {
+        "nature": "real",
+        "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol A (ADR-10)",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": 1,
+      "rows": 123222,
+      "unit": "seconds",
+      "value": 52.397,
+      "warm": true
+    },
+    {
+      "batch_size": null,
+      "benchmark": "B1",
+      "concurrency": null,
+      "data_nature": "real",
+      "detail": {
+        "rows_per_second": 191101.1
+      },
+      "device": "cpu",
+      "label": "Batch scoring, protocol A: 1,232,220 rows with the model of the largest size (123,222 fit rows, 108 trees), DMatrix build included; median of 1",
+      "metric": "score_batch_seconds_a",
+      "phase": "scoring",
+      "protocol": "paper",
+      "provenance": {
+        "nature": "real",
+        "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol A (ADR-10)",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": 1,
+      "rows": 1232220,
+      "unit": "seconds",
+      "value": 6.448,
+      "warm": true
+    },
+    {
+      "batch_size": null,
+      "benchmark": "B1",
+      "concurrency": null,
+      "data_nature": "real",
+      "detail": {
+        "summary_ms": {
+          "max": 409.418,
+          "mean": 155.352,
+          "min": 0.594,
+          "n": 200,
+          "p50": 156.056,
+          "p95": 244.077
+        }
+      },
+      "device": "cpu",
+      "label": "Single-row scoring latency p50, protocol A: 200 calls of one row each, DMatrix build included",
+      "metric": "score_single_row_p50_ms_a",
+      "phase": "scoring",
+      "protocol": "paper",
+      "provenance": {
+        "nature": "real",
+        "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol A (ADR-10)",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": 200,
+      "rows": 1,
+      "unit": "milliseconds",
+      "value": 156.056,
+      "warm": true
+    },
+    {
+      "batch_size": null,
+      "benchmark": "B1",
+      "concurrency": null,
+      "data_nature": "real",
+      "detail": {
+        "summary_ms": {
+          "max": 409.418,
+          "mean": 155.352,
+          "min": 0.594,
+          "n": 200,
+          "p50": 156.056,
+          "p95": 244.077
+        }
+      },
+      "device": "cpu",
+      "label": "Single-row scoring latency p95, protocol A: 200 calls of one row each, DMatrix build included",
+      "metric": "score_single_row_p95_ms_a",
+      "phase": "scoring",
+      "protocol": "paper",
+      "provenance": {
+        "nature": "real",
+        "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol A (ADR-10)",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": 200,
+      "rows": 1,
+      "unit": "milliseconds",
+      "value": 244.077,
+      "warm": true
+    },
+    {
+      "batch_size": null,
+      "benchmark": "B1",
+      "concurrency": null,
+      "data_nature": "real",
+      "detail": {
+        "device_effective": "cpu",
+        "dmatrix_seconds_median": 0.258,
+        "rounds_run": 89,
+        "seconds_per_100_rounds_median": 95.915,
+        "validation_auc_median": 0.749405,
+        "validation_logloss_median": 0.585907
+      },
+      "device": "cpu",
+      "label": "Training time, protocol B, 2% of the train split (23,556 rows), early stopping; median of 1, 89 rounds, validation log loss 0.5859",
+      "metric": "train_seconds_b_es_2pct",
+      "phase": "training",
+      "protocol": "decision_time",
+      "provenance": {
+        "nature": "real",
+        "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol B (ADR-10)",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": 1,
+      "rows": 23556,
+      "unit": "seconds",
+      "value": 85.365,
+      "warm": true
+    },
+    {
+      "batch_size": null,
+      "benchmark": "B1",
+      "concurrency": null,
+      "data_nature": "real",
+      "detail": {
+        "device_effective": "cpu",
+        "dmatrix_seconds_median": 0.263,
+        "rounds_run": 50,
+        "seconds_per_100_rounds_median": 96.258,
+        "validation_auc_median": 0.747319,
+        "validation_logloss_median": 0.589452
+      },
+      "device": "cpu",
+      "label": "Training time, protocol B, 2% of the train split (23,556 rows), 50 rounds, no early stopping; median of 1, 50 rounds, validation log loss 0.5895",
+      "metric": "train_seconds_b_fixed50_2pct",
+      "phase": "training",
+      "protocol": "decision_time",
+      "provenance": {
+        "nature": "real",
+        "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol B (ADR-10)",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": 1,
+      "rows": 23556,
+      "unit": "seconds",
+      "value": 48.129,
+      "warm": true
+    },
+    {
+      "batch_size": null,
+      "benchmark": "B1",
+      "concurrency": null,
+      "data_nature": "real",
+      "detail": {
+        "device_effective": "cpu",
+        "dmatrix_seconds_median": 0.251,
+        "rounds_run": 142,
+        "seconds_per_100_rounds_median": 77.094,
+        "validation_auc_median": 0.756867,
+        "validation_logloss_median": 0.580726
+      },
+      "device": "cpu",
+      "label": "Training time, protocol B, 5% of the train split (58,889 rows), early stopping; median of 1, 142 rounds, validation log loss 0.5807",
+      "metric": "train_seconds_b_es_5pct",
+      "phase": "training",
+      "protocol": "decision_time",
+      "provenance": {
+        "nature": "real",
+        "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol B (ADR-10)",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": 1,
+      "rows": 58889,
+      "unit": "seconds",
+      "value": 109.474,
+      "warm": true
+    },
+    {
+      "batch_size": null,
+      "benchmark": "B1",
+      "concurrency": null,
+      "data_nature": "real",
+      "detail": {
+        "device_effective": "cpu",
+        "dmatrix_seconds_median": 0.141,
+        "rounds_run": 50,
+        "seconds_per_100_rounds_median": 54.582,
+        "validation_auc_median": 0.753031,
+        "validation_logloss_median": 0.588261
+      },
+      "device": "cpu",
+      "label": "Training time, protocol B, 5% of the train split (58,889 rows), 50 rounds, no early stopping; median of 1, 50 rounds, validation log loss 0.5883",
+      "metric": "train_seconds_b_fixed50_5pct",
+      "phase": "training",
+      "protocol": "decision_time",
+      "provenance": {
+        "nature": "real",
+        "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol B (ADR-10)",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": 1,
+      "rows": 58889,
+      "unit": "seconds",
+      "value": 27.291,
+      "warm": true
+    },
+    {
+      "batch_size": null,
+      "benchmark": "B1",
+      "concurrency": null,
+      "data_nature": "real",
+      "detail": {
+        "device_effective": "cpu",
+        "dmatrix_seconds_median": 0.284,
+        "rounds_run": 202,
+        "seconds_per_100_rounds_median": 64.844,
+        "validation_auc_median": 0.755461,
+        "validation_logloss_median": 0.581606
+      },
+      "device": "cpu",
+      "label": "Training time, protocol B, 10% of the train split (117,778 rows), early stopping; median of 1, 202 rounds, validation log loss 0.5816",
+      "metric": "train_seconds_b_es_10pct",
+      "phase": "training",
+      "protocol": "decision_time",
+      "provenance": {
+        "nature": "real",
+        "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol B (ADR-10)",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": 1,
+      "rows": 117778,
+      "unit": "seconds",
+      "value": 130.986,
+      "warm": true
+    },
+    {
+      "batch_size": null,
+      "benchmark": "B1",
+      "concurrency": null,
+      "data_nature": "real",
+      "detail": {
+        "device_effective": "cpu",
+        "dmatrix_seconds_median": 0.125,
+        "rounds_run": 50,
+        "seconds_per_100_rounds_median": 46.528,
+        "validation_auc_median": 0.749877,
+        "validation_logloss_median": 0.59033
+      },
+      "device": "cpu",
+      "label": "Training time, protocol B, 10% of the train split (117,778 rows), 50 rounds, no early stopping; median of 1, 50 rounds, validation log loss 0.5903",
+      "metric": "train_seconds_b_fixed50_10pct",
+      "phase": "training",
+      "protocol": "decision_time",
+      "provenance": {
+        "nature": "real",
+        "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol B (ADR-10)",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": 1,
+      "rows": 117778,
+      "unit": "seconds",
+      "value": 23.264,
+      "warm": true
+    },
+    {
+      "batch_size": null,
+      "benchmark": "B1",
+      "concurrency": null,
+      "data_nature": "real",
+      "detail": {
+        "rows_per_second": 393381.1
+      },
+      "device": "cpu",
+      "label": "Batch scoring, protocol B: 1,177,783 rows with the model of the largest size (117,778 fit rows, 197 trees), DMatrix build included; median of 1",
+      "metric": "score_batch_seconds_b",
+      "phase": "scoring",
+      "protocol": "decision_time",
+      "provenance": {
+        "nature": "real",
+        "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol B (ADR-10)",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": 1,
+      "rows": 1177783,
+      "unit": "seconds",
+      "value": 2.994,
+      "warm": true
+    },
+    {
+      "batch_size": null,
+      "benchmark": "B1",
+      "concurrency": null,
+      "data_nature": "real",
+      "detail": {
+        "summary_ms": {
+          "max": 176.229,
+          "mean": 80.861,
+          "min": 0.548,
+          "n": 200,
+          "p50": 79.241,
+          "p95": 135.699
+        }
+      },
+      "device": "cpu",
+      "label": "Single-row scoring latency p50, protocol B: 200 calls of one row each, DMatrix build included",
+      "metric": "score_single_row_p50_ms_b",
+      "phase": "scoring",
+      "protocol": "decision_time",
+      "provenance": {
+        "nature": "real",
+        "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol B (ADR-10)",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": 200,
+      "rows": 1,
+      "unit": "milliseconds",
+      "value": 79.241,
+      "warm": true
+    },
+    {
+      "batch_size": null,
+      "benchmark": "B1",
+      "concurrency": null,
+      "data_nature": "real",
+      "detail": {
+        "summary_ms": {
+          "max": 176.229,
+          "mean": 80.861,
+          "min": 0.548,
+          "n": 200,
+          "p50": 79.241,
+          "p95": 135.699
+        }
+      },
+      "device": "cpu",
+      "label": "Single-row scoring latency p95, protocol B: 200 calls of one row each, DMatrix build included",
+      "metric": "score_single_row_p95_ms_b",
+      "phase": "scoring",
+      "protocol": "decision_time",
+      "provenance": {
+        "nature": "real",
+        "origin": "B1, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 threads; xgboost 3.2.0; ASOS GraphReturns, McGowan et al. 2023, arXiv:2302.14096, OSF c793h, CC BY 4.0; split periods per the paper: train 2021-09-01..2021-10-31, test 2021-10-01..2021-11-30; protocol B (ADR-10)",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": 200,
+      "rows": 1,
+      "unit": "milliseconds",
+      "value": 135.699,
+      "warm": true
+    },
+    {
+      "batch_size": 1,
+      "benchmark": "B3",
+      "concurrency": 1,
+      "data_nature": "synthetic",
+      "detail": {},
+      "device": "cpu",
+      "label": "First decision of the run (warm-up, not in the percentiles), one request",
+      "metric": "first_request_ms",
+      "phase": "cold_start",
+      "protocol": null,
+      "provenance": {
+        "nature": "simulated",
+        "origin": "B3, measured by bench through llm.client.VllmClient: Illustrative dry run against the local fake OpenAI-compatible server, not Gemma; inputs from the synthetic store",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": 1,
+      "rows": null,
+      "unit": "milliseconds",
+      "value": 87.4,
+      "warm": false
+    },
+    {
+      "batch_size": 1,
+      "benchmark": "B3",
+      "concurrency": 1,
+      "data_nature": "synthetic",
+      "detail": {
+        "latency_ms": {
+          "max": 189.7,
+          "mean": 175.2,
+          "min": 160.8,
+          "n": 2,
+          "p50": 175.2,
+          "p95": 188.2
+        }
+      },
+      "device": "cpu",
+      "label": "Latency p50 of one decision, batch 1 sent at once, 2 repeats (2 decisions)",
+      "metric": "latency_p50_ms_batch_1",
+      "phase": "generation",
+      "protocol": null,
+      "provenance": {
+        "nature": "simulated",
+        "origin": "B3, measured by bench through llm.client.VllmClient: Illustrative dry run against the local fake OpenAI-compatible server, not Gemma; inputs from the synthetic store",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": 2,
+      "rows": null,
+      "unit": "milliseconds",
+      "value": 175.2,
+      "warm": true
+    },
+    {
+      "batch_size": 1,
+      "benchmark": "B3",
+      "concurrency": 1,
+      "data_nature": "synthetic",
+      "detail": {
+        "latency_ms": {
+          "max": 189.7,
+          "mean": 175.2,
+          "min": 160.8,
+          "n": 2,
+          "p50": 175.2,
+          "p95": 188.2
+        }
+      },
+      "device": "cpu",
+      "label": "Latency p95 of one decision, batch 1 sent at once, 2 repeats (2 decisions)",
+      "metric": "latency_p95_ms_batch_1",
+      "phase": "generation",
+      "protocol": null,
+      "provenance": {
+        "nature": "simulated",
+        "origin": "B3, measured by bench through llm.client.VllmClient: Illustrative dry run against the local fake OpenAI-compatible server, not Gemma; inputs from the synthetic store",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": 2,
+      "rows": null,
+      "unit": "milliseconds",
+      "value": 188.2,
+      "warm": true
+    },
+    {
+      "batch_size": 1,
+      "benchmark": "B3",
+      "concurrency": 1,
+      "data_nature": "synthetic",
+      "detail": {},
+      "device": "cpu",
+      "label": "Wall time of a batch of 1 decisions (median of 2)",
+      "metric": "batch_wall_seconds_1",
+      "phase": "generation",
+      "protocol": null,
+      "provenance": {
+        "nature": "simulated",
+        "origin": "B3, measured by bench through llm.client.VllmClient: Illustrative dry run against the local fake OpenAI-compatible server, not Gemma; inputs from the synthetic store",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": 2,
+      "rows": null,
+      "unit": "seconds",
+      "value": 0.175,
+      "warm": true
+    },
+    {
+      "batch_size": 1,
+      "benchmark": "B3",
+      "concurrency": 1,
+      "data_nature": "synthetic",
+      "detail": {},
+      "device": "cpu",
+      "label": "Output tokens per second, aggregate, batch 1 sent at once, 2 repeats",
+      "metric": "output_tokens_per_second_batch_1",
+      "phase": "generation",
+      "protocol": null,
+      "provenance": {
+        "nature": "simulated",
+        "origin": "B3, measured by bench through llm.client.VllmClient: Illustrative dry run against the local fake OpenAI-compatible server, not Gemma; inputs from the synthetic store",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": 2,
+      "rows": null,
+      "unit": "tokens_per_second",
+      "value": 1586.56,
+      "warm": true
+    },
+    {
+      "batch_size": 8,
+      "benchmark": "B3",
+      "concurrency": 8,
+      "data_nature": "synthetic",
+      "detail": {
+        "latency_ms": {
+          "max": 220.9,
+          "mean": 99.6,
+          "min": 83.8,
+          "n": 16,
+          "p50": 87.8,
+          "p95": 136.0
+        }
+      },
+      "device": "cpu",
+      "label": "Latency p50 of one decision, batch 8 sent at once, 2 repeats (16 decisions)",
+      "metric": "latency_p50_ms_batch_8",
+      "phase": "generation",
+      "protocol": null,
+      "provenance": {
+        "nature": "simulated",
+        "origin": "B3, measured by bench through llm.client.VllmClient: Illustrative dry run against the local fake OpenAI-compatible server, not Gemma; inputs from the synthetic store",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": 16,
+      "rows": null,
+      "unit": "milliseconds",
+      "value": 87.8,
+      "warm": true
+    },
+    {
+      "batch_size": 8,
+      "benchmark": "B3",
+      "concurrency": 8,
+      "data_nature": "synthetic",
+      "detail": {
+        "latency_ms": {
+          "max": 220.9,
+          "mean": 99.6,
+          "min": 83.8,
+          "n": 16,
+          "p50": 87.8,
+          "p95": 136.0
+        }
+      },
+      "device": "cpu",
+      "label": "Latency p95 of one decision, batch 8 sent at once, 2 repeats (16 decisions)",
+      "metric": "latency_p95_ms_batch_8",
+      "phase": "generation",
+      "protocol": null,
+      "provenance": {
+        "nature": "simulated",
+        "origin": "B3, measured by bench through llm.client.VllmClient: Illustrative dry run against the local fake OpenAI-compatible server, not Gemma; inputs from the synthetic store",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": 16,
+      "rows": null,
+      "unit": "milliseconds",
+      "value": 136.0,
+      "warm": true
+    },
+    {
+      "batch_size": 8,
+      "benchmark": "B3",
+      "concurrency": 8,
+      "data_nature": "synthetic",
+      "detail": {},
+      "device": "cpu",
+      "label": "Wall time of a batch of 8 decisions (median of 2)",
+      "metric": "batch_wall_seconds_8",
+      "phase": "generation",
+      "protocol": null,
+      "provenance": {
+        "nature": "simulated",
+        "origin": "B3, measured by bench through llm.client.VllmClient: Illustrative dry run against the local fake OpenAI-compatible server, not Gemma; inputs from the synthetic store",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": 2,
+      "rows": null,
+      "unit": "seconds",
+      "value": 0.305,
+      "warm": true
+    },
+    {
+      "batch_size": 8,
+      "benchmark": "B3",
+      "concurrency": 8,
+      "data_nature": "synthetic",
+      "detail": {},
+      "device": "cpu",
+      "label": "Output tokens per second, aggregate, batch 8 sent at once, 2 repeats",
+      "metric": "output_tokens_per_second_batch_8",
+      "phase": "generation",
+      "protocol": null,
+      "provenance": {
+        "nature": "simulated",
+        "origin": "B3, measured by bench through llm.client.VllmClient: Illustrative dry run against the local fake OpenAI-compatible server, not Gemma; inputs from the synthetic store",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": 2,
+      "rows": null,
+      "unit": "tokens_per_second",
+      "value": 3276.18,
+      "warm": true
+    },
+    {
+      "batch_size": 32,
+      "benchmark": "B3",
+      "concurrency": 32,
+      "data_nature": "synthetic",
+      "detail": {
+        "latency_ms": {
+          "max": 537.0,
+          "mean": 230.5,
+          "min": 130.4,
+          "n": 64,
+          "p50": 194.1,
+          "p95": 454.1
+        }
+      },
+      "device": "cpu",
+      "label": "Latency p50 of one decision, batch 32 sent at once, 2 repeats (64 decisions)",
+      "metric": "latency_p50_ms_batch_32",
+      "phase": "generation",
+      "protocol": null,
+      "provenance": {
+        "nature": "simulated",
+        "origin": "B3, measured by bench through llm.client.VllmClient: Illustrative dry run against the local fake OpenAI-compatible server, not Gemma; inputs from the synthetic store",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": 64,
+      "rows": null,
+      "unit": "milliseconds",
+      "value": 194.1,
+      "warm": true
+    },
+    {
+      "batch_size": 32,
+      "benchmark": "B3",
+      "concurrency": 32,
+      "data_nature": "synthetic",
+      "detail": {
+        "latency_ms": {
+          "max": 537.0,
+          "mean": 230.5,
+          "min": 130.4,
+          "n": 64,
+          "p50": 194.1,
+          "p95": 454.1
+        }
+      },
+      "device": "cpu",
+      "label": "Latency p95 of one decision, batch 32 sent at once, 2 repeats (64 decisions)",
+      "metric": "latency_p95_ms_batch_32",
+      "phase": "generation",
+      "protocol": null,
+      "provenance": {
+        "nature": "simulated",
+        "origin": "B3, measured by bench through llm.client.VllmClient: Illustrative dry run against the local fake OpenAI-compatible server, not Gemma; inputs from the synthetic store",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": 64,
+      "rows": null,
+      "unit": "milliseconds",
+      "value": 454.1,
+      "warm": true
+    },
+    {
+      "batch_size": 32,
+      "benchmark": "B3",
+      "concurrency": 32,
+      "data_nature": "synthetic",
+      "detail": {},
+      "device": "cpu",
+      "label": "Wall time of a batch of 32 decisions (median of 2)",
+      "metric": "batch_wall_seconds_32",
+      "phase": "generation",
+      "protocol": null,
+      "provenance": {
+        "nature": "simulated",
+        "origin": "B3, measured by bench through llm.client.VllmClient: Illustrative dry run against the local fake OpenAI-compatible server, not Gemma; inputs from the synthetic store",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": 2,
+      "rows": null,
+      "unit": "seconds",
+      "value": 0.841,
+      "warm": true
+    },
+    {
+      "batch_size": 32,
+      "benchmark": "B3",
+      "concurrency": 32,
+      "data_nature": "synthetic",
+      "detail": {},
+      "device": "cpu",
+      "label": "Output tokens per second, aggregate, batch 32 sent at once, 2 repeats",
+      "metric": "output_tokens_per_second_batch_32",
+      "phase": "generation",
+      "protocol": null,
+      "provenance": {
+        "nature": "simulated",
+        "origin": "B3, measured by bench through llm.client.VllmClient: Illustrative dry run against the local fake OpenAI-compatible server, not Gemma; inputs from the synthetic store",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": 2,
+      "rows": null,
+      "unit": "tokens_per_second",
+      "value": 5961.86,
+      "warm": true
+    },
+    {
+      "batch_size": null,
+      "benchmark": "B3",
+      "concurrency": 1,
+      "data_nature": "synthetic",
+      "detail": {
+        "latency_ms": {
+          "max": 169.4,
+          "mean": 135.3,
+          "min": 83.5,
+          "n": 16,
+          "p50": 148.6,
+          "p95": 164.4
+        }
+      },
+      "device": "cpu",
+      "label": "Latency p50 of one decision, concurrency 1, 16 decisions in a closed loop",
+      "metric": "latency_p50_ms_concurrency_1",
+      "phase": "generation",
+      "protocol": null,
+      "provenance": {
+        "nature": "simulated",
+        "origin": "B3, measured by bench through llm.client.VllmClient: Illustrative dry run against the local fake OpenAI-compatible server, not Gemma; inputs from the synthetic store",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": 16,
+      "rows": null,
+      "unit": "milliseconds",
+      "value": 148.6,
+      "warm": true
+    },
+    {
+      "batch_size": null,
+      "benchmark": "B3",
+      "concurrency": 1,
+      "data_nature": "synthetic",
+      "detail": {
+        "latency_ms": {
+          "max": 169.4,
+          "mean": 135.3,
+          "min": 83.5,
+          "n": 16,
+          "p50": 148.6,
+          "p95": 164.4
+        }
+      },
+      "device": "cpu",
+      "label": "Latency p95 of one decision, concurrency 1, 16 decisions in a closed loop",
+      "metric": "latency_p95_ms_concurrency_1",
+      "phase": "generation",
+      "protocol": null,
+      "provenance": {
+        "nature": "simulated",
+        "origin": "B3, measured by bench through llm.client.VllmClient: Illustrative dry run against the local fake OpenAI-compatible server, not Gemma; inputs from the synthetic store",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": 16,
+      "rows": null,
+      "unit": "milliseconds",
+      "value": 164.4,
+      "warm": true
+    },
+    {
+      "batch_size": null,
+      "benchmark": "B3",
+      "concurrency": 1,
+      "data_nature": "synthetic",
+      "detail": {},
+      "device": "cpu",
+      "label": "Output tokens per second, aggregate, concurrency 1, 16 decisions in a closed loop",
+      "metric": "output_tokens_per_second_concurrency_1",
+      "phase": "generation",
+      "protocol": null,
+      "provenance": {
+        "nature": "simulated",
+        "origin": "B3, measured by bench through llm.client.VllmClient: Illustrative dry run against the local fake OpenAI-compatible server, not Gemma; inputs from the synthetic store",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": 1,
+      "rows": null,
+      "unit": "tokens_per_second",
+      "value": 1551.73,
+      "warm": true
+    },
+    {
+      "batch_size": null,
+      "benchmark": "B3",
+      "concurrency": 1,
+      "data_nature": "synthetic",
+      "detail": {},
+      "device": "cpu",
+      "label": "Output tokens per second of one request (median, prefill included), concurrency 1, 16 decisions in a closed loop",
+      "metric": "request_tokens_per_second_concurrency_1",
+      "phase": "generation",
+      "protocol": null,
+      "provenance": {
+        "nature": "simulated",
+        "origin": "B3, measured by bench through llm.client.VllmClient: Illustrative dry run against the local fake OpenAI-compatible server, not Gemma; inputs from the synthetic store",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": 16,
+      "rows": null,
+      "unit": "tokens_per_second",
+      "value": 1672.13,
+      "warm": true
+    },
+    {
+      "batch_size": null,
+      "benchmark": "B3",
+      "concurrency": 8,
+      "data_nature": "synthetic",
+      "detail": {
+        "latency_ms": {
+          "max": 189.3,
+          "mean": 126.9,
+          "min": 85.2,
+          "n": 16,
+          "p50": 128.6,
+          "p95": 174.7
+        }
+      },
+      "device": "cpu",
+      "label": "Latency p50 of one decision, concurrency 8, 16 decisions in a closed loop",
+      "metric": "latency_p50_ms_concurrency_8",
+      "phase": "generation",
+      "protocol": null,
+      "provenance": {
+        "nature": "simulated",
+        "origin": "B3, measured by bench through llm.client.VllmClient: Illustrative dry run against the local fake OpenAI-compatible server, not Gemma; inputs from the synthetic store",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": 16,
+      "rows": null,
+      "unit": "milliseconds",
+      "value": 128.6,
+      "warm": true
+    },
+    {
+      "batch_size": null,
+      "benchmark": "B3",
+      "concurrency": 8,
+      "data_nature": "synthetic",
+      "detail": {
+        "latency_ms": {
+          "max": 189.3,
+          "mean": 126.9,
+          "min": 85.2,
+          "n": 16,
+          "p50": 128.6,
+          "p95": 174.7
+        }
+      },
+      "device": "cpu",
+      "label": "Latency p95 of one decision, concurrency 8, 16 decisions in a closed loop",
+      "metric": "latency_p95_ms_concurrency_8",
+      "phase": "generation",
+      "protocol": null,
+      "provenance": {
+        "nature": "simulated",
+        "origin": "B3, measured by bench through llm.client.VllmClient: Illustrative dry run against the local fake OpenAI-compatible server, not Gemma; inputs from the synthetic store",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": 16,
+      "rows": null,
+      "unit": "milliseconds",
+      "value": 174.7,
+      "warm": true
+    },
+    {
+      "batch_size": null,
+      "benchmark": "B3",
+      "concurrency": 8,
+      "data_nature": "synthetic",
+      "detail": {},
+      "device": "cpu",
+      "label": "Output tokens per second, aggregate, concurrency 8, 16 decisions in a closed loop",
+      "metric": "output_tokens_per_second_concurrency_8",
+      "phase": "generation",
+      "protocol": null,
+      "provenance": {
+        "nature": "simulated",
+        "origin": "B3, measured by bench through llm.client.VllmClient: Illustrative dry run against the local fake OpenAI-compatible server, not Gemma; inputs from the synthetic store",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": 1,
+      "rows": null,
+      "unit": "tokens_per_second",
+      "value": 6780.16,
+      "warm": true
+    },
+    {
+      "batch_size": null,
+      "benchmark": "B3",
+      "concurrency": 8,
+      "data_nature": "synthetic",
+      "detail": {},
+      "device": "cpu",
+      "label": "Output tokens per second of one request (median, prefill included), concurrency 8, 16 decisions in a closed loop",
+      "metric": "request_tokens_per_second_concurrency_8",
+      "phase": "generation",
+      "protocol": null,
+      "provenance": {
+        "nature": "simulated",
+        "origin": "B3, measured by bench through llm.client.VllmClient: Illustrative dry run against the local fake OpenAI-compatible server, not Gemma; inputs from the synthetic store",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": 16,
+      "rows": null,
+      "unit": "tokens_per_second",
+      "value": 1435.06,
+      "warm": true
+    },
+    {
+      "batch_size": null,
+      "benchmark": "B3",
+      "concurrency": 32,
+      "data_nature": "synthetic",
+      "detail": {
+        "latency_ms": {
+          "max": 373.4,
+          "mean": 252.4,
+          "min": 128.2,
+          "n": 64,
+          "p50": 262.8,
+          "p95": 343.9
+        }
+      },
+      "device": "cpu",
+      "label": "Latency p50 of one decision, concurrency 32, 64 decisions in a closed loop",
+      "metric": "latency_p50_ms_concurrency_32",
+      "phase": "generation",
+      "protocol": null,
+      "provenance": {
+        "nature": "simulated",
+        "origin": "B3, measured by bench through llm.client.VllmClient: Illustrative dry run against the local fake OpenAI-compatible server, not Gemma; inputs from the synthetic store",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": 64,
+      "rows": null,
+      "unit": "milliseconds",
+      "value": 262.8,
+      "warm": true
+    },
+    {
+      "batch_size": null,
+      "benchmark": "B3",
+      "concurrency": 32,
+      "data_nature": "synthetic",
+      "detail": {
+        "latency_ms": {
+          "max": 373.4,
+          "mean": 252.4,
+          "min": 128.2,
+          "n": 64,
+          "p50": 262.8,
+          "p95": 343.9
+        }
+      },
+      "device": "cpu",
+      "label": "Latency p95 of one decision, concurrency 32, 64 decisions in a closed loop",
+      "metric": "latency_p95_ms_concurrency_32",
+      "phase": "generation",
+      "protocol": null,
+      "provenance": {
+        "nature": "simulated",
+        "origin": "B3, measured by bench through llm.client.VllmClient: Illustrative dry run against the local fake OpenAI-compatible server, not Gemma; inputs from the synthetic store",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": 64,
+      "rows": null,
+      "unit": "milliseconds",
+      "value": 343.9,
+      "warm": true
+    },
+    {
+      "batch_size": null,
+      "benchmark": "B3",
+      "concurrency": 32,
+      "data_nature": "synthetic",
+      "detail": {},
+      "device": "cpu",
+      "label": "Output tokens per second, aggregate, concurrency 32, 64 decisions in a closed loop",
+      "metric": "output_tokens_per_second_concurrency_32",
+      "phase": "generation",
+      "protocol": null,
+      "provenance": {
+        "nature": "simulated",
+        "origin": "B3, measured by bench through llm.client.VllmClient: Illustrative dry run against the local fake OpenAI-compatible server, not Gemma; inputs from the synthetic store",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": 1,
+      "rows": null,
+      "unit": "tokens_per_second",
+      "value": 8974.41,
+      "warm": true
+    },
+    {
+      "batch_size": null,
+      "benchmark": "B3",
+      "concurrency": 32,
+      "data_nature": "synthetic",
+      "detail": {},
+      "device": "cpu",
+      "label": "Output tokens per second of one request (median, prefill included), concurrency 32, 64 decisions in a closed loop",
+      "metric": "request_tokens_per_second_concurrency_32",
+      "phase": "generation",
+      "protocol": null,
+      "provenance": {
+        "nature": "simulated",
+        "origin": "B3, measured by bench through llm.client.VllmClient: Illustrative dry run against the local fake OpenAI-compatible server, not Gemma; inputs from the synthetic store",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": 64,
+      "rows": null,
+      "unit": "tokens_per_second",
+      "value": 788.58,
+      "warm": true
+    },
+    {
+      "batch_size": null,
+      "benchmark": "B3",
+      "concurrency": null,
+      "data_nature": "synthetic",
+      "detail": {
+        "break_even_decisions_per_day": 2054,
+        "breakdown": {
+          "on_hours": "12"
+        },
+        "description": "Droplet on 12 hours a day for live generation, idle or busy",
+        "droplet_seconds_per_day": "43200.0",
+        "eur_per_1000_decisions": "135.62",
+        "eur_per_day": "20.54",
+        "eur_per_decision": "0.135619",
+        "meets_target": false,
+        "scenario": "business-hours",
+        "target_eur_per_decision": "0.01",
+        "usd_per_day": "23.88"
+      },
+      "device": "mi300x",
+      "label": "Cost per 1,000 decisions, scenario business-hours (cost-v1): 0.135619 EUR per decision, target 0.01; break-even 2054 decisions per day",
+      "metric": "cost_eur_per_1000_decisions_business_hours",
+      "phase": "cost",
+      "protocol": null,
+      "provenance": {
+        "nature": "simulated",
+        "origin": "B3 cost, simulated from cost-v1: 23.88 USD per day at 1.99 USD/h, 0.86 EUR/USD (assumed), 151.43 decisions per day (synthetic store)",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": null,
+      "rows": null,
+      "unit": "eur",
+      "value": 135.62,
+      "warm": null
+    },
+    {
+      "batch_size": null,
+      "benchmark": "B3",
+      "concurrency": null,
+      "data_nature": "synthetic",
+      "detail": {
+        "break_even_decisions_per_day": 4108,
+        "breakdown": {
+          "on_hours": "24"
+        },
+        "description": "Droplet on 24 hours a day",
+        "droplet_seconds_per_day": "86400.0",
+        "eur_per_1000_decisions": "271.24",
+        "eur_per_day": "41.07",
+        "eur_per_decision": "0.271238",
+        "meets_target": false,
+        "scenario": "always-on",
+        "target_eur_per_decision": "0.01",
+        "usd_per_day": "47.76"
+      },
+      "device": "mi300x",
+      "label": "Cost per 1,000 decisions, scenario always-on (cost-v1): 0.271238 EUR per decision, target 0.01; break-even 4108 decisions per day",
+      "metric": "cost_eur_per_1000_decisions_always_on",
+      "phase": "cost",
+      "protocol": null,
+      "provenance": {
+        "nature": "simulated",
+        "origin": "B3 cost, simulated from cost-v1: 47.76 USD per day at 1.99 USD/h, 0.86 EUR/USD (assumed), 151.43 decisions per day (synthetic store)",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": null,
+      "rows": null,
+      "unit": "eur",
+      "value": 271.24,
+      "warm": null
+    },
+    {
+      "batch_size": null,
+      "benchmark": "B4",
+      "concurrency": null,
+      "data_nature": "synthetic",
+      "detail": {
+        "commands": [
+          12.956,
+          12.864
+        ]
+      },
+      "device": "cpu",
+      "label": "Nightly pipeline step generate: synthetic store, main and OOD scenarios (stand-in for the nightly ingest)",
+      "metric": "step_seconds_generate",
+      "phase": "pipeline",
+      "protocol": null,
+      "provenance": {
+        "nature": "real",
+        "origin": "B4, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 CPUs: wall time of each nightly pipeline step (seed 42, scale 1); no GPU sampling",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": 1,
+      "rows": null,
+      "unit": "seconds",
+      "value": 25.82,
+      "warm": false
+    },
+    {
+      "batch_size": null,
+      "benchmark": "B4",
+      "concurrency": null,
+      "data_nature": "synthetic",
+      "detail": {
+        "commands": [
+          2.485,
+          2.242
+        ]
+      },
+      "device": "cpu",
+      "label": "Nightly pipeline step graph: account graph and clusters, main and OOD",
+      "metric": "step_seconds_graph",
+      "phase": "pipeline",
+      "protocol": null,
+      "provenance": {
+        "nature": "real",
+        "origin": "B4, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 CPUs: wall time of each nightly pipeline step (seed 42, scale 1); no GPU sampling",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": 1,
+      "rows": null,
+      "unit": "seconds",
+      "value": 4.727,
+      "warm": false
+    },
+    {
+      "batch_size": null,
+      "benchmark": "B4",
+      "concurrency": null,
+      "data_nature": "synthetic",
+      "detail": {
+        "commands": [
+          120.558,
+          125.589
+        ]
+      },
+      "device": "cpu",
+      "label": "Nightly pipeline step features: customer features, value and evidence snapshots, main and OOD",
+      "metric": "step_seconds_features",
+      "phase": "pipeline",
+      "protocol": null,
+      "provenance": {
+        "nature": "real",
+        "origin": "B4, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 CPUs: wall time of each nightly pipeline step (seed 42, scale 1); no GPU sampling",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": 1,
+      "rows": null,
+      "unit": "seconds",
+      "value": 246.148,
+      "warm": false
+    },
+    {
+      "batch_size": null,
+      "benchmark": "B4",
+      "concurrency": null,
+      "data_nature": "synthetic",
+      "detail": {
+        "commands": [
+          33.453,
+          31.214
+        ]
+      },
+      "device": "cpu",
+      "label": "Nightly pipeline step anomalies: product anomalies, main and OOD",
+      "metric": "step_seconds_anomalies",
+      "phase": "pipeline",
+      "protocol": null,
+      "provenance": {
+        "nature": "real",
+        "origin": "B4, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 CPUs: wall time of each nightly pipeline step (seed 42, scale 1); no GPU sampling",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": 1,
+      "rows": null,
+      "unit": "seconds",
+      "value": 64.667,
+      "warm": false
+    },
+    {
+      "batch_size": null,
+      "benchmark": "B4",
+      "concurrency": null,
+      "data_nature": "synthetic",
+      "detail": {
+        "commands": [
+          150.319
+        ]
+      },
+      "device": "cpu",
+      "label": "Nightly pipeline step risk: risk models: training, evaluation and batch scores (offline job)",
+      "metric": "step_seconds_risk",
+      "phase": "pipeline",
+      "protocol": null,
+      "provenance": {
+        "nature": "real",
+        "origin": "B4, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 CPUs: wall time of each nightly pipeline step (seed 42, scale 1); no GPU sampling",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": 1,
+      "rows": null,
+      "unit": "seconds",
+      "value": 150.32,
+      "warm": false
+    },
+    {
+      "batch_size": null,
+      "benchmark": "B4",
+      "concurrency": null,
+      "data_nature": "synthetic",
+      "detail": {
+        "commands": [
+          19.864
+        ]
+      },
+      "device": "cpu",
+      "label": "Nightly pipeline step scoring: batch scoring with the saved models at the last snapshot",
+      "metric": "step_seconds_scoring",
+      "phase": "pipeline",
+      "protocol": null,
+      "provenance": {
+        "nature": "real",
+        "origin": "B4, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 CPUs: wall time of each nightly pipeline step (seed 42, scale 1); no GPU sampling",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": 1,
+      "rows": null,
+      "unit": "seconds",
+      "value": 19.864,
+      "warm": false
+    },
+    {
+      "batch_size": null,
+      "benchmark": "B4",
+      "concurrency": null,
+      "data_nature": "synthetic",
+      "detail": {
+        "commands": [
+          5.75
+        ]
+      },
+      "device": "cpu",
+      "label": "Nightly pipeline step batch_generation: drafts of every open return through llm.generate (ADR-03)",
+      "metric": "step_seconds_batch_generation",
+      "phase": "pipeline",
+      "protocol": null,
+      "provenance": {
+        "nature": "real",
+        "origin": "B4, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 CPUs: wall time of each nightly pipeline step (seed 42, scale 1); no GPU sampling",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": 1,
+      "rows": null,
+      "unit": "seconds",
+      "value": 5.75,
+      "warm": false
+    },
+    {
+      "batch_size": null,
+      "benchmark": "B4",
+      "concurrency": null,
+      "data_nature": "synthetic",
+      "detail": {},
+      "device": "cpu",
+      "label": "Nightly pipeline, 7 steps one after the other: generate, graph, features, anomalies, risk, scoring, batch_generation",
+      "metric": "pipeline_seconds_total",
+      "phase": "pipeline",
+      "protocol": null,
+      "provenance": {
+        "nature": "real",
+        "origin": "B4, measured by bench on Intel(R) Xeon(R) Processor @ 2.80GHz, 4 CPUs: wall time of each nightly pipeline step (seed 42, scale 1); no GPU sampling",
+        "period_end": "2026-10-14",
+        "period_start": "2026-10-14"
+      },
+      "repeats": 1,
+      "rows": null,
+      "unit": "seconds",
+      "value": 517.296,
+      "warm": false
+    }
+  ],
+  "rules": {
+    "comparable_quality": "Same data, version and configuration on CPU and GPU; no speedup from different workloads. B1 runs the same matrices, xgboost build, parameters and seed on both devices, reports rounds and validation log loss next to each time, and a fixed-rounds variant with identical work.",
+    "full_cost": "The cost per decision includes idle time in the declared operating scenario (bench.cost, versioned); development experiments stay apart.",
+    "growing_loads": "Several data sizes (B1), batch sizes and concurrency levels (B3), to see where the GPU adds value instead of assuming it.",
+    "separate_times": "Cold start, training, scoring and generation measured apart; latency p50 and p95 always with concurrency and throughput."
+  },
+  "run_id": "20261014T002158Z-cpu",
+  "schema": "returnring.bench/1",
+  "software": {
+    "B1": {
+      "numpy": "2.5.4",
+      "polars": "2.0.0",
+      "python": "3.12.3",
+      "sklearn": "1.9.1",
+      "xgboost": "3.2.0",
+      "xgboost_use_cuda": "False",
+      "xgboost_use_hip": "False"
+    },
+    "B2": {
+      "python": "3.12.3"
+    },
+    "B3": {
+      "python": "3.12.3",
+      "served_model": "fake/gemma-dry-run",
+      "vllm_version": "fake-openai-0"
+    },
+    "B4": {
+      "networkx": "3.7",
+      "numpy": "2.5.4",
+      "polars": "2.0.0",
+      "pyarrow": "26.0.0",
+      "python": "3.12.3",
+      "sklearn": "1.9.1",
+      "xgboost": "3.2.0"
+    }
+  },
+  "story": "US-902"
+}

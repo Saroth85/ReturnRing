@@ -10,7 +10,10 @@
   `python -m pipeline.graph.evaluate --data data`, `us-208-product-anomalies.md` by
   `python -m pipeline.anomalies.evaluate --data data`, `us-204-risk.md` by `python -m ml.risk
   --data data --out artifacts --scores data`. `make pipeline` then `make results` rewrite all but
-  the first, which needs `make asos` and `make propensity`.
+  the first, which needs `make asos` and `make propensity`. `benchmarks-cpu.md` and
+  `benchmarks-mi300x.md` by `python -m bench report` from a run of `make bench` (US-902).
+- `benchmarks.md` — benchmarks B1-B4 (US-902): what each measures, the four rules of spec 12, the
+  cost per decision and its versioned assumptions, the run file served by GET /api/benchmarks.
 - `synthetic-store.md` — the Navigli Fashion generator (US-102..US-105): calibration, behaviours,
   golden cases, out-of-distribution scenario, measured numbers.
 - `customer-features.md` — decision-time customer features, the product/cohort reference model, the

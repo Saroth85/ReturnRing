@@ -3,7 +3,9 @@
 	spike-preflight spike-prep spike-weights spike-weights-wait spike-vllm spike-wait spike-g1 \
 	spike-g1-bench spike-g2 spike-g2-cpu spike-g2-load spike-g3 spike-g3-cpu spike-g4 spike-g5 \
 	spike-g6 spike-g7 spike-down \
-	spike-gpu-check spike-logs
+	spike-gpu-check spike-logs \
+	bench-cpu bench-gpu bench-build bench-b1 bench-b2 bench-vllm bench-vllm-start bench-b3 bench-b4 \
+	bench-merge bench-report
 
 ENV_FILE ?= .env
 # Data pipeline (phase 1): the committed real calibration (ASOS train-split aggregates, US-101).
@@ -121,8 +123,82 @@ propensity:
 # the risk models with their batch scores (docs/spec.md, section 15).
 pipeline: generate generate-ood graph features anomalies risk
 
-bench:
-	@echo "bench: implemented in session wt-ml (benchmarks B1-B4)"
+# ---- Benchmarks B1-B4 (US-902): method in docs/benchmarks.md, GPU session order in
+# infra/spikes/README.md ("Benchmarks B1-B4"). Parts go to artifacts/bench/<run-id>/, the merged run
+# to bench/results/<run-id>.json with the latest pointer (GET /api/benchmarks).
+# make bench (DEVICE=cpu): here, CPU only; B3 is a dry run against a local fake server.
+# make bench DEVICE=gpu: on the droplet, in the bench container, B1 and B2 with vLLM down first.
+DEVICE ?= cpu
+BENCH_RAW ?= data/raw
+BENCH_DATA ?=
+BENCH_ARGS ?=
+ifndef BENCH_RUN
+BENCH_RUN := $(shell date -u +%Y%m%dT%H%M%SZ)-$(DEVICE)
+endif
+BENCH_DIR = artifacts/bench/$(BENCH_RUN)
+BENCH_DOC ?= docs/results/benchmarks-$(if $(filter gpu,$(DEVICE)),mi300x,cpu).md
+BENCH_COMPOSE = docker compose -f infra/docker-compose.yml -f infra/compose.gpu.yml -f infra/compose.bench.yml --env-file $(ENV_FILE) --profile gpu
+BENCH_RUN_GPU = $(BENCH_COMPOSE) run --rm -T
+VLLM_DOWN = if [ -n "$$($(GPU) ps -q --status running vllm 2>/dev/null)" ]; then \
+	  echo "vLLM is running: B1 and B2 run alone on the GPU and the CPU (make gpu-down first)"; exit 1; fi
+export BENCH_GIT_COMMIT ?= $(shell git rev-parse HEAD 2>/dev/null)
+export BENCH_GIT_DIRTY ?= $(shell git status --porcelain --untracked-files=no 2>/dev/null | grep -q . && echo 1 || echo 0)
+
+bench: bench-$(DEVICE)
+
+bench-cpu:
+	python -m bench run --device cpu --run-id $(BENCH_RUN) --raw $(BENCH_RAW) $(if $(BENCH_DATA),--data $(BENCH_DATA)) $(BENCH_ARGS)
+	python -m bench report --run bench/results/$(BENCH_RUN).json --out $(BENCH_DOC)
+
+bench-gpu: bench-build bench-b1 bench-b2 bench-vllm bench-b4 bench-b3 bench-merge
+
+bench-build:
+	$(BENCH_COMPOSE) build bench
+
+bench-b1:
+	@$(VLLM_DOWN)
+	$(BENCH_RUN_GPU) bench python -m bench run --device gpu --parts B1 --run-id $(BENCH_RUN) --raw $(BENCH_RAW) --no-merge $(BENCH_ARGS)
+
+# B2 runs in the DGL image; it is "skipped" (with the reason) until ml.gnn.b2_timing exists.
+bench-b2:
+	@$(VLLM_DOWN)
+	$(BENCH_RUN_GPU) trainer-gnn python -m bench run --device gpu --parts B2 --run-id $(BENCH_RUN) --raw $(BENCH_RAW) --no-merge
+
+# Starts vLLM and records start and healthy times for the B3 cold start (15 s polling); if vLLM
+# was already up, B3 reports no cold start.
+bench-vllm: bench-vllm-start spike-wait
+	@if [ -f $(BENCH_DIR)/vllm-start.txt ]; then \
+	  cp $(SPIKES)/logs/vllm-healthy.txt $(BENCH_DIR)/vllm-healthy.txt; fi
+
+bench-vllm-start:
+	@mkdir -p $(BENCH_DIR) $(SPIKES)/logs
+	@if [ -n "$$($(GPU) ps -q --status running vllm 2>/dev/null)" ]; then \
+	  echo "vLLM already running: B3 reports no cold start"; rm -f $(BENCH_DIR)/vllm-start.txt; \
+	else date -u +%Y-%m-%dT%H:%M:%SZ | tee $(BENCH_DIR)/vllm-start.txt > $(SPIKES)/logs/vllm-start.txt; \
+	  $(GPU) up -d --no-build vllm; fi
+
+# The nightly pipeline in the bench container, amd-smi sampled every 5 s on the host (SPK-G4:
+# the host amd-smi matches the driver), or inside the container when the host has none.
+bench-b4:
+	@mkdir -p $(BENCH_DIR) bench-work
+	@export PATH="$$PATH:/opt/rocm/bin"; sampler=""; \
+	if command -v amd-smi >/dev/null && command -v python3 >/dev/null; then \
+	  python3 -m bench.amdsmi --out $(BENCH_DIR)/amdsmi.jsonl & sampler=$$!; \
+	  samples="--b4-samples $(BENCH_DIR)/amdsmi.jsonl"; \
+	else echo "no amd-smi on the host: sampling inside the container"; samples="--b4-sampler inprocess"; fi; \
+	$(BENCH_RUN_GPU) bench python -m bench run --device gpu --parts B4 --run-id $(BENCH_RUN) --no-merge $$samples $(BENCH_ARGS); \
+	rc=$$?; if [ -n "$$sampler" ]; then kill $$sampler; fi; exit $$rc
+
+bench-b3:
+	$(BENCH_RUN_GPU) bench python -m bench run --device gpu --parts B3 --run-id $(BENCH_RUN) --no-merge $(if $(BENCH_DATA),--data $(BENCH_DATA)) $(BENCH_ARGS)
+
+bench-merge:
+	$(BENCH_RUN_GPU) bench python -m bench merge --run-id $(BENCH_RUN)
+	$(BENCH_RUN_GPU) bench python -m bench report --run bench/results/$(BENCH_RUN).json --out $(BENCH_DIR)/report.md
+
+# On the laptop, after copying bench/results/ back: make bench-report BENCH_RUN=<run-id> DEVICE=gpu
+bench-report:
+	python -m bench report --run bench/results/$(BENCH_RUN).json --out $(BENCH_DOC)
 
 demo-export:
 	@echo "demo-export: implemented in session E9 (US-901)"

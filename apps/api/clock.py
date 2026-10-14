@@ -6,7 +6,10 @@
   the snapshot instant; with this clock the acts that follow happen minutes after it, so refund
   deadlines, review dates and the KPI week stay coherent however many days after the reset the
   demo runs. Before any reset the clock starts at the snapshot instant when the service starts;
-  without a snapshot it is the wall clock.
+  without a snapshot it is the wall clock. A frozen DemoClock (the public read-only demo and
+  the cached demo, Settings.frozen_clock; contract 1.6.0) stands at the snapshot instant: no
+  refund deadline of the reset's proposals passes however long the demo stays up, and the acts
+  of a cached demo with writes on are dated at that instant too.
 - SystemClock (DEMO_CLOCK=off): the wall clock, UTC.
 - FixedClock: a clock that stands still until moved (tests, the demo reset itself).
 
@@ -72,7 +75,8 @@ class FixedClock:
 
 class DemoClock:
     """The snapshot instant plus the wall time elapsed since the clock started (never before
-    the snapshot instant). Unanchored, it is the wall clock."""
+    the snapshot instant); frozen, the snapshot instant itself. Unanchored, it is the wall
+    clock."""
 
     kind: ClockKind = "demo"
 
@@ -81,8 +85,11 @@ class DemoClock:
         anchor: datetime | None = None,
         started_at: datetime | None = None,
         wall: Callable[[], datetime] = system_now,
+        *,
+        frozen: bool = False,
     ) -> None:
         self._wall = wall
+        self.frozen = frozen
         self._lock = threading.Lock()
         self._state: tuple[datetime, datetime] | None = None
         if anchor is not None:
@@ -103,6 +110,8 @@ class DemoClock:
         if state is None:
             return self._wall()
         anchor, started = state
+        if self.frozen:
+            return anchor
         return anchor + max(self._wall() - started, timedelta(0))
 
     def wall(self) -> datetime:

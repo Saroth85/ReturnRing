@@ -45,13 +45,14 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal
 from typing import Any, Literal
 
 from contracts.levers import format_lever_id
 from contracts.vocab import SizeAdviceKind
 from llm.decision import ExpectedDecision, serialize_decision, template_key
-from llm.messages import MessageError, render, strip_placeholders
+from llm.messages import MessageError, format_deadline, render, strip_placeholders
 from llm.text import (
     Lang,
     banned_terms,
@@ -554,11 +555,40 @@ def subject(return_id: str, lang: Lang) -> str:
 
 # The coupon block shown at checkout (US-402): neutral, with the wording of the transparency
 # notice that follows a stated term ("these terms": the block of this order); it never names the
-# linked accounts or the cluster to the customer (rule 11).
+# linked accounts or the cluster to the customer (rule 11). Only the customer of the case whose
+# decision blocks the cluster sees it: it speaks of that customer's own returns.
 COUPON_BLOCK_TEXT: dict[Lang, str] = {
     "it": f"Su questo ordine i codici sconto non sono utilizzabili. {_NOTICE_AFTER_TERMS['it']}",
     "en": f"Discount codes cannot be used on this order. {_NOTICE_AFTER_TERMS['en']}",
 }
+# The coupon block of every other account of the cluster (contract 1.6.0, ADR-15 section 16):
+# it gives no cause, neither the account's own returns nor the linked accounts nor the cluster
+# (rule 11), only the review date of the block, which code writes as a field (rule 10): the
+# block applies to the orders placed before that day (US-607).
+CLUSTER_COUPON_BLOCK_TEXT: dict[Lang, str] = {
+    "it": "I codici sconto non sono utilizzabili sugli ordini effettuati prima {date}.",
+    "en": "Discount codes cannot be used on orders placed before {date}.",
+}
+
+
+def _before(day: date, lang: Lang) -> str:
+    """The {date} of the cluster coupon block: "30 December 2026" in English; in Italian with
+    the article of format_deadline joined to "di" ("del 30 dicembre 2026", "dell'11 dicembre
+    2026"), so that "prima {date}" is correct on every day (round 4, finding E22)."""
+    text = format_deadline(day, lang)
+    if lang == "en":
+        return text
+    if text.startswith("l'"):
+        return "dell'" + text.removeprefix("l'")
+    return "del " + text.removeprefix("il ")
+
+
+def cluster_coupon_block_text(review_at: date, lang: Lang) -> str:
+    """The coupon block of a linked account that is not the customer of the case: the fixed
+    neutral text with the review date of the block."""
+    return CLUSTER_COUPON_BLOCK_TEXT[lang].replace("{date}", _before(review_at, lang))
+
+
 # The size advice of a checkout line (US-401): a size only with measurement and exchange data.
 SIZE_ADVICE_TEXTS: dict[SizeAdviceKind, dict[Lang, str]] = {
     "specific": {

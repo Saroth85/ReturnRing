@@ -9,7 +9,9 @@ ADR-15 section 15 (contract 1.5.0) adds:
 - DEMO_CLOCK=on|off (default on): 'now' is the instant of the serving snapshot plus the time
   elapsed since the demo reset (apps.api.clock.DemoClock), so refund deadlines, review dates and
   the KPI week stay coherent with the decisions the reset made at the snapshot instant; off runs
-  the API on the wall clock;
+  the API on the wall clock. With PUBLIC_READ_ONLY=on or DEMO_MODE=cached the demo clock is
+  frozen at the snapshot instant (frozen_clock, contract 1.6.0): no open return of the reset
+  drifts into an overdue refund however long those demos stay up;
 - PUBLIC_READ_ONLY=on|off (default off): the public demo answers every write route with 403
   forbidden_role, except the agent and the checkout evaluation, which are rate limited per client
   (spec 11, "Sicurezza"); the proxy protects the admin views and the telemetry with basic auth;
@@ -108,6 +110,12 @@ class Settings:
     @property
     def cached(self) -> bool:
         return self.demo_mode == "cached"
+
+    @property
+    def frozen_clock(self) -> bool:
+        """The demo clock stands at the snapshot instant: the public read-only demo and the
+        cached demo (ADR-15 section 16)."""
+        return self.public_read_only or self.cached
 
     @property
     def served_llm_mode(self) -> LlmMode:

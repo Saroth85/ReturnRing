@@ -541,11 +541,24 @@ def test_a_stale_restriction_proposal_is_decided_again(api: Api) -> None:
     assert fresh["decision_id"] in body["message"] and fresh["state"] == "proposed"
     assert fresh["decided_on"] == shown["review_at"] and fresh["supersedes"] == shown["decision_id"]
     assert card(api, return_id)["draft_status"] == "ready"
-    # the refund of a proposal 90 days old is overdue: the next act is refused, and flagged
+    # the refund of a proposal 90 days old is overdue: an approval is refused (its message would
+    # state the past deadline), and the case is flagged
     again = error(decide(api, return_id, "approve"), 409, "conflict")
     assert "overdue" in again["message"]
     item = next(i for i in _queued(api, sort="refund_due_by") if i["return_id"] == return_id)
     assert item["refund_overdue"]
+    # 1.6.0 (ADR-15 section 16): a person can still reject it, with no message stating that date
+    rejected = ok(
+        decide(
+            api, return_id, "reject", override_reason=REASON,
+            override_category="evidence_disagreement",
+        ),
+        "decision_result",
+    )  # fmt: skip
+    assert rejected["decision"]["decision_id"] == fresh["decision_id"]
+    assert rejected["decision"]["state"] == "rejected" and rejected["outbox_message"] is None
+    item = next(i for i in _queued(api, sort="refund_due_by") if i["return_id"] == return_id)
+    assert not item["refund_overdue"]
 
 
 def test_a_message_never_states_a_past_refund_deadline(api: Api) -> None:
@@ -561,7 +574,8 @@ def test_a_message_never_states_a_past_refund_deadline(api: Api) -> None:
     overdue = _queued(api, sort="refund_due_by")
     assert any(i["return_id"] == return_id and i["refund_overdue"] for i in overdue)
     dues = [i["refund_due_by"] for i in overdue]
-    assert dues == sorted(dues)
+    dated = [d for d in dues if d is not None]  # a guarantee case has none: last (1.6.0)
+    assert dues == sorted(dated) + [None] * (len(dues) - len(dated))
 
 
 # ---- Read-only public demo (H21) -----------------------------------------------------------------

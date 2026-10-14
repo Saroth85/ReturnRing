@@ -36,7 +36,7 @@
       "detail": null
     }
   ],
-  "contract_version": "1.5.0",
+  "contract_version": "1.6.0",
   "rules_version": "policy-2026-10-12",
   "assumptions_version": "assumptions-v1",
   "model_versions": {
@@ -48,10 +48,11 @@
   },
   "clock": {
     "kind": "demo",
-    "now": "2026-09-30T19:00:00Z",
+    "now": "2026-09-30T18:00:00Z",
     "snapshot_as_of": "2026-09-30T18:00:00Z",
     "started_at": "2026-10-18T08:00:00Z",
-    "note": "Demo clock: the instant of the serving snapshot plus the time elapsed since the demo reset"
+    "frozen": true,
+    "note": "Demo clock, frozen at the instant of the serving snapshot: the public read-only or cached demo, whose refund deadlines never pass while it stays up"
   },
   "public_read_only": true
 }

@@ -721,6 +721,12 @@ INPUTS_ORIGIN = (
 )
 
 
+def snapshot_day(notice_on: date) -> date:
+    """The customer snapshot an example decision read (1.6.0): the monthly snapshot of the
+    features (00:00 UTC on the first day of each month), the last one before the request."""
+    return notice_on.replace(day=1)
+
+
 def decision_view(
     engine: Engine,
     *,
@@ -784,7 +790,7 @@ def decision_view(
         in_force=standing,
         current_return_terms=s.Terms.from_policy(d.current_return_terms),
         future_terms=s.Terms.from_policy(d.levers.future_terms),
-        refund_due_by=d.refund_due_by,
+        refund_due_by=s.refund_deadline(d.path, req.notice_on),
         review_at=d.review_on,
         approver=d.approver,
         approved_at=approved_at,
@@ -808,6 +814,7 @@ def decision_view(
                 risk=THRESHOLDS.risk, value_eur=eur(THRESHOLDS.value_eur)
             ),
             provenance=prov(INPUTS_ORIGIN, DATA_START, d.decided_on),  # data up to the decision
+            snapshot_on=snapshot_day(req.notice_on),
         ),
         rules_version=d.rules_version,
         model_versions=MODEL_VERSIONS,
@@ -1026,6 +1033,7 @@ def draft(
         missing_evidence=view.missing_evidence,
         customer_text=customer_text,
         nature=view.inputs.provenance.nature,
+        as_of=view.inputs.snapshot_on,
         languages=languages,
     )
     _, expected = serialize_decision(decision, BASE)
@@ -1302,7 +1310,7 @@ def queue_item(card: s.CaseCard) -> s.QueueItem:
             and d.review_at <= AS_OF.date()
         ),
         refund_due_by=d.refund_due_by,
-        refund_overdue=d.state == "proposed" and d.refund_due_by < AS_OF.date(),
+        refund_overdue=s.refund_overdue(d.state, d.refund_due_by, AS_OF.date()),
         risk=card.risk.score if card.risk else None,
         value=card.value.value_eur if card.value else None,
         expected_net_benefit=recommended.net_benefit.total,
@@ -3159,10 +3167,9 @@ def inspection_examples(valentina: Case, simone: Case) -> dict[str, BaseModel]:
         BASE,
     )
     with_claim = revalidate(view, diminished_value_claim=claim, as_of=confirmed_at)
-    # The refund the customer gets: the price of the returned line less the claim (art. 14(2)).
-    refund = m(
-        eur(Decimal(str(valentina.card.item.price_eur)) - Decimal(str(amount))), "eur", claim_prov
-    )
+    # The refund the customer gets: the price of the returned line less the claim (art. 14(2)),
+    # with its own provenance (contract 1.6.0, rule 11)
+    refund = claim.refund()
     assert valentina.card.draft is not None
     confirm_response = s.InspectionConfirmResponse(
         inspection=revalidate(
@@ -4077,16 +4084,17 @@ PENDING_BENCHMARKS: tuple[tuple[s.BenchmarkId, str, str], ...] = (
 RESET_WALL = datetime(2026, 10, 18, 8, 0, tzinfo=UTC)  # the demo reset, wall clock (illustrative)
 
 
-def demo_clock(now: datetime) -> s.ClockView:
+def demo_clock(now: datetime, *, frozen: bool = False) -> s.ClockView:
     """The demo clock of the examples: the snapshot instant (AS_OF) plus the time since the
-    reset, which ran on the morning of the demo (ADR-15 section 15)."""
+    reset, which ran on the morning of the demo (ADR-15 section 15); frozen at AS_OF on the
+    public read-only and the cached demo (section 16)."""
     return s.ClockView(
         kind="demo",
-        now=now,
+        now=AS_OF if frozen else now,
         snapshot_as_of=AS_OF,
         started_at=RESET_WALL,
-        note="Demo clock: the instant of the serving snapshot plus the time elapsed since the "
-        "demo reset",
+        frozen=frozen,
+        note=s.FROZEN_CLOCK_NOTE if frozen else s.DEMO_CLOCK_NOTE,
     )
 
 
@@ -4317,7 +4325,7 @@ def ops_examples() -> dict[str, BaseModel]:
                 check_("vllm", "disabled", "GPU off in cached mode"), check_("demo_cache", "ok"),
                 check_("telemetry", "disabled")],
         **versions,
-        clock=demo_clock(AS_OF + timedelta(hours=1)),
+        clock=demo_clock(AS_OF + timedelta(hours=1), frozen=True),
         public_read_only=True,
     )  # fmt: skip
     return {

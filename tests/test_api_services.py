@@ -108,7 +108,8 @@ def test_every_stored_decision_is_the_engine_output_on_its_stored_inputs(api: Ap
         assert [x.model_dump() for x in view.proposed_levers] == decision.levers.to_contract(BASE)
         assert view.requires_approval == decision.requires_approval
         assert view.review_at == decision.review_on
-        assert view.refund_due_by == view.inputs.notice_on + timedelta(days=14)  # rule 3
+        due = view.inputs.notice_on + timedelta(days=14)  # rule 3; none on the guarantee path
+        assert view.refund_due_by == (due if view.path is ReturnPath.WITHDRAWAL else None)
         assert view.decided_on == api.serving.as_of.date()  # the day of the intake
         assert view.version == 1 and view.revision_trigger == "initial"
         assert view.state == "proposed" and view.approver is None

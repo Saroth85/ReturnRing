@@ -329,7 +329,7 @@
       "free_size_exchange": true,
       "coupons_enabled": true
     },
-    "refund_due_by": "2026-10-10",
+    "refund_due_by": null,
     "review_at": null,
     "approver": null,
     "approved_at": null,
@@ -370,7 +370,8 @@
         "period_start": "2025-10-01",
         "period_end": "2026-09-26",
         "nature": "synthetic"
-      }
+      },
+      "snapshot_on": "2026-09-01"
     },
     "rules_version": "policy-2026-10-12",
     "model_versions": {

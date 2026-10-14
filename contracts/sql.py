@@ -389,6 +389,9 @@ decisions = Table(
     # {origin, period_start, period_end, nature} of the scores and thresholds above (rule 11):
     # an earlier version is served with the provenance it had (US-604)
     Column("inputs_provenance", JSONDoc, nullable=False),
+    # the UTC day of the customer snapshot the engine read (value, evidence, cluster): the period
+    # of the facts of the version's draft (contract 1.6.0, rule 11)
+    Column("snapshot_on", Date, nullable=False),
     # the top 3 contributions to the risk above (ADR-16): [{feature, value, contribution,
     # direction, phrase_en, phrase_it}] as ml.risk.explain writes shap_top3; the case card shows
     # them and the draft's facts cite them. Null when the return is not scored (rule 4, US-307)
@@ -405,7 +408,9 @@ decisions = Table(
     Column("requires_approval", Boolean, nullable=False),  # for `levers`
     Column("current_terms", JSONDoc, nullable=False),
     Column("future_terms", JSONDoc, nullable=False),
-    Column("refund_due_by", Date, nullable=False),
+    # notice + 14 days on the withdrawal path; null on the guarantee path, which states no
+    # refund deadline (contract 1.6.0; rule 4, NFR-17)
+    Column("refund_due_by", Date),
     Column("decided_on", Date, nullable=False),
     Column("review_at", Date),
     Column("alternatives", JSONDoc, nullable=False),
@@ -456,6 +461,14 @@ decisions = Table(
     ),
     # US-307: insufficient evidence has no quadrant
     _check("evidence_quality <> 'insufficient' OR quadrant IS NULL", "insufficient_no_quadrant"),
+    # rule 7 (1.6.0): the engine reads a customer snapshot made by the decision day
+    _check("snapshot_on <= decided_on", "snapshot_by_decision"),
+    # rule 3, rule 4 (1.6.0): the 14-day refund deadline is a withdrawal's, and only a withdrawal's
+    _check(
+        "(path = 'withdrawal' AND refund_due_by IS NOT NULL)"
+        " OR (path <> 'withdrawal' AND refund_due_by IS NULL)",
+        "refund_due_on_withdrawal",
+    ),
     # rule 5, spec 8.6: Q3 and Q4 always need a human approval while their levers stand
     _check(
         f"quadrant IS NULL OR quadrant NOT IN ({_sql_list(RESTRICTED_QUADRANTS)})"

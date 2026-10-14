@@ -75,6 +75,7 @@ def decision_row(
         "risk_threshold": inputs.thresholds.risk,
         "value_threshold_eur": Decimal(str(inputs.thresholds.value_eur)),
         "inputs_provenance": inputs.provenance.model_dump(mode="json"),
+        "snapshot_on": inputs.snapshot_on,
         "score_factors": None if score_factors is None else [dict(f) for f in score_factors],
         "base_terms": inputs.base_terms.model_dump(),
         "order_terms": inputs.order_terms.model_dump(),
@@ -258,6 +259,7 @@ async def view_of(
             risk=row["risk_threshold"], value_eur=_money(row["value_threshold_eur"]) or 0.0
         ),
         provenance=s.Provenance.model_validate(row["inputs_provenance"]),
+        snapshot_on=row["snapshot_on"],
     )
     return s.DecisionView(
         decision_id=row["decision_id"],

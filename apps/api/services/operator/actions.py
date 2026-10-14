@@ -41,6 +41,13 @@ Contract 1.5.0 (ADR-15 section 15):
   act answers 409 instead of promising a past date (H1); the queue flags such a case
   (refund_overdue). A stale proposal is decided again first: its refund is always overdue too
   (14 days from the notice come before a review date 90 days after the decision).
+
+Contract 1.6.0 (ADR-15 section 16): after the refund deadline a person can still reject the
+proposal or override it to the standard levers, with no message (outbox_message null,
+s.late_without_message): neither sets terms to announce, and the refund is owed all the same.
+Approve, an override to other levers and any act on a case with a diminished-value claim (whose
+message states the deduction) still answer 409. A guarantee case states no refund deadline, so
+its acts are never refused for one (rule 4, NFR-17).
 """
 
 from __future__ import annotations
@@ -236,7 +243,6 @@ async def _on_proposal(
                 "general coupon rule applies to the cluster of a Q4 case on its proposal (LEG-09)"
             )
         kept = rule if blocks else None
-    check_refund_due(view, now)  # every act sends a message stating the refund deadline (H1)
     state = {"approve": "approved", "override": "overridden", "reject": "rejected"}[body.action]
     standing = store.in_force(state, needs, review, now, False)
     acted = revalidate(
@@ -264,6 +270,9 @@ async def _on_proposal(
             }
         ),
     )
+    silent = s.late_without_message(acted)  # a late reject or standard terms (1.6.0)
+    if not silent:
+        check_refund_due(view, now)  # its message states the refund deadline (H1)
     full = store.decision_row(acted, store.alternatives_of(case.row), case.row["score_factors"])
     result = await conn.execute(
         update(decisions)
@@ -294,7 +303,7 @@ async def _on_proposal(
         assumptions_version=served.assumptions_version,
         request_id=request_id,
     )
-    message = await _message(conn, view, served, body, now, request_id)
+    message = None if silent else await _message(conn, view, served, body, now, request_id)
     application = (
         await coupons.application(conn, served.coupon_rule.application_id, now)
         if served.coupon_rule is not None
@@ -322,11 +331,7 @@ async def _message(
     diminished-value claim it states the refund the claim leaves and the deduction."""
     assert body.message is not None
     claim = acted.diminished_value_claim
-    refund = (
-        s.Metric(value=float(claim.refund_eur()), unit="eur", provenance=claim.amount.provenance)
-        if claim is not None
-        else None
-    )
+    refund = claim.refund() if claim is not None else None
     amount = Decimal(str(refund.value)) if refund is not None else None
     decision, _ = s.to_policy_decision(acted)
     base = acted.inputs.base_terms.to_policy()

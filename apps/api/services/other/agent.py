@@ -284,7 +284,7 @@ async def case_data(
         lever_ids=tuple(view.lever_ids),
         cluster_id=view.inputs.cluster_id,
         nature=view.inputs.provenance.nature,
-        as_of=view.decided_on,
+        as_of=view.inputs.snapshot_on,  # the customer snapshot the engine read (rule 11)
     )
     return CaseData(
         case=case,

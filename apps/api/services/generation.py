@@ -130,6 +130,7 @@ def llm_case(inputs: DraftInputs) -> LlmCase:
         missing_evidence=view.missing_evidence,
         customer_text=inputs.customer_text,
         nature=view.inputs.provenance.nature,
+        as_of=view.inputs.snapshot_on,  # the customer snapshot the engine read (rule 11)
         languages=list(inputs.languages),
     )
     _, expected = serialize_decision(decision, base)

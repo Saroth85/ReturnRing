@@ -24,6 +24,14 @@ new reset). It talks to the API only, never to data/ (rule 12), and walks the pa
 9. the manager's matrix, the simulator (ECO-01: 368 EUR), the KPIs of the reset week, the
    fairness report, the audit log as CSV; telemetry and benchmarks.
 
+On the public read-only demo (`/readyz` says `public_read_only`: PUBLIC_READ_ONLY=true, the
+default of the cached demo; spec 11) the same steps read the same cases and check that every
+write of the pitch (the approvals, the checkout confirmation, the catalogue task, the dispute)
+is refused with 403 forbidden_role and changes nothing, while the two writes the public pages
+keep, the checkout evaluation and the agent, still answer. A read-only walk changes no decision
+(the evaluation only records the terms it showed, an audit entry and a terms snapshot without an
+order), so it can run again without a reset.
+
 Every JSON response is checked against its JSON Schema (contracts/json/api) and its pydantic
 model; the agent stream frame by frame. The report lists each call with its status and time.
 Exit codes: 0 every check passed, 1 a check failed (the report says which), 2 usage.
@@ -162,6 +170,7 @@ class Walk:
         self.ring: dict[str, Any] = {}
         self.cases: dict[str, Any] = {}
         self.mode = "live"
+        self.read_only = False
 
     # ---- HTTP -----------------------------------------------------------------------------------
 
@@ -229,6 +238,34 @@ class Walk:
             f"/api/returns/{card['return_id']}/decision", "decision_result", body, actor="sara"
         )
 
+    def decision_body(self, card: Mapping[str, Any], action: str, lang: str) -> dict[str, Any]:
+        body = {
+            "decision_id": card["decision"]["decision_id"],
+            "action": action,
+            "approver": "sara",
+            "message": {"lang": lang},
+        }
+        validate("decision_request", body)
+        return body
+
+    def refuse(
+        self, path: str, request: str, body: Mapping[str, Any], actor: str | None = "sara"
+    ) -> None:
+        """On the public read-only demo, a write of the pitch is a 403 forbidden_role that names
+        the read-only mode (spec 11; ADR-15 section 15, H21)."""
+        validate(request, dict(body))
+        refused = self.call("POST", path, "error", json=dict(body), expect=403, actor=actor)
+        error = refused.json()
+        check(error["code"] == "forbidden_role", f"POST {path}: {error['code']}")
+        check("read-only" in error["message"], f"POST {path}: the read-only mode is named")
+        self.report.facts.setdefault("refused_writes", []).append(f"POST {path}")
+
+    def unchanged(self, card: Mapping[str, Any]) -> dict[str, Any]:
+        """The case after a refused write: the decision shown before, unchanged."""
+        after = self.card(card["return_id"])
+        check(_stored(after["decision"]) == _stored(card["decision"]), "nothing changed")
+        return after
+
     def audit_actions(self, return_id: str) -> list[str]:
         page = self.get(
             "/api/audit", "audit_page", params={"return_id": return_id, "page_size": 500}
@@ -243,8 +280,10 @@ class Walk:
         check(checks["database"] == "ok", f"database not ready: {body['checks']}")
         check(body["status"] in ("ready", "degraded"), f"status {body['status']}")
         self.mode = body["mode"]
+        self.read_only = bool(body["public_read_only"])
         self.report.facts["mode"] = {
             "mode": body["mode"],
+            "public_read_only": self.read_only,
             "llm_mode": body["llm_mode"],
             "device": body["device"],
             "checks": checks,
@@ -293,6 +332,17 @@ class Walk:
         d = card["decision"]
         check(d["quadrant"] == "Q1" and d["in_force"], f"Giulia is Q1 in force: {d['quadrant']}")
         check(not d["requires_approval"], "Q1 needs no approval")
+        if self.read_only:
+            path = f"/api/returns/{card['return_id']}/decision"
+            self.refuse(path, "decision_request", self.decision_body(card, "approve", "it"))
+            self.unchanged(card)
+            self.report.facts["giulia"] = {
+                "return_id": card["return_id"],
+                "quadrant": d["quadrant"],
+                "levers": d["lever_ids"],
+                "decided_on": d["decided_on"],
+            }
+            return
         result = self.decide(card, "approve", "it")
         check(result["decision"]["state"] == "approved", "Giulia approved")
         message = result["outbox_message"]
@@ -321,6 +371,9 @@ class Walk:
         linked = card["linked_accounts"]
         check(linked is not None and linked["cluster_size"] >= 2, "the ring is a cluster")
         check(d["coupon_rule"] is not None, "Q4 proposes the cluster coupon block (US-402)")
+        if self.read_only:
+            self.marco_read_only(card)
+            return
         result = self.decide(card, "approve", "it")
         new = result["decision"]
         check(new["state"] == "approved" and new["in_force"], "approved and in force")
@@ -369,6 +422,61 @@ class Walk:
             "audit": actions,
         }
 
+    def marco_read_only(self, card: Mapping[str, Any]) -> None:
+        """The ring account's proposal stays a proposal: the approval is refused (rule 5 still
+        holds: nothing restrictive is in force without a person)."""
+        d = card["decision"]
+        path = f"/api/returns/{card['return_id']}/decision"
+        self.refuse(path, "decision_request", self.decision_body(card, "approve", "it"))
+        after = self.unchanged(card)["decision"]
+        check(not after["in_force"], "still a proposal, not in force (rule 5)")
+        check(after["coupon_rule"]["state"] == "proposed", "the coupon block stays proposed")
+        actions = self.audit_actions(card["return_id"])
+        check(actions[:2] == ["decision_proposed", "draft_generated"], f"audit trail {actions}")
+        check("decision_approved" not in actions, "no approval in the audit log")
+        linked = card["linked_accounts"]
+        self.ring = {
+            "return_id": card["return_id"],
+            "customer_id": card["customer_id"],
+            "variant_id": card["item"]["variant_id"],
+            "size": card["item"]["size"] or "M",
+            "decision_id": d["decision_id"],
+            "application_id": None,
+            "affected": sorted(d["coupon_rule"]["affected_customer_ids"]),
+            "review_at": None,
+        }
+        self.report.facts["marco"] = {
+            "return_id": card["return_id"],
+            "customer_id": card["customer_id"],
+            "cluster_size": linked["cluster_size"],
+            "proposed_levers": d["lever_ids"],
+            "state": after["state"],
+            "audit": actions,
+        }
+
+    def checkout_read_only(self, lines: list[dict[str, Any]]) -> None:
+        """The evaluation answers (a public page keeps it); a proposal never reaches it (rule 5);
+        the confirmation, which stores an order and its terms snapshot, is refused."""
+        customer = self.ring["customer_id"]
+        shown = self.evaluate(customer, lines)
+        check(shown["terms_source"] != self.ring["decision_id"], "a proposal is not in force")
+        check(shown["terms"]["return_window_days"] >= 14, "never under 14 days (rule 3)")
+        confirm = {
+            "terms_snapshot_id": shown["terms_snapshot_id"],
+            "customer_id": customer,
+            "lines": lines,
+            "coupon_code": None,
+        }
+        self.refuse("/api/checkout/confirm", "checkout_confirm_request", confirm, actor=None)
+        self.report.facts["checkout"] = {
+            "customer_id": customer,
+            "terms_source": shown["terms_source"],
+            "quadrant": shown["quadrant"],
+            "terms": shown["terms"],
+            "coupon_block": None if shown["coupon_block"] is None else "shown",
+            "confirm": "403 forbidden_role (read-only)",
+        }
+
     def evaluate(self, customer: str, lines: list[dict[str, Any]]) -> Any:
         request = {"customer_id": customer, "lines": lines, "coupon_code": None}
         validate("checkout_evaluate_request", request)
@@ -376,6 +484,9 @@ class Walk:
 
     def checkout(self) -> None:
         lines = [{"variant_id": self.ring["variant_id"], "size": self.ring["size"], "quantity": 1}]
+        if self.read_only:
+            self.checkout_read_only(lines)
+            return
         # the approved account: the Q4 terms of its decision, with their review date (rule 3:
         # future orders only, shown before the purchase)
         own = self.evaluate(self.ring["customer_id"], lines)
@@ -455,6 +566,27 @@ class Walk:
         check(d["levers"] == [] and not d["requires_approval"], "no restrictive lever (rule 4)")
         anomaly = card["product_anomaly"]
         check(anomaly is not None, "the anomaly of the variant is on the card (US-606)")
+        if self.read_only:
+            path = f"/api/returns/{card['return_id']}/decision"
+            self.refuse(path, "decision_request", self.decision_body(card, "approve", "it"))
+            task = {
+                "anomaly_id": anomaly["anomaly_id"],
+                "kind": "size_guide",
+                "note": "Check the size chart of the variant against the garment",
+                "author": "luca",
+                "return_id": card["return_id"],
+            }
+            self.refuse("/api/catalog-tasks", "catalog_task_create", task, actor="luca")
+            listed = self.get("/api/products/anomalies", "product_anomalies", actor="luca")
+            ids = [a["anomaly_id"] for a in listed["items"]]
+            check(anomaly["anomaly_id"] in ids, "the anomaly is listed for the manager")
+            self.unchanged(card)
+            self.report.facts["elena"] = {
+                "return_id": card["return_id"],
+                "anomaly_id": anomaly["anomaly_id"],
+                "task_id": None,
+            }
+            return
         result = self.decide(card, "approve", "it")
         message = result["outbox_message"]
         check(message["legal_clause_kind"] == "guarantee", "the guarantee clause")
@@ -497,6 +629,14 @@ class Walk:
         check(card["risk"] is None and d["quadrant"] is None, "neither safe nor suspect")
         check(bool(card["evidence"]["missing_evidence"]), "the missing evidence is listed")
         check(d["proposed_levers"] == [], "the standard terms (US-307)")
+        if self.read_only:
+            path = f"/api/returns/{card['return_id']}/decision"
+            self.refuse(path, "decision_request", self.decision_body(card, "approve", "en"))
+            self.report.facts["insufficient"] = {
+                "return_id": card["return_id"],
+                "missing": card["evidence"]["missing_evidence"],
+            }
+            return
         result = self.decide(card, "approve", "en")
         check(result["decision"]["levers"] == [], "approved with the standard terms")
         check(result["coupon_application"] is None, "no coupon block")
@@ -535,6 +675,16 @@ class Walk:
             "return_id": card["return_id"],
             "decision_id": card["decision"]["decision_id"],
         }
+        if self.read_only:
+            self.refuse(f"/api/links/{link_id}/dispute", "link_dispute_request", body)
+            again = self.unchanged(card)
+            links = (again["linked_accounts"] or {}).get("links", [])
+            check(
+                all(not x["disputed"] for x in links if x["link_id"] == link_id),
+                "the link is not disputed",
+            )
+            self.report.facts["dispute"] = {"return_id": card["return_id"], "link_id": link_id}
+            return
         validate("link_dispute_request", body)
         result = self.post(
             f"/api/links/{link['link_id']}/dispute", "link_dispute_response", body, actor="sara"

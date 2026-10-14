@@ -20,7 +20,8 @@ snapshot. Billing runs from creation to destruction, powered off or not.
 - trainer-gbm installs `amd_xgboost==3.2.0` from `https://pypi.amd.com/rocm-7.2.3/simple` only,
   with a pinned wheel hash, and everything else from PyPI only. The build fails if a ROCm library
   of `libxgboost.so` is missing.
-- Each spike starts on its own. Nothing is started with `make gpu-up`.
+- Each spike starts on its own. Nothing of the spikes is started with `make gpu-up`, which
+  starts the product stack ("The demo export" below).
 - vLLM keeps its weights (`hf-cache`) and compile cache (`vllm-cache`) in volumes, so a restart
   or a later session from the snapshot skips both. It runs with `HF_HUB_OFFLINE=1` (rule 2): only
   `spike-weights` talks to Hugging Face.
@@ -358,6 +359,45 @@ Commit `bench/results/$BENCH_RUN.json`, `latest.json`, `latest-gpu.json`,
 `docs/results/benchmarks-mi300x.md`, `docs/results/us-202-graphsage.md` and
 `docs/results/us-204-risk.md`. `artifacts/` (raw records, logs, amd-smi samples, models),
 `data/` and `bench-work/` stay out of git.
+
+## The demo export: MI300X drafts, the cached demo package and the live stack (US-901, US-903)
+
+The cached demo (`DEMO_MODE=cached`, GPU off) serves the drafts Gemma wrote on the MI300X for the
+open returns of one serving snapshot. The cache is keyed by the llm_case, so the snapshot the
+batch reads must be the one the demo serves: build it once on the laptop and copy it, never
+rebuild it on one side only. `data/truth` stays on the laptop (the snapshot holds no ground truth,
+ADR-16). Every step is a `make` target from the repository root; `make -n <target>` prints it.
+
+The droplet's `.env` also needs `PUBLIC_HOST` (the sslip.io name of its IP, for example
+`203-0-113-10.sslip.io`), `ADMIN_USER` and `ADMIN_PASSWORD_HASH` between single quotes (`make
+admin-password` on the laptop prints the hash): `make gpu-up` serves HTTPS on `PUBLIC_HOST` with
+basic auth on `/system`, `/api/telemetry` and every write (infra/compose.public.yml).
+
+| # | Where | Command | What it does | Writes |
+| --- | --- | --- | --- | --- |
+| 1 | laptop | `make demo-data` (Docker) or `make pipeline` (host Python) | the store, the models and the serving snapshot, seed 42 | `data/`, `artifacts/`, `serving/` |
+| 2 | laptop | `rsync -a --delete serving/ root@<droplet-ip>:ReturnRing/serving/` | the snapshot only, no ground truth; before step 4 (`--delete` also removes `llm_cache/`) | `serving/` (droplet) |
+| 3 | droplet | `make spike-vllm spike-wait` | vLLM alone first, healthy before anything else uses the GPU | - |
+| 4 | droplet | `make batch-generate` | Gemma's draft of every open return through the local vLLM, golden cases first; exit 1 if vLLM failed any (not cached) | `serving/llm_cache/` |
+| 5 | droplet | `make demo-export` | checks the snapshot against its manifest, refuses an empty cache, packs snapshot, cache and `bench/results/` (pointers and runs) with `MANIFEST.json` (sha256 of every file, the model of each draft, `generated_on`); host `python3`, standard library only | `demo-cache/`, `demo-cache.tar.gz` |
+| 6 | laptop | `scp root@<droplet-ip>:ReturnRing/demo-cache.tar.gz .` then `make demo-import demo-local` | checks every hash, then the cached demo on http://localhost:8080 | `demo-cache/` |
+| 7 | demo server (CPU) | clone the repository, `cp .env.example .env` (set `POSTGRES_PASSWORD`, `DATABASE_URL`, `PUBLIC_HOST`, `ADMIN_PASSWORD_HASH`), copy `demo-cache.tar.gz`, then `make demo-import demo-up` | the public cached demo: HTTPS, read-only views, no GPU container | - |
+| 8 | droplet | `make gpu-up` (live pitch and video) | postgres, the reset with live Gemma drafts, the api, the telemetry sampler, the ui and the proxy on `https://PUBLIC_HOST` | database volume |
+
+- Step 4 runs after the benchmarks of "The GPU session" or on its own; it never needs the
+  trainers. Run `make bench-merge` before step 5 so `bench/results/latest.json` names the
+  MI300X run the demo shows (a CPU run is packed too, labelled, but never served as latest).
+- Step 8 resets the database and drafts every open return through vLLM, `LLM_CONCURRENCY` model
+  calls at once (review H32, default 32; `VLLM_TIMEOUT_S` bounds each, default 20 s). The export
+  (steps 3 to 5) does not need it.
+- `make demo-walk API_URL=http://127.0.0.1:8000` on a host with `requirements/dev.txt` walks the
+  pitch against the running API after a reset (`make reset`, `make gpu-reset`, `make demo-reset`);
+  in cached mode the case assistant answers 503, as documented. On a read-only demo
+  (`PUBLIC_READ_ONLY=true`, the default of steps 6 and 7) the walk reads the same cases and checks
+  that every write of the pitch is refused (403) while the checkout evaluation still answers; it
+  changes no decision, so it needs no reset.
+- A CPU rehearsal of steps 4 to 6 without the GPU: `make demo-export ALLOW_EMPTY_CACHE=1` packs a
+  snapshot without drafts; the demo then labels every draft as the fixed template.
 
 ## Files to copy back (laptop)
 

@@ -65,8 +65,8 @@ same data, configuration and seed.
 The main CI installs no PyTorch: `tests/test_gnn_data.py` (graphs, features, contract, the
 EmbeddingSource, the report, rule 12) and the A4 hook test in `tests/test_risk_generated.py`
 (noise embeddings) run there. `tests/test_gnn_model.py` and `tests/test_gnn_jobs.py` carry the
-`torch` marker and skip without PyTorch. A job to add to `.github/workflows/ci.yml` (left to the
-platform session, which owns `.github/`):
+`torch` marker and skip without PyTorch. The `gnn-cpu` job of `.github/workflows/ci.yml` runs
+them:
 
 ```yaml
   gnn-cpu:

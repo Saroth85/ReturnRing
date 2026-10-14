@@ -276,12 +276,12 @@ Measured on the full synthetic store is reported with the commit of this round. 
 infrastructure the round needs (the serving mount, the reset job, the healthcheck reading the
 body of `/readyz`, `GEMMA_MODEL` and `PUBLIC_READ_ONLY` in compose, basic auth and the body
 limit in Caddy, the telemetry sampler) is listed in ADR-15 section 15 for the infrastructure
-round.
+round, done in [ADR-17](ADR-17-deployment-and-demo-package.md).
 
 ## Consequences
 
-- **Infra** (not changed here): the `api` service mounts `serving/` read-only and sets
-  `SERVING_DIR`; the `pipeline` job writes `serving/` after the scoring (`python -m
+- **Infra** (not changed here; done in ADR-17): the `api` service mounts `serving/` read-only
+  and sets `SERVING_DIR`; the `pipeline` job writes `serving/` after the scoring (`python -m
   pipeline.serving`); the reset runs once after the database is up (`python -m apps.api.reset`);
   the GPU profile runs `python -m apps.api.batch_generate` and copies `serving/` (with
   `llm_cache/`) to the demo server. `apps/api/Dockerfile` now copies `ml/` (the API runs the risk

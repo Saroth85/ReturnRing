@@ -2,8 +2,9 @@
 
 Status: accepted, 13 Oct 2026; amended the same day after four reviews (sections 9 to 12), and on
 14 Oct 2026 by the phase 4 integration (section 13), the merge of the LLM layer's closing
-rounds (section 14) and the review of the running API (section 15). API contract version
-`1.5.0`. Covers spec section 9 (API table, flows F1 to F7), the stories of E3,
+rounds (section 14), the review of the running API (section 15) and the review of the public
+deployment (section 16). API contract version `1.5.1`. Covers spec section 9 (API table, flows
+F1 to F7), the stories of E3,
 E4, E5, E6, E7 and E9, NFR-16 and CLAUDE.md rules 1, 3, 4, 5, 9, 10, 11 and 12. Changes
 `contracts/` (new `contracts/vocab.py`, `contracts/sql.py`, `contracts/json/api/`,
 `contracts/examples/api/`), removes two v1 API schemas, and adds `apps/api/schemas.py` and two
@@ -1027,8 +1028,9 @@ dispute of one link is a 409, also when two arrive together (the unique key of
 telemetry behind basic auth. `PUBLIC_READ_ONLY=on` answers 403 `forbidden_role` to every write
 route but `POST /api/agent/ask` and `POST /api/checkout/evaluate`, which stay for the public
 pages and are rate limited per client (30 per minute, the first `X-Forwarded-For` hop the proxy
-sets); `/readyz` says `public_read_only`. The proxy protects the admin page (`/system`) and
-`/api/telemetry` with basic auth (Caddy `basic_auth` on those paths, ADR-17) and limits request
+sets); `/readyz` says `public_read_only`. The proxy protects the admin data, `/api/telemetry`,
+with basic auth (Caddy `basic_auth` on that path, ADR-17; the client route `/system` of the admin
+page was protected too until section 16) and limits request
 bodies to 10 MB (`request_body max_size`); the API refuses bodies over 8 MiB itself (413). Checkout
 `/confirm` declares 403 now; the checkout evaluation declares 429.
 
@@ -1131,8 +1133,8 @@ setting below under these names and `tests/test_infra.py` checks that the API re
   the body), with a start period of 60 s or more.
 - H30: pass `GEMMA_MODEL` (and `VLLM_TIMEOUT_S`, `LLM_CONCURRENCY` if changed) to the api, the
   reset and `batch_generate`.
-- H21: the demo profile sets `PUBLIC_READ_ONLY=on`; Caddy protects the admin page and
-  `/api/telemetry` with `basic_auth`, sets `X-Forwarded-For`, and limits request bodies
+- H21: the demo profile sets `PUBLIC_READ_ONLY=on`; Caddy protects `/api/telemetry` (the admin
+  page's data; section 16) with `basic_auth`, sets `X-Forwarded-For`, and limits request bodies
   (`request_body { max_size 10MB }`).
 - H40: a telemetry sampler service on the GPU profile (`python -m
   apps.api.services.other.telemetry`).
@@ -1151,6 +1153,45 @@ Known limits, reported as they are:
   after the reset (the earliest is 2 October at full scale); the public demo is read-only, so
   no message is composed there, and a reset restarts the clock.
 - **E15 is still open** (section 12).
+
+### 16. Review of the public deployment (14 Oct 2026, contract 1.5.1)
+
+A review of the deployment, the README and the public demo (docs/review-backlog.md, "A judge
+following the README" and "Security of the public deployment") found two contract-visible gaps.
+The version is 1.5.1: one more value of an existing field and one documented header, no new
+endpoint or field. The infrastructure side is in ADR-17 (amendments of 14 Oct 2026).
+
+- **The cached label is a claim about hardware (rules 11 and 13).** `/readyz` showed
+  "Precomputed on AMD MI300X" whenever the cache had entries, so a CPU rehearsal package with a
+  fake vLLM server was labelled MI300X. `CachedLabel` gains "Precomputed in a rehearsal, not
+  verified on AMD MI300X" (`REHEARSAL_LABEL`). The MI300X label is shown only when the demo
+  package's `MANIFEST.json`, next to the serving snapshot as in `demo-cache/`
+  (`SERVING_DIR/../MANIFEST.json`), is not a rehearsal and names the MI300X in `generated_on`,
+  and every entry of `llm_cache/` was written by `GEMMA_MODEL`; otherwise the rehearsal label,
+  with the reason in the `demo_cache` check (`apps.api.services.demo_package`). `make
+  demo-export` has no default hardware, refuses drafts of another model unless the package is
+  declared a rehearsal, and records `rehearsal` and `gemma_model` in the manifest.
+- **Retry-After on every 429 `rate_limited`.** The public limit (checkout evaluation, agent) and
+  the agent's limit per person answer 429 with `Retry-After`: the whole seconds to wait, rounded
+  up, at least 1, also stated in the message. `endpoints.json` lists the header with the two of
+  every response, and the OpenAPI document declares it on each 429. The error body is unchanged.
+- **Not contract changes, recorded here because they change behaviour.** On the public
+  read-only API the public limit is checked before the agent's, and the agent's limit counts per
+  client and person (`roles.client_key`, the first `X-Forwarded-For` hop as before), so one
+  anonymous client cannot lock the agent for every visitor. The limiters forget the keys whose
+  calls have all left the window (swept at most once per window) and count an IPv6 client by its
+  /64. A refused `VLLM_BASE_URL` is named by the refused part (a scheme, a user, a query, a
+  fragment, a host that is not local), never echoed: the message reaches `/readyz` and the 503
+  bodies. The access log writes the path percent-encoded, so an encoded newline cannot forge a
+  line. `GET /api/portfolio/matrix` serializes and gzips its body in a worker thread; the encoded
+  bytes are not cached, because the matrix depends on the clock's 'now' (the 12-month return
+  counts, the periods of its figures) and no key short of the full instant is provably correct.
+  The reset retries its first database connection for about 30 s.
+
+Schemas whose shape changed: `readyz_response.schema.json` (the `label` enum),
+`endpoints.json` (`headers`) and `openapi.json` (the label, the `Retry-After` header of the 429
+of `POST /api/checkout/evaluate` and `POST /api/agent/ask`). Examples: the contract version of
+both readyz responses.
 
 ## Consequences
 

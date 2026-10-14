@@ -6,6 +6,9 @@
 # reset read the demo package of `make demo-export` (demo-cache/: the serving snapshot with
 # llm_cache/, the benchmark results and MANIFEST.json), never serving/ or data/ of this checkout.
 # Compose merges volumes by container path, so these mounts replace those of docker-compose.yml.
+# The API also reads the package's MANIFEST.json next to the snapshot, as in demo-cache/
+# (SERVING_DIR/../MANIFEST.json): /readyz shows "Precomputed on AMD MI300X" only when it says the
+# drafts were made on the MI300X by GEMMA_MODEL, a rehearsal label otherwise (rules 11 and 13).
 # Public views are read-only by default (spec 11): PUBLIC_READ_ONLY=false in .env turns writes on,
 # behind basic auth on a public server.
 services:
@@ -18,6 +21,7 @@ services:
     volumes:
       - ../demo-cache/serving:/app/serving:ro
       - ../demo-cache/bench/results:/app/bench/results:ro
+      - ../demo-cache/MANIFEST.json:/app/MANIFEST.json:ro
 
   reset:
     environment:

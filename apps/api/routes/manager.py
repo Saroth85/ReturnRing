@@ -11,6 +11,7 @@ they answer 404 (rule 12: no label is read at runtime, no rate is invented).
 
 from __future__ import annotations
 
+import asyncio
 import gzip
 import json
 from collections.abc import Callable
@@ -86,14 +87,24 @@ def accepts_gzip(header: str | None) -> bool:
     return weight > 0
 
 
-def large_answer(request: Request, model: BaseModel) -> Response:
-    """A large JSON body (the matrix: about 20,000 points), gzipped when the client accepts it
-    (ADR-15 section 4)."""
+def encode_large(model: BaseModel, gzip_ok: bool) -> tuple[bytes, bool]:
+    """The JSON bytes of a large body, gzipped when the client accepts it and the body is worth
+    it; and whether they are gzipped."""
     data = json.dumps(model.model_dump(mode="json"), separators=(",", ":")).encode("utf-8")
+    if gzip_ok and len(data) >= GZIP_MIN_BYTES:
+        return gzip.compress(data, compresslevel=6), True
+    return data, False
+
+
+async def large_answer(request: Request, model: BaseModel) -> Response:
+    """A large JSON body (the matrix: about 20,000 points), gzipped when the client accepts it
+    (ADR-15 section 4). The serialization and the compression take seconds at full scale: they
+    run in a worker thread, so the single worker's event loop keeps serving other requests."""
+    gzip_ok = accepts_gzip(request.headers.get("accept-encoding"))
+    data, gzipped = await asyncio.to_thread(encode_large, model, gzip_ok)
     headers = {"Vary": "Accept-Encoding"}
-    if len(data) >= GZIP_MIN_BYTES and accepts_gzip(request.headers.get("accept-encoding")):
+    if gzipped:
         headers["Content-Encoding"] = "gzip"
-        data = gzip.compress(data, compresslevel=6)
     return Response(data, media_type="application/json", headers=headers)
 
 
@@ -107,7 +118,7 @@ async def get_portfolio_matrix(request: Request) -> Response:
     serving = rt.require_serving()
     async with rt.transaction() as conn:
         body = await portfolio_matrix(conn, serving, rt.now())
-    return large_answer(request, body)
+    return await large_answer(request, body)
 
 
 @route("GET", ASSUMPTIONS)

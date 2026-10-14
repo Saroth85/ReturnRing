@@ -3,7 +3,7 @@
 #   gpu:    -f infra/docker-compose.yml -f infra/compose.gpu.yml    (DEVICE=gpu, LLM_MODE=vllm)
 #   demo:   -f infra/docker-compose.yml -f infra/compose.demo.yml   (DEMO_MODE=cached, demo-cache/)
 #   public: add -f infra/compose.public.yml on a server reachable from the Internet (HTTPS on
-#           PUBLIC_HOST, basic auth on the admin page, the telemetry and the writes).
+#           PUBLIC_HOST, basic auth on the telemetry data and the writes).
 #   GPU spikes add -f infra/compose.spike.yml (infra/spikes/README.md). Use the Makefile targets.
 # Images: the GPU images are pinned by tag@digest in .env.example (VLLM_IMAGE, DGL_IMAGE,
 # ROCM_BASE_IMAGE); postgres and caddy below, with the digest of their multi-arch index read from
@@ -12,6 +12,9 @@
 # never mount data/, data/truth/ or artifacts/; they read the serving snapshot (ADR-16), the
 # benchmark results and the database. Only offline jobs read data/: the pipeline job writes it.
 # Start order (make dev-up): postgres healthy -> reset exits 0 -> api healthy -> ui, proxy.
+# Restarts: the long-running services (postgres, api, ui, proxy, telemetry-sampler) restart
+# unless stopped, so a crash or a reboot of a public server does not take the demo down; the
+# reset stays one-shot ("no"), so a daemon restart keeps the database (pgdata) as it was.
 name: returnring
 
 x-gpu: &gpu
@@ -64,10 +67,13 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - pgdata:/var/lib/postgresql/data
+    # Over TCP: on a first start the image's init-only server listens on the Unix socket only,
+    # so the database is healthy once the real server is up (the reset also retries ~30 s).
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       retries: 10
+    restart: unless-stopped
 
   # One-shot demo reset (US-903, ADR-16 section 3): drops and recreates every table, loads the
   # assumptions and the coupon rule, then decides every open return of the snapshot, golden cases
@@ -89,8 +95,10 @@ services:
     <<: *api-image
     profiles: [dev, gpu, demo]
     # One uvicorn worker (apps/api/Dockerfile): the snapshot lives in memory. On the full
-    # synthetic store the process held 1.57 GB after the warm-up and 1.81 GB at most during the
-    # demo walk, healthy 38 s after its start (4 shared vCPUs, 14 Oct 2026).
+    # synthetic store the process held about 1.6 GB after the warm-up; the peak during the demo
+    # walk varied between runs, up to about 2.2 GB; healthy 38 s after its start (resident
+    # memory of the API process run on the host, not in a container, 4 shared vCPUs, 14 Oct
+    # 2026; measured once, not re-measured in Docker).
     environment: *api-env
     volumes:
       - ../serving:/app/serving:ro
@@ -121,6 +129,7 @@ services:
     # ports bypass ufw, so 0.0.0.0 here would expose the API.
     ports:
       - "127.0.0.1:8000:8000"
+    restart: unless-stopped
 
   ui:
     build:
@@ -130,6 +139,7 @@ services:
         VITE_READ_ONLY: ${PUBLIC_READ_ONLY:-false}
     profiles: [dev, gpu, demo]
     # No published port: the proxy serves the UI and the API on one origin.
+    restart: unless-stopped
 
   # The single entry point (spec 9 and 11): the UI, /api, /healthz and /readyz on one origin.
   # Laptop: plain HTTP on 127.0.0.1:8080, no authentication (loopback only). On a public server
@@ -154,6 +164,7 @@ services:
         condition: service_healthy
       ui:
         condition: service_started
+    restart: unless-stopped
 
   # Offline job (make demo-data), never started by `up`: the whole chain of docs/spec.md section
   # 15, as `make pipeline` runs it on the host. The Navigli Fashion store from the committed real

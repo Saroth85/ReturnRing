@@ -31,4 +31,5 @@ testpaths = ["tests"]
 markers = [
     "gpu: needs the AMD MI300X droplet",
     "asos: needs the real ASOS GraphReturns files in ASOS_DIR (skipped otherwise)",
+    "e2e: the golden demo walk over the API (CI runs it on the tiny snapshot of the harness)",
 ]

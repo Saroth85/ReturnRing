@@ -1149,8 +1149,6 @@ class LinkedAccountsView(ApiModel):
             raise ValueError("link ids are unique")
         if any(x.customer_a not in ids or x.customer_b not in ids for x in self.links):
             raise ValueError("every link joins two accounts of the cluster")
-        if self.features.n_distinct_cards.value > self.cluster_size:
-            raise ValueError("more distinct cards than accounts is not a cluster feature")
         return self
 
 

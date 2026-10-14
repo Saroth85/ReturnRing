@@ -52,7 +52,7 @@ from apps.api.serving import (
 from contracts.parquet import IDENTIFIER_KINDS
 from contracts.sql import catalog_tasks, evidence_additions, link_disputes, return_requests
 from llm.case import CLUSTER_FEATURES, ClusterSummary
-from pipeline.anomalies.catalogue import weekly_series
+from pipeline.anomalies.catalogue import NAT_NS, weekly_counts
 from pipeline.features.evidence import EVIDENCE_THRESHOLDS
 from pipeline.features.value import VALUE_ASSUMPTIONS
 from policy.engine import decide
@@ -67,6 +67,7 @@ from policy.types import (
 
 CENT: Final = Decimal("0.01")
 YEAR: Final = timedelta(days=365)
+_ANOMALY_DETAILS: Final = "_anomaly_details"  # kept with the snapshot (anomaly_detail)
 Source = Literal["store", "adapter"]
 
 
@@ -171,9 +172,12 @@ def propose(
     created_at: datetime,
     assumptions: s.Assumptions,
     coupon_rule_version: str,
-    version: int = 1,
 ) -> Proposal:
-    """The engine's proposal for a return request (steps 1 to 4 of the module docstring)."""
+    """The engine's proposal for a return request (steps 1 to 4 of the module docstring), as
+    version 1 of its case (trigger initial). A later version (a review or a recompute) takes this
+    proposal through services.operator.versions.next_version, which gives it the identity of
+    version n and the person's outcome: a review version is only valid with that outcome."""
+    version = 1
     path = record.path  # rule 4: the path before any score
     score = serving.request_score(record) if path is Path.WITHDRAWAL else None
     if score is not None and score.path is not path:
@@ -733,11 +737,52 @@ def variant_anomaly(serving: Serving, variant_id: str, at: datetime) -> Mapping[
     return {str(k): v for k, v in row.to_dict().items()}
 
 
+def anomaly_detail(
+    serving: Serving, row: Mapping[str, Any]
+) -> tuple[list[s.WeeklyReturnRate], list[str]]:
+    """The trend of a flagged row of features/product_anomalies (the variant's weekly sales and
+    returns for the reason, as weekly_series counts them, from its first sales week to the week
+    of the row's snapshot) and the store returns of its sales week for the reason known then.
+    The case card and the manager's anomaly list both show these (rule 11). Both depend on the
+    snapshot only, so each row is computed once and kept with the snapshot."""
+    variant_id, reason = str(row["variant_id"]), str(row["reason"])
+    snapshot = pd.Timestamp(row["as_of"])
+    week = pd.Timestamp(pd.Timestamp(row["week"]).date(), tz="UTC")
+    cache: dict[tuple[str, str, pd.Timestamp, pd.Timestamp], Any] = vars(serving).setdefault(
+        _ANOMALY_DETAILS, {}
+    )
+    key = (variant_id, reason, week, snapshot)
+    if key not in cache:
+        lines = serving.variant_sales(variant_id)
+        series = weekly_counts(lines, reason, snapshot.to_pydatetime())
+        returned_at = lines["return_known_at"].array.as_unit("ns").asi8
+        in_week = (
+            (lines["reason"].to_numpy(dtype=object, na_value=None) == reason)
+            & (lines["week"].array.as_unit("ns").asi8 == week.value)
+            & (returned_at != NAT_NS)
+            & (returned_at <= snapshot.value)
+        )
+        trend = [
+            s.WeeklyReturnRate(
+                week=pd.Timestamp(r.week).date(),
+                sales=int(r.n),
+                returns=int(r.observed),
+                return_rate=round(int(r.observed) / int(r.n), 4) if int(r.n) else 0.0,
+            )
+            for r in series.itertuples(index=False)
+        ]
+        ids = serving.returns_of_lines(lines["line_id"].to_numpy()[in_week])
+        cache[key] = (trend, ids)
+    found: tuple[list[s.WeeklyReturnRate], list[str]] = cache[key]
+    return list(found[0]), list(found[1])
+
+
 async def product_anomaly(
     conn: AsyncConnection, serving: Serving, variant_id: str, at: datetime
 ) -> s.ProductAnomaly | None:
-    """The anomaly of the returned variant (spec 8.9) with its catalogue task, if one was
-    opened, and the variant's weekly returns for the reason (the trend)."""
+    """The anomaly of the returned variant (spec 8.9) with its catalogue task, if one is active
+    (the latest one not cancelled, as the manager's list shows it: a cancelled task frees the
+    anomaly), and the variant's weekly returns for the reason (the trend)."""
     row = variant_anomaly(serving, variant_id, at)
     if row is None:
         return None
@@ -747,8 +792,11 @@ async def product_anomaly(
         (
             await conn.execute(
                 select(catalog_tasks)
-                .where(catalog_tasks.c.anomaly_id == anomaly)
-                .order_by(catalog_tasks.c.created_at)
+                .where(
+                    catalog_tasks.c.anomaly_id == anomaly,
+                    catalog_tasks.c.status != "cancelled",
+                )
+                .order_by(catalog_tasks.c.created_at.desc(), catalog_tasks.c.task_id.desc())
             )
         )
         .mappings()
@@ -760,26 +808,7 @@ async def product_anomaly(
     snap_at = s.utc_day(_ts(row["as_of"]))
     variant = serving.by_key("store/variants", variant_id) or {}
     prov = from_file(serving.provenance["features/product_anomalies"], None, snap_at)
-    sales = serving.sales
-    series = weekly_series(sales, variant_id, str(row["reason"]), _ts(row["as_of"]))
-    start = pd.Timestamp(week, tz="UTC")
-    in_week = sales.loc[
-        (sales["variant_id"] == variant_id)
-        & (sales["reason"] == row["reason"])
-        & (sales["week"] == start)
-        & (sales["return_known_at"] <= row["as_of"])
-    ]
-    returns = serving.frame("store/returns")
-    ids = sorted(returns.loc[returns["line_id"].isin(set(in_week["line_id"])), "return_id"])
-    trend = [
-        s.WeeklyReturnRate(
-            week=pd.Timestamp(r.week).date(),
-            sales=int(r.n),
-            returns=int(r.observed),
-            return_rate=round(int(r.observed) / int(r.n), 4) if int(r.n) else 0.0,
-        )
-        for r in series.itertuples(index=False)
-    ]
+    trend, ids = anomaly_detail(serving, row)
     return s.ProductAnomaly(
         anomaly_id=anomaly,
         variant_id=variant_id,

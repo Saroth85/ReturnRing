@@ -173,6 +173,7 @@ def test_readyz_live(empty_api: Api) -> None:
     checks = {c["component"]: c["status"] for c in body["checks"]}
     assert checks["database"] == "ok" and checks["scores"] == "ok" and checks["models"] == "ok"
     assert checks["vllm"] == "disabled"  # LLM_MODE=mock
+    assert checks["telemetry"] == "disabled"  # DEVICE=cpu, no amd-smi sample
     assert body["assumptions_version"] == "assumptions-v1"
     assert body["model_versions"]["risk"].startswith("risk-request-xgboost")
 
@@ -189,6 +190,7 @@ def test_readyz_cached_carries_its_label_and_needs_the_cache(
         assert body["label"] == CACHED_LABEL
         checks = {c["component"]: c for c in body["checks"]}
         assert checks["vllm"]["status"] == "disabled"
+        assert checks["telemetry"]["status"] == "disabled"  # the GPU is off
         assert checks["database"]["status"] == "unavailable"  # an empty file: no tables
         assert body["status"] == "not_ready"
 

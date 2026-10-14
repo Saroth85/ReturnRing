@@ -404,6 +404,17 @@ def fresh_rows() -> dict[str, Row]:
             "done_at": T0 + timedelta(days=3),
             "return_id": "RET-000105",
         },
+        "telemetry_samples": {
+            "sampled_at": T0,
+            "device": "AMD Instinct MI300X",
+            "gpu_index": 0,
+            "utilization_percent": 87.5,
+            "memory_used_gib": 151.2,
+            "memory_total_gib": 192.0,
+            "power_watts": 612.0,
+            "source": "amd-smi",
+            "error": None,
+        },
     }
 
 
@@ -521,6 +532,17 @@ def valid_rows_with_nulls() -> list[tuple[str, Row]]:
         ("coupon_rule_applications", application),
         ("audit_log", audit),
         ("link_disputes", {**rows["link_disputes"], "before": None, "after": None}),
+        (
+            "telemetry_samples",
+            {
+                **rows["telemetry_samples"],
+                "utilization_percent": None,
+                "memory_used_gib": None,
+                "memory_total_gib": None,
+                "power_watts": None,
+                "error": "no GPU in the amd-smi output",
+            },
+        ),
     ]
 
 
@@ -869,6 +891,11 @@ VIOLATIONS: list[tuple[str, dict[str, Any], str]] = [
     ("return_requests", {"notice_on": DAY - timedelta(days=30)}, "notice_after_delivery"),
     ("return_requests", {"reason": "bored"}, "reason"),
     ("return_requests", {"source": "email"}, "source"),
+    # telemetry samples: US-905
+    ("telemetry_samples", {"utilization_percent": 100.5}, "utilization_range"),
+    ("telemetry_samples", {"utilization_percent": -1.0}, "utilization_range"),
+    ("telemetry_samples", {"memory_used_gib": -0.5}, "non_negative"),
+    ("telemetry_samples", {"power_watts": -1.0}, "non_negative"),
 ]
 
 

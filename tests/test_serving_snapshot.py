@@ -23,8 +23,10 @@ from contracts.io import read_table
 from contracts.parquet import SCHEMAS
 from ml.reference.model import TrainConfig, fit, observed_frame
 from ml.reference.persist import load_line_model, save_line_model
+from ml.risk.run import metrics_path
 from pipeline.features.lines import line_frame
 from pipeline.features.snapshot import load_snapshot
+from pipeline.serving.evaluation import REPORT_FILE, REPORT_FORMAT, evaluation_document
 from pipeline.serving.export import (
     SERVED_TABLES,
     TRUTH_COLUMNS,
@@ -148,6 +150,38 @@ def test_the_export_is_deterministic(serving_data: Path, serving_dir: Path, tmp_
     first = json.loads((serving_dir / MANIFEST).read_text(encoding="utf-8"))
     second = json.loads((again / MANIFEST).read_text(encoding="utf-8"))
     assert first == second
+
+
+def test_the_export_serves_the_fair02_aggregates_of_the_offline_evaluation(
+    serving_data: Path, serving_dir: Path
+) -> None:
+    """US-603, US-605 and rule 12: the report is the FAIR-02 part of metrics.json, hashed by the
+    manifest; metrics.json itself is not served."""
+    metrics = json.loads(metrics_path(serving_data / "artifacts").read_text("utf-8"))
+    manifest = Manifest.read(serving_dir)
+    report = json.loads((serving_dir / REPORT_FILE).read_text(encoding="utf-8"))
+    customer = manifest.models["risk"]["customer"]["version"]
+    assert report == evaluation_document(metrics, customer)
+    assert report["format"] == REPORT_FORMAT and report["fair02"] == metrics["fair02"]
+    assert set(report) == {
+        "format", "report_id", "scenario", "as_of", "model_version", "provenance", "fair02"
+    }  # fmt: skip
+    assert REPORT_FILE in manifest.files and manifest.raw["reports"] == {"evaluation": REPORT_FILE}
+    assert not list(serving_dir.rglob("metrics.json"))
+
+
+def test_an_export_without_the_offline_evaluation_has_no_report(
+    serving_data: Path, tmp_path: Path
+) -> None:
+    artifacts = tmp_path / "artifacts"
+    shutil.copytree(serving_data / "artifacts" / "risk" / "models", artifacts / "risk" / "models")
+    out = tmp_path / "serving"
+    (out / "reports").mkdir(parents=True)
+    (out / REPORT_FILE).write_text("{}", encoding="utf-8")  # a stale report of an earlier export
+    result = export(serving_data, artifacts, out, seed=SEED)
+    assert result.report is None and not (out / REPORT_FILE).exists()
+    assert REPORT_FILE not in Manifest.read(out).files
+    assert Manifest.read(out).raw["reports"] == {"evaluation": None}
 
 
 def test_the_export_refuses_to_write_into_the_data_root(serving_data: Path) -> None:

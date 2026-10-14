@@ -254,3 +254,50 @@ def test_the_readiness_check_of_telemetry(api: Api, tmp_path: Path) -> None:
 
     api.run(recent)
     assert api.run(lambda conn: tm.component_check(conn, gpu_settings, at)).status == "ok"
+
+
+def test_readyz_reports_the_telemetry_sampler(api: Api, tmp_path: Path) -> None:
+    """/readyz carries the telemetry check: disabled on a CPU, unavailable on a GPU whose
+    sampler is silent (degraded), ok with a fresh amd-smi sample."""
+    checks = {c["component"]: c for c in api.client.get("/readyz").json()["checks"]}
+    assert checks["telemetry"]["status"] == "disabled"
+    gpu = settings_for(api.settings.serving_dir, api.database, device="gpu")
+    for app in open_api(api.serving, gpu, api.database, clock=api.clock):
+        body = app.client.get("/readyz").json()
+        validate_body("readyz_response", body)
+        checks = {c["component"]: c for c in body["checks"]}
+        assert checks["telemetry"]["status"] == "unavailable" and body["status"] == "degraded"
+        source = tmp_path / "telemetry.json"
+        source.write_text(AMD_SMI, encoding="utf-8")
+        asyncio.run(tm.sample_loop(sqlite_url(api.database), source_file=source, count=1))
+
+        async def recent(conn: AsyncConnection) -> None:
+            await conn.execute(tm.telemetry_samples.update().values(sampled_at=api.clock.now()))
+
+        api.run(recent)
+        body = app.client.get("/readyz").json()
+        checks = {c["component"]: c for c in body["checks"]}
+        assert checks["telemetry"]["status"] == "ok" and body["status"] == "ready"
+
+
+def test_the_sampler_survives_a_sample_it_cannot_store(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A sample written while the reset recreates the tables is skipped, not fatal."""
+    source = tmp_path / "telemetry.json"
+    source.write_text(AMD_SMI, encoding="utf-8")
+    calls = 0
+    original = tm.store_sample
+
+    async def flaky(*args: Any, **kwargs: Any) -> int:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise tm.SQLAlchemyError("the reset is recreating the tables")
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(tm, "store_sample", flaky)
+    url = sqlite_url(tmp_path / "telemetry.sqlite")
+    written = asyncio.run(tm.sample_loop(url, source_file=source, count=2, interval_s=0))
+    assert calls == 2 and written >= 1
+    assert "sample not stored" in capsys.readouterr().err

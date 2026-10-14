@@ -6,10 +6,11 @@ customers; the API reads the aggregates the export put in the snapshot, never da
 The file is SERVING_DIR/reports/evaluation.json (format returnring.evaluation.v1), covered by
 the manifest like every served file: report_id, scenario, as_of (the evaluation instant),
 model_version (the customer model evaluated), the provenance of the evaluation, and fair02, the
-FairnessReport of ml.risk.fairness as written to artifacts/risk/metrics.json (population,
+FairnessReport of ml.risk.fairness as written to artifacts/eval/risk/metrics.json (population,
 non_abusers, fpr, threshold, and one row per dimension and segment with non_abusers and fpr).
-pipeline.serving does not write it yet (open issue of E6): without it, /api/fairness and
-/api/kpi answer 404 rather than show a rate nobody measured.
+pipeline.serving writes it (pipeline.serving.evaluation) when the artifacts hold the offline
+evaluation: without it, /api/fairness and /api/kpi answer 404 rather than show a rate nobody
+measured.
 
 What the API serves of it:
 
@@ -37,10 +38,10 @@ from apps.api import schemas as s
 from apps.api.services.provenance import provenance
 from apps.api.serving import Serving
 from contracts.io import Nature
+from pipeline.serving.evaluation import REPORT_FILE as REPORT_FILE  # the file the export writes
+from pipeline.serving.evaluation import REPORT_FORMAT as REPORT_FORMAT
 from pipeline.serving.manifest import sha256_of
 
-REPORT_FILE: Final = "reports/evaluation.json"
-REPORT_FORMAT: Final = "returnring.evaluation.v1"
 GAP_THRESHOLD_PP: Final = 5.0  # NFR-04, FAIR-02: at most 5 points between segments
 RATE_DECIMALS: Final = 6
 # The contract dimension of each FAIR-02 dimension of ml.risk.fairness.segment_labels, by the

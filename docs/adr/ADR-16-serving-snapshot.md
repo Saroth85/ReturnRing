@@ -192,6 +192,44 @@ counted them; identifier completeness against 0.6; reason consistency against 0.
 withdrawal returns are judged, and against 0 (no requirement, said in its provenance) before, with
 value 0 when there is no return at all.
 
+### 9. Phase 4 integration (14 Oct 2026)
+
+The operator (E3), manager (E6) and other (E4, E5, E7, E9) routes were merged onto phases 1 to 3
+and walked end to end on a full-scale store (`scripts/demo_walk.py`). What changed in the core:
+
+- **Evaluation report in the snapshot.** The export writes `reports/evaluation.json` (format
+  `returnring.evaluation.v1`, `pipeline/serving/evaluation.py`) from the offline evaluation of
+  `ml.risk` (`artifacts/eval/risk/metrics.json`, `ml.risk.run.metrics_path`): its FAIR-02
+  aggregates only (counts and rates by dimension and segment, no customer), the evaluation
+  instant, the customer model and the provenance. The manifest hashes it and records
+  `reports.evaluation`; `metrics.json` itself is still never served. Without the offline
+  evaluation the export writes no report and `/api/fairness` and `/api/kpi` answer 404 (rule
+  12: no label at runtime, no invented rate).
+- **Readiness of telemetry.** `/readyz` reports the telemetry sampler
+  (`services.other.telemetry.component_check`): ok with an amd-smi sample of the last 60 s,
+  disabled in cached mode and on a CPU, unavailable on a GPU whose sampler is silent (the
+  status is then degraded). Its table is part of the contract (ADR-15 section 13).
+- **The anomaly of a case card** skips cancelled catalogue tasks: the card and the manager's
+  list show the same task, the latest one not cancelled.
+- **`services.cases.propose` builds version 1 only.** Its `version` parameter is gone: a later
+  version (a review or a recompute) is `services.operator.versions.next_version`, which also
+  takes the person's outcome a review version needs.
+- **Full-scale latency** (20,000 customers, 623 open returns, 374 product anomalies): the
+  anomaly trend is `pipeline.anomalies.catalogue.weekly_counts` (numpy; equal to the `n` and
+  `observed` of `weekly_series`, tested) on the variant's own lines (`Serving.variant_sales`),
+  kept with the snapshot and computed at startup, so the anomaly list went from 82 s to under
+  0.5 s; the queue reads only the decision columns it shows and computes the customer snapshots
+  of new accounts at startup; and after the warm-up the service moves the snapshot out of the
+  cyclic garbage collector (`gc.freeze`), whose full passes paused one request in seven for
+  about 2 s. Tests pass their own snapshot and keep the collector as it is.
+- **The demo walk** (`python -m scripts.demo_walk --base-url ...`, after the reset) walks the
+  pitch over HTTP and checks every response against its JSON Schema and model, with the latency
+  targets of US-301 (queue under 2 s) and US-403 (checkout under 1 s); `tests/test_demo_walk.py`
+  (marker `e2e`) runs the same walk on the tiny snapshot in CI.
+- **Data root.** The export reads a data root written by the current pipeline: a store, features
+  and scores written before the phase 2 review (provenance origins over 300 characters, scores
+  without their thresholds) are refused by `contracts.io`. Rebuild it with `make pipeline`.
+
 ## Consequences
 
 - **Infra** (not changed here): the `api` service mounts `serving/` read-only and sets
@@ -206,5 +244,5 @@ value 0 when there is no return at all.
 - **Known limits.** A live score of an adapter return takes about 3 s at full scale (the batch
   serves every store return). The diminished-value claim of an inspection is served with a
   provenance built from its rule and inspection (the inspection builder may refine it).
-  Telemetry is `disabled` in `/readyz` until its builder adds it. The reason-consistency component
+  Telemetry in `/readyz` comes from the sampler (section 9). The reason-consistency component
   shows a threshold of 0 before two returns are judged: the contract has no "not judged" state.

@@ -24,6 +24,8 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any, Final
 
+import numpy as np
+import numpy.typing as npt
 import pandas as pd
 
 from contracts.io import Provenance
@@ -184,6 +186,49 @@ def weekly_series(
     counts = ["n", "observed", "comparison_n", "comparison_observed"]
     out[counts] = out[counts].fillna(0).astype("int64")
     return out
+
+
+def _ns(column: pd.Series) -> npt.NDArray[np.int64]:
+    """The nanoseconds since the epoch of a timezone-aware datetime column (NaT: NAT_NS)."""
+    values: npt.NDArray[np.int64] = column.array.as_unit("ns").asi8
+    return values
+
+
+NAT_NS: Final = np.iinfo(np.int64).min  # pandas' integer of NaT
+WEEK_NS: Final = 7 * 24 * 3600 * 10**9
+
+
+def weekly_counts(lines: pd.DataFrame, reason: str, as_of: datetime) -> pd.DataFrame:
+    """The week, n and observed columns of weekly_series for one variant, from the rows of the
+    sales frame (detect.sales_frame) of that variant only: one row per calendar week from its
+    first sales week known at as_of to the week of as_of, n lines sold, observed returned for the
+    reason by as_of. Equal to weekly_series(sales, variant, reason, as_of)[["week", "n",
+    "observed"]] (tested) without the category baseline, and counted with numpy, so a service
+    can show the trend of many anomalies at once (the API's anomaly list and case card)."""
+    if reason not in REASONS:
+        raise ValueError(f"unknown return reason {reason!r}")
+    t = pd.Timestamp(utc(as_of))
+    limit = int(t.value)
+    mine = _ns(lines["line_known_at"]) <= limit
+    if not mine.any():
+        raise ValueError(f"no sale known at {t.isoformat()}")
+    if len(set(lines["variant_id"].to_numpy()[mine])) != 1:
+        raise ValueError("weekly_counts reads the lines of one variant")
+    weeks = _ns(lines["week"])[mine]
+    returned_at = _ns(lines["return_known_at"])[mine]
+    reasons = lines["reason"].to_numpy(dtype=object, na_value=None)[mine]
+    returned = (reasons == reason) & (returned_at != NAT_NS) & (returned_at <= limit)
+    end = week_start(pd.Series([t]))[0]
+    calendar = pd.date_range(lines.loc[mine, "week"].min(), end, freq="7D")
+    slot = (weeks - int(weeks.min())) // WEEK_NS
+    size = len(calendar)
+    return pd.DataFrame(
+        {
+            "week": calendar,
+            "n": np.bincount(slot, minlength=size).astype("int64"),
+            "observed": np.bincount(slot, weights=returned, minlength=size).astype("int64"),
+        }
+    )
 
 
 @dataclass(frozen=True)

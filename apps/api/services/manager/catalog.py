@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from apps.api import schemas as s
 from apps.api.errors import conflict, invalid_request, not_found
 from apps.api.services.audit import record
+from apps.api.services.cases import anomaly_detail
 from apps.api.services.decisions import return_row
 from apps.api.services.provenance import from_file
 from apps.api.serving import Serving
@@ -60,6 +61,13 @@ def flagged(serving: Serving, at: datetime) -> pd.DataFrame:
     return known.loc[known["as_of"] == known["as_of"].max()]
 
 
+def warm(serving: Serving) -> None:
+    """Compute the trend and returns of every anomaly of the last snapshot once, at startup:
+    services.cases.anomaly_detail keeps them with the snapshot, so the first list is fast."""
+    for row in flagged(serving, serving.as_of).to_dict("records"):
+        anomaly_detail(serving, row)
+
+
 def anomaly_key(row: Mapping[str, Any]) -> str:
     week = pd.Timestamp(row["week"]).date()
     return s.anomaly_id(str(row["variant_id"]), ReturnReason(str(row["reason"])), week)
@@ -88,16 +96,7 @@ def anomaly_view(
     snapshot = _ts(row["as_of"])
     variant = serving.by_key("store/variants", variant_id) or {}
     prov = from_file(serving.provenance["features/product_anomalies"], None, s.utc_day(snapshot))
-    sales = serving.sales
-    series = weekly_series(sales, variant_id, reason, snapshot)
-    in_week = sales.loc[
-        (sales["variant_id"] == variant_id)
-        & (sales["reason"] == reason)
-        & (sales["week"] == pd.Timestamp(week, tz="UTC"))
-        & (sales["return_known_at"] <= row["as_of"])
-    ]
-    returns = serving.frame("store/returns")
-    ids = sorted(returns.loc[returns["line_id"].isin(set(in_week["line_id"])), "return_id"])
+    trend, ids = anomaly_detail(serving, row)
     return s.ProductAnomaly(
         anomaly_id=anomaly_key(row),
         variant_id=variant_id,
@@ -112,16 +111,8 @@ def anomaly_view(
         sales=s.Metric(value=int(row["n"]), unit="count", provenance=prov),
         status=status,
         catalog_task_id=None if task is None else task["task_id"],
-        return_ids=[str(i) for i in ids],
-        trend=[
-            s.WeeklyReturnRate(
-                week=pd.Timestamp(r.week).date(),
-                sales=int(r.n),
-                returns=int(r.observed),
-                return_rate=round(int(r.observed) / int(r.n), 4) if int(r.n) else 0.0,
-            )
-            for r in series.itertuples(index=False)
-        ],
+        return_ids=ids,
+        trend=trend,
     )
 
 

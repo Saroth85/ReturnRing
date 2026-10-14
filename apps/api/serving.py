@@ -212,8 +212,9 @@ class Serving:
 
     def warm(self) -> None:
         """Compute the derived frames the case card reads (the first card is then as fast as
-        the others): the line frame, the lines by customer and the sales frame."""
-        _ = self._lines_by_customer, self.sales, self._keys
+        the others): the line frame, the lines by customer, the sales frame by variant and the
+        return of each line."""
+        _ = self._lines_by_customer, self._sales_by_variant, self._return_of_line, self._keys
 
     @property
     def as_of(self) -> datetime:
@@ -275,6 +276,26 @@ class Serving:
     def sales(self) -> pd.DataFrame:
         """pipeline.anomalies.detect.sales_frame of the store at the snapshot instant."""
         return sales_frame(self.store)
+
+    @cached_property
+    def _sales_by_variant(self) -> dict[str, pd.DataFrame]:
+        return {str(v): g for v, g in self.sales.groupby("variant_id", sort=False)}
+
+    def variant_sales(self, variant_id: str) -> pd.DataFrame:
+        """The rows of `sales` of one variant (an empty frame for a variant never sold)."""
+        return self._sales_by_variant.get(variant_id, self.sales.iloc[0:0])
+
+    @cached_property
+    def _return_of_line(self) -> dict[str, str]:
+        returns = self.frames["store/returns"]  # one return at most per line (sales_frame)
+        return {
+            str(a): str(b) for a, b in zip(returns["line_id"], returns["return_id"], strict=True)
+        }
+
+    def returns_of_lines(self, line_ids: Iterable[str]) -> list[str]:
+        """The store returns of these order lines, sorted."""
+        found = self._return_of_line
+        return sorted(found[str(x)] for x in line_ids if str(x) in found)
 
     @cached_property
     def _inputs(self) -> Inputs:

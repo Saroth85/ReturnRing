@@ -863,6 +863,26 @@ Known limits, reported as they are:
 - **Lift and renew send no message**: decided (E27), not a limit. The phrasebook still has no
   reviewed sentence about a review.
 
+### 13. Phase 4 integration (14 Oct 2026, contract 1.4.0 unchanged)
+
+Merging the route builders onto phases 1 to 3 changed two things of this contract. Neither
+changes a generated file (`contracts/json/api/`, `contracts/examples/api/`): the version stays
+1.4.0. ADR-16 section 9 has the rest of the integration.
+
+- **`LinkedAccountsView` no longer refuses `n_distinct_cards` above `cluster_size`.** Since the
+  phase 2 generator, one account can use several cards, so a cluster can hold more distinct
+  cards than accounts (3 cards of the tiny test store, 2 of 40 sampled at full scale): the
+  model refused real clusters and their case cards answered 500. The check was a model
+  validator only; the JSON Schema never had it.
+- **`telemetry_samples` is a table of `contracts/sql.py`** (section 6): one row per GPU and
+  amd-smi sample (`sampled_at`, `device`, `gpu_index`, utilization, memory used and total in
+  GiB, power, `source`, `error`), CHECKs `ck_telemetry_samples_utilization_range` (0 to 100)
+  and `ck_telemetry_samples_non_negative`, an index on `sampled_at`. The demo reset creates and
+  empties it with the other tables; the sampler (`python -m apps.api.services.other.telemetry`)
+  creates it when it starts first, keeps 24 hours and skips a sample it cannot store. It was
+  defined in the telemetry service with its own metadata; `tests/test_sql_contract.py` covers
+  it now like every table.
+
 
 ## Consequences
 

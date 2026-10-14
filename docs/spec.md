@@ -1338,6 +1338,7 @@ Rules for every text:
 
 | Data | Modifica | Dove |
 | --- | --- | --- |
+| 14 ott 2026 | Fase 4 integrata: rotte dell'operatrice, del responsabile, del checkout, dell'ispezione, dell'agente, dei benchmark e della telemetria; report della valutazione offline (FAIR-02) nello snapshot di servizio; tabella telemetry\_samples nel contratto; percorso della demo verificato via HTTP sul negozio completo (coda sotto 2 s, checkout sotto 1 s) | 9, 12, ADR-15, ADR-16 |
 | 13 ott 2026 | Contratto API e persistenza, versione 1.4.0: nessun messaggio annuncia una restrizione non approvata; il blocco dei coupon è legato al cluster del caso; la bozza conserva tutti i fatti del caso; il messaggio dopo una trattenuta ne dice il motivo; revoca e rinnovo senza messaggio (decisione); niente tono nella rigenerazione | 9, 19.B, ADR-14, ADR-15 |
 | 13 ott 2026 | Revisione della fase 2: regola delle anomalie come implementata (D-15 in parte); stati delle storie E2; soglie salvate con ogni quadrante, origine breve con catena di provenienza, nessuna versione di modello sul percorso di garanzia; evidenza delle sole osservazioni dell'account; FAIR-02 come scarto tra segmenti; apertura del pitch coerente con i casi d'oro | 5, 8.9, 16, 18, ADR-13 (emendamento 5) |
 | 13 ott 2026 | Contratti LLM v2: fatti costruiti dal codice e citati dalla spiegazione, segnaposto disponibili e richiesti, nessun punteggio nei casi di garanzia o con dati insufficienti; clausola di garanzia proposta (art. 13 della direttiva 2019/771); prompt adattato | 8.7, 19.B, 19.C, 19.D, ADR-14 |

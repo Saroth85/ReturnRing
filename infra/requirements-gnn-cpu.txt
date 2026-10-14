@@ -1,0 +1,9 @@
+# PyTorch on the CPU for the GraphSAGE code (ml/gnn) on a laptop or in the optional CI job
+# (docs/graphsage.md): install next to requirements/dev.txt with
+#   pip install -r requirements/dev.txt -r infra/requirements-gnn-cpu.txt
+# The CPU wheel comes from the PyTorch index (no CUDA or ROCm libraries); its dependencies
+# (filelock, sympy, mpmath, jinja2, MarkupSafe, fsspec, setuptools, typing-extensions, networkx)
+# are MIT, BSD or PSF. Not a runtime dependency of the product: the API never imports torch.
+# DGL is optional (the PyTorch layers of ml/gnn/model.py are the same model).
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.8.0+cpu

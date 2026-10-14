@@ -38,6 +38,11 @@ ASOS_SPLITS = ("train", "test")
 # The 13 masked ASOS reason codes in source order. The source repeats the label "D" (the 4th and
 # the 6th code, after E); by position the first is D and the second D2 (ADR-13).
 ASOS_REASON_CODES = ("A", "B", "C", "D", "E", "D2", "F", "G", "H", "I", "J", "K", "L")
+# GraphSAGE customer embeddings (A4 of US-204, US-202; ADR-13 amendment 6): 16 components, the
+# size of spec 8.1, named graphsage_0..graphsage_15 (ml.risk.features.EMBEDDING_PREFIX).
+EMBEDDING_PREFIX = "graphsage_"
+EMBEDDING_DIM = 16
+EMBEDDING_COLUMNS = tuple(f"{EMBEDDING_PREFIX}{i}" for i in range(EMBEDDING_DIM))
 
 # ---- Schemas -----------------------------------------------------------------------------------
 
@@ -272,6 +277,14 @@ SCHEMAS: dict[str, pa.Schema] = {
             nullable=False,
         ),
         pa.field("thresholds_version", pa.string(), nullable=False),
+    ),
+    # GraphSAGE embeddings of the customers known at as_of (ADR-13 amendment 6): an encoder trained
+    # by link prediction on the customer-identifier graph (no label), fitted at or before as_of and
+    # applied to the store known at as_of (rule 7). Read by the A4 ablation of ml/risk only.
+    "features/customer_embeddings": _as_of_table(
+        pa.field("customer_id", pa.string(), nullable=False),
+        *(pa.field(name, pa.float64(), nullable=False) for name in EMBEDDING_COLUMNS),
+        pa.field("encoder_version", pa.string(), nullable=False),
     ),
     "features/product_anomalies": _as_of_table(
         pa.field("variant_id", pa.string(), nullable=False),

@@ -294,6 +294,77 @@ the download measured in step 8, destroy without it and note the decision.
 Fill `docs/spike-results.md` from `artifacts/spikes/` (the field names match the JSON keys the
 scripts write). Commit only `docs/spike-results.md`; artifacts stay out of git.
 
+## Benchmarks B1-B4 (US-902), after the spikes
+
+Run them once the spikes pass: in the same session after step 13 and before step 14, or in a later
+session from the snapshot. Method, the four rules of spec 12 and the outputs:
+`docs/benchmarks.md`. Estimated droplet time 60-90 minutes (unmeasured; B1 and B4 dominate).
+Everything runs in the `bench` image (`infra/docker/bench.Dockerfile`: the ROCm 7.2.3 base and the
+amd_xgboost wheel of trainer-gbm, plus the pipeline's Python stack) through
+`infra/compose.bench.yml`; B2 runs in the DGL image. `make -n <target>` prints every command.
+
+### Before (droplet, no GPU)
+
+1. The raw ASOS tables for B1 and B2. From the laptop (about 70 MB, CC BY 4.0, used and not
+   redistributed):
+
+   ```bash
+   ssh root@<droplet-ip> mkdir -p ReturnRing/data/raw
+   scp data/raw/asos_*.parquet root@<droplet-ip>:ReturnRing/data/raw/
+   ```
+
+2. `.env` as for the spikes (ROCM_BASE_IMAGE, AMD_PYPI_INDEX_URL, VLLM_API_KEY, GEMMA_MODEL,
+   GEMMA_REVISION, VLLM_IMAGE, DGL_IMAGE).
+3. vLLM and every trainer stopped: `make spike-down` (keeps the volumes). B1 and B2 refuse to run
+   while vLLM is up: their CPU half must be alone on the 20 vCPUs and their GPU half alone on the
+   GPU.
+4. One run id for the whole session, so that targets run one at a time write the same run:
+
+   ```bash
+   export BENCH_RUN=$(date -u +%Y%m%dT%H%M%SZ)-gpu
+   ```
+
+### Order
+
+`make bench DEVICE=gpu` runs the targets below in this order with one run id. Run them one by one
+to watch each (same commands, `DEVICE=gpu` each time); after a failure, rerun from the failed
+target: the parts already written in `artifacts/bench/$BENCH_RUN/` stay.
+
+| Step | Target | What it does | vLLM | Writes |
+| --- | --- | --- | --- | --- |
+| 1 | `make bench-build DEVICE=gpu` | builds the bench image | down | image |
+| 2 | `make bench-b1 DEVICE=gpu` | B1: XGBoost on the CPU then the MI300X, protocols A and B, sizes 10, 25, 50, 100%, early stopping and 200 fixed rounds, 3 repeats, scoring | down | `B1.json` |
+| 3 | `make bench-b2 DEVICE=gpu` | B2 in the DGL image through `ml.gnn.b2_timing`; "skipped" until US-202 provides it | down | `B2.json` |
+| 4 | `make bench-vllm DEVICE=gpu` | starts vLLM and writes the start and healthy times (B3 cold start, 15 s polling) | starts | `vllm-start.txt`, `vllm-healthy.txt` |
+| 5 | `make bench-b4 DEVICE=gpu` | B4: the nightly pipeline (generate, graph, features, anomalies, risk, scoring, batch generation on vLLM), amd-smi sampled on the host every 5 s | up | `B4.json`, `amdsmi.jsonl`, `b4-logs/`, `bench-work/$BENCH_RUN/` |
+| 6 | `make bench-b3 DEVICE=gpu` | B3: Gemma latency p50 and p95, tokens per second, batches 1, 8, 32 and concurrency 1, 8, 32, on the llm_case inputs of B4's store; cost per decision | up | `B3.json` |
+| 7 | `make bench-merge DEVICE=gpu` | the run file, the latest pointers and a report | any | `bench/results/$BENCH_RUN.json`, `latest.json`, `latest-gpu.json`, `report.md` |
+
+What to look at:
+
+- Step 2: the log line `B1 cuda: cold start ...` and no "GPU not used" error (amd_xgboost falls
+  back to the CPU with only a warning; B1 refuses that run instead of reporting it).
+- Step 5: `amd-smi` must exist on the host (`/opt/rocm/bin` is added to the PATH); otherwise the
+  target says so and samples inside the container. `batch_generation` exits 1 if vLLM was
+  unavailable for any decision.
+- Step 6: `failed` must be 0 in every load of `B3.json` (details); failures are kept out of the
+  latencies and noted. To change the loads: `BENCH_ARGS="--b3-batches 1,8,32 --b3-concurrency
+  1,4,8,16,32 --b3-repeats 3"`.
+- Every part says `measured`, `skipped` (with the reason) or `failed` (with the error); a failed
+  part does not stop the next one.
+
+### Files to copy back (laptop)
+
+```bash
+scp root@<droplet-ip>:"ReturnRing/bench/results/*.json" ./bench/results/
+scp -r root@<droplet-ip>:ReturnRing/artifacts/bench/$BENCH_RUN ./artifacts/bench/
+make bench-report BENCH_RUN=$BENCH_RUN DEVICE=gpu      # writes docs/results/benchmarks-mi300x.md
+```
+
+Commit `bench/results/$BENCH_RUN.json`, `bench/results/latest.json`, `latest-gpu.json` and
+`docs/results/benchmarks-mi300x.md`. `artifacts/bench/` (raw records, logs, amd-smi samples) and
+`bench-work/` (the generated store) stay out of git. Then step 14 (stop, snapshot, destroy).
+
 ## Files
 
 | File | Spike |

@@ -69,8 +69,9 @@ from llm.text import (
 from policy.types import ReturnTerms
 
 MAX_TOOL_CALLS = 5
-# Number words an answer may use: pronoun "one", and "first" of the tool field first_shared_on.
-ANSWER_SKIPPED_NUMBER_WORDS = PRONOUN_NUMBERS | {"first"}
+# Number words an answer may use: pronoun "one", and "first" of the tool field first_shared_on,
+# also in Italian ("il primo fattore", "il primo legame": rank 1 of the tool order).
+ANSWER_SKIPPED_NUMBER_WORDS = PRONOUN_NUMBERS | {"first", "primo", "prima"}
 # Ordinals an answer may use to rank the factors of the score or the links of a cluster in the
 # order the tools list them ("the second is days_since_delivery", "il secondo legame L-102"):
 # each one must stand before the record it ranks, in its sentence (round 6, finding W4).

@@ -338,3 +338,13 @@ def test_w7_the_suggested_wording_would_break_the_120_word_limit_in_italian(
     assert longest_messages() == {"it": 119, "en": 116}
     monkeypatch.setitem(phrasebook._TERMS, "restrictive", W7_WORDING)
     assert longest_messages() == {"it": 121, "en": 119}
+
+
+def test_an_adverb_after_a_number_needs_a_contribution_verb_after_it() -> None:
+    """Final check of round 6: '(6) slightly lowers' grounds; an adverb with no verb after it
+    stays ungrounded, so an adverb cannot hide a scale or a unit."""
+    built = golden("marco")
+    assert check(built, "days_since_delivery (6) slightly lowers the risk score.", DAYS, "SCORE").ok
+    result = check(built, "days_since_delivery (6) slightly.", DAYS, "SCORE")
+    assert not result.ok
+    assert any(issue.code == Code.UNGROUNDED_NUMBER for issue in result.errors)

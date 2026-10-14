@@ -473,6 +473,17 @@ STATEMENTS: list[Statement] = [
         "The risk score is low (0.22) even though the linked accounts share an address.",
     ),
     ("rossi", "OBSERVED", (), "The case belongs to the Rossi family cluster."),
+    # Final check of round 6: an adverb before the contribution verb, and comes/accounts for.
+    ("marco", "SCORE", DAYS, "days_since_delivery (6) slightly lowers the risk score."),
+    ("marco", "SCORE", COUPONS, "cluster_welcome_coupons (7) strongly pushes the risk score up."),
+    ("giulia", "SCORE", RETURNS, "returns_90d (4) also raises the risk score."),
+    ("giulia", "SCORE", RETURNS, "returns_90d (4) accounts for most of the risk score."),
+    (
+        "marco",
+        "SCORE",
+        RISK + COUPONS,
+        "The risk score (0.87) comes mostly from cluster_welcome_coupons (7).",
+    ),
 ]
 STATEMENT_IDS = [f"{name}: {text}" for name, _, _, text in STATEMENTS]
 
@@ -987,6 +998,15 @@ ANSWERS: list[Answer] = [
     ),
     # ---- What is this case about?
     ("RET-MARCO", "summary", "Top factor: cluster_welcome_coupons = 7."),
+    # Final check of round 6: Italian "primo" ranks the first record of the tool order.
+    (
+        "RET-GIULIA",
+        "summary",
+        "RET-GIULIA è un caso Q1 sul percorso di recesso. Il primo fattore del punteggio è "
+        "returns_90d = 4, il secondo è size_returns = 3.",
+    ),
+    ("RET-MARCO", "summary", "Il primo fattore è cluster_welcome_coupons = 7."),
+    ("RET-MARCO", "link", "Il primo legame, L-101, ha peso 0.98 e 4 eventi condivisi."),
     ("RET-MARCO", "summary", "The main factor is cluster_welcome_coupons = 7."),
     (
         "RET-MARCO",

@@ -2,7 +2,8 @@
 label of cached mode ("Precomputed on AMD MI300X"), a check per component and the versions.
 
 Contract 1.5.0 (ADR-15 section 15): /readyz shows the API's clock (the demo clock: the
-snapshot instant plus the time since the reset) and whether the public demo is read-only; the
+snapshot instant plus the time since the reset, frozen at the snapshot instant on the public
+read-only demo, 1.7.0) and whether the public demo is read-only; the
 cached label is shown only while precomputed outputs are there (H6); the status is not_ready
 while the database, the scores or the models are missing, when every /api route fails (H37);
 the vLLM probe follows no redirect (rule 2, H23) and checks that GEMMA_MODEL is served (H30);
@@ -88,17 +89,25 @@ def clock_view(rt: Runtime) -> s.ClockView:
             now=now,
             snapshot_as_of=anchor,
             started_at=started,
-            note=(
-                "Demo clock: the instant of the serving snapshot plus the time elapsed since "
-                "the demo reset"
-            ),
+            frozen=clock.frozen,
+            note=s.FROZEN_CLOCK_NOTE if clock.frozen else s.DEMO_CLOCK_NOTE,
         )
     if rt.clock_kind() == "fixed":
         return s.ClockView(
-            kind="fixed", now=now, snapshot_as_of=None, started_at=None, note="A fixed clock"
+            kind="fixed",
+            now=now,
+            snapshot_as_of=None,
+            started_at=None,
+            frozen=False,
+            note="A fixed clock",
         )
     return s.ClockView(
-        kind="system", now=now, snapshot_as_of=None, started_at=None, note="The wall clock, UTC"
+        kind="system",
+        now=now,
+        snapshot_as_of=None,
+        started_at=None,
+        frozen=False,
+        note="The wall clock, UTC",
     )
 
 

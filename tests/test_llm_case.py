@@ -152,6 +152,29 @@ def test_as_of_nature_and_languages() -> None:
     assert schema_errors(case) == []
 
 
+def test_the_risk_score_has_its_own_day() -> None:
+    """The risk score is computed at the request, after the customer snapshot that dates the
+    value, the factors and the cluster (rule 11; API contract 1.8.0): `risk_as_of` dates it."""
+    scenario = SCENARIOS["Q4_cluster"]
+    case = build_case(
+        make("Q4_cluster").decision,
+        replace(scenario.request, return_id="RET-1"),
+        BASE,
+        policy_text=POLICY_TEXT,
+        scores=scenario.scores,
+        factors=scenario.factors,
+        cluster=scenario.cluster,
+        as_of=date(2026, 9, 1),
+        risk_as_of=date(2026, 9, 28),
+    )
+    periods = {f["metric"]: f["period"] for f in case["facts"]}
+    assert periods.pop("risk_score") == "as of 2026-09-28"
+    assert periods.pop("value_eur_12m") == "12 months to 2026-09-01"
+    periods.pop("days_since_delivery")
+    assert periods and set(periods.values()) == {"as of 2026-09-01"}
+    assert schema_errors(case) == []
+
+
 # ---- Customer text: data between delimiters ------------------------------------------------------
 
 

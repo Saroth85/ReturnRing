@@ -88,7 +88,10 @@ def assert_engine_output(view: s.DecisionView, decision: Decision) -> None:
     assert view.evidence_quality is decision.evidence_quality
     assert view.quadrant is decision.quadrant
     assert [x.model_dump() for x in view.proposed_levers] == decision.levers.to_contract(BASE)
-    assert view.refund_due_by == decision.refund_due_by
+    # the engine dates the refund on every path; the view states it on the withdrawal path
+    # only (1.7.0: the guarantee path has no refund deadline, rule 4)
+    stated = decision.refund_due_by if view.path is ReturnPath.WITHDRAWAL else None
+    assert view.refund_due_by == stated
     assert view.current_return_terms.to_policy() == decision.current_return_terms
     assert view.rules_version == decision.rules_version
     if view.state in ("proposed", "approved"):
@@ -354,7 +357,10 @@ def test_audit_entry_ids_grow_with_time() -> None:
 
 def test_refunds_are_due_within_14_days_of_the_notice() -> None:
     for _, view in ALL_VIEWS:
-        assert view.refund_due_by == view.inputs.notice_on + timedelta(days=LEGAL_REFUND_DAYS)
+        if view.path is ReturnPath.WITHDRAWAL:
+            assert view.refund_due_by == view.inputs.notice_on + timedelta(days=LEGAL_REFUND_DAYS)
+        else:  # 1.7.0: a guarantee case has no refund deadline (rule 4, NFR-17)
+            assert view.refund_due_by is None
 
 
 # ---- Simulator (ECO-01) and drafts (llm/validator.py) --------------------------------------------

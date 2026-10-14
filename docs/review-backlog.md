@@ -9,24 +9,9 @@ The UI items are the planned migration of `apps/ui` from the pinned contract 1.1
 
 ## Rules and legal behaviour
 
-- **[major] Public cached demo: the demo clock keeps running after the reset, so every open return shows its refund as overdue within 14 days**  
-  Where: apps/api/clock.py DemoClock.now (anchor plus unbounded elapsed time); apps/api/runtime.py refresh_clock (re-anchors only after a new reset row); infra/compose.demo.yml (reset is one-shot at make demo-up, DEMO_CLOCK defaults to on); apps/api/services/operator/queue.py:279 (refund_overdue)  
-  Fix: With PUBLIC_READ_ONLY or DEMO_MODE=cached, freeze the demo clock or cap the elapsed time (for example DemoClock(max_elapsed=1 day)). There are no writes in that mode, so a frozen clock stays coherent. Alternatively, schedule a daily `make demo-reset` on the demo server and document it in the runbook and README.
-- **[major] The 14-day withdrawal refund deadline blocks and flags guarantee-path cases, whose message states no deadline (rule 4, NFR-17)**  
-  Where: policy/engine.py:152 (refund_due_by set on every path); apps/api/services/outbox.py:27 check_refund_due, called unconditionally at apps/api/services/operator/actions.py:239 and apps/api/services/other/inspections.py:786; apps/api/services/operator/queue.py:279  
-  Fix: Skip check_refund_due, and set refund_overdue to false, when view.path is guarantee, or more generally whenever the composed message has no {deadline} field. Do not present refund_due_by as the deadline of a guarantee case.
-- **[minor] After refund_due_by, a pending Q3/Q4 restriction can be neither approved nor rejected; the stale-proposal recompute always ends in that 409**  
-  Where: apps/api/services/operator/actions.py:239 (check_refund_due runs before approve, override and reject); stale path actions.py recompute_stale and routes/operator.py post_decision; encoded in tests/test_api_round5.py:544  
-  Fix: Allow reject and override-to-standard after the deadline, with a message composed without the {deadline} field or with no message. At minimum, exempt reject from check_refund_due.
-- **[minor] Rule 11: draft facts and agent answers label score and value figures with the decision day, not the customer snapshot the engine used**  
-  Where: apps/api/services/generation.py:122 (build_case is called without as_of, so llm/case.py:196 defaults to decided_on); apps/api/services/other/agent.py:287 (as_of=view.decided_on)  
-  Fix: Add the customer snapshot instant (Proposal.context.as_of) to DraftInputs and pass build_case(as_of=<snapshot day>), and use the same date in ApiCaseReader. This changes the llm_case digest, so the batch cache has to be regenerated.
-- **[minor] Rule 11: the refund amount in outbox messages carries the provenance of the diminished-value claim**  
-  Where: apps/api/services/operator/actions.py:326 and apps/api/services/other/inspections.py:845 (provenance=claim.amount.provenance)  
-  Fix: Give the refund its own provenance: 'price paid for the returned line (store/order_lines, store/orders) less the claim of INS-...', with the period and nature of the line price.
-- **[minor] Rule 11: the checkout coupon block tells every linked account that its own previous returns caused the block**  
-  Where: llm/phrasebook.py:558 COUPON_BLOCK_TEXT (reuses _NOTICE_AFTER_TERMS); apps/api/services/other/checkout.py:257  
-  Fix: Use a reviewed neutral sentence for the cluster block that attributes no cause (for example 'Discount codes cannot be used on this order until <review date>'). Keep 'your previous returns' only for the customer of the approved case.
+- **[minor] No message states a refund after its deadline: a late rejection or standard-terms act sends none**  
+  Where: llm/phrasebook.py (_REGISTERED, _REGISTERED_AMOUNT and _DEDUCTION all assume {deadline}); apps/api/schemas.py late_without_message; ADR-15 section 20  
+  Fix: Add a reviewed withdrawal body without {deadline} (with {amount} and the {deduction} sentence), in Italian and English, and send it on a late act instead of no message. Left open in contract 1.8.0: it is new customer wording; until then such a case stays refund_overdue in the queue and the merchant states the refund outside ReturnRing.
 
 ## UI readiness (migration to contract 1.5.0)
 

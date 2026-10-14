@@ -181,10 +181,13 @@ def build_case(
     nature: Nature = "synthetic",
     as_of: date | None = None,
     languages: Sequence[Lang] = LANGS,
+    risk_as_of: date | None = None,
 ) -> dict[str, Any]:
     """The llm_case dict for a decided return. `as_of` (default: the decision day) is the period
-    of scores and cluster facts. Scores, factors and cluster are left out of guarantee cases and
-    of cases with insufficient evidence."""
+    of the value, factor and cluster facts (the customer snapshot); `risk_as_of` (default:
+    `as_of`) that of the risk score, which is computed at the request, after that snapshot (rule
+    11). Scores, factors and cluster are left out of guarantee cases and of cases with
+    insufficient evidence."""
     if decision.return_id != request.return_id:
         raise CaseError("Decision and request are about different returns")
     if len(policy_text) > MAX_POLICY_CHARS:
@@ -194,6 +197,7 @@ def build_case(
     if any(lang not in LANGS for lang in languages):
         raise CaseError(f"Languages must be among {LANGS}, got {list(languages)}")
     day = (as_of or decision.decided_on).isoformat()
+    risk_day = risk_as_of.isoformat() if risk_as_of is not None else day
     levers, expected = serialize_decision(decision, base, refund_eur)
     scored = (
         decision.path is Path.WITHDRAWAL and decision.evidence_quality is EvidenceQuality.SUFFICIENT
@@ -228,7 +232,7 @@ def build_case(
             raise CaseError("A scored withdrawal case needs its scores")
         if len(factors) > MAX_FACTORS:
             raise CaseError(f"At most {MAX_FACTORS} score factors")
-        facts.add("customer", "risk_score", scores.risk, f"as of {day}")
+        facts.add("customer", "risk_score", scores.risk, f"as of {risk_day}")
         facts.add("customer", "value_eur_12m", scores.value_eur, f"12 months to {day}")
         for factor in factors:
             if is_forbidden_feature(factor.feature):

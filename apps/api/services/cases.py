@@ -225,6 +225,9 @@ def propose(
             risk=thresholds.risk, value_eur=float(thresholds.value_eur)
         ),
         provenance=inputs_provenance(serving, score, context, decided_on),
+        snapshot_on=s.utc_day(context.as_of),  # the period of the draft's facts (rule 11)
+        # the risk is scored at the request: the period of its fact (rule 11, 1.8.0)
+        scored_on=s.utc_day(score.decided_at) if withdrawal and score is not None else None,
     )
     coupon_rule = None
     if decision.coupon_rule is not None:
@@ -261,7 +264,7 @@ def propose(
         in_force=not decision.requires_approval,
         current_return_terms=s.Terms.from_policy(decision.current_return_terms),
         future_terms=s.Terms.from_policy(decision.levers.future_terms),
-        refund_due_by=decision.refund_due_by,
+        refund_due_by=s.refund_deadline(decision.path, record.notice_on),
         review_at=decision.review_on,
         approver=None,
         approved_at=None,

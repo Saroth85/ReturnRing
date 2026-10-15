@@ -205,6 +205,44 @@ da `.env.example`).
 
 ## 2. Creare il droplet (Steps 1, circa 5 min)
 
+### 2.1 Attivare la piattaforma (una volta sola, prima della vigilia)
+
+Le fonti del progetto non descrivono il pannello; questi passi vengono dal tutorial lablab
+"Host Your First LLM on AMD GPU" (`https://lablab.ai/ai-tutorials/amd-developer-cloud-host-llm-vllm`)
+e dalla pagina dell'evento ACT III, letti il 15 ottobre 2026. I nomi dei menù possono cambiare.
+
+1. **AMD AI Developer Program (ADP)**: account gratuito su
+   `https://www.amd.com/en/developer/ai-dev-program.html` (dalla pagina ACT III: "Sign up with
+   AMD"; l'iscrizione all'ADP è richiesta per essere approvati all'hackathon). I nuovi iscritti
+   ricevono 100 USD di crediti ("Free $100 AMD credits for new members", circa 50 ore di
+   MI300X), applicati da soli all'account del Developer Cloud. Secondo la FAQ AMD riportata dai
+   risultati di ricerca i crediti omaggio scadono 30 giorni dal deposito: verificarlo nella mail
+   di conferma.
+2. **AMD Developer Cloud**: accesso da
+   `https://www.amd.com/en/developer/resources/cloud-access/amd-developer-cloud.html` con lo
+   stesso account AMD; il pannello è quello di DigitalOcean.
+3. **Billing**: nel menù a sinistra, "Billing", aggiungere una carta. Senza carta il pulsante
+   "Create GPU Droplet" resta grigio; con i crediti la carta non viene addebitata finché non si
+   superano (tutorial lablab). Nota: la FAQ della pagina ACT III dice "no billing or credit card
+   info needed" e che "developers don't need the $100 credit to participate", perché l'evento è
+   ospitato su `notebooks.amd.com/tokenfactory` (un'API di inferenza). Questo progetto ha bisogno
+   del droplet (XGBoost e DGL su GPU, vLLM locale con Gemma 4, benchmark B1-B4, regola 2), quindi
+   i crediti del Developer Cloud e la carta servono comunque: se il pannello non li mostra,
+   chiedere su Discord come vengono erogati ai partecipanti di ACT III.
+4. **Chiave SSH**: `ssh-keygen -t ed25519` sul portatile; il contenuto di `~/.ssh/id_ed25519.pub`
+   va incollato nel campo SSH key alla creazione del droplet (i GPU Droplet accettano solo chiavi).
+5. **Creare il droplet**: "GPU Droplets" nel menù, poi "Create GPU Droplet"; regione ATL1; piano
+   MI300X con 1 GPU a 1,99 USD/h (`gpu-mi300x1-192gb`); immagine "vLLM" fra le Quick Start
+   ("Pre-configured LLM inference engine with OpenAI-compatible API"); la chiave SSH; "Create GPU
+   Droplet". Il provisioning dura 2-4 minuti: quando lo stato passa da Creating ad Active, copiare
+   l'IP pubblico. Il firewall (22, 80, 443) si crea nella sezione Networking del pannello e si
+   applica al droplet.
+6. **Fermare i costi**: spento, il droplet si paga lo stesso ("Even when the droplet is powered off,
+   you are still billed"): si distrugge dal pannello ("Destroy"), dopo lo snapshot se serve
+   (GPU Droplets > il droplet > Snapshots > Take Snapshot; lo snapshot ha un piccolo costo di
+   archiviazione).
+
+
 Le etichette esatte dei menù non sono nelle fonti del progetto: il pannello è quello di
 DigitalOcean (il runbook parla di "DigitalOcean Cloud Firewall" e di "control panel"). Quello
 che le fonti fissano:
@@ -212,7 +250,7 @@ che le fonti fissano:
 | Campo | Valore | Fonte |
 | --- | --- | --- |
 | Account | AMD Developer Cloud, iscrizione attiva e crediti visibili (100 USD) | spec 11 e 17 |
-| Regione | `<regione>`: non è nelle fonti; quella che il pannello propone per la MI300X | — |
+| Regione | `ATL1` (Atlanta), la regione che il tutorial lablab usa per la MI300X; se il pannello ne propone altre, va bene quella con la MI300X disponibile | tutorial lablab (2.1) |
 | Taglia | `gpu-mi300x1-192gb`: 1x MI300X (192 GB), 20 vCPU, 240 GiB di RAM, disco di boot da 720 GB | runbook Steps 1 |
 | Immagine | la Quick Start image con vLLM | spec 11; runbook Steps 1 |
 | Firewall | il Cloud Firewall con 22, 80, 443 in ingresso (sezione 1.5) | spec 11 |
@@ -1596,7 +1634,7 @@ arrotondato.
 | Segnaposto o valore | Chi lo fornisce | Quando | Dove si usa |
 | --- | --- | --- | --- |
 | `<branch>` | Claude (oggi `main` a `432e096`, o il branch che Claude indica) | la vigilia | sezioni 1.1, 3.2 |
-| `<regione>` del droplet | chi fa la sessione, dal pannello (non è nelle fonti) | alla creazione | sezione 2 |
+| `<regione>` del droplet | `ATL1` secondo il tutorial lablab; chi fa la sessione conferma dal pannello | alla creazione | sezione 2 |
 | `<nome-droplet>` | chi fa la sessione | alla creazione | sezione 2 |
 | `<droplet-ip>` | il pannello, alla creazione | alla creazione | ovunque: `ssh`, `scp`, `rsync` |
 | `<ip-con-trattini>` e `PUBLIC_HOST` | derivati dall'IP (`203.0.113.10` -> `203-0-113-10.sslip.io`) | dopo la creazione; di nuovo a ogni riavvio dallo snapshot (IP nuovo) | sezioni 3.3, 11, 13.4 |

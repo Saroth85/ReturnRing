@@ -1,20 +1,19 @@
 // Preflight of the pitch (docs/ui-design.md 9.5): green or red, each red line names its fix. Pure
-// logic over the API answers, so the page and the tests read the same rules.
+// logic over the API answers, so the page and the tests read the same rules. The golden cases and
+// their decisions come from GET /api/demo/cases (ADR-15 section 15): Marco must be proposed at the
+// decision the reset made, Rossi's latest decision the one the reset made.
 import { compareContract, contractVersionOf } from '@/api/contractVersion';
-import type { CaseCard, Metric, ReadyzResponse, SimulatorAssumptionsResponse } from '@/api/models';
+import { isApiError } from '@/api/errors';
+import type { CaseCard, ComponentCheck, DemoCasesResponse, Metric, ReadyzResponse, SimulatorAssumptionsResponse } from '@/api/models';
+import { caseOf } from '@/domain/demoCases';
 import { PLATFORM } from '../copy';
-import {
-  DEMO_ASSUMPTIONS_VERSION,
-  MARCO_FIRST_VERSION,
-  PREFLIGHT_LOAD_TARGET_MS,
-  ROSSI_FIRST_DECISION_ID,
-} from '../constants';
+import { DEMO_ASSUMPTIONS_VERSION, PREFLIGHT_LOAD_TARGET_MS } from '../constants';
 
 export type ExpectedMode = 'live' | 'cached';
 export type CheckState = 'pass' | 'fail' | 'pending';
 
 export interface PreflightCheck {
-  id: 'adapter' | 'readiness' | 'components' | 'contract' | 'marco' | 'rossi' | 'assumptions' | 'load';
+  id: 'adapter' | 'readiness' | 'components' | 'contract' | 'cases' | 'marco' | 'rossi' | 'assumptions' | 'load';
   label: string;
   state: CheckState;
   /** What was found, in words (shown on red lines and as a hint on green ones). */
@@ -23,10 +22,11 @@ export interface PreflightCheck {
   fix: string | null;
 }
 
-/** An answer of the API as the page holds it: the data, or that the call failed. */
+/** An answer of the API as the page holds it: the data, or that the call failed (and why). */
 export interface Answer<T> {
   data: T | undefined;
   failed: boolean;
+  error?: unknown;
 }
 
 export interface PreflightInputs {
@@ -34,6 +34,9 @@ export interface PreflightInputs {
   /** The UI's adapter: on `mock` every answer is a contract example, so the run is never ready. */
   adapter: 'mock' | 'live';
   readyz: Answer<ReadyzResponse>;
+  /** GET /api/demo/cases: the golden cases of the reset (404 before any reset). */
+  cases: Answer<DemoCasesResponse>;
+  /** The case cards of the Marco and Rossi card cases named by `cases`. */
   marco: Answer<CaseCard>;
   rossi: Answer<CaseCard>;
   assumptions: Answer<SimulatorAssumptionsResponse>;
@@ -42,6 +45,7 @@ export interface PreflightInputs {
 }
 
 const C = PLATFORM.demo.checks;
+const PENDING: Answer<never> = { data: undefined, failed: false };
 
 function check(
   id: PreflightCheck['id'],
@@ -56,16 +60,55 @@ function check(
   return { id, label, state: ok ? 'pass' : 'fail', found, fix: ok ? null : fix };
 }
 
+/** The API's own words for a failed call (a 404 no_demo_reset names the reset), else "no answer". */
+export function failureText(error: unknown): string {
+  return isApiError(error) && error.status < 500 ? error.message : PLATFORM.demo.unreachable;
+}
+
+/**
+ * Whether a component check is fine for the run expected: ok, or off on purpose in a live run on
+ * the mock language model (vLLM) or on a CPU (telemetry: no amd-smi sample).
+ */
+export function componentReady(r: ReadyzResponse, component: ComponentCheck['component']): boolean {
+  const status = r.checks.find((k) => k.component === component)?.status;
+  if (status === 'ok') return true;
+  if (status !== 'disabled') return false;
+  if (component === 'vllm') return r.llm_mode === 'mock';
+  if (component === 'telemetry') return r.device === 'cpu';
+  return false;
+}
+
+/** A case check: the case named by the demo cases, then its card. */
+function caseCheck(
+  id: 'marco' | 'rossi',
+  label: string,
+  cases: Answer<DemoCasesResponse>,
+  decisionId: string | null,
+  card: Answer<CaseCard>,
+  ok: (card: CaseCard, decisionId: string) => boolean,
+  found: (card: CaseCard) => string,
+  copy: { fix: string; missing: string },
+): PreflightCheck {
+  if (cases.failed) return { id, label, state: 'fail', found: PLATFORM.demo.noCases, fix: C.cases.fix };
+  if (!cases.data) return check(id, label, PENDING, false, null, copy.fix);
+  if (decisionId === null) return { id, label, state: 'fail', found: copy.missing, fix: C.cases.fix };
+  const data = card.data;
+  return check(id, label, card, data ? ok(data, decisionId) : false, data ? found(data) : null, copy.fix);
+}
+
 /** The checks of docs/ui-design.md 9.5, in order, after the adapter and before the cases. */
-export function preflightChecks({ expected, adapter, readyz, marco, rossi, assumptions, load }: PreflightInputs): PreflightCheck[] {
+export function preflightChecks({ expected, adapter, readyz, cases, marco, rossi, assumptions, load }: PreflightInputs): PreflightCheck[] {
   const r = readyz.data;
   const components = expected === 'live' ? (['vllm', 'telemetry'] as const) : (['demo_cache'] as const);
-  const notOk = r ? components.filter((c) => r.checks.find((k) => k.component === c)?.status !== 'ok') : [];
-  const m = marco.data?.decision;
-  const latestRossi = rossi.data?.decision.decision_id;
+  const notReady = r ? components.filter((c) => !componentReady(r, c)) : [];
   const current = assumptions.data?.current.version;
   const contract = compareContract(contractVersionOf(r));
   const onMock = adapter === 'mock';
+  const marcoDecision = caseOf(cases.data, 'marco')?.decision_id ?? null;
+  const rossiDecision = (caseOf(cases.data, 'rossi_card') ?? caseOf(cases.data, 'rossi'))?.decision_id ?? null;
+  const casesCheck: PreflightCheck = cases.failed
+    ? { id: 'cases', label: C.cases.label, state: 'fail', found: failureText(cases.error), fix: C.cases.fix }
+    : check('cases', C.cases.label, cases, true, cases.data ? cases.data.cases.map((c) => c.return_id).join(' · ') : null, C.cases.fix);
   return [
     {
       id: 'adapter',
@@ -86,7 +129,7 @@ export function preflightChecks({ expected, adapter, readyz, marco, rossi, assum
       'components',
       expected === 'live' ? C.components.live : C.components.cached,
       readyz,
-      notOk.length === 0,
+      notReady.length === 0,
       r ? components.map((c) => `${c} ${r.checks.find((k) => k.component === c)?.status ?? PLATFORM.demo.unreachable}`).join(' · ') : null,
       C.components.fix,
     ),
@@ -98,15 +141,27 @@ export function preflightChecks({ expected, adapter, readyz, marco, rossi, assum
       r ? (contract.server ?? PLATFORM.demo.unreachable) : null,
       C.contract.fix,
     ),
-    check(
+    casesCheck,
+    caseCheck(
       'marco',
       C.marco.label,
+      cases,
+      marcoDecision,
       marco,
-      m?.state === 'proposed' && m.version === MARCO_FIRST_VERSION,
-      m ? `${m.state} · ${m.decision_id}` : null,
-      C.marco.fix,
+      (card, decisionId) => card.decision.state === 'proposed' && card.decision.decision_id === decisionId,
+      (card) => `${card.decision.state} · ${card.decision.decision_id}`,
+      C.marco,
     ),
-    check('rossi', C.rossi.label, rossi, latestRossi === ROSSI_FIRST_DECISION_ID, latestRossi ?? null, C.rossi.fix),
+    caseCheck(
+      'rossi',
+      C.rossi.label,
+      cases,
+      rossiDecision,
+      rossi,
+      (card, decisionId) => card.decision.decision_id === decisionId,
+      (card) => card.decision.decision_id,
+      C.rossi,
+    ),
     check('assumptions', C.assumptions.label, assumptions, current === DEMO_ASSUMPTIONS_VERSION, current ?? null, C.assumptions.fix),
     check('load', C.load.label, load, (load.data?.value ?? Infinity) < PREFLIGHT_LOAD_TARGET_MS, null, C.load.fix),
   ];
@@ -119,9 +174,11 @@ export function preflightState(checks: readonly PreflightCheck[]): CheckState {
   return 'pass';
 }
 
-/** The load of the golden cards and the matrix, measured in this browser: a real figure. */
-export function loadMetric(ms: number, measuredAt: string, source: 'mock' | 'live'): Metric {
-  const day = measuredAt.slice(0, 10);
+/**
+ * The load of the golden cards and the matrix, measured in this browser: a real figure, dated with
+ * the service's day (`day`, the demo clock of /readyz), like every period that ends now.
+ */
+export function loadMetric(ms: number, day: string, source: 'mock' | 'live'): Metric {
   const target = source === 'mock' ? PLATFORM.demo.loadTargetMock : PLATFORM.demo.loadTargetLive;
   return {
     value: Math.round(ms),

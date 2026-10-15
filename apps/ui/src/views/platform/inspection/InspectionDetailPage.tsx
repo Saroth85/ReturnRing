@@ -9,13 +9,14 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { API_MODE } from '@/api/adapters';
 import { useConfirmInspection, useCreateInspection } from '@/api/mutations';
-import { useCase } from '@/api/queries';
+import { useCase, useReadyz } from '@/api/queries';
 import { usePersona } from '@/app/persona';
 import { PathBadge } from '@/components/decision';
-import { ErrorState, InlineNotice, LoadingBlock, useRoleGate } from '@/components/feedback';
+import { ErrorState, InlineNotice, LoadingBlock, useReadOnly } from '@/components/feedback';
 import { IdText, PlainNumber, ProvenanceFooter, ProvenanceScope } from '@/components/provenance';
 import { Button, Kbd } from '@/components/ui';
 import { PLATFORM } from '../copy';
+import { useWriteGate } from '../shared/gate';
 import { PageHeader } from '../shared/layout';
 import { INSPECTION } from './copy';
 import {
@@ -88,8 +89,9 @@ function ReturnSummary({ returnId }: { returnId: string }) {
 
 function InspectionFlow({ returnId }: { returnId: string }) {
   const persona = usePersona();
-  const createGate = useRoleGate('POST /api/inspections');
-  const confirmGate = useRoleGate('POST /api/inspections/{inspection_id}/confirm');
+  // The role and the read-only public demo (/readyz public_read_only) gate both writes.
+  const createGate = useWriteGate('POST /api/inspections');
+  const confirmGate = useWriteGate('POST /api/inspections/{inspection_id}/confirm');
   const [photo, setPhoto] = useState<{ mediaType: PhotoType; base64: string } | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [photoError, setPhotoError] = useState<string | null>(null);
@@ -297,6 +299,8 @@ function InspectionFlow({ returnId }: { returnId: string }) {
 export default function InspectionDetailPage() {
   const { returnId = '' } = useParams();
   const persona = usePersona();
+  const readOnly = useReadOnly();
+  const cached = useReadyz().data?.mode === 'cached';
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-4" data-page="inspection-detail">
       <PageHeader
@@ -313,10 +317,23 @@ export default function InspectionDetailPage() {
       <p className="rounded-control border border-border bg-surface-2 px-3 py-2 text-body text-ink-1" data-inspection-note>
         {t.note}
       </p>
-      {persona.role !== 'warehouse' && (
+      {readOnly ? (
         <InlineNotice>
-          <p>{t.readOnly(`${persona.id} (${persona.role})`)}</p>
+          <p data-inspection-read-only>{t.publicReadOnly}</p>
         </InlineNotice>
+      ) : (
+        persona.role !== 'warehouse' && (
+          <InlineNotice>
+            <p>{t.readOnly(`${persona.id} (${persona.role})`)}</p>
+          </InlineNotice>
+        )
+      )}
+      {cached && (
+        <div data-inspection-cached>
+          <InlineNotice tone="attention">
+            <p>{t.cached}</p>
+          </InlineNotice>
+        </div>
       )}
       <InspectionFlow key={returnId} returnId={returnId} />
     </div>

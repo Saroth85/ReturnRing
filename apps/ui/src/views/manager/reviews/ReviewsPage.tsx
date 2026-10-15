@@ -9,7 +9,7 @@ import type { CouponRuleApplication, QueueItem } from '@/api/models';
 import { HAS_RENEW } from '@/api/models';
 import { useCase, useCouponRules, useQueue } from '@/api/queries';
 import { QuadrantBadge } from '@/components/decision';
-import { EmptyState, InlineNotice } from '@/components/feedback';
+import { EmptyState, InlineNotice, useReadOnly } from '@/components/feedback';
 import { DateText, IdText } from '@/components/provenance';
 import { CouponApplicationsTable, leverText } from '@/components/records';
 import { MANAGER } from '../copy';
@@ -33,7 +33,7 @@ function Approver({ returnId, decisionId }: { returnId: string; decisionId: stri
   );
 }
 
-function DueRow({ item }: { item: QueueItem }) {
+function DueRow({ item, readOnly }: { item: QueueItem; readOnly: boolean }) {
   return (
     <tr className="border-b border-border align-top" data-review-row={item.return_id}>
       <td className="px-3 py-2">
@@ -84,6 +84,11 @@ function DueRow({ item }: { item: QueueItem }) {
           >
             {HAS_RENEW ? R.reviewLiftRenew : R.reviewLift}
           </Link>
+          {readOnly && (
+            <span className="text-caption text-ink-3" data-role-reason>
+              {R.readOnly}
+            </span>
+          )}
           <Link to={`/returns/${encodeURIComponent(item.return_id)}`} className="text-dense text-accent underline underline-offset-2">
             {R.openCase}
           </Link>
@@ -97,6 +102,7 @@ export default function ReviewsPage() {
   const due = useQueue({ review_due: true });
   const coupons = useCouponRules();
   const [reversed, setReversed] = useState<CouponRuleApplication | null>(null);
+  const readOnly = useReadOnly();
   const c = R.cols;
   return (
     <ManagerPage screen="reviews" title={MANAGER.titles.reviews} intro={<p>{R.note}</p>}>
@@ -119,7 +125,7 @@ export default function ReviewsPage() {
                   </thead>
                   <tbody>
                     {page.items.map((item) => (
-                      <DueRow key={item.return_id} item={item} />
+                      <DueRow key={item.return_id} item={item} readOnly={readOnly} />
                     ))}
                   </tbody>
                 </table>
@@ -148,7 +154,13 @@ export default function ReviewsPage() {
                   <span data-reversed={reversed.application_id}>{R.reversed(reversed.application_id, reversed.reversed_by ?? '')}</span>
                 </InlineNotice>
               )}
-              <CouponApplicationsTable applications={data.applications} reversible onReversed={setReversed} />
+              {/* The read-only public demo refuses a reversal (403): none is offered, and the reason says why. */}
+              {readOnly && (
+                <p className="text-caption text-ink-3" data-reversal-read-only>
+                  {R.reversalReadOnly}
+                </p>
+              )}
+              <CouponApplicationsTable applications={data.applications} reversible={!readOnly} onReversed={setReversed} />
             </>
           )}
         </Loadable>

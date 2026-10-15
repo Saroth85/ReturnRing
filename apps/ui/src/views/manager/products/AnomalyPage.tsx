@@ -3,9 +3,11 @@
 // after it; the linked returns stay regular (Elena: no restriction to the customer); a catalogue
 // task opens from here.
 import { ArrowLeft, ShieldCheck } from 'lucide-react';
-import { Link, useParams } from 'react-router';
-import type { ProductAnomaliesResponse } from '@/api/models';
-import { useAnomalies, useCatalogTasks } from '@/api/queries';
+import { useMutationState } from '@tanstack/react-query';
+import { Link, useParams, useSearchParams } from 'react-router';
+import type { CatalogTask, ProductAnomaliesResponse } from '@/api/models';
+import { InlineNotice } from '@/components/feedback';
+import { useAnomalies, useCase, useCatalogTasks } from '@/api/queries';
 import { WeeklyTrendChart } from '@/components/charts';
 import { DateText, Figure, IdText } from '@/components/provenance';
 import { MANAGER } from '../copy';
@@ -16,8 +18,32 @@ import { AnomalyStatus, CatalogTaskForm, ProductTabs, TaskCard } from './parts';
 const D = MANAGER.products.detail;
 const PR = MANAGER.products;
 
+/**
+ * The returns a catalogue task can name: the anomaly's queued returns, or, when the page was opened
+ * from a case card (`?return=`), the card's anomaly, which adds the case's own return.
+ */
+function useOffered(anomaly: ProductAnomaly): { offered: readonly string[]; preselected: string | null } {
+  const [params] = useSearchParams();
+  const fromCase = params.get('return');
+  const card = useCase(fromCase ?? undefined);
+  const cardAnomaly = card.data?.product_anomaly;
+  if (fromCase && cardAnomaly && cardAnomaly.anomaly_id === anomaly.anomaly_id) {
+    return { offered: cardAnomaly.queued_return_ids, preselected: fromCase };
+  }
+  return { offered: anomaly.queued_return_ids, preselected: null };
+}
+
 function Anomaly({ anomaly, data }: { anomaly: ProductAnomaly; data: ProductAnomaliesResponse }) {
   const tasks = useCatalogTasks();
+  const { offered, preselected } = useOffered(anomaly);
+  // The task opened here: once the task list holds it, its card replaces the form (which unmounts
+  // with its own notice), so the page reads the finished creation from the mutation cache.
+  const created = useMutationState({
+    // The create body names the anomaly; an update of a task does not.
+    filters: { status: 'success', predicate: (m) => (m.state.variables as { anomaly_id?: string } | undefined)?.anomaly_id === anomaly.anomaly_id },
+    select: (m) => (m.state.data as CatalogTask).task_id,
+  });
+  const createdId = created.at(-1) ?? null;
   const task = tasks.data?.items.find((t) => t.task_id === anomaly.catalog_task_id || t.anomaly_id === anomaly.anomaly_id) ?? null;
   return (
     <ManagerPage
@@ -105,13 +131,18 @@ function Anomaly({ anomaly, data }: { anomaly: ProductAnomaly; data: ProductAnom
               {() =>
                 task ? (
                   <>
+                    {createdId === task.task_id && (
+                      <InlineNotice tone="info">
+                        <span data-task-created={task.task_id}>{MANAGER.tasks.form.created(task.task_id)}</span>
+                      </InlineNotice>
+                    )}
                     <TaskCard task={task} />
                     <Link to="/products/tasks" className="text-dense text-accent underline underline-offset-2">
                       {D.openTask}
                     </Link>
                   </>
                 ) : (
-                  <CatalogTaskForm anomaly={anomaly} />
+                  <CatalogTaskForm key={offered.join(',')} anomaly={anomaly} offered={offered} preselected={preselected} />
                 )
               }
             </Loadable>

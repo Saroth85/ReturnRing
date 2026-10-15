@@ -5,7 +5,7 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { readExample } from '@/test/examples';
-import { clockNow, isRunning, useDemoClock, utcDay } from './clock';
+import { clockNow, frozenAtSnapshot, isRunning, useDemoClock, utcDay } from './clock';
 import type { ClockView, ReadyzResponse } from './models';
 import { createQueryClient } from './queries';
 import { setScenario } from './scenario';
@@ -36,6 +36,17 @@ describe('clockNow', () => {
     const fixed: ClockView = { ...live, kind: 'fixed' };
     expect(isRunning(fixed)).toBe(false);
     expect(clockNow(fixed, fetchedAt, fetchedAt + 3_600_000).toISOString()).toBe('2026-09-30T19:00:00.000Z');
+  });
+
+  it('a frozen clock stands at its snapshot, or at the latest act recorded after it (1.8.1)', () => {
+    expect(frozenAtSnapshot(frozen)).toBe(true);
+    // The same instant written differently is the same instant.
+    expect(frozenAtSnapshot({ ...frozen, now: '2026-09-30T18:00:00.000Z' })).toBe(true);
+    const afterActs: ClockView = { ...frozen, now: '2026-09-30T19:12:00Z' };
+    expect(frozenAtSnapshot(afterActs)).toBe(false);
+    expect(isRunning(afterActs)).toBe(false);
+    expect(clockNow(afterActs, fetchedAt, fetchedAt + 3_600_000).toISOString()).toBe('2026-09-30T19:12:00.000Z');
+    expect(frozenAtSnapshot(live)).toBe(false); // a running clock is not frozen
   });
 
   it('dates a period that ends now by the UTC day', () => {

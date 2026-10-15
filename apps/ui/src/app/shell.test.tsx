@@ -60,6 +60,22 @@ describe('the service clock in the shell', () => {
     expect(top.getAttribute('data-clock-frozen')).toBe('yes');
     expect(top.querySelector('time')?.getAttribute('datetime')).toBe('2026-09-30T18:00:00.000Z');
   });
+
+  it('a frozen clock past its snapshot (a store acted on, then read-only) never claims the snapshot', async () => {
+    const note = 'Demo clock, frozen at the latest act recorded after the serving snapshot';
+    vi.spyOn(api, 'readyz').mockResolvedValue({ ...cached, clock: { ...cached.clock, now: '2026-09-30T19:12:00Z', note } });
+    act(() => setScenario('cached'));
+    renderApp('/about');
+    const region = await banner();
+    const clock = region.querySelector('[data-banner-clock]') as HTMLElement;
+    expect(clock.getAttribute('data-clock-frozen')).toBe('yes');
+    expect(clock.textContent).toContain('demo clock frozen at the latest recorded act');
+    expect(clock.textContent).not.toContain('frozen at the snapshot');
+    expect(clock.textContent).toContain('snapshot 30 Sep 2026, 18:00 UTC');
+    expect(clock.getAttribute('title')).toBe(note);
+    const top = document.querySelector('[data-top-clock]') as HTMLElement;
+    expect(top.querySelector('time')?.getAttribute('datetime')).toBe('2026-09-30T19:12:00.000Z');
+  });
 });
 
 describe('the cached label is /readyz label, verbatim', () => {

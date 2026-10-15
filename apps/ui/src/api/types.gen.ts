@@ -2368,7 +2368,10 @@ export interface ComponentCheck {
  * frozen (1.7.0, ADR-15 section 19): the demo clock of the public read-only demo stands at
  * the snapshot instant (now equals snapshot_as_of), so no refund deadline of the reset's
  * proposals passes while the demo stays up; a client never advances a frozen clock. Where
- * writes are on (a cached demo with writes on included) the demo clock runs (1.8.0).
+ * writes are on (a cached demo with writes on included) the demo clock runs (1.8.0). A store
+ * acted on with writes on and then served read-only (1.8.1, section 21): the frozen clock
+ * stands at the latest act recorded, after snapshot_as_of, never before an act, and its note
+ * says so.
  *
  * This interface was referenced by `ApiSchemas`'s JSON-Schema
  * via the `definition` "ClockView".

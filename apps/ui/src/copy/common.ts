@@ -73,6 +73,7 @@ export const MODE = {
   /** The service's clock (/readyz `clock`, ADR-15 sections 15, 19, 20); its note is the tooltip. */
   clockKind: { demo: 'demo clock', system: 'wall clock', fixed: 'fixed clock' } satisfies Record<ClockKind, string>,
   clockFrozen: 'frozen at the snapshot',
+  clockFrozenAfterActs: 'frozen at the latest recorded act',
   clockRunning: 'running since the reset',
   clockSnapshot: 'snapshot',
 };

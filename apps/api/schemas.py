@@ -183,8 +183,10 @@ from policy.types import CouponRuleApplication as PolicyCouponRule
 # customer snapshot day of the draft facts, the refund's own provenance, the neutral coupon block);
 # 1.8.0: the review of section 19 (ADR-15 section 20: the clock frozen only on the read-only
 # demo, late silent acts kept refund_overdue and allowed on a claim case, the risk score dated
-# with the day it was scored, DecisionInputs.scored_on)
-API_CONTRACT_VERSION = "1.8.0"
+# with the day it was scored, DecisionInputs.scored_on);
+# 1.8.1: a store acted on with writes on, served read-only (ADR-15 section 21: the frozen clock
+# stands at the later of the snapshot instant and the latest act recorded, with its own note)
+API_CONTRACT_VERSION = "1.8.1"
 MODE_HEADER = "X-ReturnRing-Mode"  # every response: "live" or "cached" (US-901)
 REQUEST_ID_HEADER = "X-Request-Id"  # every response; also in the audit log (NFR-12)
 RETRY_AFTER_HEADER = "Retry-After"  # on a 429 rate_limited: whole seconds to wait (1.5.1)
@@ -4766,6 +4768,11 @@ FROZEN_CLOCK_NOTE = (
     "Demo clock, frozen at the instant of the serving snapshot: the read-only demo, whose "
     "refund deadlines never pass while it stays up"
 )
+# 1.8.1 (ADR-15 section 21): the read-only demo of a store acted on with writes on
+FROZEN_AFTER_ACTS_NOTE = (
+    "Demo clock, frozen at the latest act recorded after the serving snapshot: the read-only "
+    "demo of a store acted on with writes on, never shown before its acts"
+)
 
 
 class ClockView(ApiModel):
@@ -4778,7 +4785,10 @@ class ClockView(ApiModel):
     frozen (1.7.0, ADR-15 section 19): the demo clock of the public read-only demo stands at
     the snapshot instant (now equals snapshot_as_of), so no refund deadline of the reset's
     proposals passes while the demo stays up; a client never advances a frozen clock. Where
-    writes are on (a cached demo with writes on included) the demo clock runs (1.8.0)."""
+    writes are on (a cached demo with writes on included) the demo clock runs (1.8.0). A store
+    acted on with writes on and then served read-only (1.8.1, section 21): the frozen clock
+    stands at the latest act recorded, after snapshot_as_of, never before an act, and its note
+    says so."""
 
     kind: ClockKind
     now: AwareDatetime
@@ -4794,8 +4804,13 @@ class ClockView(ApiModel):
             raise ValueError("a demo clock, and only it, names its snapshot instant and start")
         if self.snapshot_as_of is not None and self.now < self.snapshot_as_of:
             raise ValueError("the demo clock never runs before the snapshot instant")
-        if self.frozen and (not demo or self.now != self.snapshot_as_of):
+        if self.frozen and not demo:
             raise ValueError("a frozen clock is a demo clock that stands at its snapshot instant")
+        if self.frozen and self.now != self.snapshot_as_of and self.note != FROZEN_AFTER_ACTS_NOTE:
+            raise ValueError(
+                "a frozen clock stands at its snapshot instant, or past it at the latest act "
+                "recorded, and then its note says so (1.8.1)"
+            )
         return self
 
 

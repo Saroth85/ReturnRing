@@ -56,6 +56,7 @@ export const SYSTEM = {
     fixed: 'fixed clock',
   } satisfies Record<ClockKind, string>,
   clockFrozen: 'frozen at the snapshot instant: it does not move',
+  clockFrozenAfterActs: 'frozen at the latest act recorded after the snapshot: it does not move',
   clockRunning: 'running',
   clockStill: 'still',
   clockNow: 'now',

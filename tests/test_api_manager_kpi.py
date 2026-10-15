@@ -257,6 +257,26 @@ def test_invalid_weeks_are_refused(evaluated_api: Api) -> None:
         assert response.json()["code"] == "invalid_request"
 
 
+def test_a_week_not_started_names_the_query_field(evaluated_api: Api) -> None:
+    """A week after the API's today is refused with a violation on query.week_start, like the
+    pydantic refusals of the same query (the UI shows the violations of a 422)."""
+    response = evaluated_api.client.get("/api/kpi", params={"week_start": "2026-10-05"})
+    assert response.status_code == 422, response.text
+    body = response.json()
+    validate_body("error", body)
+    assert body["code"] == "invalid_request"
+    assert body["message"] == "the week of 2026-10-05 has not started yet"
+    assert body["violations"] == [
+        {
+            "code": "week_not_started",
+            "message": "query.week_start: the week of 2026-10-05 has not started yet",
+        }
+    ]
+    # the pydantic refusal of the same field names it the same way
+    monday = evaluated_api.client.get("/api/kpi", params={"week_start": "2026-09-29"}).json()
+    assert [v["message"].split(":")[0] for v in monday["violations"]] == ["query.week_start"]
+
+
 def test_kpi_without_the_report_is_not_found(unevaluated_api: Api) -> None:
     response = unevaluated_api.client.get("/api/kpi")
     assert response.status_code == 404

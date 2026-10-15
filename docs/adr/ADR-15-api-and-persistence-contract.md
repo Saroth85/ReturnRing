@@ -5,7 +5,8 @@ Status: accepted, 13 Oct 2026; amended the same day after four reviews (sections
 rounds (section 14), the review of the running API (section 15), the two reviews of the
 public deployment (sections 16 and 17), the examples checked against the live service (section
 18), and the rules and legal items of the review backlog (section 19) and the review of that
-section (section 20). API contract version `1.8.0`. Covers spec section 9 (API table, flows F1
+section (section 20); on 15 Oct 2026 by a store served read-only after writes (section 21). API
+contract version `1.8.1`. Covers spec section 9 (API table, flows F1
 to F7), the stories of E3, E4, E5, E6, E7 and E9, NFR-16 and CLAUDE.md rules 1, 3, 4, 5, 9, 10,
 11 and 12. Changes `contracts/` (new `contracts/vocab.py`, `contracts/sql.py`,
 `contracts/json/api/`, `contracts/examples/api/`), removes two v1 API schemas, and adds
@@ -1475,6 +1476,49 @@ clock's note in `readyz_response.cached`.
 
 For the UI migration: a rejected or overridden case may be `refund_overdue`; date the risk
 score fact as it comes.
+
+### 21. A store acted on with writes on, served read-only (15 Oct 2026, contract 1.8.1)
+
+The UI migration found two defects; each is now a test that failed on 1.8.0
+(`tests/test_api_read_only_after_writes.py`, `tests/test_api_manager_kpi.py`). The version is
+1.8.1: no field changes, but the description of `ClockView` does, and a frozen clock may now
+stand after `snapshot_as_of`.
+
+- **A frozen clock never stands before a recorded act.** Section 20 froze the read-only
+  demo's clock at the snapshot instant. A store someone had acted on with writes on (approve
+  and lift the Marco ring case on the running demo clock), then served with
+  `PUBLIC_READ_ONLY=on` on the same database, showed a 'now' before those acts: the case card
+  answered 500 (`DecisionView`: "approved_at is between created_at and as_of") and so did
+  `GET /api/coupon-rules` (`CouponRuleApplication`: "proposed, confirmed and reversed in this
+  order, before as_of"). A frozen clock now stands at the later of the snapshot instant and the
+  latest act the store recorded (`apps.api.runtime.latest_act`: the maximum of every timestamp
+  column of `contracts/sql.py` that dates an act on the API's clock; `NOT_ACTS` names the
+  others, the wall-clock columns `demo_reset.started_at` and `telemetry_samples.sampled_at`,
+  `demo_reset.snapshot_as_of`, and the shop's `return_requests.requested_at`, and a test makes
+  every new timestamp column take a side). It is computed when the clock is anchored: at the
+  start of the service and whenever the demo reset changes, so `make demo-reset` brings it back
+  to the snapshot instant. The reset dates every row at the snapshot instant, so a fresh reset
+  still freezes exactly there, with the section 19 note. Everything that reads 'now' follows:
+  `as_of` of the views and of `GET /api/demo/cases`, the queue's `refund_overdue` (a deadline
+  passed by the time of the last act is overdue), the week a KPI request may ask for. The
+  public writes of the read-only demo (the agent, the checkout evaluation) are dated at the
+  frozen instant, so they never move it. A running clock ignores the latest act: its acts are
+  dated on it.
+- **`/readyz` says why.** `clock.snapshot_as_of` stays the snapshot instant; `clock.now` is the
+  frozen instant. Past the snapshot instant the note is `FROZEN_AFTER_ACTS_NOTE` ("Demo clock,
+  frozen at the latest act recorded after the serving snapshot: ..."). `ClockView` accepts a
+  frozen clock past its snapshot instant only with that note (rule 11), never before it.
+- **A KPI week not started names its field.** `GET /api/kpi?week_start=<a week after the API's
+  today>` answered 422 `invalid_request` with no violation. It now carries
+  `{code: week_not_started, message: "query.week_start: the week of ... has not started yet"}`,
+  like the pydantic refusals of the same query field.
+
+Schemas whose shape changed: none. `readyz_response` (the description of `ClockView`),
+`endpoints.json` and `openapi.json` change; examples whose values changed: both readyz responses
+(`contract_version`).
+
+For the UI: a frozen clock may stand after the snapshot instant; say "frozen" without claiming
+the snapshot instant when `now` differs from `snapshot_as_of`, and show the API's note.
 
 ## Consequences
 

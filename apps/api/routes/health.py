@@ -3,7 +3,8 @@ label of cached mode ("Precomputed on AMD MI300X"), a check per component and th
 
 Contract 1.5.0 (ADR-15 section 15): /readyz shows the API's clock (the demo clock: the
 snapshot instant plus the time since the reset, frozen at the snapshot instant on the public
-read-only demo, 1.7.0) and whether the public demo is read-only; the
+read-only demo, 1.7.0, or at the latest act recorded when a store acted on with writes on is
+served read-only, 1.8.1) and whether the public demo is read-only; the
 cached label is shown only while precomputed outputs are there (H6); the status is not_ready
 while the database, the scores or the models are missing, when every /api route fails (H37);
 the vLLM probe follows no redirect (rule 2, H23) and checks that GEMMA_MODEL is served (H30);
@@ -79,18 +80,22 @@ def probe_vllm(base_url: str | None, api_key: str | None, model: str | None = No
 
 
 def clock_view(rt: Runtime) -> s.ClockView:
-    """The API's clock as /readyz shows it (ADR-15 section 15)."""
+    """The API's clock as /readyz shows it (ADR-15 section 15): a frozen clock past its
+    snapshot instant stands at the latest act recorded, and its note says so (section 21)."""
     now = rt.now()
     clock = rt.clock
     if isinstance(clock, DemoClock) and clock.anchored is not None:
         anchor, started = clock.anchored
+        note = s.DEMO_CLOCK_NOTE
+        if clock.frozen:
+            note = s.FROZEN_CLOCK_NOTE if now == anchor else s.FROZEN_AFTER_ACTS_NOTE
         return s.ClockView(
             kind="demo",
             now=now,
             snapshot_as_of=anchor,
             started_at=started,
             frozen=clock.frozen,
-            note=s.FROZEN_CLOCK_NOTE if clock.frozen else s.DEMO_CLOCK_NOTE,
+            note=note,
         )
     if rt.clock_kind() == "fixed":
         return s.ClockView(

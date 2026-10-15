@@ -4,9 +4,10 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api } from '@/api/client';
 import { ApiError } from '@/api/errors';
-import type { TelemetryResponse } from '@/api/models';
+import type { ReadyzResponse, TelemetryResponse } from '@/api/models';
 import { createQueryClient } from '@/api/queries';
 import { setScenario } from '@/api/scenario';
+import { readExample } from '@/test/examples';
 import { renderApp } from '@/test/render';
 import { findBannedWording, findUnprovenancedNumbers } from '@/test/scan';
 import { GpuDock } from './GpuDock';
@@ -132,6 +133,25 @@ describe('the service clock (ADR-15 sections 15, 19, 20)', () => {
     expect(clock.querySelector('[data-clock-state]')?.textContent).toBe('frozen at the snapshot instant: it does not move');
     expect(clock.textContent).toContain('now 30 Sep 2026, 18:00 UTC');
     expect(clock.textContent).toContain('the read-only demo');
+  });
+
+  it('says a frozen clock past its snapshot stands at the latest recorded act (contract 1.8.1)', async () => {
+    const cached = readExample<ReadyzResponse>('readyz_response.cached.json');
+    const note = 'Demo clock, frozen at the latest act recorded after the serving snapshot: the read-only demo';
+    vi.spyOn(api, 'readyz').mockResolvedValue({ ...cached, clock: { ...cached.clock, now: '2026-09-30T19:12:00Z', note } });
+    act(() => setScenario('cached'));
+    await loaded();
+    const clock = await waitFor(() => {
+      const el = document.querySelector('[data-clock][data-clock-frozen="yes"]');
+      expect(el).not.toBeNull();
+      return el as HTMLElement;
+    });
+    expect(clock.querySelector('[data-clock-state]')?.textContent).toBe(
+      'frozen at the latest act recorded after the snapshot: it does not move',
+    );
+    expect(clock.textContent).toContain('now 30 Sep 2026, 19:12 UTC');
+    expect(clock.textContent).toContain('snapshot 30 Sep 2026, 18:00 UTC');
+    expect(clock.querySelector('[data-verbatim]')?.textContent).toBe(note);
   });
 });
 

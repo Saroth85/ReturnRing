@@ -12,7 +12,9 @@ ADR-15 section 15 (contract 1.5.0) adds:
   the API on the wall clock. With PUBLIC_READ_ONLY=on the demo clock is frozen at the snapshot
   instant (frozen_clock, contract 1.7.0): no open return of the reset drifts into an overdue
   refund however long the public demo stays up. Only there: where writes are on (the cached
-  demo with PUBLIC_READ_ONLY=off included) the clock runs, so acts follow one another (1.8.0);
+  demo with PUBLIC_READ_ONLY=off included) the clock runs, so acts follow one another (1.8.0).
+  A store acted on with writes on and then served read-only freezes at its latest act instead,
+  never before it (1.8.1, ADR-15 section 21);
 - PUBLIC_READ_ONLY=on|off (default off): the public demo answers every write route with 403
   forbidden_role, except the agent and the checkout evaluation, which are rate limited per client
   (spec 11, "Sicurezza"); the proxy protects the telemetry data with basic auth;
@@ -117,7 +119,8 @@ class Settings:
         """The demo clock stands at the snapshot instant where writes are refused: the public
         read-only demo, cached (compose.demo.yml's default) or live (ADR-15 section 19). With
         writes on it runs: on a frozen clock every act would have the same instant, and a lift
-        could not follow the reversal of its coupon application (1.8.0)."""
+        could not follow the reversal of its coupon application (1.8.0). It stands at the
+        latest act of the store when that is after the snapshot instant (1.8.1)."""
         return self.public_read_only
 
     @property

@@ -391,8 +391,8 @@ con origine e natura (US-906); invio entro le 11:00.
 
 ## 8. Checklist
 
-- [ ] 1.1 `make demo-data`, `make dev-up`, `make reset && make demo-walk` sul portatile: 12 passi ok
-- [ ] 1.2 Pacchetto di prova e `make demo-local`: etichetta della prova, scritture 403
+- [x] 1.1 `make demo-data`, `make dev-up`, `make reset && make demo-walk` sul portatile: 12 passi ok (15 ott, Windows con Docker Desktop, da PowerShell senza make: coda 0,538 s, checkout 0,063 s; ADR-17)
+- [x] 1.2 Pacchetto di prova e `make demo-local`: 12 passi ok in sola lettura; con 0 bozze `/readyz` dice `degraded` e `label` nullo, atteso finché non c'è il pacchetto della MI300X (15 ott)
 - [ ] 2 Server CPU con HTTPS su `<PUBLIC_HOST>`, `/healthz` verde da fuori, pacchetto di prova
 - [ ] 3.1 `make asos` sul portatile; foto per SPK-G5; droplet MI300X creato
 - [ ] 3.2 Spike SPK-G1..G7 registrati in `docs/spike-results.md`; D-12 deciso

@@ -21,7 +21,15 @@ from pydantic import BaseModel
 
 from apps.api.errors import not_implemented
 from apps.api.roles import authorize
-from apps.api.schemas import API_MODELS, CSV, ENDPOINTS, SSE, Endpoint, ErrorResponse
+from apps.api.schemas import (
+    API_MODELS,
+    CSV,
+    ENDPOINTS,
+    RETRY_AFTER_OPENAPI,
+    SSE,
+    Endpoint,
+    ErrorResponse,
+)
 
 # The three groups of the route builders (and health), by path prefix.
 GROUPS: Final[dict[str, tuple[str, ...]]] = {
@@ -66,6 +74,8 @@ def responses(ep: Endpoint) -> dict[int | str, dict[str, Any]]:
     out: dict[int | str, dict[str, Any]] = {
         code: {"model": ErrorResponse} for code in (*ep.errors, *with_body, 422, 501)
     }
+    if 429 in out:  # Retry-After: the whole seconds to wait (1.5.1)
+        out[429]["headers"] = RETRY_AFTER_OPENAPI
     if ep.media_type == SSE:
         out[ep.status] = {
             "description": "Server-sent events; each data line is one event of agent_stream",

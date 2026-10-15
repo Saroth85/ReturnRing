@@ -3,13 +3,14 @@
 // screens). Deep links: ?action=approve|override|reject|review|evidence, ?link=, ?focus=, ?from=.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
+import { useDemoClock } from '@/api/clock';
 import { isApiError } from '@/api/errors';
 import type { CaseCard, DecisionResult, EntityRef, Lang, LinkDisputeResponse, RecomputeResponse } from '@/api/models';
 import { useQueue } from '@/api/queries';
 import { useHotkeys } from '@/app/hotkeys';
 import { usePresent } from '@/app/display';
 import { usePersona } from '@/app/persona';
-import { ErrorState, LoadingBlock, READ_ONLY, useRoleGate } from '@/components/feedback';
+import { ErrorState, LoadingBlock, useReadOnly, useRoleGate } from '@/components/feedback';
 import { actionPlan, type ActionPlan } from '@/domain/decision';
 import { refAnchorId } from '@/domain/refs';
 import { CaseAssistant } from '@/views/agent';
@@ -19,6 +20,8 @@ import { applyOverlay, overlayStore, recordDecision, recordRecompute, useCaseVie
 import { usePrefetchCase } from '../state/prefetch';
 import { noticeStore, sendLangStore, useAutoAdvance, useSendLang } from '../state/prefs';
 import { parseTab, tabQuery, type QueueTab } from '../state/queueParams';
+import { lateProposal } from '../state/refund';
+import { resultNotice } from '../state/notices';
 import { approveBody } from '../state/requests';
 import { ActionNoticeBar } from './ActionNoticeBar';
 import { CaseUiContext, type CaseGates, type CaseUi, type SheetRequest } from './context';
@@ -84,14 +87,6 @@ function deepLinkSheet(action: string | null, plan: ActionPlan): Omit<SheetReque
   return plan.secondary.includes(action as 'override' | 'reject') ? { kind: action as 'override' | 'reject' } : null;
 }
 
-function resultText(result: DecisionResult): string {
-  const d = result.decision;
-  const t = OPERATOR.result;
-  const word =
-    d.state === 'approved' ? t.approved : d.state === 'rejected' ? t.rejected : d.revision_trigger === 'review' ? t.lifted : t.overridden;
-  return `${word} ${d.approver ?? ''}`;
-}
-
 export default function CasePage() {
   const { returnId = '' } = useParams();
   const { query, card, sentMessage } = useCaseView(returnId);
@@ -138,6 +133,8 @@ function CaseScreen({ card, sentMessage, refetch }: CaseScreenProps) {
   const nav = useCaseNav(card.return_id, from);
 
   const plan = actionPlan(card.decision);
+  // Past the refund deadline a proposal can only be rejected or set to the standard terms.
+  const late = lateProposal(card.decision, useDemoClock().today);
   // Every sheet carries the decision it was opened on (`shown`, UI38): its request names that
   // version, and a newer card blocks the confirm until "Load the new version".
   const [sheet, setSheet] = useState<SheetRequest | null>(() => {
@@ -155,14 +152,16 @@ function CaseScreen({ card, sentMessage, refetch }: CaseScreenProps) {
     cardRef.current = card;
   });
 
-  // Role gates: disabled with the reason, never hidden (docs/ui-design.md 5.8).
+  // Role gates and the service's read-only flag: disabled with the reason, never hidden
+  // (docs/ui-design.md 5.8).
+  const readOnly = useReadOnly();
   const decide = useRoleGate('POST /api/returns/{return_id}/decision');
   const evidence = useRoleGate('POST /api/returns/{return_id}/evidence');
   const dispute = useRoleGate('POST /api/links/{link_id}/dispute');
   const regenerate = useRoleGate('POST /api/returns/{return_id}/regenerate');
   const a = OPERATOR.actions;
   const note = (allowed: boolean, reason: string | null, action: Parameters<typeof roleNote>[0], subject: string) =>
-    allowed ? null : READ_ONLY ? reason : roleNote(action, subject, persona.role);
+    allowed ? null : readOnly ? reason : roleNote(action, subject, persona.role);
   const gates: CaseGates = {
     decide,
     evidence,
@@ -229,12 +228,8 @@ function CaseScreen({ card, sentMessage, refetch }: CaseScreenProps) {
   const onDecisionDone = (result: DecisionResult) => {
     recordDecision(result.decision, result.outbox_message);
     setSeenDecisionId(result.decision.decision_id);
-    noticeStore.set({
-      returnId: result.decision.return_id,
-      text: resultText(result),
-      messageId: result.outbox_message.message_id,
-      auditEntryIds: [result.audit_entry.entry_id],
-    });
+    // No message for a lift, a renewal or an act after the refund deadline (ADR-15 section 19).
+    noticeStore.set(resultNotice(result));
     setSheet(null);
     // Auto-advance inside the `?from` view (6.3.3); there is no undo, corrections are new decisions.
     if (from && autoAdvance && nav?.next) goTo(nav.next);
@@ -373,6 +368,7 @@ function CaseScreen({ card, sentMessage, refetch }: CaseScreenProps) {
     ']': () => !busy() && nav?.next && goTo(nav.next),
     a: () => {
       if (!can(decide.allowed) || draftPending) return;
+      if (late && plan.primary !== 'review') return;
       if (plan.primary === 'approve_restriction') openSheet({ kind: 'approve' });
       else if (plan.primary === 'confirm' || plan.primary === 'confirm_guarantee') {
         setSheet({ kind: 'confirm', shown: card.decision });
@@ -380,7 +376,12 @@ function CaseScreen({ card, sentMessage, refetch }: CaseScreenProps) {
       }
       else if (plan.primary === 'review') openSheet({ kind: 'review' });
     },
-    o: () => can(decide.allowed) && !draftPending && plan.secondary.includes('override') && openSheet({ kind: 'override' }),
+    o: () =>
+      can(decide.allowed) &&
+      !draftPending &&
+      plan.secondary.includes('override') &&
+      !(late && card.decision.proposed_levers.length === 0) &&
+      openSheet({ kind: 'override' }),
     r: () => can(decide.allowed) && !draftPending && plan.secondary.includes('reject') && openSheet({ kind: 'reject' }),
     l: () =>
       can(decide.allowed) &&
@@ -443,7 +444,7 @@ function CaseScreen({ card, sentMessage, refetch }: CaseScreenProps) {
         {sheet?.kind === 'approve' && <ApproveRestrictionSheet open {...sheetProps} />}
         {sheet?.kind === 'override' && <OverrideSheet open {...sheetProps} prefill={sheet.prefill} />}
         {sheet?.kind === 'reject' && <RejectSheet open {...sheetProps} />}
-        {sheet?.kind === 'review' && <ReviewSheet open {...sheetProps} />}
+        {sheet?.kind === 'review' && <ReviewSheet open {...sheetProps} initial={sheet.review} />}
         {sheet?.kind === 'evidence' && <AddEvidenceSheet open {...sheetProps} linkId={sheet.linkId} onDone={onEvidenceDone} />}
         {sheet?.kind === 'dispute' && <DisputeLinkSheet open {...sheetProps} linkId={sheet.linkId} onDone={onDisputeDone} />}
         {recompute && (

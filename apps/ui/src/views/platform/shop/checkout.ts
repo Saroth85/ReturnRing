@@ -136,10 +136,11 @@ export function checkReceipt(shown: CheckoutEvaluateResponse, stored: TermsSnaps
 
 /**
  * The evaluate round trip measured in this browser (US-403 target under one second): a real
- * measurement, whose origin names the data source so a mock answer is never taken for the API.
+ * measurement, whose origin names the data source so a mock answer is never taken for the API. Its
+ * period is the service's day (`day`, YYYY-MM-DD from the demo clock of /readyz), like every period
+ * that ends now on screen: never the browser's date.
  */
-export function latencyMetric(ms: number, measuredAt: string, source: 'mock' | 'live'): Metric {
-  const day = measuredAt.slice(0, 10);
+export function latencyMetric(ms: number, day: string, source: 'mock' | 'live'): Metric {
   const target = source === 'mock' ? 'the mock adapter on the contract examples' : 'the live API';
   return {
     value: Math.round(ms),

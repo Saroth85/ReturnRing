@@ -1,9 +1,11 @@
 # ADR-17: Deployment, the reset before the API, one proxy everywhere and the demo package
 
-Status: accepted, 14 Oct 2026. Covers US-001, US-003, US-901, US-903, US-904 and US-905 on the
-infrastructure side (spec sections 9, 11 and 17; CLAUDE.md rules 2, 5, 12 and 15). Changes
-`infra/`, the `Makefile`, `.env.example`, `.github/workflows/ci.yml`, `scripts/demo_export.py`
-and the README; no contract of `contracts/` changes.
+Status: accepted, 14 Oct 2026; amended the same day after two reviews of the public deployment
+(sections "Amendments after the review" and "Amendments after the second review"). Covers
+US-001, US-003, US-901, US-903, US-904 and US-905 on the infrastructure side (spec sections 9,
+11 and 17; CLAUDE.md rules 2, 5, 11, 12, 13 and 15). Changes `infra/`, the `Makefile`,
+`.env.example`, `.github/workflows/ci.yml`, `scripts/demo_export.py` and the README; the
+amendments change the API contract to 1.5.1 and 1.5.2 (ADR-15 sections 16 and 17).
 
 ## Context
 
@@ -41,8 +43,9 @@ demo must work with the GPU off (US-901).
    origin (the UI's nginx serves only the bundle). On a laptop it listens on `127.0.0.1:8080`, in
    plain HTTP, with no authentication. On a server reachable from the Internet
    (`infra/compose.public.yml`, used by `make gpu-up` and `make demo-up`) it serves HTTPS on
-   `PUBLIC_HOST` and turns basic auth on for `/system` (the admin page), `/api/telemetry` and
-   every write (any method but GET, HEAD and OPTIONS under `/api/`) unless
+   `PUBLIC_HOST` and turns basic auth on for `/api/telemetry` (the admin page's data; since the
+   amendments, not its client route `/system`) and every write (any method but GET, HEAD and
+   OPTIONS under `/api/`) unless
    `PUBLIC_READ_ONLY=true`, in which case the writes reach the API, which refuses them. The
    password hash is required: Compose refuses to start a public proxy without it. Request bodies
    over 10 MB stop at the proxy (review H24); no response compression, so the agent's event
@@ -95,6 +98,92 @@ mode (`ADMIN_AUTH=on`): anonymous reads 200; `/system` and `/api/telemetry` 401,
 admin's credentials; an anonymous approval reaches the API and gets 403 when read-only, 401 at the
 proxy otherwise. Nature: real timings of runs on the synthetic store; the cached drafts of the
 rehearsal come from the fake server, not from Gemma.
+
+## Amendments after the review (14 Oct 2026)
+
+The review of the deployment, the README and the public demo (docs/review-backlog.md) changed:
+
+- **The MI300X label needs the package to say so** (rules 11 and 13; ADR-15 section 16).
+  `DEMO_GPU` has no default: `make demo-export DEMO_GPU="AMD Instinct MI300X (AMD Developer
+  Cloud)"` names the hardware, which must name the MI300X, and every draft must be
+  `GEMMA_MODEL`'s (read from `.env`). `REHEARSAL=1` (a fake vLLM server, another model) or
+  `ALLOW_EMPTY_CACHE=1` packs a rehearsal, recorded as one in `MANIFEST.json`
+  (`llm_cache.rehearsal`, `gemma_model`). `compose.demo.yml` mounts the package's
+  `MANIFEST.json` read-only at `/app/MANIFEST.json`, next to the snapshot as in `demo-cache/`,
+  and the API shows the MI300X label only when it says so and the cache entries are
+  `GEMMA_MODEL`'s; a rehearsal label otherwise. `scripts/demo_export.py` runs on Python 3.8 or
+  later (`timezone.utc`, not `datetime.UTC`; a test parses it with the 3.8 grammar).
+- **Restart policies.** postgres, api, ui and proxy restart `unless-stopped`, like the telemetry
+  sampler: a crash or a reboot of the public server no longer takes the demo down until someone
+  logs in. The reset stays `"no"`, so a daemon restart keeps the database (`pgdata`); the API
+  reconnects lazily.
+- **First start.** The postgres healthcheck runs `pg_isready -h 127.0.0.1 -p 5432`: the image's
+  init-only server listens on the Unix socket only, so the database is healthy once the real
+  server is up. The reset also retries its first connection for about 30 s.
+- **Basic auth on the data, not on the client route.** The single-page UI serves `/system`
+  from any path, so basic auth there protected nothing and asked judges for a password on a
+  reload of the benchmarks page. `@admin` is `/api/telemetry` and `/api/telemetry/*`: the admin
+  page's data (spec 11, "the admin page and the telemetry are protected", met through the data
+  the page shows; readiness and benchmarks are public views anyway). `make admin-password`
+  hashes at bcrypt cost 10 (`caddy hash-password --algorithm bcrypt --bcrypt-cost 10`) instead
+  of Caddy's default 14. This bounds only a wrong password of the configured user: the second
+  review below found that any other user name still cost Caddy's cost-14 fake comparison, and
+  that a check takes about 70 ms, not 15 ms.
+- **`PUBLIC_HOST` is empty in `.env.example`**, with the sslip.io example in the comment, so the
+  `:?` guard of `compose.public.yml` stops a public start that names no host. The laptop
+  profiles (`make dev-up`, `make demo-local`) and the tests need no host.
+- **The public API** (ADR-15 section 16): the public rate limit before the agent's, the agent's
+  limit per client and person, keys forgotten when idle, IPv6 clients by their /64, `Retry-After`
+  on a 429, no `VLLM_BASE_URL` echoed, the access log path percent-encoded, the matrix encoded
+  off the event loop.
+- **The README** quotes the API's memory as measured once (about 1.6 GB after the warm-up; the
+  peak during the demo walk varied between runs, up to about 2.2 GB; on the host, not in a
+  container; not re-measured, no Docker daemon was available), says which images are pinned by
+  digest (the GPU images, PostgreSQL, Caddy) and which by version tag (the Python, Node and nginx
+  bases), lists the Python base image, names `make demo-reset` and `make demo-down`, and says
+  that the demo package is published as a GitHub release asset after the GPU session; until then
+  the laptop path is for the team.
+
+The verification sections above are kept as they ran: their `/system` 401 is the behaviour
+before these amendments.
+
+## Amendments after the second review (14 Oct 2026)
+
+A second review of the same branch found these gaps in the amendments above:
+
+- **A fake vLLM server could pass for Gemma on the MI300X.** The fake of `bench/fake_vllm.py`
+  answers any model name with its own drafts, and the batch recorded `GEMMA_MODEL`, the name it
+  asked for, in every cache entry; a cached draft was kept whatever server made it. `python -m
+  apps.api.batch_generate` now stops before the first case unless the local vLLM lists
+  `GEMMA_MODEL` (`/v1/models`, the probe of `/readyz`), records the batch's `DEVICE` in each
+  entry (`gpu` in the `batch-generate` service of compose), and makes again a cached draft of
+  another model. `make demo-export` packs only drafts of a `DEVICE=gpu` batch as the MI300X's
+  (`llm_cache.devices` in the manifest). A rehearsal against the fake runs with
+  `GEMMA_MODEL=fake/gemma-dry-run` and is packed with `REHEARSAL=1`. The batch cannot prove
+  the hardware: `DEVICE` and `DEMO_GPU` are declarations, checked to agree.
+- **The label of a plan-B package.** The API compared the drafts with its own `GEMMA_MODEL`,
+  which the runbook's demo server leaves at the `.env.example` default, so a genuine MI300X
+  package of the plan-B model was called a rehearsal. It now compares them with the model the
+  package's `MANIFEST.json` names (`llm_cache.gemma_model`, which the export checked).
+- **The MI300X claim outside the label.** The cached telemetry note named the MI300X beside the
+  rehearsal label; it is now neutral (ADR-15 section 17).
+- **Basic auth: any user name cost a bcrypt-14 comparison.** For an unknown user Caddy 2.11.7
+  compares the password with a fixed bcrypt cost-14 fake hash (`modules/caddyhttp/caddyauth/
+  bcrypt.go`, `FakeHash`), whatever the cost of `ADMIN_PASSWORD_HASH`. Measured with Caddy
+  2.11.7 and this Caddyfile on 4 shared vCPUs: a wrong user name 1.08 s a request, a wrong
+  password of the admin user 0.07 s, no credentials under 1 ms. The basic-auth user is now
+  fixed, `admin` (`ADMIN_USER` is gone from `.env.example` and compose), and the Caddyfile
+  answers 401, with the same `WWW-Authenticate` challenge, to any Basic credentials whose base64
+  does not start with `YWRtaW46` (`admin:`), before `basic_auth` (`order respond before
+  basic_auth`). Measured after: a wrong user name under 1 ms, the admin user unchanged. Caddy's
+  core has no rate limit, so a wrong password of `admin` still costs one cost-10 comparison.
+- **Restarts on the GPU server.** `vllm` and the amd-smi writer `telemetry` restart
+  `unless-stopped` too: after a reboot the sampler came back without its writer and stored the
+  file the reboot left in the `telemetry` volume as a fresh sample. The sampler also refuses a
+  file older than 15 s (three intervals) and stores an error instead (rule 11).
+- **The matrix off the event loop.** Only the database reads of `GET /api/portfolio/matrix`
+  run on the loop; the cards, the 12-month counts, the points and the encoding run in one
+  worker thread (timings in ADR-15 section 17).
 
 ## Consequences
 

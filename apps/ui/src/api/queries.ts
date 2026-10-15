@@ -24,6 +24,7 @@ export const queryKeys = {
   couponRules: ['couponRules'] as const,
   benchmarks: ['benchmarks'] as const,
   telemetry: ['telemetry'] as const,
+  demoCases: ['demoCases'] as const,
 };
 
 export type QueueQueryParams = QueryOf<'GET /api/returns'>;
@@ -127,6 +128,19 @@ export const useCouponRules = () =>
 
 export const useBenchmarks = () =>
   useQuery({ queryKey: queryKeys.benchmarks, queryFn: ({ signal }) => api.getBenchmarks({ signal }) });
+
+/**
+ * The golden cases of the demo with their live ids (GET /api/demo/cases). They change only with a
+ * reset, so they are loaded once; a 404 (no reset yet) is an answer, never retried. Every role
+ * reads them, so the shell can load them ahead of the views.
+ */
+export const useDemoCases = () =>
+  useQuery({
+    queryKey: queryKeys.demoCases,
+    queryFn: ({ signal }) => api.demoCases({ signal }),
+    staleTime: Infinity,
+    retry: (count, error) => !(isApiError(error) && error.status === 404) && count < 2,
+  });
 
 /** Telemetry polls every `interval_s` of the response while the tab is visible (design 9.4). */
 export const useTelemetry = (enabled = true) =>

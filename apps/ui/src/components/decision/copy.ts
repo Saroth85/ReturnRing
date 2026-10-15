@@ -53,7 +53,9 @@ export const TERMS_COPY = {
     size_advice: { true: 'at checkout', false: 'none' },
     priority_size_exchange: { true: 'yes', false: 'no' },
   } as Record<Exclude<LeverId, 'return_window_days'>, ByValue>,
-  pausedFor: (n: number) => `paused for ${n} linked accounts`,
+  /** Around the count of linked accounts (LinkedAccountsCount, with its provenance). */
+  pausedForBefore: 'paused for',
+  pausedForAfter: 'linked accounts',
   change: { less: 'less generous', more: 'more generous', same: 'unchanged' },
   term: 'Term',
   thisOrder: 'This order',

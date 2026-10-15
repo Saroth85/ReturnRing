@@ -1,21 +1,27 @@
 // Explanation and message (US-304, US-305; docs/ui-design.md 6.2.3 item 6, 6.3.6): generated text
 // sits apart from the decision and says it cannot change it. The draft must echo the engine
 // decision or it is withheld (T-ECHO). Statements are labelled observed, score contribution or to
-// verify, each citing its entity, metric, value and period. The customer message shows its three
-// layers (connective text, template fields, fixed legal clause) in Italian and English.
+// verify, each citing the code-built facts it rests on (entity, metric, value, period, nature):
+// the values under the draft's provenance (rule 11), the periods as code dated them (the customer
+// snapshot, DecisionInputs.snapshot_on; the risk score the day it was scored, scored_on). The
+// customer message shows its three layers (reviewed sentences, template fields, fixed legal
+// clause) in Italian and English. In the cached demo no model runs: regenerating answers 503, so
+// it is shown as unavailable up front.
 import * as Popover from '@radix-ui/react-popover';
 import clsx from 'clsx';
 import { CircleCheck, OctagonAlert, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router';
-import { DRAFT_TONES, MESSAGE_LANGS } from '@/api/contract.gen';
-import type { CaseCard, Lang } from '@/api/models';
+import { draftSources } from '@/api/adapters/messageSegments';
+import { MESSAGE_LANGS } from '@/api/contract.gen';
+import type { CaseCard, CitedFact, Lang } from '@/api/models';
 import { useRegenerate } from '@/api/mutations';
 import { usePersona } from '@/app/persona';
 import { StatementLabelChip } from '@/components/decision';
 import { InlineNotice, Skeleton } from '@/components/feedback';
 import { GenerationBadge, MessagePreview } from '@/components/message';
-import { IdText, NatureMark, displayNature } from '@/components/provenance';
+import { useModeView } from '@/components/mode';
+import { DateText, IdText, NatureMark, PlainNumber, ProvenanceFooter, ProvenanceScope } from '@/components/provenance';
 import { Button } from '@/components/ui';
 import { NATURE_WORD } from '@/copy/common';
 import { echoMatches, engineEcho } from '@/domain/decision';
@@ -23,7 +29,7 @@ import type { RefKind } from '@/domain/refs';
 import { OPERATOR } from '../../copy';
 import { recordDraft } from '../../state/caseOverlay';
 import { noticeStore } from '../../state/prefs';
-import { regenerateBody, type Tone } from '../../state/requests';
+import { regenerateBody } from '../../state/requests';
 import { useCaseUi } from '../context';
 import { Section } from '../../ui/Section';
 import { ActionError } from '../sheets/ActionError';
@@ -32,48 +38,103 @@ type Draft = NonNullable<CaseCard['draft']>;
 type Statement = Draft['explanation'][number];
 const LABEL_ORDER: Statement['label'][] = ['OBSERVED', 'SCORE', 'HYPOTHESIS'];
 
-/** The kind of an entity named in a statement, from the shape of its id. */
-function entityKind(entity: string): RefKind | null {
-  if (entity.includes('~')) return 'link';
-  if (entity.startsWith('CL-')) return 'cluster';
-  if (entity.startsWith('RET-')) return 'return';
-  if (entity.startsWith('ORD-')) return 'order';
-  if (entity.startsWith('V-')) return 'variant';
-  if (entity.startsWith('C-')) return 'customer';
-  return null;
+/** The case card id a fact is about, and the kind of reference it opens (null: nothing to open). */
+function factEntity(fact: CitedFact, card: CaseCard): { id: string; kind: RefKind } | null {
+  switch (fact.entity) {
+    case 'customer':
+      return { id: card.customer_id, kind: 'customer' };
+    case 'return':
+      return { id: card.return_id, kind: 'return' };
+    case 'order':
+      return { id: card.order_id, kind: 'order' };
+    case 'cluster':
+      return card.linked_accounts ? { id: card.linked_accounts.cluster_id, kind: 'cluster' } : null;
+  }
 }
 
+/** Fact values are rounded by code to two decimals at most, integers kept (llm/case.py _number). */
+const FACT_DIGITS = 2;
+const ISO_DAY = /(\d{4}-\d{2}-\d{2})/;
+
+/**
+ * A fact's period as code wrote it ("as of 2026-09-01", "12 months to 2026-09-01",
+ * "2026-09-22/2026-09-28"), with every day shown as a date.
+ */
+export function FactPeriod({ period }: { period: string }) {
+  const parts = period.split(ISO_DAY).filter((p) => p !== '');
+  return (
+    <span data-fact-period>
+      {parts.map((part, i) =>
+        ISO_DAY.test(part) ? <DateText key={i} value={part} /> : <span key={i}>{part === '/' ? ' – ' : part}</span>,
+      )}
+    </span>
+  );
+}
+
+/**
+ * The facts a statement cites, as code built them (llm/case.py): the entity, the metric, the value,
+ * its period and nature, stored with the draft. A statement citing none says so. The values are
+ * plain numbers under the draft's provenance (the enclosing ProvenanceScope); each also carries
+ * its own period and nature.
+ */
 function FactCitation({ statement, card }: { statement: Statement; card: CaseCard }) {
   const { selectRef } = useCaseUi();
   const t = OPERATOR.explanation;
-  const nature = displayNature(card.provenance);
-  const kind = statement.entity ? entityKind(statement.entity) : null;
+  if (statement.facts.length === 0) {
+    return (
+      <p className="flex flex-wrap items-center gap-x-1 text-caption text-ink-3" data-fact-citation>
+        <span>{t.fact}:</span>
+        <span>{t.noFact}</span>
+      </p>
+    );
+  }
   return (
-    <p className="flex flex-wrap items-center gap-x-1 text-caption text-ink-3" data-fact-citation>
-      <span>{t.fact}:</span>
-      {statement.entity &&
-        (kind ? (
-          <button
-            type="button"
-            className="rounded-chip font-mono text-accent hover:underline"
-            onClick={() => selectRef({ kind, id: statement.entity ?? '' })}
-            data-id
-          >
-            {statement.entity}
-          </button>
-        ) : (
-          <IdText id={statement.entity} />
-        ))}
-      {statement.metric ? (
-        <span data-verbatim>
-          · {statement.metric} · {statement.value} · {statement.period}
-        </span>
-      ) : (
-        <span>· {t.noFact}</span>
+    <ul className="flex flex-col gap-0.5 text-caption text-ink-3" data-fact-citation>
+      {statement.facts.map((fact) => {
+        const entity = factEntity(fact, card);
+        const nature = fact.nature;
+        return (
+          <li key={fact.id} className="flex flex-wrap items-center gap-x-1" data-fact={fact.id}>
+            <span>{t.fact}:</span>
+            {entity ? (
+              <button
+                type="button"
+                className="rounded-chip font-mono text-accent hover:underline"
+                onClick={() => selectRef({ kind: entity.kind, id: entity.id })}
+                data-id
+              >
+                {entity.id}
+              </button>
+            ) : (
+              <IdText id={fact.id} />
+            )}
+            <span>
+              · <span data-verbatim>{fact.metric}</span> · <PlainNumber value={fact.value} unit="count" maxFractionDigits={FACT_DIGITS} /> ·{' '}
+              <FactPeriod period={fact.period} />
+            </span>
+            <span className="inline-flex items-center gap-1">
+              · <NatureMark nature={nature} decorative /> {NATURE_WORD[nature]}
+            </span>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/** When the facts were measured (rule 11): the customer snapshot, and the day the risk was scored. */
+function FactDates({ card }: { card: CaseCard }) {
+  const t = OPERATOR.explanation;
+  const { snapshot_on: snapshotOn, scored_on: scoredOn } = card.decision.inputs;
+  return (
+    <p className="text-caption text-ink-3" data-fact-dates>
+      {t.factsDated} <DateText value={snapshotOn} />
+      {scoredOn && (
+        <>
+          ; {t.riskDated} <DateText value={scoredOn} />
+        </>
       )}
-      <span className="inline-flex items-center gap-1">
-        · <NatureMark nature={nature} decorative /> {NATURE_WORD[nature]}
-      </span>
+      .
     </p>
   );
 }
@@ -84,8 +145,9 @@ function ExplanationList({ card, draft }: { card: CaseCard; draft: Draft }) {
     (g) => g.statements.length > 0,
   );
   return (
-    <div className="flex flex-col gap-3">
+    <ProvenanceScope provenance={draft.provenance} covers={t.factsCover} className="flex flex-col gap-3">
       <h3 className="text-title">{t.explanationTitle}</h3>
+      <FactDates card={card} />
       {groups.map((group) => (
         <div key={group.label} className="flex flex-col gap-2" data-statement-group={group.label}>
           {group.statements.map((s, i) =>
@@ -108,7 +170,8 @@ function ExplanationList({ card, draft }: { card: CaseCard; draft: Draft }) {
         </div>
       ))}
       <GenerationBadge generation={draft.generation} />
-    </div>
+      <ProvenanceFooter />
+    </ProvenanceScope>
   );
 }
 
@@ -132,8 +195,9 @@ function MessagePanel({ draft }: { draft: Draft }) {
   const t = OPERATOR.explanation;
   const [chosen, setView] = useState<View | null>(null);
   const view: View = chosen ?? sendLang;
-  const shown = draft.messages.filter((m) => view === 'both' || m.lang === view);
-  const views: View[] = [...MESSAGE_LANGS.filter((l) => draft.messages.some((m) => m.lang === l)), 'both'];
+  const messages = draftSources(draft);
+  const shown = messages.filter((m) => view === 'both' || m.lang === view);
+  const views: View[] = [...MESSAGE_LANGS.filter((l) => messages.some((m) => m.lang === l)), 'both'];
   return (
     <div className="flex flex-col gap-2" data-message-panel>
       <div className="flex flex-wrap items-center gap-2" role="group" aria-label={t.messageTitle}>
@@ -157,17 +221,16 @@ function MessagePanel({ draft }: { draft: Draft }) {
       </div>
       {shown.length === 0 && <p className="text-body text-ink-3">{OPERATOR.railCopy.noDraft}</p>}
       {shown.map((m) => (
-        <MessagePreview key={m.lang} message={m} stored={m.rendered_text} />
+        <MessagePreview key={m.lang} message={m} />
       ))}
     </div>
   );
 }
 
-function RegenerateMenu({ onSubmit, disabled, title }: { onSubmit(langs: Lang[], tone: Tone): void; disabled: boolean; title?: string }) {
+function RegenerateMenu({ onSubmit, disabled, title }: { onSubmit(langs: Lang[]): void; disabled: boolean; title?: string }) {
   const t = OPERATOR.explanation;
   const [open, setOpen] = useState(false);
   const [langs, setLangs] = useState<Lang[]>(['it', 'en']);
-  const [tone, setTone] = useState<Tone>('warm');
   const toggle = (lang: Lang) => setLangs((l) => (l.includes(lang) ? l.filter((x) => x !== lang) : [...l, lang]));
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
@@ -195,15 +258,6 @@ function RegenerateMenu({ onSubmit, disabled, title }: { onSubmit(langs: Lang[],
               </label>
             ))}
           </fieldset>
-          <fieldset className="flex flex-wrap gap-3">
-            <legend className="mb-1 text-caption text-ink-3">{t.tone}</legend>
-            {DRAFT_TONES.map((value) => (
-              <label key={value} className="inline-flex items-center gap-1">
-                <input type="radio" name="tone" checked={tone === value} onChange={() => setTone(value)} />
-                {t.tones[value]}
-              </label>
-            ))}
-          </fieldset>
           <p className="text-caption text-ink-3">{t.noFreeText}</p>
           {langs.length === 0 && <p className="text-caption text-attn-fg">{t.pickLanguage}</p>}
           <Button
@@ -211,7 +265,7 @@ function RegenerateMenu({ onSubmit, disabled, title }: { onSubmit(langs: Lang[],
             disabled={langs.length === 0}
             onClick={() => {
               setOpen(false);
-              onSubmit(langs, tone);
+              onSubmit(langs);
             }}
           >
             {t.regenerateSubmit}
@@ -225,6 +279,7 @@ function RegenerateMenu({ onSubmit, disabled, title }: { onSubmit(langs: Lang[],
 export function ExplanationSection({ card, draftTimedOut, onReload }: { card: CaseCard; draftTimedOut: boolean; onReload(): void }) {
   const { gates, sentMessage } = useCaseUi();
   const persona = usePersona();
+  const mode = useModeView();
   const regenerate = useRegenerate(card.return_id);
   const [mismatch, setMismatch] = useState<string | null>(null);
   const t = OPERATOR.explanation;
@@ -233,15 +288,17 @@ export function ExplanationSection({ card, draftTimedOut, onReload }: { card: Ca
   const decided = card.decision.state !== 'proposed';
   const sentHere = sentMessage && sentMessage.decision_id === card.decision.decision_id ? sentMessage : null;
 
-  const submit = (langs: Lang[], tone: Tone) => {
+  const submit = (langs: Lang[]) => {
     setMismatch(null);
-    regenerate.mutate(regenerateBody(card.decision, langs, tone, persona.id), {
+    regenerate.mutate(regenerateBody(card.decision, langs, persona.id), {
       onSuccess: (result) => {
-        if (result.return_id !== card.return_id || result.decision_id !== card.decision.decision_id) {
-          setMismatch(OPERATOR.sheets.mismatch(result.decision_id, card.decision.decision_id));
+        // The response carries the decision version the new draft explains (contract 1.2.0).
+        const decisionId = result.decision.decision_id;
+        if (result.return_id !== card.return_id || decisionId !== card.decision.decision_id) {
+          setMismatch(OPERATOR.sheets.mismatch(decisionId, card.decision.decision_id));
           return;
         }
-        recordDraft(card.return_id, result.decision_id, result.draft);
+        recordDraft(card.return_id, decisionId, result.draft);
         noticeStore.set({ returnId: card.return_id, text: OPERATOR.result.regenerated, messageId: null, auditEntryIds: [] });
       },
     });
@@ -257,15 +314,21 @@ export function ExplanationSection({ card, draftTimedOut, onReload }: { card: Ca
           {!decided && (
             <RegenerateMenu
               onSubmit={submit}
-              disabled={!gates.regenerate.allowed || regenerate.isPending}
-              title={gates.regenerate.reason ?? undefined}
+              disabled={mode.isCached || !gates.regenerate.allowed || regenerate.isPending}
+              title={mode.isCached ? t.cachedUnavailable : (gates.regenerate.reason ?? undefined)}
             />
           )}
         </>
       }
     >
       <div className="flex flex-col gap-4">
-        {gates.regenerateNote && !decided && <p className="text-caption text-ink-3">{gates.regenerateNote}</p>}
+        {!decided && mode.isCached ? (
+          <p className="text-caption text-ink-3" data-regenerate-unavailable="cached">
+            {t.cachedUnavailable}
+          </p>
+        ) : (
+          gates.regenerateNote && !decided && <p className="text-caption text-ink-3">{gates.regenerateNote}</p>
+        )}
         {regenerate.isError && <ActionError error={regenerate.error} onRetry={() => regenerate.reset()} onLoadNew={onReload} />}
         {mismatch && <InlineNotice tone="attention">{mismatch}</InlineNotice>}
         {sentHere && (

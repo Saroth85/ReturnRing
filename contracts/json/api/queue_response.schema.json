@@ -224,9 +224,16 @@
           "type": "boolean"
         },
         "refund_due_by": {
-          "format": "date",
-          "title": "Refund Due By",
-          "type": "string"
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Refund Due By"
         },
         "refund_overdue": {
           "title": "Refund Overdue",

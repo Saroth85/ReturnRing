@@ -1,16 +1,20 @@
 // The case assistant's body (US-701, US-702; docs/ui-design.md 7), shared by the drawer the case
 // card mounts and the dev harness page: the questions and answers of this case (earlier ones
-// above the latest), then the composer. Cited refs focus the case card through onRefSelect.
-import { Search } from 'lucide-react';
-import { useCallback, useEffect, useRef, type Ref } from 'react';
+// above the latest), then the composer. Cited refs focus the case card through onRefSelect. The
+// suggested questions come from the case card (questions.ts). In the cached demo no model runs and
+// the agent answers 503 to every question: the panel says so up front and asks nothing.
+import { CloudOff, Search } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, type Ref } from 'react';
 import type { EntityRef } from '@/api/models';
-import { useRoleGate } from '@/components/feedback';
+import { useCase } from '@/api/queries';
+import { InlineNotice, useRoleGate } from '@/components/feedback';
 import { useModeView } from '@/components/mode';
 import { AgentTurn } from './AgentTurn';
 import { turnAnnouncement } from './announce';
 import { Composer } from './Composer';
 import { AGENT } from './copy';
 import { isPlainClick, isWideLayout } from './layout';
+import { suggestedQuestions } from './questions';
 import type { RefActivate } from './RefChip';
 import type { AgentConversation } from './useAgentStream';
 
@@ -31,6 +35,8 @@ export function AssistantPanel({ conversation, returnId, onRefSelect, onDismiss,
   const scroller = useRef<HTMLElement>(null);
   const latest = useRef<HTMLElement>(null);
   const { turns, ask, stop } = conversation;
+  const card = useCase(returnId);
+  const questions = useMemo(() => suggestedQuestions(card.data), [card.data]);
 
   // A new question scrolls its turn into view; streamed tokens never move the page.
   useEffect(() => {
@@ -54,12 +60,22 @@ export function AssistantPanel({ conversation, returnId, onRefSelect, onDismiss,
     [onRefSelect, onDismiss],
   );
 
-  const canAsk = gate.allowed && !conversation.coolingDown;
+  const canAsk = gate.allowed && !conversation.coolingDown && !mode.isCached;
   const retry = useCallback((question: string) => void ask(question), [ask]);
 
   return (
     <div className="@container flex min-h-0 flex-1 flex-col" data-agent-panel={variant} data-agent-stream={conversation.status}>
       <section aria-label={AGENT.conversationLabel} ref={scroller} className="relative min-h-0 flex-1 overflow-y-auto px-4 py-4">
+        {mode.isCached && (
+          <div className="mb-4" data-agent-unavailable="cached">
+            <InlineNotice tone="info" title={AGENT.composer.cachedTitle}>
+              <p className="flex items-center gap-2">
+                <CloudOff aria-hidden="true" size={14} className="shrink-0" />
+                {AGENT.composer.cached}
+              </p>
+            </InlineNotice>
+          </div>
+        )}
         {turns.length === 0 ? (
           <Intro />
         ) : (
@@ -85,11 +101,13 @@ export function AssistantPanel({ conversation, returnId, onRefSelect, onDismiss,
       </p>
       <Composer
         inputRef={inputRef}
+        questions={questions}
         onAsk={(question) => void ask(question)}
         onStop={stop}
         streaming={conversation.streaming}
         blockedReason={gate.allowed ? null : gate.reason}
         coolingDown={conversation.coolingDown}
+        cooldownSeconds={conversation.cooldownSeconds}
         cached={mode.isCached}
         cornerTagRoom={variant === 'drawer' && (mode.isCached || mode.isMock)}
         hasTurns={turns.length > 0}

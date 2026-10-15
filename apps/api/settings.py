@@ -9,10 +9,15 @@ ADR-15 section 15 (contract 1.5.0) adds:
 - DEMO_CLOCK=on|off (default on): 'now' is the instant of the serving snapshot plus the time
   elapsed since the demo reset (apps.api.clock.DemoClock), so refund deadlines, review dates and
   the KPI week stay coherent with the decisions the reset made at the snapshot instant; off runs
-  the API on the wall clock;
+  the API on the wall clock. With PUBLIC_READ_ONLY=on the demo clock is frozen at the snapshot
+  instant (frozen_clock, contract 1.7.0): no open return of the reset drifts into an overdue
+  refund however long the public demo stays up. Only there: where writes are on (the cached
+  demo with PUBLIC_READ_ONLY=off included) the clock runs, so acts follow one another (1.8.0).
+  A store acted on with writes on and then served read-only freezes at its latest act instead,
+  never before it (1.8.1, ADR-15 section 21);
 - PUBLIC_READ_ONLY=on|off (default off): the public demo answers every write route with 403
   forbidden_role, except the agent and the checkout evaluation, which are rate limited per client
-  (spec 11, "Sicurezza"); the proxy protects the admin views and the telemetry with basic auth;
+  (spec 11, "Sicurezza"); the proxy protects the telemetry data with basic auth;
 - LLM_CONCURRENCY (default 32): model calls in flight at once (the reset, batch_generate and the
   API's own executor for model calls);
 - VLLM_TIMEOUT_S (default 20): seconds a vLLM call may take before it counts as unavailable.
@@ -108,6 +113,15 @@ class Settings:
     @property
     def cached(self) -> bool:
         return self.demo_mode == "cached"
+
+    @property
+    def frozen_clock(self) -> bool:
+        """The demo clock stands at the snapshot instant where writes are refused: the public
+        read-only demo, cached (compose.demo.yml's default) or live (ADR-15 section 19). With
+        writes on it runs: on a frozen clock every act would have the same instant, and a lift
+        could not follow the reversal of its coupon application (1.8.0). It stands at the
+        latest act of the store when that is after the snapshot instant (1.8.1)."""
+        return self.public_read_only
 
     @property
     def served_llm_mode(self) -> LlmMode:

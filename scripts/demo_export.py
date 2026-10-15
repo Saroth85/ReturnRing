@@ -12,16 +12,26 @@
 - bench/results/: the benchmark pointers (latest*.json) and the run files they name, as
   GET /api/benchmarks reads them;
 - MANIFEST.json, written last: the sha256 and size of every file, the snapshot instant and seed,
-  what the cache holds (entries by model, generation path and fallback reason) and the nature of
-  each part (rule 11).
+  what the cache holds (entries by model, device, generation path and fallback reason), the
+  hardware it ran on, whether it is a rehearsal, and the nature of each part (rule 11).
+
+The demo labels its drafts "Precomputed on AMD MI300X" only when the package says so (rules 11
+and 13; apps/api/services/demo_package.py): `build` therefore needs the hardware (DEMO_GPU, no
+default, naming the MI300X) and the model the drafts must come from (GEMMA_MODEL), and refuses a
+cache with drafts of another model or of a batch that did not run with DEVICE=gpu (a fake vLLM
+server can be run under any model name). A rehearsal (`--rehearsal`, or `--allow-empty-cache`: a
+fake vLLM server on a CPU, another model, no draft at all) is packed without those checks and
+recorded as one, so the demo labels it as a rehearsal, never as MI300X.
 
 `verify` recomputes every hash of a package, and of its serving manifest; `make demo-up` and
-`make demo-local` run it before starting. It uses the standard library only, so it runs on the
-droplet host and on the demo server, where the project's Python environment is not installed.
-No container image is part of the package (ADR-12).
+`make demo-local` run it before starting. It uses the standard library of Python 3.8 or later
+only, so it runs with the python3 of the droplet host and of the demo server, where the
+project's Python environment is not installed. No container image is part of the package
+(ADR-12).
 
-Exit codes: 0 done, 1 the package (or the snapshot) is not what its manifest says, or the cache
-is empty without --allow-empty-cache, 2 usage.
+Exit codes: 0 done, 1 the package (or the snapshot) is not what its manifest says, the cache is
+empty without --allow-empty-cache, or an MI300X package without its hardware or with drafts of
+another model or of a batch off the GPU, 2 usage.
 """
 
 from __future__ import annotations
@@ -35,10 +45,11 @@ import subprocess
 import sys
 from collections import Counter
 from collections.abc import Iterator, Mapping, Sequence
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Final
 
+UTC = timezone.utc  # noqa: UP017 - datetime.UTC is Python 3.11, the host python3 may be 3.8
 FORMAT: Final = "returnring.demo_export.v1"
 MANIFEST: Final = "MANIFEST.json"
 SERVING_FORMAT: Final = "returnring.serving.v1"  # pipeline/serving/manifest.py
@@ -46,6 +57,7 @@ SERVING_MANIFEST: Final = "manifest.json"
 LLM_CACHE: Final = "llm_cache"
 CACHE_FORMAT: Final = "returnring.llm_cache.v1"  # apps/api/services/generation.py
 BENCH_LATEST: Final = "returnring.bench.latest/1"  # bench/record.py
+GPU_NAME: Final = "MI300X"  # what generated_on must name for the demo's MI300X label
 CHUNK: Final = 1 << 20
 NATURE: Final[Mapping[str, str]] = {
     "serving": "synthetic: the Navigli Fashion store generated from the ASOS calibration "
@@ -54,6 +66,9 @@ NATURE: Final[Mapping[str, str]] = {
     "apps.api.batch_generate on the hardware in generated_on, checked again by llm/validator.py "
     "when served; amounts, terms and deadlines come from templates (rule 10)",
     "bench": "measured where a run says measured, pending otherwise (docs/benchmarks.md)",
+    "rehearsal": "rehearsal: drafts not verified as Gemma's on the MI300X (for example a fake "
+    "vLLM server on a CPU, or another model); the demo labels them as a rehearsal",
+    "empty": "empty: a CPU rehearsal, every draft of the demo is the fixed template",
 }
 
 
@@ -118,8 +133,9 @@ def check_serving(serving: Path) -> dict[str, Any]:
 
 
 def cache_summary(cache: Path) -> dict[str, Any]:
-    """What llm_cache/ holds: entries by model, generation path and fallback reason."""
+    """What llm_cache/ holds: entries by model, device, generation path and fallback reason."""
     models: Counter[str] = Counter()
+    devices: Counter[str] = Counter()
     paths: Counter[str] = Counter()
     fallbacks: Counter[str] = Counter()
     created: list[str] = []
@@ -131,12 +147,14 @@ def cache_summary(cache: Path) -> dict[str, Any]:
         if path.stem != entry.get("input_digest"):
             raise PackageError(f"{path}: the file name is not the entry's input_digest")
         models[str(entry.get("model"))] += 1
+        devices[str(entry.get("device"))] += 1
         paths[str(entry.get("generation_path"))] += 1
         fallbacks[str(entry.get("fallback_reason") or "none")] += 1
         created.append(str(entry.get("created_at")))
     return {
         "entries": len(entries),
         "models": dict(sorted(models.items())),
+        "devices": dict(sorted(devices.items())),
         "generation_paths": dict(sorted(paths.items())),
         "fallback_reasons": dict(sorted(fallbacks.items())),
         "snapshot_instants": sorted(set(created)),
@@ -180,6 +198,34 @@ def git_commit(repo: Path) -> str | None:
     return done.stdout.strip() or None
 
 
+def check_mi300x(cache: Mapping[str, Any], generated_on: str | None, model: str | None) -> None:
+    """An MI300X package names its GPU, and every draft in it is GEMMA_MODEL's, made by a batch
+    that ran with DEVICE=gpu (rules 11, 13)."""
+    if not generated_on or GPU_NAME not in generated_on:
+        raise PackageError(
+            f"name the GPU the batch ran on: make demo-export DEMO_GPU='AMD Instinct {GPU_NAME} "
+            f"(AMD Developer Cloud)' (got {generated_on or ''!r}); REHEARSAL=1 packs a "
+            "rehearsal, labelled as such"
+        )
+    if not model:
+        raise PackageError(
+            "the model the drafts must come from is missing: GEMMA_MODEL of .env (--model)"
+        )
+    others = sorted(set(cache["models"]) - {model})
+    if others:
+        raise PackageError(
+            f"llm_cache/ holds drafts of {', '.join(others)}, not only of GEMMA_MODEL {model}: "
+            "not packed as the MI300X demo (REHEARSAL=1 packs a rehearsal, labelled as such)"
+        )
+    off_gpu = sorted(set(cache["devices"]) - {"gpu"})
+    if off_gpu:
+        raise PackageError(
+            f"llm_cache/ holds drafts of a batch run with DEVICE {', '.join(off_gpu)}, not only "
+            "DEVICE=gpu (make batch-generate): not packed as the MI300X demo (REHEARSAL=1 packs a "
+            "rehearsal, labelled as such)"
+        )
+
+
 def _safe_to_replace(out: Path) -> None:
     """Only an empty folder or a previous package may be replaced."""
     if not out.exists():
@@ -198,10 +244,14 @@ def build(
     *,
     allow_empty_cache: bool = False,
     generated_on: str | None = None,
+    model: str | None = None,
+    rehearsal: bool = False,
     now: datetime | None = None,
     commit: str | None = None,
 ) -> dict[str, Any]:
-    """Pack the demo; returns the manifest written to out/MANIFEST.json."""
+    """Pack the demo; returns the manifest written to out/MANIFEST.json. Without `rehearsal`
+    (or `allow_empty_cache`, a rehearsal too) the package is the MI300X one: `generated_on`
+    names the MI300X and every draft is `model`'s (GEMMA_MODEL)."""
     snapshot = check_serving(serving)
     check_no_truth(serving)
     cache = cache_summary(serving / LLM_CACHE)
@@ -210,6 +260,9 @@ def build(
             f"{serving / LLM_CACHE} holds no draft: run `make batch-generate` on the MI300X first "
             "(ALLOW_EMPTY_CACHE=1 packs a CPU rehearsal whose drafts are templates)"
         )
+    rehearsal = rehearsal or allow_empty_cache or cache["entries"] == 0
+    if not rehearsal:
+        check_mi300x(cache, generated_on, model)
     runs, pointers = bench_files(bench)
     _safe_to_replace(out)
     shutil.copytree(serving, out / "serving")
@@ -236,10 +289,14 @@ def build(
         },
         "llm_cache": {
             **cache,
-            "generated_on": generated_on if cache["entries"] else None,
-            "nature": NATURE["llm_cache"]
-            if cache["entries"]
-            else "empty: a CPU rehearsal, every draft of the demo is the fixed template",
+            "generated_on": (generated_on or None) if cache["entries"] else None,
+            "rehearsal": rehearsal,
+            "gemma_model": None if rehearsal else model,
+            "nature": NATURE["empty"]
+            if not cache["entries"]
+            else NATURE["rehearsal"]
+            if rehearsal
+            else NATURE["llm_cache"],
         },
         "bench": {"pointers": pointers, "nature": NATURE["bench"]},
         "files": files,
@@ -286,6 +343,10 @@ def parser() -> argparse.ArgumentParser:
     b.add_argument("--out", type=Path, default=Path("demo-cache"))
     b.add_argument("--allow-empty-cache", action="store_true", help="a CPU rehearsal")
     b.add_argument("--generated-on", help="the hardware the batch ran on (the MI300X droplet)")
+    b.add_argument("--model", help="GEMMA_MODEL: the model every draft must come from")
+    b.add_argument(
+        "--rehearsal", action="store_true", help="not the MI300X drafts: labelled a rehearsal"
+    )
     v = sub.add_parser("verify", help="check every hash of a package")
     v.add_argument("package", type=Path, nargs="?", default=Path("demo-cache"))
     return p
@@ -301,6 +362,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 args.out,
                 allow_empty_cache=args.allow_empty_cache,
                 generated_on=args.generated_on,
+                model=args.model,
+                rehearsal=args.rehearsal,
                 commit=git_commit(Path.cwd()),
             )
         except PackageError as exc:
@@ -311,7 +374,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             "files": len(manifest["files"]),
             "as_of": manifest["serving"]["as_of"],
             "llm_cache": {
-                k: manifest["llm_cache"][k] for k in ("entries", "models", "generated_on")
+                k: manifest["llm_cache"][k]
+                for k in ("entries", "models", "generated_on", "rehearsal")
             },
             "bench": manifest["bench"]["pointers"],
         }

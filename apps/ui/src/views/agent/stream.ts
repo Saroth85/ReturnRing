@@ -190,7 +190,8 @@ export function foldAgentEvents(events: readonly AgentEvent[], { ended }: { ende
 /**
  * The tool-call count as a Metric, so it renders through Figure with its origin, period and
  * nature (rule 11, US-906). Contract examples are synthetic; a mock language model writes
- * hand-written stand-ins, also synthetic; Gemma on vLLM is a real count of what the agent did.
+ * hand-written stand-ins, also synthetic; a model on vLLM (generation.model) is a real count of
+ * what the agent did.
  */
 export function stepsUsedMetric(done: DoneView, apiMode: 'mock' | 'live'): Metric {
   const { generation } = done;
@@ -202,7 +203,7 @@ export function stepsUsedMetric(done: DoneView, apiMode: 'mock' | 'live'): Metri
   else if (generation.llm_mode === 'mock') origin = AGENT.steps.originMockModel(id);
   else {
     nature = 'real';
-    origin = AGENT.steps.originLive(id, generation.served_from === 'cached');
+    origin = AGENT.steps.originLive(id, generation.model, generation.served_from === 'cached');
   }
   return { value: done.stepsUsed, unit: 'count', provenance: { nature, origin, period_start: day, period_end: day } };
 }

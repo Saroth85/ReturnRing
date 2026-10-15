@@ -10,6 +10,8 @@ interface ProvenanceScopeProps {
   covers: string;
   children: ReactNode;
   className?: string;
+  /** A span inside running text (a sentence, a label, a table cell); a div otherwise. */
+  as?: 'div' | 'span';
 }
 
 /**
@@ -18,7 +20,7 @@ interface ProvenanceScopeProps {
  * differs from it (docs/ui-design.md 5.1). The scope needs a ProvenanceFooter (full or compact)
  * for its numbers to carry a reachable origin, period and nature: `data-has-footer` says it has one.
  */
-export function ProvenanceScope({ provenance, covers, children, className }: ProvenanceScopeProps) {
+export function ProvenanceScope({ provenance, covers, children, className, as: Tag = 'div' }: ProvenanceScopeProps) {
   const [footers, setFooters] = useState(0);
   const registerFooter = useCallback(() => {
     setFooters((n) => n + 1);
@@ -28,7 +30,7 @@ export function ProvenanceScope({ provenance, covers, children, className }: Pro
   useEffect(() => noteOrigin(provenance.origin), [provenance.origin]);
   return (
     <ProvenanceScopeContext.Provider value={value}>
-      <div
+      <Tag
         data-provenance-scope
         data-has-footer={footers > 0 ? '' : undefined}
         data-nature={displayNature(provenance)}
@@ -36,7 +38,7 @@ export function ProvenanceScope({ provenance, covers, children, className }: Pro
         className={className}
       >
         {children}
-      </div>
+      </Tag>
     </ProvenanceScopeContext.Provider>
   );
 }

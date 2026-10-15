@@ -6,15 +6,23 @@ serving snapshot, golden cases first, it builds the llm_case the API builds at t
 (the same intake, the same snapshot instant, assumptions-v1 and coupon-rule-v1), sends it to
 vLLM through llm.generate (validator, one regeneration, template), and writes the result to
 SERVING_DIR/llm_cache/<sha256 of the llm_case>.json. The public demo (DEMO_MODE=cached, no GPU)
-serves these outputs, validated again and labelled "Precomputed on AMD MI300X". An output that
-fell back because vLLM was unavailable is not cached: the demo then uses its own template,
-labelled as such.
+serves these outputs, validated again and labelled "Precomputed on AMD MI300X" when the package
+of make demo-export says so (apps/api/services/demo_package.py). An output that fell back
+because vLLM was unavailable is not cached: the demo then uses its own template, labelled as
+such.
+
+Each entry records the model and the device (DEVICE) of the batch. Before the first case the
+batch asks the server which models it serves and stops unless GEMMA_MODEL is one of them: a
+fake server (bench/fake_vllm.py) answers any model name, so its drafts would otherwise be
+recorded as Gemma's (second review of 14 Oct 2026). A cached entry of another model, such as a
+rehearsal against the fake server, is generated again, never kept.
 
 The cases are sent with at most LLM_CONCURRENCY model calls in flight (vLLM batches concurrent
 requests, ADR-03; H32): 623 returns take minutes, not one call after the other for hours.
 
-Exit codes: 0 done, 1 some returns failed, 2 usage, a vLLM configuration the client refuses or
-a serving snapshot that cannot be read (the reason is printed).
+Exit codes: 0 done, 1 some returns failed, 2 usage, a vLLM configuration the client refuses, a
+server that does not serve GEMMA_MODEL or a serving snapshot that cannot be read (the reason is
+printed).
 """
 
 from __future__ import annotations
@@ -31,6 +39,7 @@ from pathlib import Path
 from typing import Any
 
 from apps.api import schemas as s
+from apps.api.routes.health import probe_vllm
 from apps.api.services.cases import IntakeError, propose
 from apps.api.services.generation import (
     Generator,
@@ -42,7 +51,7 @@ from apps.api.services.generation import (
 )
 from apps.api.services.seeds import COUPON_RULE_V1
 from apps.api.serving import Serving, ServingError
-from apps.api.settings import DEFAULT_LLM_CONCURRENCY, Settings
+from apps.api.settings import DEFAULT_LLM_CONCURRENCY, Device, Settings
 from contracts.files import atomic_write
 from contracts.io import ContractError
 from llm.client import LlmClient, VllmClient
@@ -53,6 +62,15 @@ from policy.simulator import PROPOSAL_EXAMPLE
 
 def write_entry(target: Path, data: bytes) -> None:
     atomic_write(target, lambda out: out.write(data))
+
+
+def cached_model(target: Path) -> str | None:
+    """The model of the cache entry at `target`, None when there is no readable entry."""
+    try:
+        entry = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return str(entry.get("model")) if isinstance(entry, dict) else None
 
 
 @dataclass(frozen=True)
@@ -88,8 +106,10 @@ def batch(
     force: bool = False,
     log: Any = None,
     concurrency: int = DEFAULT_LLM_CONCURRENCY,
+    device: Device = "cpu",
 ) -> dict[str, Any]:
-    """Write the cache entries of the open returns; returns a summary."""
+    """Write the cache entries of the open returns, made by `model` on `device`; returns a
+    summary. An entry of another model is generated again."""
     say = log or (lambda _m: None)
     cache = serving.root / "llm_cache"
     cache.mkdir(parents=True, exist_ok=True)
@@ -120,7 +140,7 @@ def batch(
             failed[return_id] = f"{type(exc).__name__}: {exc}"[:300]
             continue
         target = cache_path(cache, item.digest)
-        if target.exists() and not force:
+        if not force and cached_model(target) == model:
             skipped += 1
             continue
         jobs.append(_Job(return_id, item, target))
@@ -138,7 +158,9 @@ def batch(
             if result.fallback_reason == "unavailable":
                 failed[done.job.return_id] = "vLLM unavailable: not cached"
                 continue
-            entry = cache_entry(done.job.item, result, model, at, done.latency_ms, done.tokens)
+            entry = cache_entry(
+                done.job.item, result, model, device, at, done.latency_ms, done.tokens
+            )
             data = (json.dumps(entry, indent=2, sort_keys=True, ensure_ascii=False) + "\n").encode()
             write_entry(done.job.target, data)
             if n % 25 == 0:
@@ -183,6 +205,11 @@ def main(argv: Sequence[str] | None = None, *, llm_client: LlmClient | None = No
     if llm_client is None and not isinstance(client, VllmClient):
         print(f"vLLM is not configured: {generator.client_error}", file=sys.stderr)
         return 2
+    if llm_client is None:
+        problem = probe_vllm(settings.vllm_base_url, settings.vllm_api_key, settings.gemma_model)
+        if problem is not None:
+            print(f"the batch needs GEMMA_MODEL on the local vLLM: {problem}", file=sys.stderr)
+            return 2
     summary = batch(
         serving,
         client,
@@ -191,6 +218,7 @@ def main(argv: Sequence[str] | None = None, *, llm_client: LlmClient | None = No
         force=args.force,
         log=log,
         concurrency=settings.llm_concurrency,
+        device=settings.device,
     )
     print(json.dumps(summary, indent=2, sort_keys=True))
     return 1 if summary["failed"] else 0

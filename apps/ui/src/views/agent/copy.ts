@@ -2,14 +2,18 @@
 // the tool list come from the contract, product names from src/copy/constants.ts.
 import { AGENT_MAX_STEPS, AGENT_TOOLS } from '@/api/contract.gen';
 import type { EntityRef } from '@/api/models';
-import { GPU_SHORT_NAME, LLM_NAME } from '@/copy/constants';
+import { LLM_NAME } from '@/copy/constants';
 
 type Tool = (typeof AGENT_TOOLS)[number];
 
 export const AGENT = {
-  /** The drawer title; the model name follows in its own constant span. */
+  /** The drawer title; the model, as /readyz names it (./model.ts), follows in its own span. */
   title: (returnId: string) => `Ask about ${returnId} · read-only assistant`,
-  modelName: `(${LLM_NAME})`,
+  model: {
+    vllm: `(${LLM_NAME} on vLLM)`,
+    mock: '(mock language model: hand-written stand-ins)',
+    contract: '(contract examples)',
+  },
   readOnly: 'It can read the case; it cannot change it.',
   footer: `Read-only: ${AGENT_TOOLS.length} tools, at most ${AGENT_MAX_STEPS} steps. Answers cannot change the decision.`,
   close: 'Close',
@@ -48,12 +52,16 @@ export const AGENT = {
   } as Record<string, string>,
 
   suggestedTitle: 'Suggested questions',
-  /** The three questions of US-702, as the contract examples ask them (agent_ask_request.*.json). */
-  suggested: [
-    'Which evidence supports the link between C-MARCO-1 and C-MARCO-3?',
-    'What makes this case different from the Rossi family?',
-    'Which terms applied when the order was placed?',
-  ],
+  /**
+   * The three questions of US-702, worded as the contract examples ask them
+   * (agent_ask_request.*.json). The link question names a link of the case's own linked accounts
+   * (questions.ts), so it exists only for a case with linked accounts.
+   */
+  suggested: {
+    link: (a: string, b: string) => `Which evidence supports the link between ${a} and ${b}?`,
+    rossi: 'What makes this case different from the Rossi family?',
+    terms: 'Which terms applied when the order was placed?',
+  },
 
   composer: {
     label: 'Your question about this case',
@@ -61,9 +69,13 @@ export const AGENT = {
     ask: 'Ask',
     askKey: 'Enter',
     stop: 'Stop',
-    cached: `Free questions need the live model; these answers were precomputed on the ${GPU_SHORT_NAME}.`,
-    rateLimited: 'Too many questions in a short time. Try again in a few seconds.',
-    coolingDown: 'New questions resume in a few seconds.',
+    // Contract 1.5.0: in the cached demo the agent answers 503 (no model runs). Where precomputed
+    // outputs were made is readyz.label's claim, never this copy's (ADR-15 section 17).
+    cached: 'The case assistant needs the live model, which is off in the cached demo.',
+    cachedTitle: 'Unavailable in the cached demo',
+    rateLimited: 'Too many questions in a short time.',
+    retryAfter: (seconds: number) => `The service asks to wait ${seconds} s before the next question.`,
+    coolingDown: (seconds: number) => `New questions resume in ${seconds} s.`,
   },
 
   turn: {
@@ -90,6 +102,8 @@ export const AGENT = {
 
   refusal: {
     write_request: { title: 'The assistant only reads the case.', body: 'Approvals and changes are made on the case card.' },
+    /** GenerationInfo.fallback_reason write_request (ADR-15 section 15): code refused it, no model ran. */
+    byCode: 'Refused by code before any model call',
     out_of_scope: {
       title: 'This question is outside this case.',
       body: 'The assistant answers questions about this return from its read-only tools: case, orders, linked accounts, score factors and policy text.',
@@ -129,8 +143,8 @@ export const AGENT = {
     originExample: (generationId: string) => `Contract example: steps_used of agent stream ${generationId}`,
     originMockModel: (generationId: string) =>
       `Mock language model (hand-written stand-in): steps_used of agent stream ${generationId}`,
-    originLive: (generationId: string, cached: boolean) =>
-      `${LLM_NAME} on vLLM: steps_used of agent stream ${generationId}${cached ? `, precomputed on ${GPU_SHORT_NAME}` : ''}`,
+    originLive: (generationId: string, model: string, cached: boolean) =>
+      `${model} on vLLM: steps_used of agent stream ${generationId}${cached ? ', precomputed' : ''}`,
   },
 
   refs: {
@@ -155,6 +169,7 @@ export const AGENT = {
   harnessIntro: 'Dev only: the case assistant without the case card, over the streamed answer of POST /api/agent/ask.',
   harness: {
     returnLabel: 'Return',
+    pickReturn: 'Name a return with ?return= : the demo cases, which give the Marco case, are not available.',
     openCase: 'Open the case card',
     openDrawer: 'Open the drawer as on the case card',
     drawerTitle: 'Drawer',

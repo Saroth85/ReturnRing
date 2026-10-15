@@ -1,7 +1,7 @@
 // Platform area strings (docs/ui-design.md 9). English; no number literals.
 import { AGENT_MAX_STEPS } from '@/api/contract.gen';
 import { GPU_SHORT_NAME } from '@/copy/constants';
-import { ASOS_DATASET, DEMO_ASSUMPTIONS_VERSION, PREFLIGHT_LOAD_TARGET_MS, ROSSI_FIRST_DECISION_ID } from './constants';
+import { ASOS_DATASET, DEMO_ASSUMPTIONS_VERSION, PREFLIGHT_LOAD_TARGET_MS } from './constants';
 
 const SECONDS = PREFLIGHT_LOAD_TARGET_MS / 1000;
 
@@ -78,69 +78,122 @@ export const PLATFORM = {
         fix: 'Regenerate the UI types from the API contract (npm run gen:types) and rebuild, or run the matching API.',
       },
       readiness: { label: 'The API is ready in the expected mode', fixLive: 'Start the GPU profile and wait for /readyz, or switch the expected mode.', fixCached: 'Open the cached URL, or switch the expected mode.' },
-      components: { live: 'vLLM and telemetry answer', cached: 'The demo cache answers', fix: 'Check the named components on the system page.' },
-      marco: { label: 'Marco is proposed and at his first version', fix: 'Marco was already decided: run the demo reset (US-903).' },
-      rossi: { label: `Rossi's card case is still at ${ROSSI_FIRST_DECISION_ID}`, fix: 'Rossi was already recomputed: run the demo reset (US-903).' },
+      components: {
+        live: 'vLLM and telemetry answer, or are off on purpose (mock language model, CPU run)',
+        cached: 'The demo cache answers',
+        fix: 'Check the named components on the system page.',
+      },
+      cases: {
+        label: 'The golden cases of the demo reset answer (GET /api/demo/cases)',
+        fix: 'Run the demo reset (python -m apps.api.reset, or make reset), then run the checks again.',
+      },
+      marco: {
+        label: 'Marco is proposed, at the decision the demo reset made',
+        fix: 'Marco was already decided: run the demo reset (US-903).',
+        missing: 'the store holds no Marco case',
+      },
+      rossi: {
+        label: "Rossi's case is still at the decision the demo reset made",
+        fix: 'Rossi was already recomputed: run the demo reset (US-903).',
+        missing: 'the store holds no Rossi case',
+      },
       assumptions: { label: `The current assumptions are ${DEMO_ASSUMPTIONS_VERSION}`, fix: 'A newer assumption set is current: run the demo reset (US-903).' },
-      load: { label: `The five golden cards and the matrix load in under ${SECONDS} s`, fix: 'Open each beat once to warm the API, or use the cached URL.' },
+      load: { label: `The golden case cards and the matrix load in under ${SECONDS} s`, fix: 'Open each beat once to warm the API, or use the cached URL.' },
     },
     unreachable: 'no answer',
     found: 'found',
-    loadOrigin: (target: string) => `Measured in this browser: the five golden case cards and the matrix from ${target}`,
+    noCases: 'no demo cases',
+    loadOrigin: (target: string) => `Measured in this browser: the golden case cards and the matrix from ${target}`,
     loadTargetMock: 'the mock adapter on the contract examples',
     loadTargetLive: 'the live API',
+    noReset: {
+      title: 'Run the demo reset first',
+      body: 'The beats open the golden cases of the reset, and the API holds none yet. It answered:',
+      fix: 'Run python -m apps.api.reset (make reset), then reload this page.',
+    },
     beats: 'Beats',
     beatsIntro: 'Each beat opens on its own; pre-open the tabs in this order. The persona follows the beat.',
+    offPath: 'Off the main path',
+    offPathIntro: 'One key away when a judge asks. Each one opens on its own; play it after the beat it names.',
+    after: (label: string) => `After the ${label} beat`,
+    afterMarco: {
+      approved: 'Marco is approved: the checkout shows his restriction and the coupon pause for future orders.',
+      proposed: 'Marco is still proposed: a proposal awaiting approval is not in force, so the checkout shows the standard terms. Approve Marco first.',
+      readOnly: 'Marco is still proposed, and the read-only demo cannot approve him: the checkout shows the standard terms.',
+      other: 'Marco is not approved: the checkout shows the terms in force for this account.',
+    },
+    /** The read-only public demo refuses every write (ADR-15 section 16): what each beat can still show. */
+    readOnly: {
+      notPlayable: 'Not playable on the read-only demo',
+      limited: 'On the read-only demo',
+      shop_ring: 'Marco cannot be approved here, so the checkout shows the standard terms. Play this beat on the writable demo.',
+      dispute: 'Disputing a link is a write the service refuses here. Play this beat on the writable demo.',
+      marco: 'The approval is refused here: show the proposal, its evidence and the approval gate.',
+      rossi: 'Evidence cannot be added here: show the shared address, device and card; the before and after need the writable demo.',
+    },
+    disputeCluster: 'Cluster',
+    disputeAccounts: 'linked accounts',
+    disputeNoCluster: 'no cluster',
+    disputeUnchanged: 'Decision unchanged: the dispute changes the cluster, not the terms.',
+    disputeChanges: 'The case is decided again without the link.',
     open: 'Open',
     openTab: 'Open in a new tab',
     asPersona: (name: string) => `as ${name}`,
     say: 'Say',
-    beatList: [
-      {
-        label: 'Same indicator',
-        to: '/compare?a=RET-000101&b=RET-000102',
-        persona: 'sara',
-        say: 'Same indicator, different actions: a single return-rate threshold would treat both the same.',
+    beat: {
+      same_indicator: {
+        label: 'Same signal',
+        say: 'Same signal, different actions: both sent the item back a few days after delivery, and a rule on that signal alone would treat both the same. The rows below show what differs, and so does the action.',
       },
-      {
+      marco: {
         label: 'Marco',
-        to: '/returns/RET-000102',
-        persona: 'sara',
         say: 'The graph proposes links and shows the evidence, the rules decide, a person approves.',
       },
-      {
+      rossi: {
         label: 'Rossi',
-        to: '/returns/RET-000104',
-        persona: 'sara',
         say: 'A link alone is not enough: the human check is visible, with the before and the after.',
       },
-      {
+      elena: {
         label: 'Elena',
-        to: '/returns/RET-000105',
-        persona: 'sara',
         say: 'ReturnRing helps fix the shop, not only handle customers.',
       },
-      {
+      net_benefit: {
         label: 'Net benefit',
-        to: '/simulator',
-        persona: 'luca',
         say: 'Net benefit under explicit assumptions, and it can turn negative: no inflated figures.',
       },
-      {
+      amd: {
         label: 'AMD',
-        to: '/system',
-        persona: 'luca',
-        say: `What each model contributes on the ${GPU_SHORT_NAME}, measured; real return data, synthetic linked accounts; we are looking for a pilot merchant.`,
+        say: `What each model contributes on the ${GPU_SHORT_NAME}, with each benchmark's own status (measured, pending or illustrative); real return data, synthetic linked accounts; we are looking for a pilot merchant.`,
       },
-    ] as const,
+      shop_ring: {
+        label: 'Checkout after Marco',
+        say: 'Once a person approved the restriction, the linked account sees it at checkout, for future orders only, with its review date; the right of withdrawal stays.',
+      },
+      shop_giulia: {
+        label: 'Giulia checkout',
+        say: 'Giulia gets the size guide and her upgraded terms; the probability never reaches the shop.',
+      },
+      dispute: {
+        label: 'A wrong link',
+        say: 'An operator disputes a link: the graph is recomputed without it.',
+        sayChanges: 'An operator disputes a link: the cluster shrinks and the case is decided again without it.',
+        sayUnchanged: 'An operator disputes a link: the cluster shrinks, and the decision stays as it was. The before and after say so.',
+      },
+      insufficient: {
+        label: 'Not enough evidence',
+        say: 'Not enough evidence: no score, the standard terms, and the case says why.',
+      },
+    },
     presenter: 'Start presenter mode',
     leavePresenter: 'Leave presenter mode',
     cachedUrl: 'Open the cached URL',
     noCachedUrl: 'No cached URL in this build (VITE_CACHED_ORIGIN).',
     rail: 'Demo beats',
+    railOffPath: 'Q&A',
     railPrev: 'Previous beat',
     railNext: 'Next beat',
     railKeys: 'Alt+← and Alt+→ move between beats',
+    railNoReset: 'Run the demo reset for the case beats',
   },
   about: {
     intro: 'Where the numbers on these screens come from, what they can and cannot show, and the limits declared for this version.',
@@ -155,7 +208,7 @@ export const PLATFORM = {
       illustrative: `benchmark values shown before the ${GPU_SHORT_NAME} run`,
     } as Record<string, string>,
     principles: 'What the screens show and what they do not',
-    golden: 'Golden cases are demonstrations with fixed ids, never accuracy.',
+    golden: 'Golden cases are demonstrations the demo reset picks from the synthetic store, never accuracy.',
     linked:
       'Linked accounts share identifiers (a card, a device, an address). A link is a proposed connection with its evidence, not proof of who uses the accounts; an operator can dispute it.',
     forbidden: 'Gender, country, age, names and raw identifiers are never model inputs. Customer value never feeds the risk score.',

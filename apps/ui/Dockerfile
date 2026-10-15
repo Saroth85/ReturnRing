@@ -10,8 +10,8 @@ COPY package.json package-lock.json .npmrc ./
 RUN npm ci --no-audit --no-fund
 COPY . .
 ENV VITE_API_MODE=live
-# The public read-only build (infra/docker-compose.yml passes PUBLIC_READ_ONLY). The UI reads it
-# once it is migrated to the API contract 1.5.0 (contract-pin/README.md).
+# The public read-only build (infra/docker-compose.yml passes PUBLIC_READ_ONLY): the fallback of
+# the UI's read-only state until /readyz answers (readyz.public_read_only decides).
 ARG VITE_READ_ONLY=false
 ENV VITE_READ_ONLY=$VITE_READ_ONLY
 RUN npm run build

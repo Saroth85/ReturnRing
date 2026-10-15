@@ -3,7 +3,7 @@
   "info": {
     "title": "ReturnRing API",
     "description": "Contract of the ReturnRing API (ADR-15). Every response carries the headers X-ReturnRing-Mode (live or cached) and X-Request-Id.",
-    "version": "1.5.0"
+    "version": "1.8.1"
   },
   "paths": {
     "/healthz": {
@@ -742,7 +742,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CheckoutEvaluateRequest-Input"
+                "$ref": "#/components/schemas/CheckoutEvaluateRequest"
               }
             }
           },
@@ -771,6 +771,15 @@
           },
           "429": {
             "description": "Too Many Requests",
+            "headers": {
+              "Retry-After": {
+                "description": "on a 429 rate_limited: the whole seconds to wait before trying again",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1.0
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -2031,6 +2040,15 @@
           },
           "429": {
             "description": "Too Many Requests",
+            "headers": {
+              "Retry-After": {
+                "description": "on a 429 rate_limited: the whole seconds to wait before trying again",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1.0
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -3686,7 +3704,7 @@
         ],
         "title": "BenchmarksResponse"
       },
-      "CartLine-Input": {
+      "CartLine": {
         "properties": {
           "variant_id": {
             "type": "string",
@@ -3714,38 +3732,6 @@
         "required": [
           "variant_id",
           "size"
-        ],
-        "title": "CartLine"
-      },
-      "CartLine-Output": {
-        "properties": {
-          "variant_id": {
-            "type": "string",
-            "maxLength": 96,
-            "minLength": 1,
-            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:~-]*$",
-            "title": "Variant Id"
-          },
-          "size": {
-            "type": "string",
-            "maxLength": 16,
-            "minLength": 1,
-            "title": "Size"
-          },
-          "quantity": {
-            "type": "integer",
-            "maximum": 5.0,
-            "minimum": 1.0,
-            "title": "Quantity",
-            "default": 1
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "variant_id",
-          "size",
-          "quantity"
         ],
         "title": "CartLine"
       },
@@ -4334,7 +4320,7 @@
           },
           "lines": {
             "items": {
-              "$ref": "#/components/schemas/CartLine-Input"
+              "$ref": "#/components/schemas/CartLine"
             },
             "type": "array",
             "maxItems": 20,
@@ -4391,7 +4377,7 @@
         ],
         "title": "CheckoutConfirmResponse"
       },
-      "CheckoutEvaluateRequest-Input": {
+      "CheckoutEvaluateRequest": {
         "properties": {
           "customer_id": {
             "type": "string",
@@ -4402,7 +4388,7 @@
           },
           "lines": {
             "items": {
-              "$ref": "#/components/schemas/CartLine-Input"
+              "$ref": "#/components/schemas/CartLine"
             },
             "type": "array",
             "maxItems": 20,
@@ -4429,48 +4415,6 @@
         "required": [
           "customer_id",
           "lines"
-        ],
-        "title": "CheckoutEvaluateRequest"
-      },
-      "CheckoutEvaluateRequest-Output": {
-        "properties": {
-          "customer_id": {
-            "type": "string",
-            "maxLength": 96,
-            "minLength": 1,
-            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:~-]*$",
-            "title": "Customer Id"
-          },
-          "lines": {
-            "items": {
-              "$ref": "#/components/schemas/CartLine-Output"
-            },
-            "type": "array",
-            "maxItems": 20,
-            "minItems": 1,
-            "title": "Lines"
-          },
-          "coupon_code": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 96,
-                "minLength": 1,
-                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:~-]*$"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Coupon Code"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "customer_id",
-          "lines",
-          "coupon_code"
         ],
         "title": "CheckoutEvaluateRequest"
       },
@@ -4788,6 +4732,10 @@
             ],
             "title": "Started At"
           },
+          "frozen": {
+            "type": "boolean",
+            "title": "Frozen"
+          },
           "note": {
             "type": "string",
             "maxLength": 300,
@@ -4802,10 +4750,11 @@
           "now",
           "snapshot_as_of",
           "started_at",
+          "frozen",
           "note"
         ],
         "title": "ClockView",
-        "description": "The one clock of the API (1.5.0, ADR-15 section 15). demo (DEMO_CLOCK=on): 'now' is the\ninstant of the serving snapshot plus the time elapsed since the demo reset started the\nclock, so the deadlines of the decisions the reset made stay ahead; system: the wall clock;\nfixed: a clock that stands still (tests). Every 'now' of the API (as_of, the time of an act,\nthe period of a figure that ends now) is this clock's."
+        "description": "The one clock of the API (1.5.0, ADR-15 section 15). demo (DEMO_CLOCK=on): 'now' is the\ninstant of the serving snapshot plus the time elapsed since the demo reset started the\nclock, so the deadlines of the decisions the reset made stay ahead; system: the wall clock;\nfixed: a clock that stands still (tests). Every 'now' of the API (as_of, the time of an act,\nthe period of a figure that ends now) is this clock's.\n\nfrozen (1.7.0, ADR-15 section 19): the demo clock of the public read-only demo stands at\nthe snapshot instant (now equals snapshot_as_of), so no refund deadline of the reset's\nproposals passes while the demo stays up; a client never advances a frozen clock. Where\nwrites are on (a cached demo with writes on included) the demo clock runs (1.8.0). A store\nacted on with writes on and then served read-only (1.8.1, section 21): the frozen clock\nstands at the latest act recorded, after snapshot_as_of, never before an act, and its note\nsays so."
       },
       "ClusterFeatures": {
         "properties": {
@@ -5050,7 +4999,7 @@
           "text"
         ],
         "title": "CouponBlock",
-        "description": "Why coupons are off for this customer: a confirmed cluster rule application in force\n(US-402), shown only before its review date (US-607). The text is the fixed, neutral text\nof llm.phrasebook (the wording of the transparency notice): it never names the linked\naccounts or the cluster to the customer (rule 11, round 4, E25)."
+        "description": "Why coupons are off for this customer: a confirmed cluster rule application in force\n(US-402), shown only before its review date (US-607). The text is a fixed, neutral text of\nllm.phrasebook that never names the linked accounts or the cluster to the customer (rule 11,\nround 4, E25): COUPON_BLOCK (the wording of the transparency notice, \"your previous\nreturns\") for the customer of the case whose decision blocks the cluster, and for every\nother account the text that gives no cause, with the review date (1.7.0)."
       },
       "CouponRule": {
         "properties": {
@@ -5786,6 +5735,23 @@
           },
           "provenance": {
             "$ref": "#/components/schemas/Provenance"
+          },
+          "snapshot_on": {
+            "type": "string",
+            "format": "date",
+            "title": "Snapshot On"
+          },
+          "scored_on": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scored On"
           }
         },
         "additionalProperties": false,
@@ -5803,10 +5769,12 @@
           "evidence_quality",
           "cluster_id",
           "thresholds",
-          "provenance"
+          "provenance",
+          "snapshot_on",
+          "scored_on"
         ],
         "title": "DecisionInputs",
-        "description": "The inputs given to policy.engine.decide, kept for audit (US-604) and re-runnable: the\nreturn request (with order_id and customer_id), the scores, the terms and the thresholds.\nprovenance covers the plain numbers of the inputs (risk, value_eur, thresholds): the scores\nat decision time, stored with the version so an earlier one is served as it was (rule 11)."
+        "description": "The inputs given to policy.engine.decide, kept for audit (US-604) and re-runnable: the\nreturn request (with order_id and customer_id), the scores, the terms and the thresholds.\nprovenance covers the plain numbers of the inputs (risk, value_eur, thresholds): the scores\nat decision time, stored with the version so an earlier one is served as it was (rule 11).\nsnapshot_on (1.7.0) is the UTC day of the customer snapshot the engine read (value, evidence,\ncluster: the last one before the request, or the request itself when none preceded it): the\nperiod of the value, factor and cluster facts of a draft and of the agent (rule 11).\nscored_on (1.8.0) is the UTC day the risk was scored, at the request (the score's decided_at:\nrequest features as the shop knew them, and that snapshot): the period of the risk_score\nfact. Null exactly when there is no risk (the guarantee path, rule 4)."
       },
       "DecisionRecord": {
         "properties": {
@@ -7377,8 +7345,15 @@
             "$ref": "#/components/schemas/Terms"
           },
           "refund_due_by": {
-            "type": "string",
-            "format": "date",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Refund Due By"
           },
           "review_at": {
@@ -7564,7 +7539,7 @@
             "title": "Key"
           },
           "request": {
-            "$ref": "#/components/schemas/CheckoutEvaluateRequest-Output"
+            "$ref": "#/components/schemas/CheckoutEvaluateRequest"
           }
         },
         "additionalProperties": false,
@@ -7730,6 +7705,10 @@
             "type": "integer",
             "minimum": 1.0,
             "title": "Cluster Size After"
+          },
+          "changes_decision": {
+            "type": "boolean",
+            "title": "Changes Decision"
           }
         },
         "additionalProperties": false,
@@ -7740,10 +7719,11 @@
           "decision_id",
           "cluster_id",
           "cluster_size_before",
-          "cluster_size_after"
+          "cluster_size_after",
+          "changes_decision"
         ],
         "title": "DemoDispute",
-        "description": "A link whose dispute changes the cluster of the case named (US-310): the customer's\ncluster has cluster_size_before accounts, and cluster_size_after once the link is out (1:\nthe account alone)."
+        "description": "A link whose dispute changes the cluster of the case named (US-310): the customer's\ncluster has cluster_size_before accounts, and cluster_size_after once the link is out (1:\nthe account alone). changes_decision (1.6.0) says whether the recompute the dispute makes\nchanges the engine's quadrant or levers of the case (a dry run at the reset, which prefers\nsuch a link): false, the UI says \"decision unchanged\"."
       },
       "DraftView": {
         "properties": {
@@ -10528,8 +10508,15 @@
             "title": "Review Due"
           },
           "refund_due_by": {
-            "type": "string",
-            "format": "date",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Refund Due By"
           },
           "refund_overdue": {
@@ -10704,7 +10691,10 @@
             "anyOf": [
               {
                 "type": "string",
-                "const": "Precomputed on AMD MI300X"
+                "enum": [
+                  "Precomputed on AMD MI300X",
+                  "Precomputed in a rehearsal, not verified on AMD MI300X"
+                ]
               },
               {
                 "type": "null"

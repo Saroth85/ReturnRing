@@ -24,11 +24,19 @@ from contracts.sql import outbox
 from contracts.vocab import Lang
 
 
+def deadline_passed(view: s.DecisionView, now: datetime) -> bool:
+    """Whether a message about `view` would state a refund deadline that has already passed
+    (rule 3; 1.5.0, H1). A guarantee case states none (its message has no {deadline} field:
+    rule 4, NFR-17), so its deadline never passes (1.7.0)."""
+    return view.refund_due_by is not None and s.utc_day(now) > view.refund_due_by
+
+
 def check_refund_due(view: s.DecisionView, now: datetime) -> None:
     """409 when a message about `view` would state a refund deadline that has already passed
-    (rule 3; 1.5.0, H1): the refund is overdue and the case needs the merchant's attention, not
+    (deadline_passed): the refund is overdue and the case needs the merchant's attention, not
     a message promising a past date. The queue shows refund_overdue."""
-    if s.utc_day(now) > view.refund_due_by:
+    if deadline_passed(view, now):
+        assert view.refund_due_by is not None
         raise conflict(
             f"the refund of {view.return_id} was due by {view.refund_due_by.isoformat()} (14 days "
             "from the notice, rule 3): it is overdue; no message states a past deadline"

@@ -3,7 +3,7 @@ import type { PortfolioMatrix } from '@/api/models';
 import { useWidth } from '@/components/charts';
 import { Money, PlainNumber } from '@/components/provenance';
 import { formatValue } from '@/format';
-import { DEMO_CASES } from '../constants';
+import type { DemoHighlights } from '@/domain/demoCases';
 import { MANAGER } from '../copy';
 import { convexHull, createScales, nearestIndex, placeLabels, textBox, ticks, valueDomain, type Pt } from './geometry';
 
@@ -12,6 +12,8 @@ type MatrixPoint = PortfolioMatrix['points'][number];
 interface MatrixCanvasProps {
   matrix: PortfolioMatrix;
   demoCases: boolean;
+  /** The customers and clusters of the golden cases (GET /api/demo/cases). */
+  highlights: DemoHighlights;
   highlightCluster: string | null;
 }
 
@@ -47,7 +49,15 @@ function token(el: Element, name: string, fallback: string): string {
  * highlighted cluster. No hue for a quadrant: positions, not verdicts. The whole matrix sits in the
  * points' ProvenanceScope (the caller's), so axis numbers carry their origin, period and nature.
  */
-export function MatrixCanvas({ matrix, demoCases, highlightCluster }: MatrixCanvasProps) {
+/** The name and note of a golden customer the matrix annotates, by its key. */
+function demoCustomer(highlights: DemoHighlights, customerId: string) {
+  const found = highlights.customers.find((c) => c.customerId === customerId);
+  if (!found) return null;
+  const copy = P.demoCustomers[found.key as keyof typeof P.demoCustomers];
+  return copy ?? null;
+}
+
+export function MatrixCanvas({ matrix, demoCases, highlights, highlightCluster }: MatrixCanvasProps) {
   const [measure, width] = useWidth<HTMLDivElement>();
   const canvas = useRef<HTMLCanvasElement | null>(null);
   const theme = useThemeVersion();
@@ -100,20 +110,21 @@ export function MatrixCanvas({ matrix, demoCases, highlightCluster }: MatrixCanv
   const annotations = useMemo(() => {
     if (!demoCases) return [];
     const out: { key: string; kind: 'cluster' | 'customer'; x: number; y: number; text: string; hull: Pt[]; note?: string }[] = [];
-    for (const id of DEMO_CASES.clusters) {
+    for (const { clusterId: id } of highlights.clusters) {
       const pts = drawn.flatMap((p, i) => (p.cluster_id === id ? [[xs[i] ?? 0, ys[i] ?? 0] as Pt] : []));
       if (pts.length === 0) continue;
       const top = pts.reduce((a, b) => (b[1] < a[1] ? b : a));
       const size = matrix.points.filter((p) => p.cluster_id === id).length;
       out.push({ key: id, kind: 'cluster', x: top[0], y: top[1] - 6, text: compact ? id : `${id} · ${size} ${P.linkedAccounts}`, hull: convexHull(pts) });
     }
-    for (const c of DEMO_CASES.customers) {
-      const i = drawn.findIndex((p) => p.customer_id === c.id);
-      if (i < 0) continue;
-      out.push({ key: c.id, kind: 'customer', x: xs[i] ?? 0, y: ys[i] ?? 0, text: c.name, hull: [], note: c.note });
+    for (const c of highlights.customers) {
+      const i = drawn.findIndex((p) => p.customer_id === c.customerId);
+      const copy = demoCustomer(highlights, c.customerId);
+      if (i < 0 || !copy) continue;
+      out.push({ key: c.customerId, kind: 'customer', x: xs[i] ?? 0, y: ys[i] ?? 0, text: copy.name, hull: [], note: copy.note });
     }
     return out;
-  }, [demoCases, drawn, xs, ys, matrix.points, compact]);
+  }, [demoCases, highlights, drawn, xs, ys, matrix.points, compact]);
   const hovered = hover >= 0 ? drawn[hover] : undefined;
   const corner = [
     { q: 'Q1', x: plot.left + 8, y: plot.top + 18, anchor: 'start' },
@@ -299,8 +310,8 @@ export function MatrixCanvas({ matrix, demoCases, highlightCluster }: MatrixCanv
                   <PlainNumber value={hovered.welcome_coupons} unit="count" />
                 </dd>
               </dl>
-              {DEMO_CASES.customers.find((c) => c.id === hovered.customer_id) && (
-                <p className="mt-1 text-ink-2">{DEMO_CASES.customers.find((c) => c.id === hovered.customer_id)?.note}</p>
+              {demoCases && demoCustomer(highlights, hovered.customer_id) && (
+                <p className="mt-1 text-ink-2">{demoCustomer(highlights, hovered.customer_id)?.note}</p>
               )}
             </div>
           )}

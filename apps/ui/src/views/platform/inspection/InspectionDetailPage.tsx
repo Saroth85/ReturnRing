@@ -8,11 +8,12 @@ import { ArrowLeft, Check } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { API_MODE } from '@/api/adapters';
+import { INSPECTION_NOTE_MAX_LENGTH } from '@/api/contract.gen';
 import { useConfirmInspection, useCreateInspection } from '@/api/mutations';
-import { useCase } from '@/api/queries';
+import { useCase, useReadyz } from '@/api/queries';
 import { usePersona } from '@/app/persona';
 import { PathBadge } from '@/components/decision';
-import { ErrorState, InlineNotice, LoadingBlock, useRoleGate } from '@/components/feedback';
+import { ErrorState, InlineNotice, LoadingBlock, useReadOnly, useRoleGate } from '@/components/feedback';
 import { IdText, PlainNumber, ProvenanceFooter, ProvenanceScope } from '@/components/provenance';
 import { Button, Kbd } from '@/components/ui';
 import { PLATFORM } from '../copy';
@@ -88,6 +89,7 @@ function ReturnSummary({ returnId }: { returnId: string }) {
 
 function InspectionFlow({ returnId }: { returnId: string }) {
   const persona = usePersona();
+  // The role and the read-only public demo (/readyz public_read_only) gate both writes.
   const createGate = useRoleGate('POST /api/inspections');
   const confirmGate = useRoleGate('POST /api/inspections/{inspection_id}/confirm');
   const [photo, setPhoto] = useState<{ mediaType: PhotoType; base64: string } | null>(null);
@@ -264,14 +266,20 @@ function InspectionFlow({ returnId }: { returnId: string }) {
               <label htmlFor={noteId} className="text-caption text-ink-2">
                 {t.confirm.note}
               </label>
+              {/* The schema's limit (InspectionConfirmRequest.note maxLength), so no note earns a 422. */}
               <textarea
                 id={noteId}
                 value={note}
+                maxLength={INSPECTION_NOTE_MAX_LENGTH}
                 onChange={(e) => setNote(e.target.value)}
                 disabled={!confirmGate.allowed || !inspection}
                 rows={2}
+                aria-describedby={`${noteId}-count`}
                 className="w-full max-w-xl rounded-control border border-border-strong bg-surface px-3 py-2 text-body disabled:opacity-60"
               />
+              <span id={`${noteId}-count`} className="text-caption text-ink-3" data-constant data-note-count>
+                {t.confirm.noteCount(note.length, INSPECTION_NOTE_MAX_LENGTH)}
+              </span>
             </div>
             <div className="flex flex-wrap items-center gap-3">
               <Button variant="primary" className="min-h-12 px-5" disabled={!canConfirm} onClick={doConfirm} data-confirm-inspection>
@@ -297,6 +305,8 @@ function InspectionFlow({ returnId }: { returnId: string }) {
 export default function InspectionDetailPage() {
   const { returnId = '' } = useParams();
   const persona = usePersona();
+  const readOnly = useReadOnly();
+  const cached = useReadyz().data?.mode === 'cached';
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-4" data-page="inspection-detail">
       <PageHeader
@@ -313,10 +323,23 @@ export default function InspectionDetailPage() {
       <p className="rounded-control border border-border bg-surface-2 px-3 py-2 text-body text-ink-1" data-inspection-note>
         {t.note}
       </p>
-      {persona.role !== 'warehouse' && (
+      {readOnly ? (
         <InlineNotice>
-          <p>{t.readOnly(`${persona.id} (${persona.role})`)}</p>
+          <p data-inspection-read-only>{t.publicReadOnly}</p>
         </InlineNotice>
+      ) : (
+        persona.role !== 'warehouse' && (
+          <InlineNotice>
+            <p>{t.readOnly(`${persona.id} (${persona.role})`)}</p>
+          </InlineNotice>
+        )
+      )}
+      {cached && (
+        <div data-inspection-cached>
+          <InlineNotice tone="attention">
+            <p>{t.cached}</p>
+          </InlineNotice>
+        </div>
       )}
       <InspectionFlow key={returnId} returnId={returnId} />
     </div>

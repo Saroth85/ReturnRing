@@ -19,6 +19,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "test:e2e:live": "playwright test --config playwright.live.config.ts",
     "gen:types": "node scripts/gen-types.mjs && node scripts/gen-contract.mjs",
     "gen:api": "npm run gen:types",
     "check:types-gen": "node scripts/gen-types.mjs --check && node scripts/gen-contract.mjs --check",

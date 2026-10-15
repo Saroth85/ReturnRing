@@ -113,20 +113,32 @@ def case_output_schema(case: Mapping[str, Any], schema: Mapping[str, Any]) -> di
 
 
 def check_local_url(base_url: str) -> str:
-    """The chat completions URL of a local vLLM base URL; ValueError for any other host."""
+    """The chat completions URL of a local vLLM base URL; ValueError for any other host. The
+    error names the part refused, never the URL: it reaches the public /readyz and 503 bodies,
+    and a URL can hold credentials or a token."""
     parts = urlsplit(base_url)
     host = parts.hostname or ""
-    if parts.scheme not in ("http", "https") or parts.username or parts.query or parts.fragment:
-        raise ValueError(f"VLLM_BASE_URL must be a plain http(s) URL, got {base_url!r}")
+    refused = [
+        name
+        for name, bad in (
+            ("a scheme other than http or https", parts.scheme not in ("http", "https")),
+            ("a user", parts.username is not None),
+            ("a query", bool(parts.query)),
+            ("a fragment", bool(parts.fragment)),
+        )
+        if bad
+    ]
+    if refused:
+        raise ValueError(f"VLLM_BASE_URL has {', '.join(refused)}: refused (a plain http(s) URL)")
     if host not in LOCAL_HOSTNAMES:
         try:
             address = ipaddress.ip_address(host)
         except ValueError:
-            raise ValueError(f"Rule 2: {host!r} is not the local vLLM") from None
+            raise ValueError("Rule 2: the host of VLLM_BASE_URL is not the local vLLM") from None
         if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
             address = address.ipv4_mapped
         if not any(address in network for network in LOCAL_NETWORKS):
-            raise ValueError(f"Rule 2: {host!r} is not a local address")
+            raise ValueError("Rule 2: the host of VLLM_BASE_URL is not a local address")
     path = parts.path.rstrip("/")
     if not path.endswith("/v1"):
         path += "/v1"

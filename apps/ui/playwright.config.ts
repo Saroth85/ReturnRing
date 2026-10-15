@@ -12,6 +12,8 @@ const HOST = `--port ${PORT} --strictPort --host 127.0.0.1`;
 
 export default defineConfig({
   testDir: './tests/e2e',
+  // The live specs need a running API: playwright.live.config.ts (npm run test:e2e:live).
+  testIgnore: ['**/live/**'],
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
   retries: 0,

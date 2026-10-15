@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { MockIndex } from '@/api/adapters/mockRouter';
 
-export const EXAMPLES_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../contract-pin/examples/api');
+export const EXAMPLES_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../contracts/examples/api');
 
 export function readExample<T = unknown>(file: string): T {
   return JSON.parse(readFileSync(path.join(EXAMPLES_DIR, file), 'utf8')) as T;

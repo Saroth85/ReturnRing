@@ -100,7 +100,11 @@ export function ReviewDateChip({ reviewAt }: { reviewAt: string | null }) {
 }
 
 /** The customer's floor, first in every decision (rules 3 and 4, docs/ui-design.md 5.3). */
-export function RefundFloorNotice({ refundDueBy, path }: { refundDueBy: string; path: PathId }) {
+/**
+ * The legal floor of the case: the refund deadline of a withdrawal, or the free remedy of the
+ * guarantee path, which states no refund deadline (rule 4: refund_due_by is null there).
+ */
+export function RefundFloorNotice({ refundDueBy, path }: { refundDueBy: string | null; path: PathId }) {
   if (path === 'guarantee') {
     return (
       <p data-refund-floor="guarantee" className="flex items-center gap-2 text-body text-ink-1">
@@ -113,7 +117,12 @@ export function RefundFloorNotice({ refundDueBy, path }: { refundDueBy: string; 
   }
   return (
     <p data-refund-floor="withdrawal" className="text-body text-ink-1">
-      {DECISION.refundDueBy} <DateText value={refundDueBy} className="font-medium" /> · {DECISION.withdrawalIntact}
+      {refundDueBy && (
+        <>
+          {DECISION.refundDueBy} <DateText value={refundDueBy} className="font-medium" /> ·{' '}
+        </>
+      )}
+      {DECISION.withdrawalIntact}
     </p>
   );
 }

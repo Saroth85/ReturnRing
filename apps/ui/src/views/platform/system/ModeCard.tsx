@@ -5,16 +5,66 @@
 import clsx from 'clsx';
 import { CircleCheck, CircleMinus, OctagonAlert } from 'lucide-react';
 import { API_MODE } from '@/api/adapters';
+import { frozenAtSnapshot, useDemoClock } from '@/api/clock';
 import { useApiMeta } from '@/api/meta';
 import type { ReadyzResponse } from '@/api/models';
 import { useHealthz, useReadyz } from '@/api/queries';
 import { ErrorState, LoadingBlock } from '@/components/feedback';
-import { IdText } from '@/components/provenance';
+import { DateText, IdText } from '@/components/provenance';
 import { Fact, Panel } from '../shared/layout';
 import { SYSTEM } from './copy';
 import { headerAgreement, readinessTone, type ReadinessTone } from './readiness';
 
 const s = SYSTEM;
+
+/**
+ * The service's clock (/readyz `clock`, ADR-15 sections 15, 19, 20 and 21): its kind, its 'now'
+ * (a running demo clock advanced from the moment /readyz answered, a frozen or fixed one still; a
+ * frozen one at the snapshot instant or at the latest act recorded after it), the snapshot
+ * instant, the wall time of the reset and the API's note verbatim.
+ */
+function ClockFact({ example }: { example: (text: string) => string }) {
+  const clock = useDemoClock();
+  const c = clock.clock;
+  if (!c || !clock.now) return null;
+  const frozenState = frozenAtSnapshot(c) ? s.clockFrozen : s.clockFrozenAfterActs;
+  return (
+    <Fact label={s.clock} className="sm:col-span-2">
+      <span className="flex flex-col gap-0.5" data-clock={c.kind} data-clock-frozen={c.frozen ? 'yes' : 'no'}>
+        <span className="flex flex-wrap items-center gap-x-1">
+          <span className="font-medium">{example(s.clockKind[c.kind])}</span>
+          <span>·</span>
+          <span className={c.frozen ? 'font-medium text-ink-1' : 'text-ink-2'} data-clock-state>
+            {c.frozen ? frozenState : clock.running ? s.clockRunning : s.clockStill}
+          </span>
+          <span>·</span>
+          <span>
+            {s.clockNow} <DateText value={clock.now.toISOString()} />
+          </span>
+          {c.snapshot_as_of && (
+            <>
+              <span>·</span>
+              <span>
+                {s.clockSnapshot} <DateText value={c.snapshot_as_of} />
+              </span>
+            </>
+          )}
+          {c.started_at && (
+            <>
+              <span>·</span>
+              <span>
+                {s.clockStarted} <DateText value={c.started_at} /> ({s.wallTime})
+              </span>
+            </>
+          )}
+        </span>
+        <span className="text-caption text-ink-3" data-verbatim>
+          {c.note}
+        </span>
+      </span>
+    </Fact>
+  );
+}
 
 const TONE_ICON = { ok: CircleCheck, off: CircleMinus, fail: OctagonAlert } as const;
 const TONE_CLASS: Record<ReadinessTone, string> = { ok: 'text-ok-fg', off: 'text-ink-3', fail: 'text-danger-fg' };
@@ -108,7 +158,16 @@ export function ModeCard() {
               <span data-constant>{example(s.llmModes[r.llm_mode] ?? r.llm_mode)}</span>
             </Fact>
             <Fact label={s.device}>{example(s.devices[r.device] ?? r.device)}</Fact>
-            <Fact label={s.label}>{r.label ? <span data-constant>{r.label}</span> : <span className="text-ink-3">{s.noLabel}</span>}</Fact>
+            {/* The cached label is readyz.label alone (MI300X or rehearsal, ADR-15 sections 16, 17). */}
+            <Fact label={s.label}>
+              {r.label ? (
+                <span data-constant data-cached-label>
+                  {r.label}
+                </span>
+              ) : (
+                <span className="text-ink-3">{r.mode === 'cached' ? s.noLabelCached : s.noLabel}</span>
+              )}
+            </Fact>
             <Fact label={s.header}>
               <span className="flex flex-wrap items-center gap-x-1" data-header-agreement={agreement}>
                 <span className="font-mono text-dense">X-ReturnRing-Mode: {meta.lastMode ?? '—'}</span>
@@ -121,6 +180,7 @@ export function ModeCard() {
               </span>
             </Fact>
             <Fact label={s.dataSource}>{s.dataSources[API_MODE]}</Fact>
+            <ClockFact example={example} />
           </>
         )}
       </dl>

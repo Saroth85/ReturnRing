@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import timedelta
+import os
+import time
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -195,6 +197,26 @@ def test_a_failed_sample_is_kept_with_its_error(api: Api, tmp_path: Path) -> Non
     body = api.client.get("/api/telemetry").json()
     validate_body("telemetry", body)
     assert body["gpu"] is None and body["gpu_history"] == []
+
+
+def test_an_amd_smi_file_the_writer_stopped_updating_is_not_a_sample(
+    api: Api, tmp_path: Path
+) -> None:
+    """The telemetry container rewrites the file every 5 s into a volume that survives a
+    reboot. A file older than SOURCE_MAX_AGE_S is a reading of the past: the sampler stores an
+    error, never a sample stamped now (rule 11), and the GPU check stays unavailable."""
+    source = tmp_path / "amd-smi.json"
+    source.write_text(AMD_SMI, encoding="utf-8")
+    readings, error = tm.read_source(tm.AMD_SMI, source)
+    assert len(readings) == 1 and error is None
+    old = time.time() - tm.SOURCE_MAX_AGE_S - 1
+    os.utime(source, (old, old))
+    readings, error = tm.read_source(tm.AMD_SMI, source)
+    assert readings == [] and error is not None and "not updated" in error
+    assert asyncio.run(tm.sample_loop(sqlite_url(api.database), source_file=source, count=1)) == 1
+    gpu = settings_for(api.settings.serving_dir, api.database, device="gpu")
+    check = api.run(lambda conn: tm.component_check(conn, gpu, datetime.now(UTC)))  # wall time
+    assert check.status == "unavailable"
 
 
 def test_vllm_generations_give_the_llm_stats(api: Api) -> None:

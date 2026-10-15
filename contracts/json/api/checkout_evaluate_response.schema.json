@@ -46,7 +46,7 @@
     },
     "CouponBlock": {
       "additionalProperties": false,
-      "description": "Why coupons are off for this customer: a confirmed cluster rule application in force\n(US-402), shown only before its review date (US-607). The text is the fixed, neutral text\nof llm.phrasebook (the wording of the transparency notice): it never names the linked\naccounts or the cluster to the customer (rule 11, round 4, E25).",
+      "description": "Why coupons are off for this customer: a confirmed cluster rule application in force\n(US-402), shown only before its review date (US-607). The text is a fixed, neutral text of\nllm.phrasebook that never names the linked accounts or the cluster to the customer (rule 11,\nround 4, E25): COUPON_BLOCK (the wording of the transparency notice, \"your previous\nreturns\") for the customer of the case whose decision blocks the cluster, and for every\nother account the text that gives no cause, with the review date (1.7.0).",
       "properties": {
         "rule_version": {
           "maxLength": 64,

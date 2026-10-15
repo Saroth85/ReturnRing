@@ -59,7 +59,7 @@ function RecordBody({ record, returnId }: { record: DecisionRecord; returnId: st
         <StateBadge decision={d} />
         {!d.superseded_by && <RestrictionBadge decision={d} />}
       </p>
-      <ProvenanceScope provenance={record.provenance} covers="the inputs given to the engine (risk, value, thresholds)">
+      <ProvenanceScope provenance={inputs.provenance} covers="the inputs given to the engine (risk, value, thresholds)">
         <section className="flex flex-col gap-2">
           <h3 className="text-title">{t.inputs}</h3>
           <dl className="grid grid-cols-[minmax(8rem,auto)_1fr] gap-x-3 gap-y-1 text-dense">
@@ -82,6 +82,12 @@ function RecordBody({ record, returnId }: { record: DecisionRecord; returnId: st
             <Row label={t.baseTerms}>
               <TermsLine terms={inputs.base_terms} />
             </Row>
+            {/* The days the engine's inputs were measured (rule 11): the customer snapshot it read, and
+                the day the risk was scored (null exactly when there is no risk: the guarantee path). */}
+            <Row label={t.snapshotOn}>
+              <DateText value={inputs.snapshot_on} />
+            </Row>
+            <Row label={t.scoredOn}>{inputs.scored_on ? <DateText value={inputs.scored_on} /> : t.notScored}</Row>
             <Row label={t.risk}>
               {inputs.risk === null ? t.notScored : <PlainNumber value={inputs.risk} unit="probability" />}
               <span className="text-ink-3">
@@ -116,9 +122,12 @@ function RecordBody({ record, returnId }: { record: DecisionRecord; returnId: st
               {proposalNeedsApproval(d, inputs.base_terms) ? t.proposalApprovalYes : t.no}
             </span>
           </Row>
-          <Row label={t.refundBy}>
-            <DateText value={d.refund_due_by} />
-          </Row>
+          {/* No refund deadline on the guarantee path (rule 4): refund_due_by is null there. */}
+          {d.refund_due_by && (
+            <Row label={t.refundBy}>
+              <DateText value={d.refund_due_by} />
+            </Row>
+          )}
         </dl>
       </section>
       <section className="flex flex-col gap-2">

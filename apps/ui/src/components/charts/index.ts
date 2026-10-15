@@ -3,6 +3,6 @@ export { ChartFrame, type ChartTable } from './ChartFrame';
 export { CHARTS } from './copy';
 export { DotPlot, type DotPlotRow } from './DotPlot';
 export { Sparkline } from './Sparkline';
-export { firstWeekAfter, type TrendWeek } from './trend';
+export { firstWeekAfter, weekTickIndices, WEEK_LABEL_PX, type TrendWeek } from './trend';
 export { useWidth } from './useWidth';
 export { WeeklyTrendChart } from './WeeklyTrendChart';

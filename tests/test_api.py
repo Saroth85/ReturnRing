@@ -3,6 +3,7 @@ error path, role checks, the 501 stubs of the three route groups, /healthz and /
 
 from __future__ import annotations
 
+import json
 import shutil
 from collections import Counter
 from pathlib import Path
@@ -182,12 +183,24 @@ def test_readyz_live(empty_api: Api) -> None:
 def test_readyz_cached_carries_its_label_and_needs_the_cache(
     serving: Any, serving_dir: Path, tmp_path: Path
 ) -> None:
-    """The cached label is shown while the precomputed outputs are there (1.5.0, H6)."""
+    """The cached label is shown while the precomputed outputs are there (1.5.0, H6); the MI300X
+    one when the package's MANIFEST.json says so and names the drafts' model (1.5.1, 1.5.2;
+    tests/test_api_public_demo.py)."""
     copy = tmp_path / "serving"
     shutil.copytree(serving_dir, copy)
-    (copy / "llm_cache").mkdir(exist_ok=True)
-    (copy / "llm_cache" / "entry.json").write_text("{}", encoding="utf-8")
     settings = settings_for(copy, tmp_path / "none.sqlite", demo_mode="cached")
+    (copy / "llm_cache").mkdir(exist_ok=True)
+    entry = {"model": settings.gemma_model}
+    (copy / "llm_cache" / "entry.json").write_text(json.dumps(entry), encoding="utf-8")
+    manifest = {
+        "format": "returnring.demo_export.v1",
+        "llm_cache": {
+            "rehearsal": False,
+            "generated_on": "AMD Instinct MI300X",
+            "gemma_model": settings.gemma_model,
+        },
+    }
+    (tmp_path / "MANIFEST.json").write_text(json.dumps(manifest), encoding="utf-8")
     for api in open_api(serving, settings, tmp_path / "none.sqlite"):
         response = api.client.get("/readyz")
         body = response.json()

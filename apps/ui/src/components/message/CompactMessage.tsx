@@ -5,10 +5,10 @@ import { TemplateField } from './TemplateField';
 /**
  * A customer message in a small space (the confirm popover, docs/ui-design.md 6.3.1) with its three
  * layers kept (rule 10): the box scrolls instead of cutting the text, so no template field and no
- * part of the fixed legal clause is ever dropped (UI15). Unverified layers show the stored text.
+ * part of the fixed legal clause is ever dropped (UI15). Unverified layers show the text plain.
  */
-export function CompactMessage({ message, stored }: { message: MessageSource; stored: string }) {
-  const layers = toMessageSegments(message, stored);
+export function CompactMessage({ message }: { message: MessageSource }) {
+  const layers = toMessageSegments(message);
   return (
     <div className="max-h-48 overflow-y-auto rounded-control bg-surface-2 px-2 py-1 text-caption text-ink-1" data-compact-message data-verbatim>
       {layers.verified ? (

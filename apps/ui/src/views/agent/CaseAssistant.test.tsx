@@ -1,12 +1,14 @@
 // The case assistant over the mock adapter (contract examples, SSE frames without delay in tests):
 // suggested questions, streamed steps, the answer with the evidence consulted and missing side by
 // side, cited refs that focus the case card, the tool-call count through Figure, a neutral
-// refusal, and every failure state (503, error event, 429, 403, cached mode). US-701, US-702.
+// refusal, and every failure state (503, error event, 429 with Retry-After, 403, the cached demo
+// up front). The link question is built from the case card's own links. US-701, US-702.
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { useState } from 'react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api } from '@/api/client';
+import { ApiError } from '@/api/errors';
 import { resetModesSeen } from '@/api/meta';
 import type { AgentEvent, EntityRef } from '@/api/models';
 import { setScenario } from '@/api/scenario';
@@ -18,7 +20,10 @@ import { CaseAssistant } from './CaseAssistant';
 import { AGENT } from './copy';
 
 const RET = 'RET-000102';
-const [LINK_Q, ROSSI_Q, TERMS_Q] = AGENT.suggested as [string, string, string];
+// Marco's card: the strongest active link of C-MARCO-1 is C-MARCO-1~C-MARCO-3 (card, device, address).
+const LINK_Q = AGENT.suggested.link('C-MARCO-1', 'C-MARCO-3');
+const ROSSI_Q = AGENT.suggested.rossi;
+const TERMS_Q = AGENT.suggested.terms;
 
 afterEach(() => {
   act(() => {
@@ -44,10 +49,13 @@ function expectCleanScan(root: Element) {
 }
 
 describe('CaseAssistant drawer', () => {
-  it('opens read-only with the three suggested questions and the step limit', () => {
+  it('opens read-only with the three suggested questions and the step limit', async () => {
     const { dialog } = renderAssistant();
     expect(dialog).toHaveTextContent('It can read the case; it cannot change it.');
-    expect(dialog).toHaveTextContent('(Gemma 4)');
+    // On the mock adapter the answers are contract examples: no model is named (./model.ts).
+    expect(dialog.querySelector('[data-assistant-model]')).toHaveTextContent('(contract examples)');
+    expect(dialog).not.toHaveTextContent('Gemma');
+    await within(dialog).findByRole('button', { name: LINK_Q });
     const suggested = within(dialog).getAllByRole('button').filter((b) => b.hasAttribute('data-suggested'));
     expect(suggested.map((b) => b.textContent)).toEqual([LINK_Q, ROSSI_Q, TERMS_Q]);
     expect(dialog).toHaveTextContent('Read-only: 5 tools, at most 5 steps. Answers cannot change the decision.');
@@ -57,7 +65,7 @@ describe('CaseAssistant drawer', () => {
 
   it('streams the steps, then the answer with the evidence consulted and missing side by side', async () => {
     const { dialog } = renderAssistant();
-    await userEvent.click(within(dialog).getByRole('button', { name: LINK_Q }));
+    await userEvent.click(await within(dialog).findByRole('button', { name: LINK_Q }));
     await settled();
     expect(panel().dataset.agentStream).toBe('done');
 
@@ -88,7 +96,7 @@ describe('CaseAssistant drawer', () => {
 
   it('shows the tool-call count through Figure, with its contract-example provenance', async () => {
     const { dialog } = renderAssistant();
-    await userEvent.click(within(dialog).getByRole('button', { name: LINK_Q }));
+    await userEvent.click(await within(dialog).findByRole('button', { name: LINK_Q }));
     await settled();
     const count = dialog.querySelector('[data-tool-calls]') as HTMLElement;
     expect(count).toHaveTextContent(/Tool calls\s*2/);
@@ -102,7 +110,7 @@ describe('CaseAssistant drawer', () => {
     const onRefSelect = vi.fn();
     const { dialog, onOpenChange } = renderAssistant({ onRefSelect });
     vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: false } as MediaQueryList);
-    await userEvent.click(within(dialog).getByRole('button', { name: LINK_Q }));
+    await userEvent.click(await within(dialog).findByRole('button', { name: LINK_Q }));
     await settled();
     const chip = within(dialog.querySelector('[data-evidence="consulted"]') as HTMLElement).getByRole('link', {
       name: 'Show link C-MARCO-1~C-MARCO-3 on the case card',
@@ -125,7 +133,7 @@ describe('CaseAssistant drawer', () => {
 
   it('keeps earlier questions above the latest (session history)', async () => {
     const { dialog } = renderAssistant();
-    await userEvent.click(within(dialog).getByRole('button', { name: LINK_Q }));
+    await userEvent.click(await within(dialog).findByRole('button', { name: LINK_Q }));
     await settled();
     // After the first question the suggestions fold behind a disclosure, leaving the answer room (UI34).
     const disclosure = within(dialog).getByRole('button', { name: 'Suggested questions' });
@@ -137,7 +145,7 @@ describe('CaseAssistant drawer', () => {
     expect(turns).toHaveLength(2);
     expect(turns[0]).toHaveTextContent(LINK_Q);
     expect(turns[1]).toHaveTextContent(ROSSI_Q);
-    expect(turns[1]).toHaveTextContent('The Rossi family shares an address and a device');
+    expect(turns[1]).toHaveTextContent('shares an address and a device');
     expect(turns[1]).toHaveTextContent('None listed by the assistant.');
   });
 
@@ -146,7 +154,7 @@ describe('CaseAssistant drawer', () => {
       (query: string) => ({ matches: query === '(max-width: 639px)', addEventListener() {}, removeEventListener() {} }) as unknown as MediaQueryList,
     );
     const { dialog } = renderAssistant();
-    await userEvent.click(within(dialog).getByRole('button', { name: LINK_Q }));
+    await userEvent.click(await within(dialog).findByRole('button', { name: LINK_Q }));
     await settled();
     const disclosure = within(dialog).getByRole('button', { name: 'Suggested questions' });
     expect(disclosure).toHaveAttribute('aria-expanded', 'false');
@@ -176,6 +184,9 @@ describe('CaseAssistant drawer', () => {
     expect(refusal).toHaveTextContent('The assistant only reads the case.');
     expect(refusal).toHaveTextContent('Approvals and changes are made on the case card.');
     expect(refusal.querySelector('[data-generated]')).toHaveTextContent('I can only read the case.');
+    // fallback_reason write_request: code refused it before any model call (ADR-15 section 15).
+    expect(refusal.querySelector('[data-refused-by-code]')).toHaveTextContent('Refused by code before any model call');
+    expect(refusal).toHaveTextContent('0 model calls');
     // Neutral: no alert role, no danger or attention styling.
     expect(within(dialog).queryByRole('alert')).toBeNull();
     expect(refusal.className).not.toMatch(/danger|attn/);
@@ -191,9 +202,12 @@ describe('CaseAssistant drawer', () => {
   });
 
   it('503 llm_unavailable: the model is unavailable, the decision is unaffected, with the request id', async () => {
-    act(() => setScenario('llm_unavailable'));
+    vi.spyOn(api, 'askAgent').mockImplementation(async function* () {
+      yield* [];
+      throw new ApiError({ status: 503, code: 'llm_unavailable', message: 'The language model is off', requestId: 'mock-req-test' });
+    });
     const { dialog } = renderAssistant();
-    await userEvent.click(within(dialog).getByRole('button', { name: LINK_Q }));
+    await userEvent.click(await within(dialog).findByRole('button', { name: LINK_Q }));
     await settled();
     expect(panel().dataset.agentStream).toBe('error');
     expect(dialog).toHaveTextContent('The language model is unavailable.');
@@ -206,53 +220,49 @@ describe('CaseAssistant drawer', () => {
   it('an error event in the stream shows the same notice', async () => {
     act(() => setScenario('agent_error'));
     const { dialog } = renderAssistant();
-    await userEvent.click(within(dialog).getByRole('button', { name: LINK_Q }));
+    await userEvent.click(await within(dialog).findByRole('button', { name: LINK_Q }));
     await settled();
     expect(dialog.querySelector('[data-agent-problem="llm_unavailable"]')).not.toBeNull();
     expect(dialog).toHaveTextContent('UI fixture: the language model stopped answering');
     expect(dialog.querySelector('[data-agent-issues]')).toBeNull();
   });
 
-  it('429 rate_limited: questions wait, with the copy', async () => {
+  it('429 rate_limited: questions wait the seconds of Retry-After, counted down on screen', async () => {
     act(() => setScenario('rate_limited'));
     const { dialog } = renderAssistant();
-    await userEvent.click(within(dialog).getByRole('button', { name: LINK_Q }));
+    await userEvent.click(await within(dialog).findByRole('button', { name: LINK_Q }));
     await settled();
-    expect(dialog.querySelector('[data-agent-problem="rate_limited"]')).toHaveTextContent('Too many questions in a short time. Try again in a few seconds.');
+    const problem = dialog.querySelector('[data-agent-problem="rate_limited"]') as HTMLElement;
+    expect(problem).toHaveTextContent('Too many questions in a short time.');
+    // The mock's 429 carries Retry-After from the message ("in a minute": 60 s).
+    expect(problem.querySelector('[data-retry-after]')).toHaveAttribute('data-retry-after', '60');
+    expect(problem).toHaveTextContent('The service asks to wait 60 s before the next question.');
+    expect(dialog.querySelector('[data-cooldown]')).toHaveTextContent(/New questions resume in (60|59) s\./);
     expect(within(dialog).getByRole('textbox')).toBeDisabled();
     await userEvent.click(within(dialog).getByRole('button', { name: 'Suggested questions' }));
     expect(within(dialog).getByRole('button', { name: ROSSI_Q })).toBeDisabled();
+    expectCleanScan(document.body);
   });
 
   it('403 forbidden_role: says why and offers the other personas', async () => {
-    act(() => setScenario('forbidden_role'));
+    vi.spyOn(api, 'askAgent').mockImplementation(async function* () {
+      yield* [];
+      throw new ApiError({ status: 403, code: 'forbidden_role', message: 'sara (operator) cannot ask', requestId: 'req-test' });
+    });
     const { dialog } = renderAssistant();
-    await userEvent.click(within(dialog).getByRole('button', { name: LINK_Q }));
+    await userEvent.click(await within(dialog).findByRole('button', { name: LINK_Q }));
     await settled();
     expect(dialog.querySelector('[data-agent-problem="forbidden_role"]')).toHaveTextContent("can't ask the case assistant");
   });
 
-  it('a warehouse persona cannot ask: disabled with the reason', () => {
+  it('a warehouse persona cannot ask: disabled with the reason', async () => {
     act(() => setPersona('ahmed'));
     const { dialog } = renderAssistant();
     expect(within(dialog).getByRole('textbox')).toBeDisabled();
-    expect(within(dialog).getByRole('button', { name: LINK_Q })).toBeDisabled();
+    expect(await within(dialog).findByRole('button', { name: LINK_Q })).toBeDisabled();
     expect(dialog).toHaveTextContent('This action is for operators and managers (warehouse can view).');
   });
 
-  it('cached mode: only the suggested questions, with the reason', async () => {
-    act(() => setScenario('cached'));
-    await api.readyz();
-    const { dialog } = renderAssistant();
-    await waitFor(() => expect(within(dialog).getByRole('textbox')).toBeDisabled());
-    expect(dialog.querySelector('[data-cached-note]')).toHaveTextContent(
-      'Free questions need the live model; these answers were precomputed on the MI300X.',
-    );
-    await userEvent.click(within(dialog).getByRole('button', { name: ROSSI_Q }));
-    await settled();
-    expect(dialog.querySelector('[data-generated]')).toHaveTextContent('The Rossi family');
-    expectCleanScan(document.body);
-  });
 });
 
 describe('CaseAssistant stream control', () => {
@@ -280,7 +290,7 @@ describe('CaseAssistant stream control', () => {
       );
     }
     renderWithProviders(<Host />);
-    await userEvent.click(screen.getByRole('button', { name: LINK_Q }));
+    await userEvent.click(await screen.findByRole('button', { name: LINK_Q }));
     await waitFor(() => expect(document.querySelector('[data-step-status="running"]')).not.toBeNull());
     await userEvent.click(screen.getByRole('button', { name: 'Close' }));
     expect(screen.queryByRole('dialog')).toBeNull();
@@ -293,7 +303,7 @@ describe('CaseAssistant stream control', () => {
   it('Stop cancels the answer being streamed', async () => {
     hangingStream();
     renderAssistant();
-    await userEvent.click(screen.getByRole('button', { name: LINK_Q }));
+    await userEvent.click(await screen.findByRole('button', { name: LINK_Q }));
     await userEvent.click(await screen.findByRole('button', { name: 'Stop' }));
     await waitFor(() => expect(panel().dataset.agentStream).toBe('stopped'));
     expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull();
@@ -309,7 +319,7 @@ describe('CaseAssistant stream control', () => {
       yield done;
     });
     const { dialog } = renderAssistant();
-    await userEvent.click(within(dialog).getByRole('button', { name: LINK_Q }));
+    await userEvent.click(await within(dialog).findByRole('button', { name: LINK_Q }));
     await settled();
     const refusal = dialog.querySelector(`[data-agent-refusal="${reason}"]`) as HTMLElement;
     expect(refusal).toHaveTextContent(title);
@@ -326,7 +336,7 @@ describe('CaseAssistant stream control', () => {
       yield* events;
     });
     const { dialog } = renderAssistant();
-    await userEvent.click(within(dialog).getByRole('button', { name: LINK_Q }));
+    await userEvent.click(await within(dialog).findByRole('button', { name: LINK_Q }));
     await settled();
     const failed = dialog.querySelector('[data-step-status="failed"]') as HTMLElement;
     expect(failed).toHaveTextContent('Failed');
@@ -339,7 +349,7 @@ describe('CaseAssistant stream control', () => {
       yield* events;
     });
     const { dialog } = renderAssistant();
-    await userEvent.click(within(dialog).getByRole('button', { name: LINK_Q }));
+    await userEvent.click(await within(dialog).findByRole('button', { name: LINK_Q }));
     await settled();
     const issues = dialog.querySelector('[data-agent-issues]') as HTMLElement;
     expect(issues).toHaveAttribute('data-agent-issues', 'steps_used_mismatch');
@@ -349,10 +359,19 @@ describe('CaseAssistant stream control', () => {
 });
 
 describe('agent harness /dev/agent', () => {
+  it('without ?return= opens the demo Marco case by its id from the demo cases', async () => {
+    renderApp('/dev/agent');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Agent harness' })).toBeInTheDocument();
+    // demo_cases.json names RET-000102 for marco.
+    expect(await screen.findByRole('heading', { level: 2, name: /Ask about RET-000102/ })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: LINK_Q })).toBeEnabled();
+  });
+
+
   it('renders the panel as a page and logs the refs it asks the case card to focus', async () => {
     renderApp('/dev/agent?return=RET-000102');
     expect(await screen.findByRole('heading', { level: 1, name: 'Agent harness' })).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: LINK_Q }));
+    await userEvent.click(await screen.findByRole('button', { name: LINK_Q }));
     await settled();
     const chip = screen.getAllByRole('link', { name: 'Show cluster CL-000417 on the case card' })[0] as HTMLElement;
     fireEvent.click(chip, { button: 0 });
@@ -360,6 +379,30 @@ describe('agent harness /dev/agent', () => {
     expect(log).toHaveTextContent('CL-000417');
     expect(within(log).getByRole('link', { name: 'Open on the case card' })).toHaveAttribute('href', '/returns/RET-000102?focus=linked');
     expect(document.querySelector('[data-agent-events]')?.querySelectorAll('li')).toHaveLength(11);
+    expectCleanScan(document.body);
+  });
+});
+
+// Last in the file: answers of the cached scenario still in flight when it ends would mark the
+// mode store cached for the next test (the mode is a module-level store).
+describe('CaseAssistant in the cached demo', () => {
+  it('the cached demo: the assistant is unavailable up front (the agent answers 503), no question is sent', async () => {
+    act(() => setScenario('cached'));
+    const ask = vi.spyOn(api, 'askAgent');
+    const { dialog } = renderAssistant();
+    await waitFor(() => expect(dialog.querySelector('[data-agent-unavailable="cached"]')).not.toBeNull());
+    // The card has loaded (its link question is there): no cached answer is still in flight to
+    // mark the next test's responses as cached.
+    expect(await within(dialog).findByRole('button', { name: LINK_Q })).toBeDisabled();
+    expect(dialog.querySelector('[data-agent-unavailable]')).toHaveTextContent('Unavailable in the cached demo');
+    expect(within(dialog).getByRole('textbox')).toBeDisabled();
+    const suggested = within(dialog).getAllByRole('button').filter((b) => b.hasAttribute('data-suggested'));
+    expect(suggested.length).toBeGreaterThan(0);
+    for (const button of suggested) expect(button).toBeDisabled();
+    expect(dialog.querySelector('[data-cached-note]')).toHaveTextContent('The case assistant needs the live model, which is off in the cached demo.');
+    expect(dialog).not.toHaveTextContent('MI300X');
+    fireEvent.click(suggested[0] as HTMLElement);
+    expect(ask).not.toHaveBeenCalled();
     expectCleanScan(document.body);
   });
 });

@@ -12,14 +12,14 @@ import { useUpdateAssumptions } from '@/api/mutations';
 import { useAssumptions, useMatrix } from '@/api/queries';
 import { usePersona } from '@/app/persona';
 import { AssumptionLabel, ECONOMICS, Waterfall } from '@/components/economics';
-import { ErrorState, ForbiddenRoleNotice, InlineNotice, RoleGate } from '@/components/feedback';
+import { ErrorState, InlineNotice, RoleGate } from '@/components/feedback';
 import { DateText, Figure, NatureMark } from '@/components/provenance';
 import { Button } from '@/components/ui';
 import { SENSITIVITY_IDS, type InputKey, type SensitivityId } from '@/sim';
 import { MIN_REASON_CHARS } from '@/components/records';
 import { MANAGER } from '../copy';
 import type { AssumptionVersion } from '../types';
-import { Card, Loadable, ManagerPage } from '../ui';
+import { Card, Loadable, ManagerPage, WriteError } from '../ui';
 import { AssumptionForm } from './AssumptionForm';
 import { draftOf, inputsFromDraft, isDirty, nextVersionLabel, scenarioViews, updateBody, type Draft } from './model';
 import { ThresholdSandbox } from './ThresholdSandbox';
@@ -74,8 +74,8 @@ function SaveVersion({ draft, version, dirty, onSaved }: { draft: Draft; version
         )}
       </RoleGate>
       {error &&
-        (isApiError(error) && error.code === 'forbidden_role' ? (
-          <ForbiddenRoleNotice role={persona.role} action={S.form.saveAction} />
+        (isApiError(error) && error.status === 403 ? (
+          <WriteError error={error} action={S.form.saveAction} endpoint="PUT /api/simulator/assumptions" />
         ) : conflict ? (
           <InlineNotice tone="attention">
             <p>

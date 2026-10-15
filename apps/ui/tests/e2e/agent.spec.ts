@@ -1,8 +1,10 @@
 // Agent area (US-701, US-702; docs/ui-design.md 7) in mock mode: the case assistant drawer on
 // Marco's card and the /dev/agent harness, at 1440 x 900 and 390 x 844. Streaming over the mock
 // SSE (60 ms between frames), evidence consulted and missing side by side, cited refs as links
-// that focus the case card, the tool-call count with provenance, a neutral refusal, 503, 429 and
-// cached mode. Every state is scanned for numbers without provenance and for banned wording.
+// that focus the case card, the tool-call count with provenance, a neutral refusal refused by
+// code, the model unavailable, 429 with its Retry-After, and the cached demo (the agent answers
+// 503, so it is unavailable up front). Every state is scanned for numbers without provenance and
+// for banned wording.
 // SCREENSHOT_DIR=<dir> saves one screenshot per state and viewport.
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
@@ -186,7 +188,7 @@ for (const viewport of VIEWPORTS) {
       const turns = page.locator('article[data-turn="done"]');
       await expect(turns).toHaveCount(3);
       await expect(turns.nth(0)).toContainText(LINK_Q);
-      await expect(turns.nth(1)).toContainText('The Rossi family shares an address and a device');
+      await expect(turns.nth(1)).toContainText('The Rossi family (cluster CL-000233) shares an address and a device');
       await expect(turns.nth(2)).toContainText('the proposed terms apply only to future orders');
       await expect(page.locator('[data-agent-issues]')).toHaveCount(0);
       // The harness logs what the case card would focus.
@@ -209,6 +211,9 @@ for (const viewport of VIEWPORTS) {
       const refusal = drawer.locator('[data-agent-refusal="write_request"]');
       await expect(refusal).toContainText('The assistant only reads the case.');
       await expect(refusal).toContainText('I can only read the case.');
+      // Code refused it before any model call (fallback_reason write_request).
+      await expect(refusal.locator('[data-refused-by-code]')).toHaveText('Refused by code before any model call');
+      await expect(refusal).toContainText('0 model calls');
       await expect(drawer.getByRole('alert')).toHaveCount(0);
       await shot(page, viewport.name, 'drawer-refusal');
       await expectClean(page);
@@ -221,34 +226,44 @@ for (const viewport of VIEWPORTS) {
       await expect(rail).toBeInViewport();
     });
 
-    test('503: the language model is unavailable and the decision is unaffected', async ({ page }) => {
-      const drawer = await openDrawer(page, 'llm_unavailable');
+    test('the language model stops answering: unavailable, the decision is unaffected', async ({ page }) => {
+      const drawer = await openDrawer(page, 'agent_error');
       await askSuggested(drawer, LINK_Q);
-      await expect(drawer).toContainText('The language model is unavailable.');
+      await expect(drawer.locator('[data-agent-problem="llm_unavailable"]')).toContainText('The language model is unavailable.');
       await expect(drawer).toContainText('The decision is unaffected');
-      await expect(drawer.locator('[data-request-id]')).toContainText(/mock-req-\d+/);
-      await expect(page.locator('[data-llm-status="unavailable"]')).toBeVisible();
+      await expect(drawer).toContainText('UI fixture: the language model stopped answering');
       await shot(page, viewport.name, 'drawer-llm-unavailable');
       await expectClean(page);
     });
 
-    test('429: new questions wait a few seconds', async ({ page }) => {
+    test('429: new questions wait the seconds of Retry-After, counted down', async ({ page }) => {
+      await page.clock.install();
       const drawer = await openDrawer(page, 'rate_limited');
       await askSuggested(drawer, LINK_Q);
-      await expect(drawer.locator('[data-agent-problem="rate_limited"]')).toContainText('Too many questions in a short time.');
+      const problem = drawer.locator('[data-agent-problem="rate_limited"]');
+      await expect(problem).toContainText('Too many questions in a short time.');
+      // The mock answers 429 with Retry-After: 60 ("try again in a minute").
+      await expect(problem).toContainText('The service asks to wait 60 s before the next question.');
+      await expect(drawer.locator('[data-cooldown]')).toContainText(/New questions resume in \d+ s\./);
       await expect(drawer.getByRole('textbox')).toBeDisabled();
       const next = await suggestedButton(drawer, ROSSI_Q);
       await expect(next).toBeDisabled();
       await shot(page, viewport.name, 'drawer-rate-limited');
-      await expect(next).toBeEnabled({ timeout: 15_000 });
+      await expectClean(page);
+      await page.clock.runFor(61_000);
+      await expect(next).toBeEnabled();
+      await expect(drawer.getByRole('textbox')).toBeEnabled();
     });
 
-    test('cached mode: the suggested questions answer, free text waits for the live model', async ({ page }) => {
+    test('the cached demo: the assistant is unavailable up front, every question off', async ({ page }) => {
       const drawer = await openDrawer(page, 'cached');
+      const unavailable = drawer.locator('[data-agent-unavailable="cached"]');
+      await expect(unavailable).toContainText('Unavailable in the cached demo');
+      await expect(unavailable).toContainText('The case assistant needs the live model, which is off in the cached demo.');
       await expect(drawer.getByRole('textbox')).toBeDisabled();
-      await expect(drawer.locator('[data-cached-note]')).toContainText('Free questions need the live model; these answers were precomputed on the MI300X.');
-      await askSuggested(drawer, ROSSI_Q);
-      await expect(drawer.locator('[data-generated]')).toContainText('The Rossi family');
+      await expect(drawer.getByRole('button', { name: LINK_Q, exact: true })).toBeDisabled();
+      await expect(drawer.getByRole('button', { name: ROSSI_Q, exact: true })).toBeDisabled();
+      await expect(drawer).not.toContainText('MI300X');
       await expect(page.getByRole('region', { name: 'Service mode' })).toContainText('CACHED DEMO');
       await shot(page, viewport.name, 'drawer-cached');
       await expectClean(page);

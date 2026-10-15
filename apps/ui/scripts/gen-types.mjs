@@ -11,7 +11,11 @@
 // noise:
 // - if/then/else rules (the JSON Schema checks a reason for override, the lever value per id):
 //   the API enforces them, and json-schema-to-typescript would turn them into index signatures;
+// - contains/minContains/maxContains (at most one lever per id): same reason, every lever array
+//   would become `{[k: string]: unknown} & ...` and a typed lever list would no longer fit;
 // - property titles that pydantic adds ("Return Id"), which would become one alias per field.
+// minItems/maxItems are ignored (ignoreMinAndMaxItems): arrays are plain `T[]`, not tuple unions,
+// so code must handle the empty case itself; the API still enforces the bounds.
 
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -19,8 +23,9 @@ import { fileURLToPath } from 'node:url';
 import { compile } from 'json-schema-to-typescript';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-// Pinned contract (contract-pin/README.md) until the UI migrates to the API's current contract.
-const CONTRACTS = path.resolve(process.env.RETURNRING_CONTRACTS_DIR || path.resolve(ROOT, 'contract-pin'));
+// RETURNRING_CONTRACTS_DIR points the generator at another checkout's contracts/ (to try a
+// pending contract version before it lands); the default is the repository's own.
+const CONTRACTS = path.resolve(process.env.RETURNRING_CONTRACTS_DIR || path.resolve(ROOT, '../../contracts'));
 const SCHEMA_DIR = path.join(CONTRACTS, 'json/api');
 const OUT = path.join(ROOT, 'src/api/types.gen.ts');
 const check = process.argv.includes('--check');
@@ -40,13 +45,16 @@ function stableStringify(value) {
   return JSON.stringify(value);
 }
 
+/** Keywords TypeScript cannot express; the API enforces them at runtime. */
+const DROPPED_KEYWORDS = new Set(['if', 'then', 'else', 'contains', 'minContains', 'maxContains', '$comment', '$schema']);
+
 /** Removes conditional rules and property-level titles, and points $refs at "definitions". */
 function clean(node, isDefinitionRoot = false) {
   if (Array.isArray(node)) return node.map((item) => clean(item));
   if (!node || typeof node !== 'object') return node;
   const out = {};
   for (const [key, value] of Object.entries(node)) {
-    if (key === 'if' || key === 'then' || key === 'else' || key === '$comment' || key === '$schema') continue;
+    if (DROPPED_KEYWORDS.has(key)) continue;
     if (key === 'title' && !isDefinitionRoot) continue;
     if (key === '$ref' && typeof value === 'string') {
       out.$ref = value.replace('#/$defs/', '#/definitions/');
@@ -111,6 +119,7 @@ async function generate() {
     unreachableDefinitions: true,
     strictIndexSignatures: true,
     enableConstEnums: false,
+    ignoreMinAndMaxItems: true,
     format: true,
     style: { singleQuote: true, printWidth: 110, trailingComma: 'all' },
     cwd: SCHEMA_DIR,

@@ -258,16 +258,18 @@ async def open_task(
     request_id: str | None,
 ) -> s.CatalogTask:
     """POST /api/catalog-tasks: a task from a flagged anomaly, logged (catalog_task_opened).
-    It touches no decision, lever or message (E2E-04)."""
+    It touches no decision, lever or message (E2E-04). The return it names, if any, is any
+    queued return of the anomaly's variant, sold in the anomaly's week or not (the case that led
+    to the task; ADR-15 section 18): 404 outside the queue, 422 for another variant."""
     row = _anomaly_row(serving, body.anomaly_id, at)
     if body.return_id is not None:
         ret = await return_row(conn, body.return_id)
-        if ret is None:  # a store return outside the queue (H14): queued_return_ids lists them
+        if ret is None:  # a store return outside the queue (H14)
             raise ApiError(
                 404,
                 "not_found",
                 f"return {body.return_id} is not in the queue: a catalogue task names a queued "
-                "return of the anomaly (queued_return_ids)",
+                "return of the anomaly's variant (the UI offers queued_return_ids)",
             )
         if ret["variant_id"] != row["variant_id"]:
             raise invalid_request(

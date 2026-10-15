@@ -18,13 +18,23 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-/** Strings only the mock adapter, the mock middleware and the example builder print. */
-export const MARKERS = ['build_api_examples', 'returnring-mock', 'mock: no example file', 'x-mock-example'];
+/**
+ * Strings only the mock adapter, the mock middleware, the example builder and the mock scenario
+ * store (src/api/scenario.ts, dead code unless __MOCK_SCENARIOS__) print.
+ */
+export const MARKERS = [
+  'build_api_examples',
+  'returnring-mock',
+  'mock: no example file',
+  'x-mock-example',
+  'X-Mock-Scenario',
+  'returnring.mockScenario',
+  'unknown mock scenario',
+];
 
 /** Modules that must never reach a production bundle (matched against source map `sources`). */
 export const FORBIDDEN_MODULES = [
   /contracts\/examples\//,
-  /contract-pin\/examples\//,
   /src\/api\/adapters\/mock\.ts$/,
   /src\/api\/adapters\/mockRouter\.ts$/,
   /mock\/returnring-mock\.ts$/,
@@ -124,7 +134,8 @@ export function scanBundle({ dist, examplesDir = null, srcDir = null }) {
 const invokedDirectly = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (invokedDirectly) {
   const dist = path.resolve(ROOT, process.argv[2] ?? 'dist');
-  const examplesDir = path.resolve(ROOT, 'contract-pin/examples/api');
+  const contracts = process.env.RETURNRING_CONTRACTS_DIR || path.resolve(ROOT, '../../contracts');
+  const examplesDir = path.resolve(contracts, 'examples/api');
   const hasExamples = existsSync(examplesDir);
   const found = scanBundle({ dist, examplesDir: hasExamples ? examplesDir : null, srcDir: path.join(ROOT, 'src') });
   if (found.length > 0) {

@@ -36,21 +36,24 @@
       "detail": null
     }
   ],
-  "contract_version": "1.5.0",
+  "contract_version": "1.8.1",
   "rules_version": "policy-2026-10-12",
   "assumptions_version": "assumptions-v1",
   "model_versions": {
     "risk": "risk-xgb-0.1.0",
-    "propensity": "propensity-xgb-0.1.0",
-    "graph": "graph-0.1.0",
+    "risk_customer": "risk-customer-xgb-0.1.0",
+    "checkout": "propensity-xgb-0.1.0",
+    "reference": "reference-xgb-0.1.0",
+    "value": "value-0.1.0",
     "evidence": "evidence-0.1.0",
-    "value": "value-0.1.0"
+    "anomalies": "anomalies-0.1.0"
   },
   "clock": {
     "kind": "demo",
     "now": "2026-09-30T19:00:00Z",
     "snapshot_as_of": "2026-09-30T18:00:00Z",
     "started_at": "2026-10-18T08:00:00Z",
+    "frozen": false,
     "note": "Demo clock: the instant of the serving snapshot plus the time elapsed since the demo reset"
   },
   "public_read_only": false

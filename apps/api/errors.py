@@ -6,7 +6,7 @@ of a body, path or query become 422 invalid_request with their violations; an un
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from typing import Any, Final
 
 from fastapi import FastAPI, Request
@@ -14,7 +14,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from apps.api.schemas import ErrorCode, ErrorResponse, ViolationView
+from apps.api.ratelimit import retry_seconds
+from apps.api.schemas import RETRY_AFTER_HEADER, ErrorCode, ErrorResponse, ViolationView
 from policy.legal_guard import Violation
 
 LOG: Final = logging.getLogger("returnring.api")
@@ -39,12 +40,14 @@ class ApiError(Exception):
         code: ErrorCode,
         message: str,
         violations: Sequence[tuple[str, str]] = (),
+        headers: Mapping[str, str] | None = None,
     ) -> None:
         super().__init__(message)
         self.status = status
         self.code: ErrorCode = code
         self.message = message
         self.violations = list(violations)
+        self.headers = dict(headers or {})  # set on the response (Retry-After of a 429)
 
     def body(self, request_id: str | None) -> ErrorResponse:
         return ErrorResponse(
@@ -88,8 +91,15 @@ def llm_unavailable(message: str) -> ApiError:
     return ApiError(503, "llm_unavailable", message)
 
 
-def rate_limited(message: str) -> ApiError:
-    return ApiError(429, "rate_limited", message)
+def rate_limited(message: str, wait: float) -> ApiError:
+    """429 with Retry-After: the whole seconds to wait (ADR-15 section 16), also in the message."""
+    seconds = retry_seconds(wait)
+    return ApiError(
+        429,
+        "rate_limited",
+        f"{message}: try again in {seconds} s",
+        headers={RETRY_AFTER_HEADER: str(seconds)},
+    )
 
 
 def not_implemented(method: str, path: str) -> ApiError:
@@ -103,7 +113,8 @@ def request_id_of(request: Request) -> str | None:
 
 
 def error_json(error: ApiError, request_id: str | None) -> JSONResponse:
-    return JSONResponse(error.body(request_id).model_dump(mode="json"), status_code=error.status)
+    body = error.body(request_id).model_dump(mode="json")
+    return JSONResponse(body, status_code=error.status, headers=error.headers or None)
 
 
 def _location(loc: Sequence[Any]) -> str:

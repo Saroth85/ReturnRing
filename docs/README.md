@@ -39,3 +39,7 @@
 - `release-guide.md` — the release guide for the ACT III submission (in Italian, for the team):
   the laptop Docker check, the public cached demo server, the MI300X session, the video, the
   lablab fields, what to send back after each step.
+- `amd-runbook.md` — the MI300X runbook for AMD Developer Cloud (in Italian, the detailed companion
+  of `release-guide.md` for the AMD part): droplet creation, `.env`, preflight, the spikes, the
+  GPU session, the drafts and the demo package, the live stack, snapshot and destruction, times,
+  costs, problems and remedies, the values still to provide.

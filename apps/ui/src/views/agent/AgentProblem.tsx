@@ -1,6 +1,7 @@
 // Every way a question can fail, each with an explicit state (docs/ui-design.md P10, 7, 10.1):
 // an `error` event or 503 -> the language model is unavailable, the decision is unaffected;
-// 429 -> wait a few seconds; 403 -> the role cannot ask; others -> the error with its request id.
+// 429 -> wait the seconds of its Retry-After; 403 -> the role cannot ask; others -> the error with
+// its request id.
 // Stream deviations from the contract are listed, never repaired silently.
 import { usePersona } from '@/app/persona';
 import { isApiError } from '@/api/errors';
@@ -83,6 +84,14 @@ export function AgentRequestError({ error, returnId, onRetry }: { error: unknown
         <div className="flex flex-col gap-2" data-agent-problem="rate_limited">
           <InlineNotice tone="attention">
             <p>{AGENT.composer.rateLimited}</p>
+            {error.retryAfterS !== null && (
+              <p data-constant data-retry-after={error.retryAfterS}>
+                {AGENT.composer.retryAfter(error.retryAfterS)}
+              </p>
+            )}
+            <p className="text-caption" data-verbatim>
+              {error.message}
+            </p>
           </InlineNotice>
           <RequestId id={error.requestId} />
         </div>

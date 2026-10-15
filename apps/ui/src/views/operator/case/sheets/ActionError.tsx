@@ -1,11 +1,14 @@
 // What an action's error means for the operator (docs/ui-design.md 6.3, 6.4, 10.1): each code has
 // its own explicit state with the request id (P10). Nothing is ever optimistic: when an action
-// fails, nothing was saved, and the sheet says so.
+// fails, nothing was saved, and the sheet says so. A 409 conflict shows the service's message
+// verbatim (it names the reason: already decided, a stale proposal decided again, a refund past
+// its deadline, a renewal before the review date); the case is loaded again meanwhile
+// (useDecisionAction). A 403 on the read-only public demo says so instead of offering personas.
 import { OctagonAlert } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import { isApiError } from '@/api/errors';
 import { usePersona } from '@/app/persona';
-import { ErrorState, ForbiddenRoleNotice, InlineNotice, LlmUnavailableNotice } from '@/components/feedback';
+import { ErrorState, ForbiddenRoleNotice, InlineNotice, LlmUnavailableNotice, useReadOnly } from '@/components/feedback';
 import { IdText } from '@/components/provenance';
 import { Button } from '@/components/ui';
 import { FEEDBACK } from '@/copy/common';
@@ -47,6 +50,7 @@ export function ActionError(props: ActionErrorProps) {
 
 function ActionErrorBody({ error, onLoadNew, onShowCurrent, onRetry, changes }: ActionErrorProps) {
   const persona = usePersona();
+  const readOnly = useReadOnly();
   const s = OPERATOR.sheets;
   if (!isApiError(error)) return <ErrorState error={error} />;
   switch (error.code) {
@@ -89,14 +93,19 @@ function ActionErrorBody({ error, onLoadNew, onShowCurrent, onRetry, changes }: 
       );
     case 'conflict':
       return (
-        <InlineNotice tone="attention" title={s.conflict.title}>
-          <p>{error.message}</p>
-          <p className="font-medium">{s.nothingSaved}</p>
-          <span className="mt-1 flex flex-wrap items-center gap-2">
-            {onShowCurrent && <Button onClick={onShowCurrent}>{s.conflict.showCurrent}</Button>}
-            <RequestId id={error.requestId} />
-          </span>
-        </InlineNotice>
+        <div data-conflict>
+          <InlineNotice tone="attention" title={s.conflict.title}>
+            <p data-verbatim data-conflict-message>
+              {error.message}
+            </p>
+            <p className="font-medium">{s.nothingSaved}</p>
+            <p className="text-caption text-ink-2">{s.conflict.reloaded}</p>
+            <span className="mt-1 flex flex-wrap items-center gap-2">
+              {onShowCurrent && <Button onClick={onShowCurrent}>{s.conflict.showCurrent}</Button>}
+              <RequestId id={error.requestId} />
+            </span>
+          </InlineNotice>
+        </div>
       );
     case 'legal_guard':
       return (
@@ -147,6 +156,17 @@ function ActionErrorBody({ error, onLoadNew, onShowCurrent, onRetry, changes }: 
         </div>
       );
     case 'forbidden_role':
+      if (readOnly) {
+        return (
+          <div data-read-only-refusal>
+            <InlineNotice tone="attention" title={s.readOnly}>
+              <p data-verbatim>{error.message}</p>
+              <p className="font-medium">{s.nothingSaved}</p>
+              <RequestId id={error.requestId} />
+            </InlineNotice>
+          </div>
+        );
+      }
       return <ForbiddenRoleNotice role={persona.role} action={s.forbiddenAction} />;
     case 'llm_unavailable':
       return <LlmUnavailableNotice onRetry={onRetry} />;

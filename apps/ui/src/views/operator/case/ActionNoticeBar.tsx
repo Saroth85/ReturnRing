@@ -1,9 +1,10 @@
 // The confirmation of the last action (docs/ui-design.md 6.3.3): who did what, the message
-// queued (simulated) and the audit entries, with links. It survives the auto-advance to the next
+// queued (simulated) or why none was, the version a review superseded, the coupon pause the act
+// confirmed or reversed, and the audit entries, with links. It survives the auto-advance to the next
 // case, and it is a polite status, never an error (errors that need a decision stay inline).
 import { CircleCheck, X } from 'lucide-react';
 import { Link } from 'react-router';
-import { IdText } from '@/components/provenance';
+import { DateText, IdText } from '@/components/provenance';
 import { OPERATOR } from '../copy';
 import { noticeStore, useActionNotice } from '../state/prefs';
 
@@ -33,6 +34,27 @@ export function ActionNoticeBar() {
             {notice.messageId}
           </Link>{' '}
           {t.messageQueued}
+        </span>
+      )}
+      {notice.noMessage && (
+        <span className="text-ink-2" data-notice-no-message>
+          · {notice.noMessage}
+        </span>
+      )}
+      {notice.supersededId && (
+        <span className="inline-flex items-center gap-1" data-notice-superseded>
+          · {t.supersedes} <IdText id={notice.supersededId} />
+        </span>
+      )}
+      {notice.coupon && (
+        <span className="inline-flex flex-wrap items-center gap-1" data-notice-coupon={notice.coupon.state}>
+          · {t.couponPause} <IdText id={notice.coupon.applicationId} /> {t.couponStates[notice.coupon.state] ?? notice.coupon.state}{' '}
+          <span data-constant>{t.couponFor(notice.coupon.accounts)}</span>
+          {notice.coupon.state !== 'reversed' && (
+            <>
+              · {OPERATOR.queue.review} <DateText value={notice.coupon.reviewAt} />
+            </>
+          )}
         </span>
       )}
       {notice.auditEntryIds.length > 0 && (

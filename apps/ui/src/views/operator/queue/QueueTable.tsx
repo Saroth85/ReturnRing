@@ -1,8 +1,10 @@
 // The queue table (docs/ui-design.md 6.1): one row per return, with the consequence rail, the
-// outcome, the proposed terms, the status, the three figures and the flags. Risk is never "—"
-// alone and never 0 for an unscored case: it reads "not scored".
+// outcome, the proposed terms, the status, the refund deadline, the three figures and the flags.
+// Risk is never "—" alone and never 0 for an unscored case: it reads "not scored". A guarantee
+// case states no refund deadline (rule 4): its cell says so, never a date. `refund_overdue` is the
+// server's flag (ADR-15 sections 15, 20), shown in the status so it is visible on every width.
 import clsx from 'clsx';
-import { Link2, MessageSquareText, Shirt } from 'lucide-react';
+import { Clock, Link2, MessageSquareText, Shirt } from 'lucide-react';
 import { useRef } from 'react';
 import { Link, useNavigate } from 'react-router';
 import type { Metric, QueueItem, QueueResponse } from '@/api/models';
@@ -77,7 +79,35 @@ function LeverSummary({ item }: { item: QueueItem }) {
   );
 }
 
+/** The server's refund_overdue: past the deadline and no message stated the refund. */
+function OverdueFlag({ item }: { item: QueueItem }) {
+  if (!item.refund_overdue) return null;
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded-chip border border-attn-border bg-attn-bg px-1.5 text-dense font-medium whitespace-nowrap text-attn-fg"
+      data-refund-overdue
+    >
+      <Clock aria-hidden="true" size={12} />
+      {OPERATOR.queue.refundOverdue}
+    </span>
+  );
+}
+
+function RefundDue({ item }: { item: QueueItem }) {
+  if (item.refund_due_by === null) return <span className="text-caption text-ink-3">{OPERATOR.queue.noRefundDeadline}</span>;
+  return <DateText value={item.refund_due_by} className={item.refund_overdue ? 'font-medium text-attn-fg' : undefined} />;
+}
+
 function Status({ item }: { item: QueueItem }) {
+  return (
+    <span className="flex flex-col items-start gap-1">
+      <RestrictionStatus item={item} />
+      <OverdueFlag item={item} />
+    </span>
+  );
+}
+
+function RestrictionStatus({ item }: { item: QueueItem }) {
   const kind = queueRestrictionKind(item);
   const t = OPERATOR.queue;
   if (kind === 'needs_approval') {
@@ -199,6 +229,9 @@ export function QueueTable({ page, tab, selected, onSelect, onPrefetch, newIds }
             <th scope="col" className="px-3 py-2 font-medium">
               {c.status}
             </th>
+            <th scope="col" className="hidden px-3 py-2 font-medium lg:table-cell">
+              {c.refundDue}
+            </th>
             <th scope="col" className="hidden px-3 py-2 text-right font-medium sm:table-cell">
               <MetricHeader label={c.risk} metric={riskSample} />
             </th>
@@ -272,6 +305,9 @@ export function QueueTable({ page, tab, selected, onSelect, onPrefetch, newIds }
               </td>
               <td className="px-3 py-2">
                 <Status item={item} />
+              </td>
+              <td className="hidden px-3 py-2 whitespace-nowrap lg:table-cell" data-refund-due={item.refund_due_by ?? 'none'}>
+                <RefundDue item={item} />
               </td>
               <td className="hidden px-3 py-2 text-right whitespace-nowrap sm:table-cell">
                 {item.risk ? (

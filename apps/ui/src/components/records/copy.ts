@@ -11,6 +11,7 @@ export const RECORDS = {
     decision_overridden: 'Overridden with other terms',
     decision_rejected: 'Proposal rejected (return proceeds)',
     restriction_lifted: 'Restriction lifted',
+    restriction_renewed: 'Restriction renewed',
     case_recomputed: 'Case recomputed',
     draft_generated: 'Draft generated',
     draft_regenerated: 'Draft regenerated',

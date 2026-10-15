@@ -2,7 +2,7 @@
 // the tool list come from the contract, product names from src/copy/constants.ts.
 import { AGENT_MAX_STEPS, AGENT_TOOLS } from '@/api/contract.gen';
 import type { EntityRef } from '@/api/models';
-import { GPU_SHORT_NAME, LLM_NAME } from '@/copy/constants';
+import { LLM_NAME } from '@/copy/constants';
 
 type Tool = (typeof AGENT_TOOLS)[number];
 
@@ -61,7 +61,9 @@ export const AGENT = {
     ask: 'Ask',
     askKey: 'Enter',
     stop: 'Stop',
-    cached: `Free questions need the live model; these answers were precomputed on the ${GPU_SHORT_NAME}.`,
+    // Contract 1.5.0: in the cached demo the agent answers 503 (no model runs). Where precomputed
+    // outputs were made is readyz.label's claim, never this copy's (ADR-15 section 17).
+    cached: 'The case assistant needs the live model, which is off in the cached demo.',
     rateLimited: 'Too many questions in a short time. Try again in a few seconds.',
     coolingDown: 'New questions resume in a few seconds.',
   },
@@ -130,7 +132,7 @@ export const AGENT = {
     originMockModel: (generationId: string) =>
       `Mock language model (hand-written stand-in): steps_used of agent stream ${generationId}`,
     originLive: (generationId: string, cached: boolean) =>
-      `${LLM_NAME} on vLLM: steps_used of agent stream ${generationId}${cached ? `, precomputed on ${GPU_SHORT_NAME}` : ''}`,
+      `${LLM_NAME} on vLLM: steps_used of agent stream ${generationId}${cached ? ', precomputed' : ''}`,
   },
 
   refs: {

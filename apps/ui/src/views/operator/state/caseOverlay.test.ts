@@ -67,9 +67,10 @@ describe('applyOverlay', () => {
 
   it('applies a regenerated draft only to the decision it was written for', () => {
     const giulia = card('giulia');
-    const draft = { ...giulia.draft!, tone: 'formal' as const };
-    expect(applyOverlay(giulia, { draft: { decisionId: 'DEC-000101-1', draft } }).draft?.tone).toBe('formal');
-    expect(applyOverlay(giulia, { draft: { decisionId: 'DEC-000101-0', draft } }).draft?.tone).toBe('warm');
+    const original = giulia.draft!.generation.generation_id;
+    const draft = { ...giulia.draft!, generation: { ...giulia.draft!.generation, generation_id: 'GEN-000101-2' } };
+    expect(applyOverlay(giulia, { draft: { decisionId: 'DEC-000101-1', draft } }).draft?.generation.generation_id).toBe('GEN-000101-2');
+    expect(applyOverlay(giulia, { draft: { decisionId: 'DEC-000101-0', draft } }).draft?.generation.generation_id).toBe(original);
   });
 });
 

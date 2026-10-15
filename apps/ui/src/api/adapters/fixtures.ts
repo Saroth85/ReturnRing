@@ -1,14 +1,13 @@
 /**
- * Mock scenarios the contract does not ship yet (open question O-1). Their bodies use the
- * ErrorResponse shape and say "UI fixture" so nobody mistakes them for contract examples.
+ * Mock scenarios the contract does not ship, layered on its examples by the mock router
+ * (docs/ui-design.md 11.5). Their bodies say "UI fixture" so nobody mistakes them for contract
+ * examples. The contract's own scenarios (cached, conflict, empty, rate_limited, read_only, ...)
+ * come from contracts/examples/api/index.json.
  */
 export const UI_FIXTURE_SCENARIOS = [
-  'forbidden_role',
-  'llm_unavailable',
-  'rate_limited',
-  'conflict',
-  'empty',
+  // The case card while its draft is still being written (draft null, draft_status pending).
   'draft_pending',
+  // The agent stream ends with an error event instead of an answer.
   'agent_error',
   // /readyz reports another contract minor version: the shell's mismatch notice (UI1).
   'contract_mismatch',

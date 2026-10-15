@@ -16,11 +16,14 @@ const SHOTS = process.env.PLATFORM_SCREENSHOT_DIR;
 if (SHOTS) mkdirSync(SHOTS, { recursive: true });
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const EXAMPLES = path.resolve(here, '../../contract-pin/examples/api');
+const EXAMPLES = path.resolve(here, '../../../../contracts/examples/api');
 
-/** The photo of the inspection request examples: the mock routes on it (docs/ui-design.md 11.5). */
-function examplePhoto(): Buffer {
-  const request = JSON.parse(readFileSync(path.join(EXAMPLES, 'inspection_create_request.json'), 'utf8')) as {
+/**
+ * The photo of an inspection request example: the mock routes on it (docs/ui-design.md 11.5). The
+ * default example's photo reads as damaged, the manual review one's as unclear (contract 1.6.0).
+ */
+function examplePhoto(example = 'inspection_create_request.json'): Buffer {
+  const request = JSON.parse(readFileSync(path.join(EXAMPLES, example), 'utf8')) as {
     photo: { data_base64: string };
   };
   return Buffer.from(request.photo.data_base64, 'base64');
@@ -171,7 +174,9 @@ test.describe('warehouse inspection (US-501..503)', () => {
     await actAs(page, 'ahmed');
     await page.goto('/inspection/RET-000111');
     await expect(page.getByText('Simone Rizzo')).toBeVisible();
-    await page.locator('[data-photo-input]').setInputFiles({ name: 'dark.jpg', mimeType: 'image/jpeg', buffer: examplePhoto() });
+    await page
+      .locator('[data-photo-input]')
+      .setInputFiles({ name: 'dark.jpg', mimeType: 'image/jpeg', buffer: examplePhoto('inspection_create_request.manual_review.json') });
     await page.getByRole('button', { name: 'Suggest a checklist from the photo' }).click();
     await expect(page.locator('[data-manual-review]')).toContainText('The system stopped: verify by hand.');
     await expect(page.locator('[data-proposal="none"]')).toBeVisible();

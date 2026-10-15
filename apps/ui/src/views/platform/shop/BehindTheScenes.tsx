@@ -192,8 +192,9 @@ function LineProbabilities({ evaluation }: { evaluation: CheckoutEvaluateRespons
                 </span>
               </div>
               {view.advice && (
-                <p className="text-caption text-ink-3" data-verbatim>
-                  “{view.advice.text}”
+                <p className="flex flex-col text-caption text-ink-3" data-verbatim>
+                  <span lang="it">“{view.advice.text.it}”</span>
+                  <span lang="en">“{view.advice.text.en}”</span>
                 </p>
               )}
               {!view.consistent && (
@@ -298,8 +299,9 @@ function CouponPause({ evaluation }: { evaluation: CheckoutEvaluateResponse }) {
       </p>
       <p className="text-caption text-ink-3">
         {SHOP.couponOperatorText}{' '}
-        <span data-verbatim className="text-ink-2">
-          “{block.text}”
+        <span data-verbatim className="flex flex-col text-ink-2">
+          <span lang="it">“{block.text.it}”</span>
+          <span lang="en">“{block.text.en}”</span>
         </span>
       </p>
       {rules.isError && <ErrorState error={rules.error} onRetry={() => void rules.refetch()} />}

@@ -1,10 +1,13 @@
 // The decision sheets (docs/ui-design.md 6.3.2, 6.3.4, 6.3.5): approve a restriction, override
-// the proposal, reject it, review a restriction (lift, or renew when the contract has it). Each
-// sends the decision it was shown (`shown`, snapshotted when the sheet opened, UI38) and the acting
-// person; each needs a reason except approve. A newer version blocks the confirm until loaded.
+// the proposal, reject it, review a restriction (lift or renew). Each sends the decision it was
+// shown (`shown`, snapshotted when the sheet opened, UI38) and the acting person; override, reject
+// and lift need a reason, approve and renew do not. Approve, override and reject send a message;
+// lift and renew send none (the customer sees the terms at checkout). A newer version blocks the
+// confirm until loaded.
 import { Check } from 'lucide-react';
 import { useState } from 'react';
 import { LEGAL_MINIMUM_WINDOW_DAYS, OVERRIDE_CATEGORIES } from '@/api/contract.gen';
+import { messageFor } from '@/api/adapters/messageSegments';
 import { HAS_RENEW } from '@/api/models';
 import type { DecisionResult, DecisionView, Lever } from '@/api/models';
 import { usePersona } from '@/app/persona';
@@ -25,7 +28,7 @@ import {
   type LeverValues,
 } from '@/domain/levers';
 import { OPERATOR } from '../../copy';
-import { approveBody, overrideBody, withoutLeversBody, type DecisionBody } from '../../state/requests';
+import { approveBody, liftBody, overrideBody, rejectBody, renewBody } from '../../state/requests';
 import { CategorySelect, LangChoice, ReasonField, type OverrideCategory } from '../../ui/fields';
 import { Sheet } from '../../ui/Sheet';
 import { reasonValid } from '../../ui/validation';
@@ -48,7 +51,7 @@ export interface DecisionSheetProps {
 
 function MessageChoice() {
   const { card, sendLang, setSendLang } = useCaseUi();
-  const message = card.draft?.messages.find((m) => m.lang === sendLang);
+  const message = messageFor(card.draft, sendLang);
   return (
     <div className="flex flex-col gap-2">
       <LangChoice value={sendLang} onChange={setSendLang} />
@@ -56,7 +59,7 @@ function MessageChoice() {
         <details>
           <summary className="cursor-pointer text-caption text-accent">{OPERATOR.railCopy.preview}</summary>
           <div className="mt-2">
-            <MessagePreview message={message} stored={message.rendered_text} />
+            <MessagePreview message={message} />
           </div>
         </details>
       )}
@@ -132,12 +135,15 @@ export function ApproveRestrictionSheet({ open, onOpenChange, onDone, onReload, 
               <Check aria-hidden="true" size={16} className="mt-0.5 shrink-0" />
               <span data-verbatim>{t.thisReturn(card.order_id, card.order_terms.terms_snapshot_id)}</span>
             </li>
-            <li className="flex gap-2">
-              <Check aria-hidden="true" size={16} className="mt-0.5 shrink-0" />
-              <span>
-                {t.refundBy} <DateText value={d.refund_due_by} /> · <span data-legal-ref>{t.withdrawalStays}</span>
-              </span>
-            </li>
+            {/* No refund deadline on the guarantee path (rule 4): refund_due_by is null there. */}
+            {d.refund_due_by && (
+              <li className="flex gap-2">
+                <Check aria-hidden="true" size={16} className="mt-0.5 shrink-0" />
+                <span>
+                  {t.refundBy} <DateText value={d.refund_due_by} /> · <span data-legal-ref>{t.withdrawalStays}</span>
+                </span>
+              </li>
+            )}
             {unchanged.map((r) => (
               <li key={r.lever} className="flex gap-2">
                 <Check aria-hidden="true" size={16} className="mt-0.5 shrink-0" />
@@ -409,7 +415,7 @@ export function RejectSheet({ open, onOpenChange, onDone, onReload, changes, sho
   const confirm = () => {
     setTried(true);
     if (reasons.length > 0 || action.pending || category === '') return;
-    action.submit(withoutLeversBody('reject', shown, reason, category, sendLang, persona.id));
+    action.submit(rejectBody(shown, reason, category, sendLang, persona.id));
   };
   return (
     <Sheet
@@ -453,7 +459,7 @@ export function RejectSheet({ open, onOpenChange, onDone, onReload, changes, sho
 const REVIEW_CATEGORIES = OVERRIDE_CATEGORIES.filter((c) => c === 'periodic_review' || c === 'customer_context');
 
 export function ReviewSheet({ open, onOpenChange, onDone, onReload, changes, shown }: DecisionSheetProps) {
-  const { card, sendLang, gates, draftPending } = useCaseUi();
+  const { card, gates, draftPending } = useCaseUi();
   const persona = usePersona();
   const action = useDecisionAction(card, onDone);
   const newer = useNewerVersion(shown);
@@ -463,21 +469,21 @@ export function ReviewSheet({ open, onOpenChange, onDone, onReload, changes, sho
   const [tried, setTried] = useState(false);
   const v = OPERATOR.sheets.review;
   const d = shown;
+  // A lift needs a reason and a category; a renewal needs neither (restriction_renewed is not a
+  // reason-required action). Neither sends a message.
+  const lifting = choice === 'lift' || !HAS_RENEW;
   const reasons = [
     ...(newer ? [OPERATOR.sheets.staleReason] : []),
-    ...(!reasonValid(reason) ? [OPERATOR.sheets.reasonTooShort] : []),
-    ...(category === '' ? [OPERATOR.sheets.chooseCategory] : []),
-    ...(choice === 'renew' && !HAS_RENEW ? [v.choose] : []),
+    ...(lifting && !reasonValid(reason) ? [OPERATOR.sheets.reasonTooShort] : []),
+    ...(lifting && category === '' ? [OPERATOR.sheets.chooseCategory] : []),
     ...(draftPending ? [OPERATOR.actions.draftPendingReason] : []),
     ...(!gates.decide.allowed && gates.decideNote ? [gates.decideNote] : []),
   ];
   const confirm = () => {
     setTried(true);
-    if (reasons.length > 0 || action.pending || category === '') return;
-    // `renew` is offered only once the generated action enum carries it (HAS_RENEW, open question
-    // O-25); until then the cast below never runs and the sheet always lifts.
-    const verb = choice === 'renew' && HAS_RENEW ? (choice as string as DecisionBody['action']) : 'lift';
-    action.submit(withoutLeversBody(verb, d, reason, category, sendLang, persona.id));
+    if (reasons.length > 0 || action.pending) return;
+    if (!lifting) action.submit(renewBody(d, persona.id));
+    else if (category !== '') action.submit(liftBody(d, reason, category, persona.id));
   };
   return (
     <Sheet
@@ -536,9 +542,12 @@ export function ReviewSheet({ open, onOpenChange, onDone, onReload, changes, sho
             </label>
           )}
         </fieldset>
-        <CategorySelect value={category} onChange={setCategory} showError={tried} allowed={REVIEW_CATEGORIES} />
-        <ReasonField value={reason} onChange={setReason} showError={tried} />
-        <MessageChoice />
+        {lifting && (
+          <>
+            <CategorySelect value={category} onChange={setCategory} showError={tried} allowed={REVIEW_CATEGORIES} />
+            <ReasonField value={reason} onChange={setReason} showError={tried} />
+          </>
+        )}
         <ActingAs />
         {action.error ? <ActionError error={action.error} onLoadNew={onReload} onShowCurrent={onReload} changes={changes} /> : null}
         {action.mismatch && <InlineNotice tone="attention">{action.mismatch}</InlineNotice>}

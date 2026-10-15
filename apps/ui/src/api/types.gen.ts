@@ -71,6 +71,7 @@ export interface ApiSchemas {
   decision_record: DecisionRecord;
   decision_request: DecisionRequest;
   decision_result: DecisionResult;
+  demo_cases: DemoCasesResponse;
   error: ErrorResponse;
   evidence_request: EvidenceRequest;
   fairness: FairnessResponse;
@@ -210,19 +211,34 @@ export interface DoneEvent {
   generation: GenerationInfo;
 }
 /**
- * How an LLM output was produced (spec 8.7 validator path, US-901 cached label).
+ * How an LLM output was produced (spec 8.7, US-901 cached label): the path of llm.generate,
+ * the model calls, the codes of llm.validator found on the way and, for the template, why.
  *
  * This interface was referenced by `ApiSchemas`'s JSON-Schema
  * via the `definition` "GenerationInfo".
  */
 export interface GenerationInfo {
   generation_id: string;
-  generation_path: 'llm' | 'llm_regenerated' | 'template';
+  generation_path: 'model' | 'regenerated' | 'template';
+  fallback_reason: ('decision_echo' | 'invalid_twice' | 'unavailable' | 'write_request') | null;
   llm_mode: 'vllm' | 'mock';
   served_from: 'live' | 'cached';
   model: string;
-  attempts: number;
-  validator_errors: string[];
+  model_calls: number;
+  validator_codes: (
+    | 'SCHEMA'
+    | 'CASE_INVALID'
+    | 'DECISION_ECHO'
+    | 'TERMS_TOPIC'
+    | 'UNKNOWN_FACT'
+    | 'MISSING_FACT'
+    | 'LABEL_MISMATCH'
+    | 'UNGROUNDED_NUMBER'
+    | 'BANNED_TERM'
+    | 'SCRIPT'
+    | 'SENTENCE_ID'
+    | 'WRONG_LANGUAGE'
+  )[];
   created_at: string;
   latency_ms: number | null;
 }
@@ -248,8 +264,13 @@ export interface AuditPage {
  * One row of the append-only audit log (US-604).
  *
  * The entries about a decision version (entity_type decision, actions DECISION_AUDIT_ACTIONS)
- * carry a typed before and after (DecisionAuditState). approve, override and reject change a
- * proposed version; restriction_lifted and case_recomputed create the next version.
+ * name its return and carry a typed before and after (DecisionAuditState). approve, override
+ * and reject change a proposed version; restriction_lifted, restriction_renewed and
+ * case_recomputed create the next version, so before and after are two versions.
+ *
+ * The entries about a draft generation (entity_type llm_generation, actions
+ * GENERATION_AUDIT_ACTIONS) carry a typed after (GenerationAuditState): the generation path
+ * and the validator codes are part of the audit record (spec 8.7).
  *
  * This interface was referenced by `ApiSchemas`'s JSON-Schema
  * via the `definition` "AuditEntry".
@@ -265,6 +286,7 @@ export interface AuditEntry {
     | 'decision_overridden'
     | 'decision_rejected'
     | 'restriction_lifted'
+    | 'restriction_renewed'
     | 'case_recomputed'
     | 'draft_generated'
     | 'draft_regenerated'
@@ -298,12 +320,14 @@ export interface AuditEntry {
   reason: string | null;
   before:
     | DecisionAuditState
+    | GenerationAuditState
     | {
         [k: string]: unknown | undefined;
       }
     | null;
   after:
     | DecisionAuditState
+    | GenerationAuditState
     | {
         [k: string]: unknown | undefined;
       }
@@ -327,7 +351,7 @@ export interface DecisionAuditState {
   version: number;
   state: 'proposed' | 'approved' | 'overridden' | 'rejected';
   quadrant: Quadrant | null;
-  risk: number | null;
+  risk: Metric | null;
   lever_ids: string[];
   requires_approval: boolean;
   review_at: string | null;
@@ -343,6 +367,79 @@ export interface DecisionAuditState {
       )
     | null;
   coupon_application_id: string | null;
+}
+/**
+ * A figure shown in the UI: its value, its unit and where it comes from.
+ *
+ * This interface was referenced by `ApiSchemas`'s JSON-Schema
+ * via the `definition` "Metric".
+ */
+export interface Metric {
+  value: number;
+  unit:
+    | 'eur'
+    | 'usd'
+    | 'count'
+    | 'expected_count'
+    | 'ratio'
+    | 'probability'
+    | 'percent'
+    | 'percentage_points'
+    | 'z_score'
+    | 'score'
+    | 'days'
+    | 'seconds'
+    | 'milliseconds'
+    | 'tokens_per_second'
+    | 'gib'
+    | 'watts';
+  provenance: Provenance;
+}
+/**
+ * Where a number comes from: origin, period and nature (same fields as contracts.io).
+ *
+ * This interface was referenced by `ApiSchemas`'s JSON-Schema
+ * via the `definition` "Provenance".
+ */
+export interface Provenance {
+  origin: string;
+  period_start: string;
+  period_end: string;
+  nature: 'real' | 'synthetic' | 'simulated';
+}
+/**
+ * The after of an audit entry about a draft generation (entity_type llm_generation): the
+ * path llm.generate took (model, regenerated, template), why it fell back, the model calls
+ * and the llm.validator codes found on the way (spec 8.7, ADR-14), with the decision version
+ * the draft explains.
+ *
+ * This interface was referenced by `ApiSchemas`'s JSON-Schema
+ * via the `definition` "GenerationAuditState".
+ */
+export interface GenerationAuditState {
+  generation_id: string;
+  kind: 'case_draft' | 'regenerate' | 'agent_answer' | 'inspection_checklist';
+  decision_id: string;
+  generation_path: 'model' | 'regenerated' | 'template';
+  fallback_reason: ('decision_echo' | 'invalid_twice' | 'unavailable' | 'write_request') | null;
+  model_calls: number;
+  validator_codes: (
+    | 'SCHEMA'
+    | 'CASE_INVALID'
+    | 'DECISION_ECHO'
+    | 'TERMS_TOPIC'
+    | 'UNKNOWN_FACT'
+    | 'MISSING_FACT'
+    | 'LABEL_MISMATCH'
+    | 'UNGROUNDED_NUMBER'
+    | 'BANNED_TERM'
+    | 'SCRIPT'
+    | 'SENTENCE_ID'
+    | 'WRONG_LANGUAGE'
+  )[];
+  llm_mode: 'vllm' | 'mock';
+  served_from: 'live' | 'cached';
+  model: string;
 }
 /**
  * Query of GET /api/audit; format=csv returns text/csv with AUDIT_CSV_COLUMNS.
@@ -361,6 +458,7 @@ export interface AuditQuery {
         | 'decision_overridden'
         | 'decision_rejected'
         | 'restriction_lifted'
+        | 'restriction_renewed'
         | 'case_recomputed'
         | 'draft_generated'
         | 'draft_regenerated'
@@ -438,45 +536,6 @@ export interface BenchmarkResult {
   concurrency: number | null;
   batch_size: number | null;
   protocol: ('paper' | 'decision_time') | null;
-}
-/**
- * A figure shown in the UI: its value, its unit and where it comes from.
- *
- * This interface was referenced by `ApiSchemas`'s JSON-Schema
- * via the `definition` "Metric".
- */
-export interface Metric {
-  value: number;
-  unit:
-    | 'eur'
-    | 'usd'
-    | 'count'
-    | 'expected_count'
-    | 'ratio'
-    | 'probability'
-    | 'percent'
-    | 'percentage_points'
-    | 'z_score'
-    | 'score'
-    | 'days'
-    | 'seconds'
-    | 'milliseconds'
-    | 'tokens_per_second'
-    | 'gib'
-    | 'watts';
-  provenance: Provenance;
-}
-/**
- * Where a number comes from: origin, period and nature (same fields as contracts.io).
- *
- * This interface was referenced by `ApiSchemas`'s JSON-Schema
- * via the `definition` "Provenance".
- */
-export interface Provenance {
-  origin: string;
-  period_start: string;
-  period_end: string;
-  nature: 'real' | 'synthetic' | 'simulated';
 }
 /**
  * GET /api/returns/{return_id}: everything Sara needs to decide one return (US-302).
@@ -755,7 +814,9 @@ export interface OrderLineView {
  * Terms shown at checkout and stored with the order (ADR-05). order_id is null while the
  * snapshot is shown and not confirmed (POST /api/checkout/evaluate). base_terms are the
  * merchant base terms when the snapshot was shown; review_at is the review date of the
- * restriction in force that produced the terms, if any.
+ * restriction in force that produced the terms, if any. coupon_application_id and
+ * coupon_review_at name the cluster coupon block shown with the terms, which turned their
+ * coupons off (1.5.0, H12; null without a block).
  *
  * This interface was referenced by `ApiSchemas`'s JSON-Schema
  * via the `definition` "TermsSnapshotView".
@@ -769,6 +830,8 @@ export interface TermsSnapshotView {
   terms: Terms;
   base_terms: Terms;
   review_at: string | null;
+  coupon_application_id: string | null;
+  coupon_review_at: string | null;
   shown_at: string;
   confirmed_at: string | null;
 }
@@ -794,9 +857,18 @@ export interface Terms {
  *
  * in_force says whether the levers apply to future orders at as_of (the time the view was
  * served): approved, overridden, or proposed without a need for approval; never once a later
- * version supersedes this one; never from the review date on (US-607: a restriction lapses
- * unless a person renews it with a new decision). A version created by a review (trigger
- * review, action lift) is overridden to the standard levers.
+ * version supersedes this one; never from the review date on, counted in UTC days (US-607: a
+ * restriction lapses unless a person renews it).
+ *
+ * A version created by a review (trigger review) is policy.engine.decide() on the latest
+ * scores at the day of the review (inputs, decided_on, quadrant, proposed_levers), with the
+ * person's outcome: action lift overrides it to the standard levers; action renew approves the
+ * fresh restriction, with a new review date. Every later version (a review or a recompute) is
+ * decided on the UTC day it is created, and a restriction is approved only before its review
+ * date: a stale proposal is recomputed (409, round 4, E4).
+ *
+ * A cluster coupon block applies to the cluster given to the engine, and its linked accounts
+ * include the case customer (LEG-09, round 4, E2).
  *
  * Every view passes policy.legal_guard under to_policy_decision (ADR-15 section 8).
  *
@@ -807,7 +879,7 @@ export interface DecisionView {
   decision_id: string;
   return_id: string;
   version: number;
-  revision_trigger: 'initial' | 'evidence_added' | 'link_disputed' | 'scores_refreshed' | 'review';
+  revision_trigger: 'initial' | 'evidence_added' | 'link_disputed' | 'review' | 'stale_proposal';
   supersedes: string | null;
   superseded_by: string | null;
   created_at: string;
@@ -818,14 +890,46 @@ export interface DecisionView {
   evidence_quality: EvidenceQuality;
   quadrant: Quadrant | null;
   missing_evidence: string[];
-  proposed_levers: Lever[];
-  levers: Lever[];
+  /**
+   * @maxItems 9
+   */
+  proposed_levers: {
+    id:
+      | 'return_window_days'
+      | 'free_return_shipping'
+      | 'instant_refund'
+      | 'free_size_exchange'
+      | 'coupons_enabled'
+      | 'cluster_coupons_disabled'
+      | 'transparency_notice'
+      | 'size_advice'
+      | 'priority_size_exchange';
+    value: number | boolean;
+    scope: 'future_orders' | 'future_orders_cluster' | 'all_orders' | 'current_order' | 'communication';
+  }[];
+  /**
+   * @maxItems 9
+   */
+  levers: {
+    id:
+      | 'return_window_days'
+      | 'free_return_shipping'
+      | 'instant_refund'
+      | 'free_size_exchange'
+      | 'coupons_enabled'
+      | 'cluster_coupons_disabled'
+      | 'transparency_notice'
+      | 'size_advice'
+      | 'priority_size_exchange';
+    value: number | boolean;
+    scope: 'future_orders' | 'future_orders_cluster' | 'all_orders' | 'current_order' | 'communication';
+  }[];
   lever_ids: string[];
   requires_approval: boolean;
   in_force: boolean;
   current_return_terms: Terms;
   future_terms: Terms;
-  refund_due_by: string;
+  refund_due_by: string | null;
   review_at: string | null;
   approver: string | null;
   approved_at: string | null;
@@ -851,25 +955,11 @@ export interface DecisionView {
   generation_id: string | null;
 }
 /**
- * This interface was referenced by `ApiSchemas`'s JSON-Schema
- * via the `definition` "Lever".
- */
-export interface Lever {
-  id:
-    | 'return_window_days'
-    | 'free_return_shipping'
-    | 'instant_refund'
-    | 'free_size_exchange'
-    | 'coupons_enabled'
-    | 'cluster_coupons_disabled'
-    | 'transparency_notice'
-    | 'size_advice'
-    | 'priority_size_exchange';
-  value: number | boolean;
-  scope: 'future_orders' | 'future_orders_cluster' | 'all_orders' | 'current_order' | 'communication';
-}
-/**
- * A proposed or confirmed application of the general coupon rule to a cluster (US-402).
+ * The application of the general coupon rule to the cluster of the decision (US-402): the
+ * cluster given to the engine and its linked accounts, the case customer among them. state and
+ * in_force are those of the application when the decision is served (round 4, E26): proposed
+ * with a proposed decision; confirmed by the person who acted, or reversed afterwards; in force
+ * while confirmed, before the review date and while the decision is in force.
  *
  * This interface was referenced by `ApiSchemas`'s JSON-Schema
  * via the `definition` "CouponRuleRef".
@@ -883,9 +973,12 @@ export interface CouponRuleRef {
    */
   affected_customer_ids: string[];
   confirmed_by: string | null;
+  state: 'proposed' | 'confirmed' | 'reversed';
+  in_force: boolean;
 }
 /**
- * A diminished-value claim (art. 14(2)): only from confirmed observations and a rule.
+ * A diminished-value claim (art. 14(2)): only from confirmed observations and a rule. The
+ * refund the customer gets is the price of the returned line less the claim (round 4, E12).
  *
  * This interface was referenced by `ApiSchemas`'s JSON-Schema
  * via the `definition` "ClaimView".
@@ -893,6 +986,7 @@ export interface CouponRuleRef {
 export interface ClaimView {
   inspection_id: string;
   amount: Metric;
+  line_price: Metric;
   /**
    * @minItems 1
    */
@@ -903,6 +997,14 @@ export interface ClaimView {
 /**
  * The inputs given to policy.engine.decide, kept for audit (US-604) and re-runnable: the
  * return request (with order_id and customer_id), the scores, the terms and the thresholds.
+ * provenance covers the plain numbers of the inputs (risk, value_eur, thresholds): the scores
+ * at decision time, stored with the version so an earlier one is served as it was (rule 11).
+ * snapshot_on (1.7.0) is the UTC day of the customer snapshot the engine read (value, evidence,
+ * cluster: the last one before the request, or the request itself when none preceded it): the
+ * period of the value, factor and cluster facts of a draft and of the agent (rule 11).
+ * scored_on (1.8.0) is the UTC day the risk was scored, at the request (the score's decided_at:
+ * request features as the shop knew them, and that snapshot): the period of the risk_score
+ * fact. Null exactly when there is no risk (the guarantee path, rule 4).
  *
  * This interface was referenced by `ApiSchemas`'s JSON-Schema
  * via the `definition` "DecisionInputs".
@@ -920,6 +1022,9 @@ export interface DecisionInputs {
   evidence_quality: EvidenceQuality;
   cluster_id: string | null;
   thresholds: DecisionThresholds;
+  provenance: Provenance;
+  snapshot_on: string;
+  scored_on: string | null;
 }
 /**
  * This interface was referenced by `ApiSchemas`'s JSON-Schema
@@ -939,7 +1044,23 @@ export interface Alternative {
   kind: 'proposal' | 'current_terms' | 'size_exchange' | 'verification' | 'product_report';
   summary: string;
   recommended: boolean;
-  levers: Lever[];
+  /**
+   * @maxItems 9
+   */
+  levers: {
+    id:
+      | 'return_window_days'
+      | 'free_return_shipping'
+      | 'instant_refund'
+      | 'free_size_exchange'
+      | 'coupons_enabled'
+      | 'cluster_coupons_disabled'
+      | 'transparency_notice'
+      | 'size_advice'
+      | 'priority_size_exchange';
+    value: number | boolean;
+    scope: 'future_orders' | 'future_orders_cluster' | 'all_orders' | 'current_order' | 'communication';
+  }[];
   net_benefit: NetBenefitView;
 }
 /**
@@ -1000,24 +1121,31 @@ export interface NetBenefitComponent {
   amount: Metric;
 }
 /**
- * The explanation and messages drafted for a decision (US-304, US-305).
+ * The draft of a decision version (US-304, US-305, ADR-14): the output of llm.generate for
+ * the engine's decision of the version (path, quadrant, proposed levers), validated by
+ * llm.validator, stored with the facts of the llm_case it answered (`case_facts`, round 4,
+ * E10 and E11: the models validate the stored draft against exactly the facts llm.generate
+ * used), the facts each statement cites and the messages composed by llm.phrasebook.
+ * Generated at intake, or again on request (regenerate).
  *
  * This interface was referenced by `ApiSchemas`'s JSON-Schema
  * via the `definition` "DraftView".
  */
 export interface DraftView {
   generation: GenerationInfo;
-  tone: 'neutral' | 'warm' | 'formal';
   decision_echo: DecisionEchoView;
   /**
    * @minItems 1
+   * @maxItems 20
    */
-  explanation: ExplanationStatement[];
+  case_facts: CitedFact[];
   /**
    * @minItems 1
-   * @maxItems 2
+   * @maxItems 8
    */
-  messages: CustomerMessageView[];
+  explanation: ExplanationStatement[];
+  message: CustomerMessageView;
+  provenance: Provenance;
 }
 /**
  * This interface was referenced by `ApiSchemas`'s JSON-Schema
@@ -1026,48 +1154,116 @@ export interface DraftView {
 export interface DecisionEchoView {
   path: Path;
   quadrant: Quadrant | null;
+  /**
+   * @maxItems 9
+   */
   lever_ids: string[];
 }
 /**
- * A statement of the operator explanation: observed data, a score contribution or a
- * hypothesis to verify (US-305). A statement whose text has a digit names the entity, the
- * metric, the value and the period it cites, and the value appears in the text.
+ * A fact of the llm_case, built by code from the engine inputs (llm/case.py, ADR-14) and
+ * stored with the draft as it was at generation time: the UI shows its entity, metric, value,
+ * period and nature next to the statement that cites it (US-305).
+ *
+ * This interface was referenced by `ApiSchemas`'s JSON-Schema
+ * via the `definition` "CitedFact".
+ */
+export interface CitedFact {
+  id: string;
+  entity: 'customer' | 'return' | 'order' | 'cluster';
+  metric: string;
+  value: number;
+  period: string;
+  nature: 'real' | 'synthetic' | 'simulated';
+}
+/**
+ * A statement of the operator explanation (US-305, ADR-14): its label (observed data, a
+ * score contribution or a hypothesis to verify), the ids of the code-built facts it cites, its
+ * text, and the cited facts themselves, in the order of fact_ids. Every number of the text is
+ * the value of a cited fact: llm.validator checks it on every draft (_check_draft).
  *
  * This interface was referenced by `ApiSchemas`'s JSON-Schema
  * via the `definition` "ExplanationStatement".
  */
 export interface ExplanationStatement {
   label: 'OBSERVED' | 'SCORE' | 'HYPOTHESIS';
+  /**
+   * @maxItems 4
+   */
+  fact_ids: string[];
   text: string;
-  entity: string | null;
-  metric: string | null;
-  value: string | null;
-  period: string | null;
+  /**
+   * @maxItems 4
+   */
+  facts: CitedFact[];
 }
 /**
- * A customer message: connective text from the LLM (placeholders only), template fields from
- * code, the fixed legal clause appended by code, and the text the customer receives.
+ * The customer message of a draft (ADR-14 decision 8): the phrasebook ids the model chose,
+ * whether the fixed legal clause is appended (and which), and for each language the template
+ * fields and the text llm.phrasebook.render_selection composed: opening, the mandatory body
+ * written by code from the decision, the extras, the closing, then the clause.
  *
  * This interface was referenced by `ApiSchemas`'s JSON-Schema
  * via the `definition` "CustomerMessageView".
  */
 export interface CustomerMessageView {
-  lang: 'it' | 'en';
-  connective_text: string;
-  fields: TemplateFields;
+  /**
+   * @minItems 2
+   * @maxItems 5
+   */
+  sentence_ids: (
+    | 'OPEN_THANKS'
+    | 'OPEN_MESSAGE'
+    | 'OPEN_CHOICE'
+    | 'OPEN_SORRY_FIT'
+    | 'OPEN_SORRY_ITEM'
+    | 'HELP_SIZE'
+    | 'HELP_ADVICE'
+    | 'CONTACT_REPLY'
+    | 'CONTACT_TEAM'
+    | 'INFO_TERMS'
+    | 'GUARANTEE_CARE'
+    | 'GUARANTEE_PHOTO'
+    | 'THANKS_FEEDBACK'
+    | 'CLOSE_REGARDS'
+    | 'CLOSE_VALUED'
+    | 'CLOSE_HAPPY'
+    | 'CLOSE_DAY'
+    | 'CLOSE_SOON'
+    | 'CLOSE_PATIENCE'
+  )[];
   legal_clause_kind: ('withdrawal' | 'guarantee') | null;
-  rendered_text: string;
+  /**
+   * @minItems 1
+   * @maxItems 2
+   */
+  texts: RenderedMessage[];
 }
 /**
- * Values the code fills into the message placeholders (ADR-08): never written by the LLM.
+ * The message of one language: the template fields and the text code composed.
+ *
+ * This interface was referenced by `ApiSchemas`'s JSON-Schema
+ * via the `definition` "RenderedMessage".
+ */
+export interface RenderedMessage {
+  lang: 'it' | 'en';
+  fields: TemplateFields;
+  text: string;
+}
+/**
+ * The values code fills into the placeholders of one language (ADR-08, rule 10):
+ * llm.messages.template_fields of the decision. A placeholder the decision does not have
+ * ({amount} without a known refund, {terms} when the future terms do not change, {deduction}
+ * without a diminished-value claim) is null. {deadline} carries its article in Italian ("il
+ * 12 ottobre 2026", "l'11 ottobre 2026").
  *
  * This interface was referenced by `ApiSchemas`'s JSON-Schema
  * via the `definition` "TemplateFields".
  */
 export interface TemplateFields {
-  terms: string;
+  terms: string | null;
   amount: string | null;
   deadline: string | null;
+  deduction: string | null;
 }
 /**
  * Returns of a variant for one reason in one week above the category baseline (spec 8.9).
@@ -1090,6 +1286,7 @@ export interface ProductAnomaly {
   status: 'open' | 'task_opened' | 'resolved';
   catalog_task_id: string | null;
   return_ids: string[];
+  queued_return_ids: string[];
   trend: WeeklyReturnRate[];
 }
 /**
@@ -1112,7 +1309,7 @@ export interface WeeklyReturnRate {
 export interface RevisionSummary {
   decision_id: string;
   version: number;
-  trigger: 'initial' | 'evidence_added' | 'link_disputed' | 'scores_refreshed' | 'review';
+  trigger: 'initial' | 'evidence_added' | 'link_disputed' | 'review' | 'stale_proposal';
   created_at: string;
   quadrant: Quadrant | null;
   risk: Metric | null;
@@ -1261,7 +1458,8 @@ export interface CheckoutLine {
 }
 /**
  * US-401: a specific size only with measurement and exchange data; otherwise the size guide
- * or a plain statement that no reliable recommendation exists.
+ * or a plain statement that no reliable recommendation exists. The text is the fixed text of
+ * llm.phrasebook.size_advice_text.
  *
  * This interface was referenced by `ApiSchemas`'s JSON-Schema
  * via the `definition` "SizeAdvice".
@@ -1269,10 +1467,26 @@ export interface CheckoutLine {
 export interface SizeAdvice {
   kind: 'specific' | 'measurement_guide' | 'no_reliable_recommendation';
   suggested_size: string | null;
-  text: string;
+  text: CustomerText;
 }
 /**
- * Why coupons are off for this customer: a confirmed cluster rule application (US-402).
+ * A fixed customer text in Italian and English (rule 14), written by llm/phrasebook.py:
+ * the simulated shop shows the language of the customer (round 4, E25).
+ *
+ * This interface was referenced by `ApiSchemas`'s JSON-Schema
+ * via the `definition` "CustomerText".
+ */
+export interface CustomerText {
+  it: string;
+  en: string;
+}
+/**
+ * Why coupons are off for this customer: a confirmed cluster rule application in force
+ * (US-402), shown only before its review date (US-607). The text is a fixed, neutral text of
+ * llm.phrasebook that never names the linked accounts or the cluster to the customer (rule 11,
+ * round 4, E25): COUPON_BLOCK (the wording of the transparency notice, "your previous
+ * returns") for the customer of the case whose decision blocks the cluster, and for every
+ * other account the text that gives no cause, with the review date (1.7.0).
  *
  * This interface was referenced by `ApiSchemas`'s JSON-Schema
  * via the `definition` "CouponBlock".
@@ -1281,7 +1495,7 @@ export interface CouponBlock {
   rule_version: string;
   application_id: string;
   review_at: string;
-  text: string;
+  text: CustomerText;
 }
 /**
  * This interface was referenced by `ApiSchemas`'s JSON-Schema
@@ -1292,8 +1506,16 @@ export interface CouponApplicationReverse {
   reason: string;
 }
 /**
- * The rule applied to one cluster: proposed with a decision, confirmed by the operator who
- * approves it, always reversible, with a review date.
+ * The general coupon rule applied to one cluster (US-402, LEG-09): proposed with a
+ * decision, confirmed by the person who approves it, always reversible, with the review date
+ * of that decision (US-607).
+ *
+ * in_force says whether the block applies to the linked accounts at as_of (the time the
+ * application was served): confirmed, not reversed, and before its review date (UTC days). It
+ * lapses at the review date like the restriction that applied it. The API reverses it when the
+ * version that applied it is lifted (DecisionResult.coupon_application) or superseded by a
+ * recompute; a person reverses it on request (rectification). as_of and in_force are computed
+ * when served, not stored.
  *
  * This interface was referenced by `ApiSchemas`'s JSON-Schema
  * via the `definition` "CouponRuleApplication".
@@ -1316,6 +1538,8 @@ export interface CouponRuleApplication {
   reversed_by: string | null;
   reversed_at: string | null;
   reversal_reason: string | null;
+  as_of: string;
+  in_force: boolean;
 }
 /**
  * A new version of the general rule, approved by the manager (role checked by the API).
@@ -1338,6 +1562,7 @@ export interface CouponRulesResponse {
    */
   history: CouponRule[];
   applications: CouponRuleApplication[];
+  as_of: string;
 }
 /**
  * A version of the general rule approved by the manager. The engine applies it to a Q4 case
@@ -1356,9 +1581,9 @@ export interface CouponRule {
 }
 /**
  * GET /api/decisions/{decision_id}: one version of a case's decision as stored, the latest
- * or an earlier one (US-604): the engine inputs, the alternatives with their net benefits, the
- * human outcome, the versions of rules, models and assumptions, and the version that superseded
- * it. The audit log names these ids (DecisionAuditState).
+ * or an earlier one (US-604): the engine inputs (with their provenance), the alternatives with
+ * their net benefits, the human outcome, the versions of rules, models and assumptions, and the
+ * version that superseded it. The audit log names these ids (DecisionAuditState).
  *
  * This interface was referenced by `ApiSchemas`'s JSON-Schema
  * via the `definition` "DecisionRecord".
@@ -1370,7 +1595,6 @@ export interface DecisionRecord {
    * @maxItems 3
    */
   alternatives: Alternative[];
-  provenance: Provenance;
 }
 /**
  * POST /api/returns/{return_id}/decision (spec 19.B, plus decision_id and the category).
@@ -1380,19 +1604,45 @@ export interface DecisionRecord {
  * discard the proposal (no lever applies, the order's terms stay; the return itself is never
  * refused), with a reason and a category. The three act on a proposed version.
  *
- * lift (US-607): end an approved or overridden restriction, before or at its review date (a
- * review, or a rectification the customer asked for), with a reason and a category. It creates
- * the next version (trigger review), overridden to the standard levers; 409 if the version
- * named is not a restriction. Every action sends one message to the outbox.
+ * lift and renew (US-607) review an approved or overridden restriction, the latest version
+ * (409 if it is not a restriction). Each creates the next version (trigger review) from
+ * policy.engine.decide() on the latest scores at the day of the review. lift ends the
+ * restriction, before or after its review date (a review, or a rectification the customer
+ * asked for), with a reason and a category: the new version is overridden to the standard
+ * levers, and the cluster coupon application of the restriction, if any, is reversed. renew
+ * keeps a restriction, at or after its review date (409 before), with no levers and no reason:
+ * the person approves the fresh proposal, which gets a new review date (409 if the fresh
+ * proposal is not a restriction: lift it).
+ *
+ * approve, override and reject send one message to the outbox (`message` required). lift and
+ * renew send none (`message` null), as decided on 13 Oct 2026 (ADR-15 section 12, spec 19.B):
+ * the customer sees the terms of a lift or a renewal at checkout, before each purchase
+ * (US-403). A restriction is approved before its review date: a stale proposal answers 409
+ * and the case is recomputed.
  *
  * This interface was referenced by `ApiSchemas`'s JSON-Schema
  * via the `definition` "DecisionRequest".
  */
 export interface DecisionRequest {
   decision_id: string;
-  action: 'approve' | 'override' | 'reject' | 'lift';
-  levers?: Lever[] | null;
-  message: MessageChoice;
+  action: 'approve' | 'override' | 'reject' | 'lift' | 'renew';
+  levers?:
+    | {
+        id:
+          | 'return_window_days'
+          | 'free_return_shipping'
+          | 'instant_refund'
+          | 'free_size_exchange'
+          | 'coupons_enabled'
+          | 'cluster_coupons_disabled'
+          | 'transparency_notice'
+          | 'size_advice'
+          | 'priority_size_exchange';
+        value: number | boolean;
+        scope: 'future_orders' | 'future_orders_cluster' | 'all_orders' | 'current_order' | 'communication';
+      }[]
+    | null;
+  message?: MessageChoice | null;
   override_reason?: string | null;
   override_category?:
     | (
@@ -1407,31 +1657,73 @@ export interface DecisionRequest {
   approver: string;
 }
 /**
- * The customer message to send: its language, and optionally the operator's edit of the
- * connective text (placeholders only; the API fills the fields and appends the legal clause).
+ * The customer message to send after approve, override or reject: its language and,
+ * optionally, a selection of phrasebook ids (llm/phrasebook.py) other than the default one.
+ * The operator chooses reviewed sentences, never free text (ADR-14 decision 8). The API
+ * composes the message for the decision acted on with llm.phrasebook.render_selection (the
+ * mandatory body, the template fields and the legal clause come from the decision) and
+ * refuses a selection that is not allowed for it (422 invalid_request). Without sentence_ids:
+ * the draft's selection when it is allowed for the decision acted on, otherwise the fallback
+ * selection of llm.templates (default_selection_for).
  *
  * This interface was referenced by `ApiSchemas`'s JSON-Schema
  * via the `definition` "MessageChoice".
  */
 export interface MessageChoice {
   lang: 'it' | 'en';
-  text?: string | null;
+  sentence_ids?:
+    | (
+        | 'OPEN_THANKS'
+        | 'OPEN_MESSAGE'
+        | 'OPEN_CHOICE'
+        | 'OPEN_SORRY_FIT'
+        | 'OPEN_SORRY_ITEM'
+        | 'HELP_SIZE'
+        | 'HELP_ADVICE'
+        | 'CONTACT_REPLY'
+        | 'CONTACT_TEAM'
+        | 'INFO_TERMS'
+        | 'GUARANTEE_CARE'
+        | 'GUARANTEE_PHOTO'
+        | 'THANKS_FEEDBACK'
+        | 'CLOSE_REGARDS'
+        | 'CLOSE_VALUED'
+        | 'CLOSE_HAPPY'
+        | 'CLOSE_DAY'
+        | 'CLOSE_SOON'
+        | 'CLOSE_PATIENCE'
+      )[]
+    | null;
 }
 /**
- * The outcome of POST .../decision: the version acted on (or, for a lift, the new version),
- * its audit entry and its outbox message.
+ * The outcome of POST .../decision: the version acted on (for a lift or a renewal, the new
+ * version, and `superseded`, the restriction it supersedes as served after the act), its audit
+ * entry, its outbox message (approve, override and reject; none for a lift or a renewal: the
+ * customer sees the terms at checkout), and the cluster coupon application the act changed:
+ * confirmed by approve, override or renew of levers that block the cluster's coupons (the
+ * decision's own application), or reversed by a lift of a version that had one (US-402,
+ * US-607). The entry and the message are about this decision, its return and its customer;
+ * the message is llm.phrasebook.render_selection for the decision as it stands
+ * (check_outbox_message). The before of a lift or a renewal is the superseded version, so the
+ * early-renewal rule rests on a verified review date (round 4, E5).
  *
  * This interface was referenced by `ApiSchemas`'s JSON-Schema
  * via the `definition` "DecisionResult".
  */
 export interface DecisionResult {
   decision: DecisionView;
+  superseded: DecisionView | null;
   audit_entry: AuditEntry;
-  outbox_message: OutboxMessage;
+  outbox_message: OutboxMessage | null;
+  coupon_application: CouponRuleApplication | null;
 }
 /**
- * A message in the simulated outbox (spec 4: no real email): the connective text, the
- * template fields, and the body render_customer_message makes of them with the legal clause.
+ * A message in the simulated outbox (spec 4: no real email), sent after a person acted: the
+ * subject (llm.phrasebook.subject), the phrasebook ids, the template fields of its language,
+ * the refund the {amount} field states with the {deduction} that leaves it (both null without
+ * a diminished-value claim), and the body llm.phrasebook.render_selection composed for the
+ * decision acted on, ending with the fixed legal clause it requires. The models that hold the
+ * decision check the body against it (check_outbox_message).
  *
  * This interface was referenced by `ApiSchemas`'s JSON-Schema
  * via the `definition` "OutboxMessage".
@@ -1443,14 +1735,98 @@ export interface OutboxMessage {
   customer_id: string;
   lang: 'it' | 'en';
   subject: string;
-  connective_text: string;
+  /**
+   * @minItems 2
+   * @maxItems 5
+   */
+  sentence_ids: (
+    | 'OPEN_THANKS'
+    | 'OPEN_MESSAGE'
+    | 'OPEN_CHOICE'
+    | 'OPEN_SORRY_FIT'
+    | 'OPEN_SORRY_ITEM'
+    | 'HELP_SIZE'
+    | 'HELP_ADVICE'
+    | 'CONTACT_REPLY'
+    | 'CONTACT_TEAM'
+    | 'INFO_TERMS'
+    | 'GUARANTEE_CARE'
+    | 'GUARANTEE_PHOTO'
+    | 'THANKS_FEEDBACK'
+    | 'CLOSE_REGARDS'
+    | 'CLOSE_VALUED'
+    | 'CLOSE_HAPPY'
+    | 'CLOSE_DAY'
+    | 'CLOSE_SOON'
+    | 'CLOSE_PATIENCE'
+  )[];
   fields: TemplateFields;
+  refund: Metric | null;
   body: string;
   legal_clause_kind: ('withdrawal' | 'guarantee') | null;
   generation_id: string | null;
   status: 'queued' | 'sent_simulated';
   created_by: string;
   created_at: string;
+}
+/**
+ * GET /api/demo/cases: the ids the UI's demo flows open, built by the reset (US-903). A
+ * golden case the store does not hold (a small --scale) is missing from the list.
+ *
+ * This interface was referenced by `ApiSchemas`'s JSON-Schema
+ * via the `definition` "DemoCasesResponse".
+ */
+export interface DemoCasesResponse {
+  snapshot_as_of: string;
+  as_of: string;
+  cases: DemoCase[];
+  dispute: DemoDispute | null;
+  carts: DemoCart[];
+  provenance: Provenance;
+}
+/**
+ * A golden case of the demo with its live ids, found by the reset from the golden customer
+ * ids of the store (pipeline.generator.golden): the open return of the customer, the version
+ * the reset decided and the cluster the engine was given.
+ *
+ * This interface was referenced by `ApiSchemas`'s JSON-Schema
+ * via the `definition` "DemoCase".
+ */
+export interface DemoCase {
+  key: 'giulia' | 'marco' | 'rossi' | 'rossi_card' | 'elena' | 'insufficient';
+  return_id: string;
+  customer_id: string;
+  decision_id: string;
+  cluster_id: string | null;
+}
+/**
+ * A link whose dispute changes the cluster of the case named (US-310): the customer's
+ * cluster has cluster_size_before accounts, and cluster_size_after once the link is out (1:
+ * the account alone). changes_decision (1.6.0) says whether the recompute the dispute makes
+ * changes the engine's quadrant or levers of the case (a dry run at the reset, which prefers
+ * such a link): false, the UI says "decision unchanged".
+ *
+ * This interface was referenced by `ApiSchemas`'s JSON-Schema
+ * via the `definition` "DemoDispute".
+ */
+export interface DemoDispute {
+  link_id: string;
+  return_id: string;
+  decision_id: string;
+  cluster_id: string;
+  cluster_size_before: number;
+  cluster_size_after: number;
+  changes_decision: boolean;
+}
+/**
+ * A checkout cart of the demo: Giulia's sizes, and an account of the Marco ring.
+ *
+ * This interface was referenced by `ApiSchemas`'s JSON-Schema
+ * via the `definition` "DemoCart".
+ */
+export interface DemoCart {
+  key: 'giulia' | 'ring';
+  request: CheckoutEvaluateRequest;
 }
 /**
  * Body of every non-2xx response.
@@ -1611,6 +1987,13 @@ export interface InspectionConfirmRequest {
   note?: string | null;
 }
 /**
+ * The confirmed inspection, the claim attached to the decision and the message to the
+ * customer. The message states the refund left after the claim ({amount}) and the amount
+ * withheld with its reason ({deduction}, round 4, E17). It is sent exactly when a claim
+ * applies and no restriction awaits a person's approval: an unapproved Q3 or Q4 proposal is
+ * never announced to the customer (rule 5, round 4, E1); the refund and the deduction are then
+ * stated by the message of the approval, override or rejection (DecisionResult).
+ *
  * This interface was referenced by `ApiSchemas`'s JSON-Schema
  * via the `definition` "InspectionConfirmResponse".
  */
@@ -1729,6 +2112,12 @@ export interface LinkDisputeResponse {
 /**
  * A case recomputed after evidence or a dispute: a new decision version (F7).
  *
+ * coupon_application is the cluster coupon application of the version superseded, when that
+ * version blocked the cluster's coupons and a person had confirmed it (approved or
+ * overridden): the recompute reverses it in the same transaction (the author of the evidence
+ * or of the dispute, at the time of the new version), unless it was reversed before. It is
+ * null otherwise (finding D4).
+ *
  * This interface was referenced by `ApiSchemas`'s JSON-Schema
  * via the `definition` "RecomputeResponse".
  */
@@ -1741,6 +2130,7 @@ export interface RecomputeResponse {
   after: CaseSnapshot;
   decision: DecisionView;
   draft: DraftView;
+  coupon_application: CouponRuleApplication | null;
   /**
    * @minItems 1
    */
@@ -1756,6 +2146,7 @@ export interface RecomputeResponse {
 export interface CaseSnapshot {
   decision_id: string;
   version: number;
+  state: 'proposed' | 'approved' | 'overridden' | 'rejected';
   quadrant: Quadrant | null;
   evidence_quality: EvidenceQuality;
   risk: Metric | null;
@@ -1863,8 +2254,8 @@ export interface AnomalyThresholds {
  *
  * review_due=true keeps the cases whose latest decision is an approved or overridden
  * restriction at or past its review date (US-607): it no longer applies (in_force false) and
- * waits for a person to renew it with a new decision or to lift it. q matches a part of the
- * return, order or customer id or of the display name, ignoring case.
+ * waits for a person to renew it (action renew) or to lift it (action lift). q matches a part
+ * of the return, order or customer id or of the display name, ignoring case.
  *
  * This interface was referenced by `ApiSchemas`'s JSON-Schema
  * via the `definition` "QueueQuery".
@@ -1877,7 +2268,13 @@ export interface QueueQuery {
   requires_approval?: boolean | null;
   review_due?: boolean | null;
   q?: string | null;
-  sort?: '-expected_net_benefit' | 'expected_net_benefit' | '-requested_at' | 'requested_at' | '-risk';
+  sort?:
+    | '-expected_net_benefit'
+    | 'expected_net_benefit'
+    | '-requested_at'
+    | 'requested_at'
+    | '-risk'
+    | 'refund_due_by';
   page?: number;
   page_size?: number;
 }
@@ -1890,7 +2287,13 @@ export interface QueueResponse {
   total: number;
   page: number;
   page_size: number;
-  sort: '-expected_net_benefit' | 'expected_net_benefit' | '-requested_at' | 'requested_at' | '-risk';
+  sort:
+    | '-expected_net_benefit'
+    | 'expected_net_benefit'
+    | '-requested_at'
+    | 'requested_at'
+    | '-risk'
+    | 'refund_due_by';
   as_of: string;
   provenance: Provenance;
 }
@@ -1914,6 +2317,8 @@ export interface QueueItem {
   lever_ids: string[];
   review_at: string | null;
   review_due: boolean;
+  refund_due_by: string | null;
+  refund_overdue: boolean;
   risk: Metric | null;
   value: Metric | null;
   expected_net_benefit: Metric;
@@ -1930,7 +2335,7 @@ export interface ReadyzResponse {
   mode: 'live' | 'cached';
   llm_mode: 'vllm' | 'mock';
   device: 'cpu' | 'gpu';
-  label: 'Precomputed on AMD MI300X' | null;
+  label: ('Precomputed on AMD MI300X' | 'Precomputed in a rehearsal, not verified on AMD MI300X') | null;
   /**
    * @minItems 1
    */
@@ -1941,6 +2346,8 @@ export interface ReadyzResponse {
   model_versions: {
     [k: string]: string | undefined;
   };
+  clock: ClockView;
+  public_read_only: boolean;
 }
 /**
  * This interface was referenced by `ApiSchemas`'s JSON-Schema
@@ -1952,9 +2359,32 @@ export interface ComponentCheck {
   detail: string | null;
 }
 /**
- * A new draft in other languages or another tone. No free-text instruction: the prompt
- * only takes data (NFR-11). The response is plain JSON, not a stream: the validator checks the
- * whole output before it reaches the UI.
+ * The one clock of the API (1.5.0, ADR-15 section 15). demo (DEMO_CLOCK=on): 'now' is the
+ * instant of the serving snapshot plus the time elapsed since the demo reset started the
+ * clock, so the deadlines of the decisions the reset made stay ahead; system: the wall clock;
+ * fixed: a clock that stands still (tests). Every 'now' of the API (as_of, the time of an act,
+ * the period of a figure that ends now) is this clock's.
+ *
+ * frozen (1.7.0, ADR-15 section 19): the demo clock of the public read-only demo stands at
+ * the snapshot instant (now equals snapshot_as_of), so no refund deadline of the reset's
+ * proposals passes while the demo stays up; a client never advances a frozen clock. Where
+ * writes are on (a cached demo with writes on included) the demo clock runs (1.8.0).
+ *
+ * This interface was referenced by `ApiSchemas`'s JSON-Schema
+ * via the `definition` "ClockView".
+ */
+export interface ClockView {
+  kind: 'demo' | 'system' | 'fixed';
+  now: string;
+  snapshot_as_of: string | null;
+  started_at: string | null;
+  frozen: boolean;
+  note: string;
+}
+/**
+ * A new draft in other languages. No free-text instruction: the prompt only takes data
+ * (NFR-11). The response is plain JSON, not a stream: the validator checks the whole output
+ * before it reaches the UI. There is no tone: llm/ has none to apply (round 4, E14).
  *
  * This interface was referenced by `ApiSchemas`'s JSON-Schema
  * via the `definition` "RegenerateRequest".
@@ -1966,16 +2396,18 @@ export interface RegenerateRequest {
    * @maxItems 2
    */
   languages?: ('it' | 'en')[];
-  tone?: 'neutral' | 'warm' | 'formal';
   requested_by: string;
 }
 /**
+ * The new draft of the latest decision version, checked against it like the draft of a case
+ * card: the echo, the legal clause and the template fields (rules 1 and 10).
+ *
  * This interface was referenced by `ApiSchemas`'s JSON-Schema
  * via the `definition` "RegenerateResponse".
  */
 export interface RegenerateResponse {
   return_id: string;
-  decision_id: string;
+  decision: DecisionView;
   draft: DraftView;
 }
 /**

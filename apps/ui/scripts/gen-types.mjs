@@ -23,8 +23,9 @@ import { fileURLToPath } from 'node:url';
 import { compile } from 'json-schema-to-typescript';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-// Pinned contract (contract-pin/README.md) until the UI migrates to the API's current contract.
-const CONTRACTS = path.resolve(process.env.RETURNRING_CONTRACTS_DIR || path.resolve(ROOT, 'contract-pin'));
+// RETURNRING_CONTRACTS_DIR points the generator at another checkout's contracts/ (to try a
+// pending contract version before it lands); the default is the repository's own.
+const CONTRACTS = path.resolve(process.env.RETURNRING_CONTRACTS_DIR || path.resolve(ROOT, '../../contracts'));
 const SCHEMA_DIR = path.join(CONTRACTS, 'json/api');
 const OUT = path.join(ROOT, 'src/api/types.gen.ts');
 const check = process.argv.includes('--check');

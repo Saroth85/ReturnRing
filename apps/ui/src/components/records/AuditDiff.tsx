@@ -1,9 +1,9 @@
 import clsx from 'clsx';
 import type { ReactNode } from 'react';
 import { Link, useInRouterContext } from 'react-router';
-import type { AuditEntry } from '@/api/models';
+import type { AuditEntry, Metric } from '@/api/models';
 import { QuadrantBadge } from '@/components/decision';
-import { DateText } from '@/components/provenance';
+import { DateText, Figure } from '@/components/provenance';
 import { isDecisionState, type DecisionAuditState } from './audit';
 import { RECORDS } from './copy';
 import { leverText } from './levers';
@@ -74,7 +74,8 @@ function decisionRows(b: DecisionAuditState | null, a: DecisionAuditState): Row[
     ) : (
       <None />
     );
-  const word = riskWord(b?.risk ?? null, a.risk);
+  // The risk is a Metric since contract 1.2.0: its direction is read from the values.
+  const word = riskWord(b?.risk?.value ?? null, a.risk?.value ?? null);
   const sameLevers = b !== null && b.lever_ids.length === a.lever_ids.length && b.lever_ids.every((x) => a.lever_ids.includes(x));
   return [
     { key: 'version', label: D.version, before: id(b?.decision_id), after: id(a.decision_id), changed: b?.decision_id !== a.decision_id },
@@ -85,7 +86,7 @@ function decisionRows(b: DecisionAuditState | null, a: DecisionAuditState): Row[
       label: D.risk,
       before: b ? (b.risk === null ? D.riskNotScored : D.riskScored) : <None />,
       after: a.risk === null ? D.riskNotScored : (word ?? D.riskScored),
-      changed: (b?.risk ?? null) !== a.risk,
+      changed: (b?.risk?.value ?? null) !== (a.risk?.value ?? null),
     },
     {
       key: 'levers',
@@ -114,7 +115,17 @@ function decisionRows(b: DecisionAuditState | null, a: DecisionAuditState): Row[
   ];
 }
 
-/** A generic payload as key and value; a number stays in its record, where it has a provenance. */
+/** A Metric of a payload (an inspection's compensation): a value with its unit and provenance. */
+function isMetric(value: unknown): value is Metric {
+  if (!value || typeof value !== 'object') return false;
+  const v = value as Record<string, unknown>;
+  return typeof v.value === 'number' && typeof v.unit === 'string' && Boolean(v.provenance) && typeof v.provenance === 'object';
+}
+
+/**
+ * A generic payload as key and value: a Metric as a Figure with its provenance; a plain number
+ * stays in its record, where it has one.
+ */
 function Payload({ value }: { value: AuditEntry['before'] }) {
   if (value === null || typeof value !== 'object') return <span className="text-ink-3">{D.empty}</span>;
   const entries = Object.entries(value as Record<string, unknown>);
@@ -125,7 +136,9 @@ function Payload({ value }: { value: AuditEntry['before'] }) {
         <div key={key} className="contents">
           <dt className="font-mono text-caption text-ink-3">{key.replace(/_/g, ' ')}</dt>
           <dd className="min-w-0 break-words">
-            {typeof v === 'number' ? (
+            {isMetric(v) ? (
+              <Figure metric={v} label={key.replace(/_/g, ' ')} />
+            ) : typeof v === 'number' ? (
               <span className="text-ink-3">{D.numberHidden}</span>
             ) : typeof v === 'boolean' ? (
               v ? D.yes : D.no

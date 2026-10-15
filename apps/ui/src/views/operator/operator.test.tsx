@@ -56,8 +56,11 @@ describe('ExplanationSection', () => {
     expect(container.querySelector('[data-statement-group="SCORE"]')).not.toBeNull();
     expect(container.querySelector('[data-statement-group="HYPOTHESIS"]')).not.toBeNull();
     const citations = Array.from(container.querySelectorAll('[data-fact-citation]')).map((c) => c.textContent);
+    // The SCORE statement cites the risk score (dated the day it was scored, contract 1.8.0) and a
+    // cluster fact: each with its entity, metric, value, period and nature.
     expect(citations[1]).toContain('C-MARCO-1');
-    expect(citations[1]).toContain('· risk · 0.87 · 2025-10-01 to 2026-09-30');
+    expect(citations[1]).toContain('· risk_score · 0.87 · as of 2026-09-28');
+    expect(citations[1]).toContain('CL-000417');
     expect(citations[1]).toContain('Synthetic');
     expect(citations[2]).toContain('no figure cited');
     expect(container.querySelector('[data-echo="match"]')?.textContent).toContain('6 levers');
@@ -82,7 +85,7 @@ describe('ExplanationSection', () => {
         ...elena.draft!,
         explanation: [
           ...elena.draft!.explanation,
-          { label: 'SCORE', text: 'A forged score', entity: null, metric: null, value: null, period: null },
+          { label: 'SCORE', fact_ids: [], text: 'A forged score', facts: [] },
         ],
       },
     };

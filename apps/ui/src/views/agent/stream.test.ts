@@ -180,6 +180,7 @@ describe('stepsUsedMetric (the tool-call count through the provenance component)
     const live = { ...done(), generation: { ...done().generation, llm_mode: 'vllm' as const } };
     expect(stepsUsedMetric(live, 'live').provenance).toMatchObject({ nature: 'real' });
     const cached = { ...live, generation: { ...live.generation, served_from: 'cached' as const } };
-    expect(stepsUsedMetric(cached, 'live').provenance.origin).toContain('precomputed on MI300X');
+    expect(stepsUsedMetric(cached, 'live').provenance.origin).toMatch(/, precomputed$/);
+    expect(stepsUsedMetric(cached, 'live').provenance.origin).not.toContain('MI300X');
   });
 });

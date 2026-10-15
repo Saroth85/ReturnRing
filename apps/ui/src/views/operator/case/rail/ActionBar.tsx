@@ -3,6 +3,7 @@
 // Enter) in a popover; a restriction opens a sheet where only an explicit confirm commits it.
 import * as Popover from '@radix-ui/react-popover';
 import { useRef } from 'react';
+import { draftSources, messageFor } from '@/api/adapters/messageSegments';
 import type { DecisionView } from '@/api/models';
 import { usePersona } from '@/app/persona';
 import { Button, Kbd } from '@/components/ui';
@@ -49,7 +50,7 @@ export function ActionBar({
   const s = OPERATOR.sheets;
   const blocked = !gates.decide.allowed || draftPending;
   const reason = !gates.decide.allowed ? gates.decideNote : draftPending ? a.draftPendingReason : null;
-  const message = card.draft?.messages.find((m) => m.lang === sendLang) ?? card.draft?.messages[0];
+  const message = messageFor(card.draft, sendLang) ?? draftSources(card.draft)[0] ?? null;
 
   if (plan.readOnly) {
     return (
@@ -111,7 +112,7 @@ export function ActionBar({
                     card.return_id,
                   )}
                 </p>
-                {message && <CompactMessage message={message} stored={message.rendered_text} />}
+                {message && <CompactMessage message={message} />}
                 <LangChoice value={sendLang} onChange={setSendLang} />
                 <p className="text-caption text-ink-3">
                   {OPERATOR.railCopy.actingAs} {persona.id} ({roleWord(persona.role)})

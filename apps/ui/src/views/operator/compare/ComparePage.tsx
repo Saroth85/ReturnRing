@@ -13,6 +13,7 @@ import { LeverList, OutcomeBadge } from '@/components/decision';
 import { ErrorState, LoadingBlock } from '@/components/feedback';
 import { DateText, Figure, IdText, ProvenanceFooter, ProvenanceScope } from '@/components/provenance';
 import { Button } from '@/components/ui';
+import { DECISION } from '@/copy/common';
 import { OPERATOR } from '../copy';
 import { reasonLabel } from '../format';
 import { ScoreTrack } from '../case/sections/RiskSection';
@@ -141,7 +142,16 @@ function Columns({ a, b }: { a: Side; b: Side }) {
   const floor = (card: Side) => (
     <span className="flex flex-wrap items-center gap-2">
       <span>
-        {t.thisReturn} <DateText value={card.decision.refund_due_by} />, {t.neverRefused}
+        {/* No refund deadline on the guarantee path (rule 4): refund_due_by is null there. */}
+        {card.decision.refund_due_by ? (
+          <>
+            {t.thisReturn} <DateText value={card.decision.refund_due_by} />, {t.neverRefused}
+          </>
+        ) : (
+          <>
+            {DECISION.guaranteeFloor} <span data-legal-ref>{DECISION.guaranteeLaw}</span>
+          </>
+        )}
       </span>
       <Link to={`/returns/${card.return_id}`} className="inline-flex items-center gap-1 text-accent underline underline-offset-2">
         {t.openCase} <ArrowRight aria-hidden="true" size={14} />

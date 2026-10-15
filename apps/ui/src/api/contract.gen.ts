@@ -3,7 +3,7 @@
 // examples/api/index.json and contracts/vocab.py. Do not edit: run `npm run gen:types`.
 
 /** From endpoints.json contract_version. */
-export const CONTRACT_VERSION = "1.1.0" as const;
+export const CONTRACT_VERSION = "1.8.0" as const;
 
 /** From Quadrant. */
 export const QUADRANTS = [
@@ -42,7 +42,8 @@ export const DECISION_ACTIONS = [
   "approve",
   "override",
   "reject",
-  "lift"
+  "lift",
+  "renew"
 ] as const;
 
 /** From DecisionRequest.override_category. */
@@ -69,7 +70,8 @@ export const QUEUE_SORTS = [
   "expected_net_benefit",
   "-requested_at",
   "requested_at",
-  "-risk"
+  "-risk",
+  "refund_due_by"
 ] as const;
 
 /** From DecisionView.revision_trigger. */
@@ -77,8 +79,8 @@ export const REVISION_TRIGGERS = [
   "initial",
   "evidence_added",
   "link_disputed",
-  "scores_refreshed",
-  "review"
+  "review",
+  "stale_proposal"
 ] as const;
 
 /** From EvidenceRequest.kind. */
@@ -97,6 +99,7 @@ export const AUDIT_ACTIONS = [
   "decision_overridden",
   "decision_rejected",
   "restriction_lifted",
+  "restriction_renewed",
   "case_recomputed",
   "draft_generated",
   "draft_regenerated",
@@ -163,7 +166,7 @@ export const NATURES = [
   "simulated"
 ] as const;
 
-/** From CustomerMessageView.lang. */
+/** From MessageChoice.lang. */
 export const MESSAGE_LANGS = [
   "it",
   "en"
@@ -175,13 +178,6 @@ export const LEGAL_CLAUSE_KINDS = [
   "guarantee"
 ] as const;
 
-/** From DraftView.tone. */
-export const DRAFT_TONES = [
-  "neutral",
-  "warm",
-  "formal"
-] as const;
-
 /** From ExplanationStatement.label. */
 export const STATEMENT_LABELS = [
   "OBSERVED",
@@ -191,9 +187,17 @@ export const STATEMENT_LABELS = [
 
 /** From GenerationInfo.generation_path. */
 export const GENERATION_PATHS = [
-  "llm",
-  "llm_regenerated",
+  "model",
+  "regenerated",
   "template"
+] as const;
+
+/** From GenerationInfo.fallback_reason. */
+export const FALLBACK_REASONS = [
+  "decision_echo",
+  "invalid_twice",
+  "unavailable",
+  "write_request"
 ] as const;
 
 /** From ToolCallEvent.tool. */
@@ -242,7 +246,8 @@ export const HUMAN_ONLY_ACTIONS = [
   "evidence_added",
   "inspection_confirmed",
   "link_disputed",
-  "restriction_lifted"
+  "restriction_lifted",
+  "restriction_renewed"
 ] as const;
 
 /** From contracts/vocab.py REASON_REQUIRED_ACTIONS. */
@@ -261,12 +266,50 @@ export const MIN_REASON_CHARS = 3 as const;
 /** From Lever rule: return_window_days minimum. */
 export const LEGAL_MINIMUM_WINDOW_DAYS = 14 as const;
 
+/** From contracts/vocab.py GENERATION_AUDIT_ACTIONS. */
+export const GENERATION_AUDIT_ACTIONS = [
+  "draft_generated",
+  "draft_regenerated"
+] as const;
+
+/** From DemoCase.key. */
+export const DEMO_CASE_KEYS = [
+  "giulia",
+  "marco",
+  "rossi",
+  "rossi_card",
+  "elena",
+  "insufficient"
+] as const;
+
+/** From DemoCart.key. */
+export const DEMO_CART_KEYS = [
+  "giulia",
+  "ring"
+] as const;
+
+/** From ClockView.kind. */
+export const CLOCK_KINDS = [
+  "demo",
+  "system",
+  "fixed"
+] as const;
+
 /** From contracts/examples/api/index.json scenarios. */
 export const MOCK_SCENARIOS = [
   "default",
   "cached",
+  "conflict",
+  "empty",
   "invalid_request",
-  "stale_decision"
+  "no_report",
+  "rate_limited",
+  "read_only",
+  "refund_overdue",
+  "renewed",
+  "stale_decision",
+  "stale_proposal",
+  "task_opened"
 ] as const;
 
 /** From contracts/vocab.py DEMO_USERS. */
@@ -500,7 +543,7 @@ export const ENDPOINTS = [
   {
     "method": "POST",
     "path": "/api/returns/{return_id}/decision",
-    "summary": "Approve, override or reject the proposal with a reason; lift a restriction",
+    "summary": "Approve, override or reject the proposal; lift or renew a restriction under review",
     "stories": [
       "US-303",
       "US-306",
@@ -550,7 +593,7 @@ export const ENDPOINTS = [
   {
     "method": "POST",
     "path": "/api/returns/{return_id}/regenerate",
-    "summary": "New draft in other languages or another tone",
+    "summary": "New draft in other languages",
     "stories": [
       "US-304",
       "US-305"
@@ -638,7 +681,8 @@ export const ENDPOINTS = [
     "mediaType": "application/json",
     "altMediaTypes": [],
     "errors": [
-      404
+      404,
+      429
     ],
     "roles": [
       "operator",
@@ -661,6 +705,7 @@ export const ENDPOINTS = [
     "mediaType": "application/json",
     "altMediaTypes": [],
     "errors": [
+      403,
       404,
       409
     ],
@@ -796,7 +841,9 @@ export const ENDPOINTS = [
     "status": 200,
     "mediaType": "application/json",
     "altMediaTypes": [],
-    "errors": [],
+    "errors": [
+      404
+    ],
     "roles": [
       "operator",
       "manager",
@@ -817,7 +864,9 @@ export const ENDPOINTS = [
     "status": 200,
     "mediaType": "application/json",
     "altMediaTypes": [],
-    "errors": [],
+    "errors": [
+      404
+    ],
     "roles": [
       "operator",
       "manager",
@@ -1089,6 +1138,29 @@ export const ENDPOINTS = [
     "mediaType": "application/json",
     "altMediaTypes": [],
     "errors": [],
+    "roles": [
+      "operator",
+      "manager",
+      "warehouse"
+    ],
+    "actorField": null
+  },
+  {
+    "method": "GET",
+    "path": "/api/demo/cases",
+    "summary": "The golden cases of the demo with their live ids, built by the reset",
+    "stories": [
+      "US-903"
+    ],
+    "query": null,
+    "request": null,
+    "response": "demo_cases",
+    "status": 200,
+    "mediaType": "application/json",
+    "altMediaTypes": [],
+    "errors": [
+      404
+    ],
     "roles": [
       "operator",
       "manager",

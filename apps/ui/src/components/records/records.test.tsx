@@ -56,10 +56,11 @@ describe('audit helpers', () => {
   it('filters entries like the API, plus human actions only', () => {
     const humans = audit.items.filter((e) => matchesAuditFilters(e, { humanOnly: true }));
     expect(humans.every((e) => e.actor_role !== 'system')).toBe(true);
-    expect(audit.items.filter((e) => matchesAuditFilters(e, { actor: 'luca' })).map((e) => e.entry_id)).toEqual([14, 13, 9]);
+    expect(audit.items.filter((e) => matchesAuditFilters(e, { actor: 'luca' })).map((e) => e.entry_id)).toEqual([62, 61, 60, 59, 51, 36, 23, 6, 5, 3]);
     const day = audit.items.filter((e) => matchesAuditFilters(e, { since: sinceOf('2026-09-30'), until: untilOf('2026-09-30') }));
     expect(day.every((e) => e.at.startsWith('2026-09-30'))).toBe(true);
-    expect(day.length).toBe(audit.items.length - 2);
+    expect(day.length).toBe(audit.items.filter((e) => e.at.startsWith('2026-09-30')).length);
+    expect(day.length).toBeGreaterThan(0);
     expect(toAuditQuery({ actor: 'luca', action: [], humanOnly: true })).toEqual({ actor: 'luca' });
   });
 
@@ -136,12 +137,15 @@ describe('AuditDiff', () => {
     expect(screen.getByText('lower than before')).toBeInTheDocument();
   });
 
-  it('shows a generic payload, keeping numbers in their record', () => {
+  it('shows a generic payload, a Metric with its provenance and a plain number kept in its record', () => {
     const inspection = entry('inspection_confirmed');
     const { container } = renderWithProviders(<AuditDiff before={inspection.before} after={inspection.after} />);
     expect(screen.getByText('DV-RULE-1')).toBeInTheDocument();
-    expect(screen.getByText(RECORDS.diff.numberHidden)).toBeInTheDocument();
+    expect(container.querySelector('[data-figure][data-unit="eur"]')).not.toBeNull();
     expect(findUnprovenancedNumbers(container)).toEqual([]);
+    const generation = entry('draft_generated');
+    renderWithProviders(<AuditDiff before={generation.before} after={generation.after} />);
+    expect(screen.getAllByText(RECORDS.diff.numberHidden).length).toBeGreaterThan(0);
   });
 });
 
@@ -167,7 +171,7 @@ describe('CouponApplicationsTable', () => {
   });
 
   it('shows a lapse when the server says so', () => {
-    const lapsed = { ...coupons.applications[0]!, review_due: true } as (typeof coupons.applications)[number];
+    const lapsed = { ...coupons.applications[0]!, in_force: false };
     const { container } = renderWithProviders(<CouponApplicationsTable applications={[lapsed]} />);
     expect(container.querySelector('[data-lapsed]')).toHaveTextContent('Lapsed');
   });

@@ -7,6 +7,7 @@ import { useState } from 'react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api } from '@/api/client';
+import { ApiError } from '@/api/errors';
 import { resetModesSeen } from '@/api/meta';
 import type { AgentEvent, EntityRef } from '@/api/models';
 import { setScenario } from '@/api/scenario';
@@ -137,7 +138,7 @@ describe('CaseAssistant drawer', () => {
     expect(turns).toHaveLength(2);
     expect(turns[0]).toHaveTextContent(LINK_Q);
     expect(turns[1]).toHaveTextContent(ROSSI_Q);
-    expect(turns[1]).toHaveTextContent('The Rossi family shares an address and a device');
+    expect(turns[1]).toHaveTextContent('shares an address and a device');
     expect(turns[1]).toHaveTextContent('None listed by the assistant.');
   });
 
@@ -190,8 +191,8 @@ describe('CaseAssistant drawer', () => {
     expectCleanScan(document.body);
   });
 
-  it('503 llm_unavailable: the model is unavailable, the decision is unaffected, with the request id', async () => {
-    act(() => setScenario('llm_unavailable'));
+  it('503 llm_unavailable (the cached demo): the model is unavailable, the decision is unaffected, with the request id', async () => {
+    act(() => setScenario('cached'));
     const { dialog } = renderAssistant();
     await userEvent.click(within(dialog).getByRole('button', { name: LINK_Q }));
     await settled();
@@ -225,7 +226,10 @@ describe('CaseAssistant drawer', () => {
   });
 
   it('403 forbidden_role: says why and offers the other personas', async () => {
-    act(() => setScenario('forbidden_role'));
+    vi.spyOn(api, 'askAgent').mockImplementation(async function* () {
+      yield* [];
+      throw new ApiError({ status: 403, code: 'forbidden_role', message: 'sara (operator) cannot ask', requestId: 'req-test' });
+    });
     const { dialog } = renderAssistant();
     await userEvent.click(within(dialog).getByRole('button', { name: LINK_Q }));
     await settled();
@@ -240,17 +244,16 @@ describe('CaseAssistant drawer', () => {
     expect(dialog).toHaveTextContent('This action is for operators and managers (warehouse can view).');
   });
 
-  it('cached mode: only the suggested questions, with the reason', async () => {
+  it('cached mode: free questions are off, with the reason, and the model answers 503', async () => {
     act(() => setScenario('cached'));
     await api.readyz();
     const { dialog } = renderAssistant();
     await waitFor(() => expect(within(dialog).getByRole('textbox')).toBeDisabled());
-    expect(dialog.querySelector('[data-cached-note]')).toHaveTextContent(
-      'Free questions need the live model; these answers were precomputed on the MI300X.',
-    );
+    expect(dialog.querySelector('[data-cached-note]')).toHaveTextContent('The case assistant needs the live model, which is off in the cached demo.');
+    expect(dialog).not.toHaveTextContent('MI300X');
     await userEvent.click(within(dialog).getByRole('button', { name: ROSSI_Q }));
     await settled();
-    expect(dialog.querySelector('[data-generated]')).toHaveTextContent('The Rossi family');
+    expect(dialog.querySelector('[data-agent-problem="llm_unavailable"]')).not.toBeNull();
     expectCleanScan(document.body);
   });
 });

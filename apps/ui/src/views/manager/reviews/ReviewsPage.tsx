@@ -154,13 +154,8 @@ export default function ReviewsPage() {
                   <span data-reversed={reversed.application_id}>{R.reversed(reversed.application_id, reversed.reversed_by ?? '')}</span>
                 </InlineNotice>
               )}
-              {/* The read-only public demo refuses a reversal (403): none is offered, and the reason says why. */}
-              {readOnly && (
-                <p className="text-caption text-ink-3" data-reversal-read-only>
-                  {R.reversalReadOnly}
-                </p>
-              )}
-              <CouponApplicationsTable applications={data.applications} reversible={!readOnly} onReversed={setReversed} />
+              {/* Reverse… follows the persona's role and the read-only public demo: disabled with the reason, never hidden. */}
+              <CouponApplicationsTable applications={data.applications} reversible onReversed={setReversed} />
             </>
           )}
         </Loadable>

@@ -352,8 +352,10 @@ describe('/reviews (US-607)', () => {
     const row = await screen.findByText((_, el) => el?.getAttribute('data-review-row') === 'RET-000088', {});
     await waitFor(() => expect(row.querySelector('[data-role-reason]')).not.toBeNull());
     expect(row.querySelector('[data-role-reason]')?.textContent).toContain('Read-only public demo');
-    await waitFor(() => expect(document.querySelector('[data-reversal-read-only]')).not.toBeNull());
-    expect(screen.queryByRole('button', { name: /^Reverse/ })).toBeNull();
+    // The reversal stays on screen, disabled with the reason (never hidden, docs/ui-design.md 5.8).
+    const reverse = await screen.findAllByRole('button', { name: /^Reverse/ });
+    await waitFor(() => reverse.forEach((button) => expect(button).toBeDisabled()));
+    expect(reverse[0]?.closest('[data-role-gate]')?.querySelector('[data-role-reason]')?.textContent).toBe('Read-only public demo');
   });
 });
 

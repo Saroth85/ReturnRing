@@ -1,6 +1,7 @@
 // What the responses say about the service, independent of their bodies (docs/ui-design.md 5.2
 // and 11.2): the X-ReturnRing-Mode header of every response, the last request id, the latest
-// `as_of`, and whether the language model answered 503 recently. The mode banner reads it.
+// `as_of`, the cached label of /readyz, and whether the language model answered 503 recently.
+// The mode banner reads it; so can a component outside the query provider (a store, not a query).
 import { createStore, useStore } from './store';
 
 export interface ApiMeta {
@@ -10,6 +11,11 @@ export interface ApiMeta {
   lastRequestId: string | null;
   /** The latest `as_of` timestamp of a response body (the demo clock). */
   asOf: string | null;
+  /**
+   * /readyz `label` as served: where the cached outputs were made ("Precomputed on AMD MI300X", or
+   * the rehearsal label; ADR-15 sections 16, 17). Null live, or until /readyz answers.
+   */
+  cachedLabel: string | null;
   /** Set when an endpoint answered 503 llm_unavailable; cleared by a later success of /readyz. */
   llmUnavailableAt: number | null;
   /** The last mock note (fallback or fixture), dev only. */
@@ -21,6 +27,7 @@ const initial: ApiMeta = {
   lastMode: null,
   lastRequestId: null,
   asOf: null,
+  cachedLabel: null,
   llmUnavailableAt: null,
   mockNote: null,
 };
@@ -46,6 +53,11 @@ export function recordAsOf(body: unknown): void {
   const asOf = (body as Record<string, unknown>).as_of;
   if (typeof asOf !== 'string') return;
   metaStore.set((prev) => (prev.asOf !== null && prev.asOf >= asOf ? prev : { ...prev, asOf }));
+}
+
+/** The cached label of a /readyz answer, exactly as the service gives it. */
+export function recordReadyz(body: { label: string | null }): void {
+  metaStore.set((prev) => (prev.cachedLabel === body.label ? prev : { ...prev, cachedLabel: body.label }));
 }
 
 export function recordLlmUnavailable(): void {

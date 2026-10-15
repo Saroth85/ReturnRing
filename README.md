@@ -331,6 +331,11 @@ coverage gate on `policy/` and `llm/`, the generated-contract checks, the UI che
 typecheck, unit tests, generated types, licences, build), the GraphSAGE tests with PyTorch on the
 CPU, and gitleaks (US-004: no secret in the repository; only `.env.example` is versioned).
 
+The UI's end-to-end tests against a running API are not in CI, which has no API server: after
+`python -m apps.api.reset` and with the API up, `cd apps/ui && RETURNRING_API_URL=http://127.0.0.1:8000
+npm run test:e2e:live` walks the demo path through the UI, and its read-only spec runs against an
+API started with `PUBLIC_READ_ONLY=on` ([apps/ui/README.md](apps/ui/README.md), "Live end-to-end tests").
+
 ## Team and hackathon
 
 Built by Rosario for the AMD Developer Hackathon ACT III (lablab.ai, October 2026), Track 3, with

@@ -197,7 +197,12 @@ export function ProductAnomalyPanel({ card, anomaly }: { card: CaseCard; anomaly
             </>
           )}
         </span>
-        <Link to={`/products/${encodeURIComponent(anomaly.anomaly_id)}`} className="text-accent underline underline-offset-2">
+        {/* With the case's return, so the anomaly page offers it to a catalogue task (the card's queued_return_ids). */}
+        <Link
+          to={`/products/${encodeURIComponent(anomaly.anomaly_id)}?return=${encodeURIComponent(card.return_id)}`}
+          className="text-accent underline underline-offset-2"
+          data-open-in-products
+        >
           {p.openInProducts}
         </Link>
       </div>

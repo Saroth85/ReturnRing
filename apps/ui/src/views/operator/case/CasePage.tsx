@@ -10,7 +10,7 @@ import { useQueue } from '@/api/queries';
 import { useHotkeys } from '@/app/hotkeys';
 import { usePresent } from '@/app/display';
 import { usePersona } from '@/app/persona';
-import { ErrorState, LoadingBlock, useReadOnly } from '@/components/feedback';
+import { ErrorState, LoadingBlock, useReadOnly, useRoleGate } from '@/components/feedback';
 import { actionPlan, type ActionPlan } from '@/domain/decision';
 import { refAnchorId } from '@/domain/refs';
 import { CaseAssistant } from '@/views/agent';
@@ -20,7 +20,6 @@ import { applyOverlay, overlayStore, recordDecision, recordRecompute, useCaseVie
 import { usePrefetchCase } from '../state/prefetch';
 import { noticeStore, sendLangStore, useAutoAdvance, useSendLang } from '../state/prefs';
 import { parseTab, tabQuery, type QueueTab } from '../state/queueParams';
-import { useWriteGate } from '../state/gates';
 import { lateProposal } from '../state/refund';
 import { resultNotice } from '../state/notices';
 import { approveBody } from '../state/requests';
@@ -156,10 +155,10 @@ function CaseScreen({ card, sentMessage, refetch }: CaseScreenProps) {
   // Role gates and the service's read-only flag: disabled with the reason, never hidden
   // (docs/ui-design.md 5.8).
   const readOnly = useReadOnly();
-  const decide = useWriteGate('POST /api/returns/{return_id}/decision');
-  const evidence = useWriteGate('POST /api/returns/{return_id}/evidence');
-  const dispute = useWriteGate('POST /api/links/{link_id}/dispute');
-  const regenerate = useWriteGate('POST /api/returns/{return_id}/regenerate');
+  const decide = useRoleGate('POST /api/returns/{return_id}/decision');
+  const evidence = useRoleGate('POST /api/returns/{return_id}/evidence');
+  const dispute = useRoleGate('POST /api/links/{link_id}/dispute');
+  const regenerate = useRoleGate('POST /api/returns/{return_id}/regenerate');
   const a = OPERATOR.actions;
   const note = (allowed: boolean, reason: string | null, action: Parameters<typeof roleNote>[0], subject: string) =>
     allowed ? null : readOnly ? reason : roleNote(action, subject, persona.role);

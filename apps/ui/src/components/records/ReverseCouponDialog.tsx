@@ -122,7 +122,12 @@ export function ReverseCouponDialog({ application, open, onOpenChange, onDone }:
             </p>
             {error &&
               (isApiError(error) && error.code === 'forbidden_role' ? (
-                <ForbiddenRoleNotice role={persona.role} action={R.confirm.toLowerCase()} />
+                <ForbiddenRoleNotice
+                  role={persona.role}
+                  action={R.confirm.toLowerCase()}
+                  endpoint="POST /api/coupon-rules/applications/{application_id}/reverse"
+                  message={error.message}
+                />
               ) : (
                 <div className="flex flex-col gap-1">
                   <ErrorState error={error} />

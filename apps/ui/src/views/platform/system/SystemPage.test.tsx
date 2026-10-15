@@ -125,7 +125,7 @@ describe('the service clock (ADR-15 sections 15, 19, 20)', () => {
     act(() => setScenario('cached'));
     await loaded();
     const clock = await waitFor(() => {
-      const el = document.querySelector('[data-clock-frozen="yes"]');
+      const el = document.querySelector('[data-clock][data-clock-frozen="yes"]');
       expect(el).not.toBeNull();
       return el as HTMLElement;
     });

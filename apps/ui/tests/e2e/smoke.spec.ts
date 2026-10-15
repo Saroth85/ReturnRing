@@ -73,6 +73,59 @@ test('the cached scenario shows the banner, the corner tag and the [Cached] titl
   expect(errors).toEqual([]);
 });
 
+test('the service clock: running on the default scenario, frozen at the snapshot in the cached one', async ({ page }) => {
+  await page.goto('/about');
+  const clock = page.locator('[data-banner-clock]');
+  await expect(clock).toHaveAttribute('data-banner-clock', 'demo');
+  await expect(clock).toHaveAttribute('data-clock-frozen', 'no');
+  await expect(clock).toContainText('demo clock running since the reset');
+  await expect(clock).toContainText('snapshot 30 Sep 2026, 18:00 UTC');
+  // The service's 'now' of /readyz (19:00 on the example), not the browser's date.
+  await expect(page.locator('[data-top-clock] time')).toHaveAttribute('datetime', /^2026-09-30T19:0/);
+  await page.goto('/about?scenario=cached');
+  await expect(clock).toHaveAttribute('data-clock-frozen', 'yes');
+  await expect(clock).toContainText('demo clock frozen at the snapshot');
+  await expect(page.locator('[data-top-clock] time')).toHaveAttribute('datetime', '2026-09-30T18:00:00.000Z');
+});
+
+test('before a demo reset (404 on the demo cases) every page names the reset with the API message', async ({ page }) => {
+  const errors = watchConsole(page);
+  await page.goto('/portfolio?scenario=empty');
+  const line = page.locator('[data-demo-reset-missing]');
+  await expect(line).toContainText('No demo reset yet');
+  await expect(line.locator('[data-verbatim]')).toHaveText('no demo reset yet: run python -m apps.api.reset');
+  await page.getByRole('link', { name: 'About the data' }).first().click();
+  await expect(page.getByRole('heading', { level: 1, name: 'About the data' })).toBeVisible();
+  await expect(line).toBeVisible();
+  await page.goto('/about?scenario=default');
+  await expect(page.locator('h1').first()).toBeVisible();
+  await expect(line).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test('the read-only public demo: writes disabled with the reason, the agent still open', async ({ page }) => {
+  await page.goto('/returns/RET-000102?scenario=read_only');
+  await expect(page.getByRole('region', { name: 'Service mode' })).toContainText('read-only public demo');
+  const approve = page.locator('[data-action-bar] [data-action="approve-restriction"]');
+  await expect(approve).toBeDisabled();
+  await expect(page.locator('[data-action-bar] [data-action-reason]')).toContainText('Read-only public demo');
+  await expect(page.getByRole('button', { name: /Ask about this case/ })).toBeEnabled();
+  await page.goto('/coupons?scenario=read_only');
+  const reverse = page.getByRole('button', { name: /^Reverse/ }).first();
+  await expect(reverse).toBeDisabled();
+  await expect(reverse.locator('xpath=ancestor::*[@data-role-gate][1]').locator('[data-role-reason]')).toHaveText('Read-only public demo');
+});
+
+test('refund_deadline_passed: proposals past their deadline are flagged in the queue and on the case', async ({ page }) => {
+  await page.goto('/queue?scenario=refund_deadline_passed');
+  await expect(page.locator('[data-top-clock] time')).toHaveAttribute('datetime', /^2026-10-13T09:0/);
+  await expect(page.locator('[data-return-row="RET-000102"] [data-refund-overdue]')).toBeVisible();
+  // A guarantee case states no refund deadline (rule 4): never overdue.
+  await expect(page.locator('[data-return-row="RET-000105"] [data-refund-overdue]')).toHaveCount(0);
+  await page.goto('/returns/RET-000102?scenario=refund_deadline_passed');
+  await expect(page.locator('[data-refund-overdue-banner="proposed"]')).toBeVisible();
+});
+
 test('the case card opens the case assistant drawer', async ({ page }) => {
   await page.goto('/returns/RET-000102');
   await page.getByRole('button', { name: /Ask about this case/ }).click();

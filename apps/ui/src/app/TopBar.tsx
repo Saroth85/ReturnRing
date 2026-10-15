@@ -1,6 +1,7 @@
 import { useId } from 'react';
 import { Link } from 'react-router';
 import { DEMO_USERS } from '@/api/contract.gen';
+import { useDemoClock } from '@/api/clock';
 import { useApiMeta } from '@/api/meta';
 import type { DemoUserId } from '@/api/models';
 import { LlmStatusPill } from '@/components/mode';
@@ -62,6 +63,7 @@ function ThemeMenu() {
 /** Brand, shop, demo clock and the global controls (docs/ui-design.md 3.4). */
 export function TopBar() {
   const meta = useApiMeta();
+  const clock = useDemoClock();
   const provenanceMode = useProvenanceMode();
   return (
     <header data-top-bar className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border bg-surface px-4 py-2">
@@ -70,10 +72,22 @@ export function TopBar() {
           {APP_NAME}
         </Link>
         <span className="text-caption text-ink-3">· {SHOP_LINE}</span>
-        {meta.asOf && (
-          <span className="text-caption text-ink-3">
-            · {SHELL.asOf} <DateText value={meta.asOf} />
+        {/* The service's 'now' (/readyz clock: demo, frozen or wall), never the browser's date. */}
+        {clock.now && clock.clock ? (
+          <span
+            className="text-caption text-ink-3"
+            title={SHELL.clockTip(clock.clock.note)}
+            data-top-clock={clock.kind ?? undefined}
+            data-clock-frozen={clock.frozen ? 'yes' : 'no'}
+          >
+            · {SHELL.serviceNow} <DateText value={clock.now.toISOString()} />
           </span>
+        ) : (
+          meta.asOf && (
+            <span className="text-caption text-ink-3">
+              · {SHELL.asOf} <DateText value={meta.asOf} />
+            </span>
+          )
         )}
       </p>
       <div className="ml-auto flex flex-wrap items-center gap-3">

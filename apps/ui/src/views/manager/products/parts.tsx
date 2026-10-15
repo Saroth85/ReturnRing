@@ -7,13 +7,13 @@ import { Link, NavLink } from 'react-router';
 import type { CatalogTask } from '@/api/models';
 import { useCreateCatalogTask, useUpdateCatalogTask } from '@/api/mutations';
 import { usePersona } from '@/app/persona';
-import { InlineNotice } from '@/components/feedback';
+import { InlineNotice, RoleGate } from '@/components/feedback';
 import { DateText, Figure, IdText, PlainNumber, ProvenanceFooter, ProvenanceScope } from '@/components/provenance';
 import { MIN_REASON_CHARS } from '@/components/records';
 import { Button } from '@/components/ui';
 import { MANAGER } from '../copy';
 import type { ProductAnomaly } from '../types';
-import { WriteError, WriteGate } from '../ui';
+import { WriteError } from '../ui';
 
 const T = MANAGER.tasks;
 const PR = MANAGER.products;
@@ -141,13 +141,13 @@ export function CatalogTaskForm({
         </p>
       )}
       <p className="text-caption text-ink-2">{T.form.noRestriction}</p>
-      <WriteGate action="POST /api/catalog-tasks">
+      <RoleGate action="POST /api/catalog-tasks">
         {(gate) => (
           <Button type="submit" variant="primary" disabled={!gate.allowed || short || create.isPending} title={gate.reason ?? undefined}>
             {T.form.submit}
           </Button>
         )}
-      </WriteGate>
+      </RoleGate>
       {created && (
         <InlineNotice tone="info">
           <span data-task-created={created.task_id}>
@@ -158,7 +158,7 @@ export function CatalogTaskForm({
           </span>
         </InlineNotice>
       )}
-      {create.error && <WriteError error={create.error} action={T.form.submit.toLowerCase()} />}
+      {create.error && <WriteError error={create.error} action={T.form.submit.toLowerCase()} endpoint="POST /api/catalog-tasks" />}
     </form>
   );
 }
@@ -320,7 +320,7 @@ export function TaskCard({ task, children }: { task: CatalogTask; children?: Rea
             onChange={(event) => setNote(event.target.value)}
             className="rounded-control border border-border-strong bg-surface px-2 py-1 text-body"
           />
-          <WriteGate action="PATCH /api/catalog-tasks/{task_id}">
+          <RoleGate action="PATCH /api/catalog-tasks/{task_id}">
             {(gate) => (
               <div className="flex flex-wrap gap-2">
                 {moves.map((m) => (
@@ -337,7 +337,7 @@ export function TaskCard({ task, children }: { task: CatalogTask; children?: Rea
                 ))}
               </div>
             )}
-          </WriteGate>
+          </RoleGate>
         </div>
       )}
       {result && (
@@ -345,7 +345,7 @@ export function TaskCard({ task, children }: { task: CatalogTask; children?: Rea
           <span data-task-updated>{T.updated(result.task_id, T.status[result.status])}</span>
         </InlineNotice>
       )}
-      {update.error && <WriteError error={update.error} action={T.updateAction} />}
+      {update.error && <WriteError error={update.error} action={T.updateAction} endpoint="PATCH /api/catalog-tasks/{task_id}" />}
     </article>
   );
 }

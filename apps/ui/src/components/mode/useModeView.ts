@@ -7,7 +7,7 @@ import { useApiMeta, type ApiMeta } from '@/api/meta';
 import type { ComponentCheck, ReadyzResponse } from '@/api/models';
 import { useHealthz, useReadyz } from '@/api/queries';
 import { MODE } from '@/copy/common';
-import { READ_ONLY } from '@/components/feedback/roles';
+import { useReadOnly } from '@/components/feedback/roles';
 
 export type ModeKind = 'checking' | 'unknown' | 'live' | 'live-cpu' | 'cached' | 'contract' | 'mixed';
 
@@ -63,11 +63,12 @@ export function useModeView(): ModeView {
   const readyz = useReadyz();
   useHealthz();
   const meta = useApiMeta();
+  const readOnly = useReadOnly();
   return describeMode({
     readyz: readyz.data,
     readyzFailed: readyz.isError,
     meta,
     isMock: API_MODE === 'mock',
-    readOnly: READ_ONLY,
+    readOnly,
   });
 }

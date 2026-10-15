@@ -12,14 +12,14 @@ import { useUpdateAssumptions } from '@/api/mutations';
 import { useAssumptions, useMatrix } from '@/api/queries';
 import { usePersona } from '@/app/persona';
 import { AssumptionLabel, ECONOMICS, Waterfall } from '@/components/economics';
-import { ErrorState, InlineNotice } from '@/components/feedback';
+import { ErrorState, InlineNotice, RoleGate } from '@/components/feedback';
 import { DateText, Figure, NatureMark } from '@/components/provenance';
 import { Button } from '@/components/ui';
 import { SENSITIVITY_IDS, type InputKey, type SensitivityId } from '@/sim';
 import { MIN_REASON_CHARS } from '@/components/records';
 import { MANAGER } from '../copy';
 import type { AssumptionVersion } from '../types';
-import { Card, Loadable, ManagerPage, WriteError, WriteGate } from '../ui';
+import { Card, Loadable, ManagerPage, WriteError } from '../ui';
 import { AssumptionForm } from './AssumptionForm';
 import { draftOf, inputsFromDraft, isDirty, nextVersionLabel, scenarioViews, updateBody, type Draft } from './model';
 import { ThresholdSandbox } from './ThresholdSandbox';
@@ -65,17 +65,17 @@ function SaveVersion({ draft, version, dirty, onSaved }: { draft: Draft; version
       <p id={hintId} className="text-caption text-ink-3">
         {S.form.noteHint}
       </p>
-      <WriteGate action="PUT /api/simulator/assumptions">
+      <RoleGate action="PUT /api/simulator/assumptions">
         {(gate) => (
           <Button variant="primary" disabled={!gate.allowed || !dirty || short || update.isPending} title={gate.reason ?? undefined} onClick={save}>
             <Save aria-hidden="true" size={14} />
             {S.form.saveAs} <span data-version>{nextVersionLabel(version.version)}</span>
           </Button>
         )}
-      </WriteGate>
+      </RoleGate>
       {error &&
         (isApiError(error) && error.status === 403 ? (
-          <WriteError error={error} action={S.form.saveAction} />
+          <WriteError error={error} action={S.form.saveAction} endpoint="PUT /api/simulator/assumptions" />
         ) : conflict ? (
           <InlineNotice tone="attention">
             <p>

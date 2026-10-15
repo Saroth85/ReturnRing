@@ -12,11 +12,10 @@ import { useConfirmInspection, useCreateInspection } from '@/api/mutations';
 import { useCase, useReadyz } from '@/api/queries';
 import { usePersona } from '@/app/persona';
 import { PathBadge } from '@/components/decision';
-import { ErrorState, InlineNotice, LoadingBlock, useReadOnly } from '@/components/feedback';
+import { ErrorState, InlineNotice, LoadingBlock, useReadOnly, useRoleGate } from '@/components/feedback';
 import { IdText, PlainNumber, ProvenanceFooter, ProvenanceScope } from '@/components/provenance';
 import { Button, Kbd } from '@/components/ui';
 import { PLATFORM } from '../copy';
-import { useWriteGate } from '../shared/gate';
 import { PageHeader } from '../shared/layout';
 import { INSPECTION } from './copy';
 import {
@@ -90,8 +89,8 @@ function ReturnSummary({ returnId }: { returnId: string }) {
 function InspectionFlow({ returnId }: { returnId: string }) {
   const persona = usePersona();
   // The role and the read-only public demo (/readyz public_read_only) gate both writes.
-  const createGate = useWriteGate('POST /api/inspections');
-  const confirmGate = useWriteGate('POST /api/inspections/{inspection_id}/confirm');
+  const createGate = useRoleGate('POST /api/inspections');
+  const confirmGate = useRoleGate('POST /api/inspections/{inspection_id}/confirm');
   const [photo, setPhoto] = useState<{ mediaType: PhotoType; base64: string } | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [photoError, setPhotoError] = useState<string | null>(null);

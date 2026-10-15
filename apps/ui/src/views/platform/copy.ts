@@ -52,7 +52,6 @@ export const PLATFORM = {
     applications: 'Applications to clusters',
     applicationsNote: 'Each pause names its source decision, the operator who confirmed it and its review date.',
     reversed: (id: string, by: string) => `${id} reversed by ${by}.`,
-    reversalReadOnly: 'Read-only public demo: a reversal is not available here.',
   },
   demo: {
     intro: 'The pitch path: check the run before the audience arrives, then open the beats in order.',
@@ -153,7 +152,7 @@ export const PLATFORM = {
       },
       amd: {
         label: 'AMD',
-        say: `What each model contributes on the ${GPU_SHORT_NAME}, measured; real return data, synthetic linked accounts; we are looking for a pilot merchant.`,
+        say: `What each model contributes on the ${GPU_SHORT_NAME}, with each benchmark's own status (measured, pending or illustrative); real return data, synthetic linked accounts; we are looking for a pilot merchant.`,
       },
       shop_ring: {
         label: 'Checkout after Marco',

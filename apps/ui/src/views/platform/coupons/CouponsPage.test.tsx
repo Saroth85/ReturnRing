@@ -59,7 +59,12 @@ describe('/coupons (US-402)', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Approve as the new version' })).toBeDisabled());
     expect(screen.getByRole('textbox', { name: 'Rule text' })).toBeDisabled();
     expect(document.querySelector('[data-role-reason]')?.textContent).toBe('Read-only public demo');
-    expect(document.querySelector('[data-reversal-read-only]')).not.toBeNull();
-    expect(screen.queryByRole('button', { name: /^Reverse/ })).toBeNull();
+    // The reversal stays on screen, disabled with the reason (never hidden, docs/ui-design.md 5.8).
+    const reverse = screen.getAllByRole('button', { name: /^Reverse/ });
+    expect(reverse.length).toBeGreaterThan(0);
+    for (const button of reverse) {
+      expect(button).toBeDisabled();
+      expect(button.closest('[data-role-gate]')?.querySelector('[data-role-reason]')?.textContent).toBe('Read-only public demo');
+    }
   });
 });

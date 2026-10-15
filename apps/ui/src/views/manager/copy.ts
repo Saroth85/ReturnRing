@@ -312,7 +312,6 @@ export const MANAGER = {
     reviewLift: 'Review: lift…',
     reviewLiftRenew: 'Review: lift or renew…',
     readOnly: 'Read-only public demo: the case opens to read; renewing or lifting is not available here.',
-    reversalReadOnly: 'Read-only public demo: a reversal is not available here.',
     openCase: 'Open case',
     approverPending: 'loading the approver',
     noApprover: 'no approver recorded',

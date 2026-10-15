@@ -1,15 +1,24 @@
 // The mock server answers every route of index.json with its example (docs/ui-design.md 11.5),
 // enforces the endpoint roles, serves the contract's scenarios (cached 503, rate_limited 429 with
-// Retry-After, conflict 409, read_only 403, ...) and the three UI fixtures the contract does not
+// Retry-After, conflict 409, read_only 403, ...) and the four UI fixtures the contract does not
 // ship. Behaviour beyond the example table (examples per approver, the role check fallback) is
 // also shown on small synthetic route tables.
 import { describe, expect, it } from 'vitest';
-import type { CaseCard, QueueResponse } from '@/api/models';
+import type { CaseCard, DecisionResult, QueueResponse, ReadyzResponse } from '@/api/models';
 import { encodeSseFrame, parseSseBuffer, type AgentEvent } from '@/api/sse';
 import { readExample, readExampleText, readIndex } from '@/test/examples';
 import { CONTRACT_VERSION } from '../contract.gen';
 import { compareContract } from '../contractVersion';
-import { createMockRouter, findEndpoint, normaliseQuery, queueItemMatches, responseFile, retryAfterOf, type MockRoute } from './mockRouter';
+import {
+  createMockRouter,
+  findEndpoint,
+  normaliseQuery,
+  queueItemMatches,
+  LATE_NOW,
+  responseFile,
+  retryAfterOf,
+  type MockRoute,
+} from './mockRouter';
 
 const index = readIndex();
 const route = createMockRouter(index, async (file) => readExample(file), { requestIdPrefix: 'test' });
@@ -180,6 +189,29 @@ describe('contract scenarios', () => {
 });
 
 describe('UI fixtures the contract does not ship', () => {
+  it('refund_deadline_passed: the clock stands past the deadlines, the queue flags the late proposals, a late rejection sends no message', async () => {
+    const headers = { 'X-Mock-Scenario': 'refund_deadline_passed' };
+    const readyz = (await route({ method: 'GET', path: '/readyz', headers })).body as { value: ReadyzResponse };
+    expect(readyz.value.clock.now).toBe(LATE_NOW);
+    expect(readyz.value.clock.frozen).toBe(false);
+    const today = LATE_NOW.slice(0, 10);
+    const queue = ((await route({ method: 'GET', path: '/api/returns', headers })).body as { value: QueueResponse }).value;
+    const overdue = queue.items.filter((i) => i.refund_overdue).map((i) => i.return_id);
+    expect(overdue).toContain('RET-000102');
+    // The API's rule: a proposal past its deadline; never a guarantee case (no deadline) or a decided one.
+    for (const item of queue.items) {
+      expect(item.refund_overdue).toBe(item.state === 'proposed' && item.refund_due_by !== null && item.refund_due_by < today);
+    }
+    expect(queue.items.some((i) => i.refund_due_by === null && !i.refund_overdue)).toBe(true);
+    expect(queue.items.some((i) => i.state === 'proposed' && !i.refund_overdue && i.refund_due_by !== null)).toBe(true);
+    const reject = await route({ method: 'POST', path: '/api/returns/RET-000102/decision', headers, body: readExampleText('decision_request.reject.json') });
+    expect(reject.status).toBe(200);
+    expect((reject.body as { value: DecisionResult }).value.outbox_message).toBeNull();
+    // Elsewhere the same rejection states the refund.
+    const onTime = await route({ method: 'POST', path: '/api/returns/RET-000102/decision', headers: {}, body: readExampleText('decision_request.reject.json') });
+    expect((onTime.body as { value: DecisionResult }).value.outbox_message).not.toBeNull();
+  });
+
   it('contract_mismatch: /readyz names the next minor contract version (UI1)', async () => {
     const result = await route({ method: 'GET', path: '/readyz', headers: { 'X-Mock-Scenario': 'contract_mismatch' } });
     const version = (result.body as { value: { contract_version: string } }).value.contract_version;
@@ -446,6 +478,18 @@ describe('queue filters (QueueQuery.matches)', () => {
     expect(items.every((i) => i.path === 'guarantee')).toBe(true);
     const insufficient = await route({ method: 'GET', path: '/api/returns?evidence_quality=insufficient', headers: {} });
     expect((insufficient.body as { value: QueueResponse }).value.items.every((i) => i.quadrant === null)).toBe(true);
+  });
+
+  it('sorts by refund deadline like the API: earliest first, guarantee cases (no deadline) last, ties by id', async () => {
+    const result = await route({ method: 'GET', path: '/api/returns?sort=refund_due_by&page_size=100', headers: {} });
+    const items = (result.body as { value: QueueResponse }).value.items;
+    expect(items).toHaveLength(base.items.length);
+    const dated = items.filter((i) => i.refund_due_by !== null);
+    const undated = items.filter((i) => i.refund_due_by === null);
+    expect(undated.length).toBeGreaterThan(0);
+    expect(items.slice(dated.length)).toEqual(undated);
+    const keys = items.map((i) => `${i.refund_due_by ?? '9999-12-31'} ${i.return_id}`);
+    expect(keys).toEqual([...keys].sort());
   });
 
   it('applies the reference semantics to every item', () => {

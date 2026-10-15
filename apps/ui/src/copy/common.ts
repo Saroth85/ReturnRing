@@ -1,6 +1,6 @@
 // Shared UI strings (docs/ui-design.md 10.2), in English. Area strings live in
 // src/views/<area>/copy.ts. No number literals: numbers come from data or src/copy/constants.ts.
-import type { DisplayNature, FallbackReason, Lang, LegalClauseKind, TemplateFieldName } from '@/api/models';
+import type { ClockKind, DisplayNature, FallbackReason, Lang, LegalClauseKind, TemplateFieldName } from '@/api/models';
 import { GPU_NAME, GUARANTEE_DIRECTIVE, LLM_NAME, LLM_RETRY_SECONDS, SYNTHETIC_SEED } from './constants';
 
 export const APP_NAME = 'ReturnRing';
@@ -68,6 +68,11 @@ export const MODE = {
   contractMismatch: (server: string, ui: string) =>
     `the API serves contract ${server}, this UI was built for ${ui}: some screens may fail. Regenerate the UI types (npm run gen:types) and rebuild.`,
   scenarioLabel: 'Mock scenario',
+  /** The service's clock (/readyz `clock`, ADR-15 sections 15, 19, 20); its note is the tooltip. */
+  clockKind: { demo: 'demo clock', system: 'wall clock', fixed: 'fixed clock' } satisfies Record<ClockKind, string>,
+  clockFrozen: 'frozen at the snapshot',
+  clockRunning: 'running since the reset',
+  clockSnapshot: 'snapshot',
 };
 
 export const FEEDBACK = {
@@ -83,6 +88,7 @@ export const FEEDBACK = {
   forbidden: (role: string, action: string) =>
     `Your role (${role}) can't ${action}. Switch user under 'Acting as' to demonstrate another persona.`,
   readOnlyDemo: 'Read-only public demo',
+  readOnlyBody: 'Nothing was saved: this public demo only reads. Every write is refused here, whoever acts.',
   roleReason: (allowed: string, role: string) => `This action is for ${allowed} (${role} can view).`,
   notFoundTitle: 'Page not found',
   notFoundBody: 'This address is not a page of ReturnRing.',
@@ -229,4 +235,13 @@ export const SHELL = {
   collapseNav: 'Collapse navigation',
   expandNav: 'Expand navigation',
   badgeOf: (label: string) => `${label}: number of returns`,
+  /** The service's 'now' in the top bar (the /readyz clock, never the browser's date). */
+  serviceNow: 'service time',
+  clockTip: (note: string) => `The service's clock: ${note}`,
+  /** GET /api/demo/cases answered 404: no demo reset has stored the golden cases yet. */
+  noDemoReset: {
+    title: 'No demo reset yet',
+    body: 'The golden cases of the demo are not in the store, so the demo path, the shop carts and the compare pair have no case to open. The API answered:',
+    fix: 'Run python -m apps.api.reset (make reset), then reload the page.',
+  },
 };

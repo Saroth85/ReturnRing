@@ -21,10 +21,12 @@ ok()   { printf 'OK   %s\n' "$1"; }
 fail() { printf 'FAIL %s\n' "$1" >&2; }
 
 # run <log-name> <command...>: runs the command, tees its output into release-logs/<log-name>.log
-# and keeps the command's exit code.
+# (a name with a slash puts the log in a subfolder, created here) and keeps the command's exit
+# code.
 run() {
   local name="$1"; shift
   step "$name: $*"
+  mkdir -p "$(dirname "$LOGS/$name.log")"
   "$@" 2>&1 | tee "$LOGS/$name.log"
   return "${PIPESTATUS[0]}"
 }

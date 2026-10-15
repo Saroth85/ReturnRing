@@ -380,7 +380,11 @@ export function InspectionResult({ result }: { result: ConfirmResult }) {
         <p className="flex flex-wrap items-baseline gap-x-1 text-body" data-claim>
           <span className="font-medium">{r.claim}</span>
           <Figure metric={claim.amount} label={r.claim} />
-          {r.attachedTo} <IdText id={decision.decision_id} /> · {r.confirmedBy} <strong>{claim.confirmed_by}</strong>
+          <span className="text-ink-2">{r.linePrice}</span>
+          <span data-line-price>
+            <Figure metric={claim.line_price} label={r.linePrice} />
+          </span>
+          · {r.attachedTo} <IdText id={decision.decision_id} /> · {r.confirmedBy} <strong>{claim.confirmed_by}</strong>
           {message && (
             <>
               {' '}

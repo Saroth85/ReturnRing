@@ -6,12 +6,13 @@ import type { CouponRule, CouponRuleApplication, CouponRulesResponse } from '@/a
 import { useCreateCouponRule } from '@/api/mutations';
 import { useCouponRules } from '@/api/queries';
 import { usePersona } from '@/app/persona';
-import { ErrorState, InlineNotice, LoadingBlock, RoleGate } from '@/components/feedback';
+import { ErrorState, InlineNotice, LoadingBlock, useReadOnly } from '@/components/feedback';
 import { DateText, IdText } from '@/components/provenance';
 import { CouponApplicationsTable } from '@/components/records';
 import { Button } from '@/components/ui';
 import { PLATFORM } from '../copy';
 import { PageHeader, Panel } from '../shared/layout';
+import { WriteGate } from '../shared/WriteGate';
 
 const t = PLATFORM.coupons;
 
@@ -65,7 +66,7 @@ function NewVersion({ current }: { current: CouponRule }) {
           <span data-rule-created={done.rule_version}>{t.created(done.rule_version, done.approved_by)}</span>
         </InlineNotice>
       )}
-      <RoleGate action="POST /api/coupon-rules">
+      <WriteGate action="POST /api/coupon-rules">
         {(gate) => (
           <div className="flex w-full flex-col gap-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -107,7 +108,7 @@ function NewVersion({ current }: { current: CouponRule }) {
             </div>
           </div>
         )}
-      </RoleGate>
+      </WriteGate>
     </Panel>
   );
 }
@@ -160,6 +161,7 @@ function History({ rules }: { rules: CouponRule[] }) {
 export default function CouponsPage() {
   const rules = useCouponRules();
   const [reversed, setReversed] = useState<CouponRuleApplication | null>(null);
+  const readOnly = useReadOnly();
   const data = rules.data;
   return (
     <div className="mx-auto flex max-w-content flex-col gap-4" data-page="coupons">
@@ -179,7 +181,13 @@ export default function CouponsPage() {
                 <span data-reversed={reversed.application_id}>{t.reversed(reversed.application_id, reversed.reversed_by ?? '')}</span>
               </InlineNotice>
             )}
-            <CouponApplicationsTable applications={data.applications} reversible onReversed={setReversed} />
+            {/* The read-only public demo refuses a reversal (403): none is offered, and the reason says why. */}
+            {readOnly && (
+              <p className="text-caption text-ink-3" data-reversal-read-only>
+                {t.reversalReadOnly}
+              </p>
+            )}
+            <CouponApplicationsTable applications={data.applications} reversible={!readOnly} onReversed={setReversed} />
           </Panel>
           <History rules={data.history} />
         </>

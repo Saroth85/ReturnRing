@@ -5,12 +5,12 @@ import { CircleDashed, Grid2x2, List, Sparkles } from 'lucide-react';
 import { useMemo } from 'react';
 import { useSearchParams } from 'react-router';
 import type { PortfolioMatrix, QuadrantId } from '@/api/models';
-import { useMatrix } from '@/api/queries';
+import { useDemoCases, useMatrix } from '@/api/queries';
 import { QuadrantGlyph } from '@/components/decision';
 import { DateText, Figure, PlainNumber, ProvenanceFooter, ProvenanceScope } from '@/components/provenance';
 import { Button } from '@/components/ui';
 import { QUADRANT_ORDER } from '@/sim';
-import { DEMO_CASES } from '../constants';
+import { highlights as demoHighlights } from '@/domain/demoCases';
 import { MANAGER } from '../copy';
 import { sumMetrics } from '../metrics';
 import { Loadable, ManagerPage, SideDrawer } from '../ui';
@@ -131,6 +131,9 @@ function Portfolio({ matrix }: { matrix: PortfolioMatrix }) {
   const notPlacedOpen = params.get('list') === 'not-placed';
   const cluster = params.get('cluster');
   const demo = params.get('demo') !== '0';
+  // The golden cases of the demo reset: none before a reset (404), so nothing is annotated.
+  const cases = useDemoCases();
+  const highlights = useMemo(() => demoHighlights(cases.data), [cases.data]);
   const tableView = params.get('view') === 'table';
   const set = (key: string, value: string | null) =>
     setParams(
@@ -212,7 +215,7 @@ function Portfolio({ matrix }: { matrix: PortfolioMatrix }) {
               {matrix.legend}
             </p>
           </div>
-          {tableView ? <QuadrantTable matrix={matrix} /> : <MatrixCanvas matrix={matrix} demoCases={demo} highlightCluster={cluster} />}
+          {tableView ? <QuadrantTable matrix={matrix} /> : <MatrixCanvas matrix={matrix} demoCases={demo} highlights={highlights} highlightCluster={cluster} />}
           <dl className="flex flex-col gap-0.5 text-caption text-ink-2">
             <div className="flex flex-wrap gap-x-1">
               <dt>{P.riskThreshold}</dt>
@@ -272,9 +275,9 @@ function Portfolio({ matrix }: { matrix: PortfolioMatrix }) {
       <SideDrawer open={notPlacedOpen} onOpenChange={(open) => !open && set('list', null)} title={P.insufficientTitle} description={P.insufficientNote}>
         {notPlacedOpen && <CustomerList points={notPlaced} provenance={matrix.points_provenance} showRisk={false} defaultSort="value" />}
       </SideDrawer>
-      {demo && (
+      {demo && highlights.customers.length > 0 && (
         <p className="sr-only" data-demo-note>
-          {DEMO_CASES.customers.map((c) => c.note).join('. ')}
+          {highlights.customers.map((c) => P.demoCustomers[c.key as keyof typeof P.demoCustomers]?.note).filter(Boolean).join('. ')}
         </p>
       )}
     </ManagerPage>

@@ -2,9 +2,22 @@
 // 3.4, 3.5, 5.2, 10.3, 12): the layout survives provenance mode, presenter mode keeps every page
 // reachable and shows the decision rail's approval, sheets give focus back, the mode tag never
 // covers content, and the system beat opens on the benchmarks.
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { expect as baseExpect, test, type Page } from '@playwright/test';
 
 const expect = baseExpect.configure({ timeout: 15_000 });
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+/** The golden cases the mock serves (GET /api/demo/cases): the beats open these ids. */
+const CASES = JSON.parse(readFileSync(path.resolve(here, '../../../../contracts/examples/api/demo_cases.json'), 'utf8')) as {
+  cases: { key: string; return_id: string }[];
+};
+const caseId = (key: string) => CASES.cases.find((c) => c.key === key)?.return_id ?? '';
+const MARCO = `/returns/${caseId('marco')}`;
+const ROSSI_CARD = `/returns/${caseId('rossi_card')}`;
+const COMPARE = `/compare?a=${caseId('giulia')}&b=${caseId('marco')}`;
 
 async function caseReady(page: Page): Promise<void> {
   await expect(page.locator('[data-decision-rail]')).toBeVisible();
@@ -33,7 +46,7 @@ async function overlappingFigures(page: Page): Promise<string[]> {
 }
 
 test.describe('provenance mode keeps the layout (UI21)', () => {
-  for (const url of ['/simulator', '/compare?a=RET-000101&b=RET-000102', '/returns/RET-000102', '/portfolio', '/queue', '/system']) {
+  for (const url of ['/simulator', COMPARE, MARCO, '/portfolio', '/queue', '/system']) {
     test(`P on ${url}: no horizontal scroll, no overlapping figures`, async ({ page }) => {
       await page.goto(url);
       await expect(page.locator('h1').first()).toBeVisible();
@@ -64,7 +77,7 @@ test.describe('presenter mode (UI22, UI23, UI25, UI26, UI27, UI30)', () => {
   test.use({ viewport: { width: 1280, height: 720 } });
 
   test('Marco opens with the approval and the terms on screen, above the demo rail', async ({ page }) => {
-    await page.goto('/returns/RET-000102?present=1');
+    await page.goto(`${MARCO}?present=1`);
     await caseReady(page);
     const gate = page.locator('[data-approval-gate]');
     await expect(gate).toBeInViewport();
@@ -79,7 +92,7 @@ test.describe('presenter mode (UI22, UI23, UI25, UI26, UI27, UI30)', () => {
   });
 
   test('every page stays one click away, and the rail leaves presenter mode', async ({ page }) => {
-    await page.goto('/compare?a=RET-000101&b=RET-000102&present=1');
+    await page.goto(`${COMPARE}&present=1`);
     const nav = page.locator('nav[data-side-nav="collapsed"]');
     await expect(nav).toBeVisible();
     await nav.getByRole('link', { name: 'Simulated checkout' }).click();
@@ -94,7 +107,7 @@ test.describe('presenter mode (UI22, UI23, UI25, UI26, UI27, UI30)', () => {
   });
 
   test('beat 3: the evidence sheet offers the demo note', async ({ page }) => {
-    await page.goto('/returns/RET-000104?present=1');
+    await page.goto(`${ROSSI_CARD}?present=1`);
     await caseReady(page);
     await page.locator('[data-explain-link]').first().click();
     const sheet = page.locator('[data-sheet="evidence"]');
@@ -117,7 +130,7 @@ test.describe('presenter mode (UI22, UI23, UI25, UI26, UI27, UI30)', () => {
 
 test.describe('focus and keyboard (UI24, UI35)', () => {
   test('a sheet gives focus back to the button that opened it, also when opened with A', async ({ page }) => {
-    await page.goto('/returns/RET-000102');
+    await page.goto(MARCO);
     await caseReady(page);
     const approve = page.locator('[data-action="approve-restriction"]');
     await approve.click();
@@ -132,11 +145,11 @@ test.describe('focus and keyboard (UI24, UI35)', () => {
   });
 
   test('the case assistant gives focus back to its button', async ({ page }) => {
-    await page.goto('/returns/RET-000102');
+    await page.goto(MARCO);
     await caseReady(page);
     const ask = page.locator('[data-ask-button]');
     await ask.click();
-    await expect(page.getByRole('dialog', { name: /Ask about RET-000102/ })).toBeVisible();
+    await expect(page.getByRole('dialog', { name: new RegExp(`Ask about ${caseId('marco')}`) })).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(ask).toBeFocused();
   });
@@ -170,7 +183,7 @@ test.describe('mode on contract examples (UI1, UI12, UI20)', () => {
   });
 
   test('from 1024 px the corner tag sits over the navigation column, never over the page', async ({ page }) => {
-    await page.goto('/compare?a=RET-000101&b=RET-000102');
+    await page.goto(COMPARE);
     await expect(page.locator('[data-compare-closing]')).toBeVisible();
     const tag = await page.locator('[data-mode-corner]').boundingBox();
     const main = await page.locator('main').boundingBox();

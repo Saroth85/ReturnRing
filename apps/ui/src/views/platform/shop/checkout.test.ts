@@ -1,6 +1,7 @@
 // Checkout logic (US-401..403, docs/ui-design.md 9.1), on the contract examples.
 import { describe, expect, it } from 'vitest';
-import type { CheckoutConfirmResponse, CheckoutEvaluateResponse } from '@/api/models';
+import type { CaseCard, CheckoutConfirmResponse, CheckoutEvaluateResponse, DemoCasesResponse, DemoCartKey } from '@/api/models';
+import { cartOf as demoCartOf } from '@/domain/demoCases';
 import { readExample } from '@/test/examples';
 import {
   adviceFor,
@@ -15,24 +16,59 @@ import {
   toEvaluateRequest,
   type Cart,
 } from './checkout';
-import { presetCart, presetId } from './presets';
+import { linkedCart, presetCart, presetId, shopLang } from './presets';
 
 const giulia = readExample<CheckoutEvaluateResponse>('checkout_evaluate_response.giulia.json');
 const marco = readExample<CheckoutEvaluateResponse>('checkout_evaluate_response.marco.json');
 const giuliaConfirm = readExample<CheckoutConfirmResponse>('checkout_confirm_response.giulia.json');
 
-const cartOf = (preset: 'giulia' | 'marco'): Cart => presetCart(preset);
+const cases = readExample<DemoCasesResponse>('demo_cases.json');
+/** The carts of the demo reset (demo_cases.json): `marco` is the old name of the ring cart. */
+function cartOf(preset: DemoCartKey | 'marco'): Cart {
+  const cart = demoCartOf(cases, presetId(preset) as DemoCartKey);
+  if (!cart) throw new Error(`no ${preset} cart in demo_cases.json`);
+  return presetCart(cart);
+}
 
 describe('presets', () => {
-  it('fall back to Giulia for an unknown preset', () => {
-    expect(presetId('marco')).toBe('marco');
+  it('are the carts of the demo reset, marco an alias of the ring cart, Giulia for an unknown preset', () => {
+    expect(presetId('ring')).toBe('ring');
+    expect(presetId('marco')).toBe('ring');
+    expect(presetId('giulia')).toBe('giulia');
     expect(presetId('nobody')).toBe('giulia');
     expect(presetId(null)).toBe('giulia');
   });
 
-  it('are the request examples the mock routes on', () => {
+  it('send each demo cart as the API gave it: the request examples the mock routes on', () => {
     expect(toEvaluateRequest(cartOf('giulia'))).toEqual(readExample('checkout_evaluate_request.giulia.json'));
-    expect(toEvaluateRequest(cartOf('marco'))).toEqual(readExample('checkout_evaluate_request.marco.json'));
+    expect(toEvaluateRequest(cartOf('ring'))).toEqual(readExample('checkout_evaluate_request.marco.json'));
+  });
+
+  it('read a cart without quantity or coupon as one item and no coupon (CartLine defaults)', () => {
+    const cart = presetCart({ key: 'giulia', request: { customer_id: 'C-X', lines: [{ variant_id: 'V-1', size: 'S' }] } });
+    expect(cart).toEqual({ customer_id: 'C-X', lines: [{ variant_id: 'V-1', size: 'S', quantity: 1 }], coupon_code: null });
+  });
+
+  it('copy the cart, so an edit never changes the demo cases', () => {
+    const cart = cartOf('giulia');
+    cart.lines[0]!.size = 'XS';
+    expect(cartOf('giulia').lines[0]?.size).toBe('M');
+  });
+
+  it('build the cart of another linked account from the Marco card: same item, no coupon', () => {
+    const card = readExample<CaseCard>('case_card.marco.json');
+    const ring = cases.carts.find((c) => c.key === 'ring')!;
+    const other = card.linked_accounts!.accounts.find((a) => !a.is_case_customer)!;
+    expect(linkedCart(ring, card)).toEqual({ ...cartOf('ring'), customer_id: other.customer_id, coupon_code: null });
+    expect(linkedCart(ring, undefined)).toBeNull();
+    expect(linkedCart(ring, { ...card, linked_accounts: null })).toBeNull();
+    expect(presetId('linked')).toBe('linked');
+  });
+
+  it('show the customer texts in Italian unless English is asked', () => {
+    expect(shopLang(null)).toBe('it');
+    expect(shopLang('en')).toBe('en');
+    expect(shopLang('de')).toBe('it');
   });
 });
 
@@ -151,8 +187,8 @@ describe('checkReceipt (E2E-02)', () => {
 });
 
 describe('latencyMetric', () => {
-  it('is a real measurement in this browser, with the data source named', () => {
-    const metric = latencyMetric(84.6, '2026-10-13T21:03:00.000Z', 'mock');
+  it('is a real measurement in this browser, with the data source named, dated with the service day', () => {
+    const metric = latencyMetric(84.6, '2026-10-13', 'mock');
     expect(metric).toEqual({
       value: 85,
       unit: 'milliseconds',
@@ -163,6 +199,6 @@ describe('latencyMetric', () => {
         nature: 'real',
       },
     });
-    expect(latencyMetric(12, '2026-10-13T21:03:00.000Z', 'live').provenance.origin).toContain('to the live API');
+    expect(latencyMetric(12, '2026-10-13', 'live').provenance.origin).toContain('to the live API');
   });
 });

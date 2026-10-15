@@ -5,8 +5,13 @@ import type { UseQueryResult } from '@tanstack/react-query';
 import clsx from 'clsx';
 import { X } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { ErrorState, LoadingBlock } from '@/components/feedback';
+import type { EndpointKey } from '@/api/client';
+import { isApiError } from '@/api/errors';
+import { usePersona } from '@/app/persona';
+import { EmptyState, ErrorState, ForbiddenRoleNotice, InlineNotice, LoadingBlock, useReadOnly, type Gate } from '@/components/feedback';
+import { FEEDBACK } from '@/copy/common';
 import { MANAGER } from './copy';
+import { useWriteGate } from './gate';
 
 interface ManagerPageProps {
   title: string;
@@ -71,14 +76,53 @@ interface LoadableProps<T> {
   /** What failed, e.g. "GET /api/kpi". */
   label: string;
   rows?: number;
+  /** A 404 that is an answer, not a failure (an offline report not in the snapshot): its empty state. */
+  notFound?: (message: string) => ReactNode;
   children: (data: T) => ReactNode;
 }
 
 /** Loading skeleton, panel-level error with the request id and Retry, or the content. */
-export function Loadable<T>({ query, label, rows = 4, children }: LoadableProps<T>) {
+export function Loadable<T>({ query, label, rows = 4, notFound, children }: LoadableProps<T>) {
   if (query.isPending) return <LoadingBlock rows={rows} label={MANAGER.loading} />;
-  if (query.isError) return <ErrorState error={query.error} title={`${label}: ${MANAGER.failed}`} onRetry={() => void query.refetch()} />;
+  if (query.isError) {
+    if (notFound && isApiError(query.error) && query.error.status === 404) return <>{notFound(query.error.message)}</>;
+    return <ErrorState error={query.error} title={`${label}: ${MANAGER.failed}`} onRetry={() => void query.refetch()} />;
+  }
   return <>{children(query.data)}</>;
+}
+
+/**
+ * The offline evaluation report is not in the serving snapshot (404 report_unavailable, ADR-15
+ * section 15): an empty state with the API's reason verbatim, never retried.
+ */
+export function ReportUnavailable({ message }: { message: string }) {
+  return (
+    <div data-report-unavailable>
+      <EmptyState
+        message={MANAGER.reportUnavailable}
+        action={
+          <p className="max-w-prose text-caption text-ink-2" data-verbatim>
+            {message}
+          </p>
+        }
+      />
+    </div>
+  );
+}
+
+/** RoleGate with the read-only demo of /readyz: the control, and its reason under it. */
+export function WriteGate({ action, children }: { action: EndpointKey; children: (gate: Gate) => ReactNode }) {
+  const gate = useWriteGate(action);
+  return (
+    <div data-role-gate={gate.allowed ? 'allowed' : 'blocked'} className="inline-flex flex-col gap-1">
+      {children(gate)}
+      {gate.reason && (
+        <p className="text-caption text-ink-3" data-role-reason>
+          {gate.reason}
+        </p>
+      )}
+    </div>
+  );
 }
 
 interface SideDrawerProps {
@@ -119,4 +163,24 @@ export function SideDrawer({ open, onOpenChange, title, description, children }:
       </Dialog.Portal>
     </Dialog.Root>
   );
+}
+
+/**
+ * A refused write: the read-only public demo (403 while /readyz says read-only) in its own words,
+ * a role the endpoint does not allow with the personas to switch to, anything else as an error.
+ */
+export function WriteError({ error, action }: { error: unknown; action: string }) {
+  const persona = usePersona();
+  const readOnly = useReadOnly();
+  if (readOnly && isApiError(error) && error.status === 403) {
+    return (
+      <div data-read-only-refusal>
+        <InlineNotice tone="attention" title={FEEDBACK.readOnlyDemo}>
+          <p data-verbatim>{error.message}</p>
+        </InlineNotice>
+      </div>
+    );
+  }
+  if (isApiError(error) && error.code === 'forbidden_role') return <ForbiddenRoleNotice role={persona.role} action={action} />;
+  return <ErrorState error={error} />;
 }

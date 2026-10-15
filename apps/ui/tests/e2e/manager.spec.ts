@@ -3,10 +3,18 @@
 // part), reviews and the audit log with CSV export. Every screen is scanned for numbers without
 // provenance and banned wording, at 1440 × 900 and 390 × 844.
 // SCREENSHOT_DIR=<dir> saves manager-<screen>-<width>.png for each screen.
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { expect, test, type Page } from '@playwright/test';
 import { scanPage } from './scan';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+/** The golden cases the mock serves (GET /api/demo/cases): the matrix highlights come from there. */
+const CASES = JSON.parse(readFileSync(path.resolve(here, '../../../../contracts/examples/api/demo_cases.json'), 'utf8')) as {
+  cases: { key: string; return_id: string; customer_id: string; cluster_id: string | null }[];
+};
+const demoCase = (key: string) => CASES.cases.find((c) => c.key === key)!;
 
 const SCREENSHOT_DIR = process.env.SCREENSHOT_DIR;
 if (SCREENSHOT_DIR) mkdirSync(SCREENSHOT_DIR, { recursive: true });
@@ -17,7 +25,9 @@ const SCREENS = [
   { name: 'simulator', path: '/simulator' },
   { name: 'simulator-both', path: '/simulator?scenario=both' },
   { name: 'kpi', path: '/kpi?week=2026-09-21' },
+  { name: 'kpi-no-report', path: '/kpi?scenario=no_report' },
   { name: 'fairness', path: '/fairness' },
+  { name: 'fairness-no-report', path: '/fairness?scenario=no_report' },
   { name: 'products', path: '/products' },
   { name: 'product-anomaly', path: '/products/V-JKT-DEF~defective~2026-09-21' },
   { name: 'catalog-tasks', path: '/products/tasks' },
@@ -77,22 +87,31 @@ test.describe('portfolio matrix (US-601)', () => {
     await actAs(page, 'luca');
     await page.goto('/portfolio');
     await settle(page);
-    await expect(page.locator('[data-demo-cluster="CL-000417"]')).toContainText('CL-000417');
+    const marco = demoCase('marco');
+    await expect(page.locator(`[data-demo-cluster="${marco.cluster_id}"]`)).toContainText(marco.cluster_id!);
     await expect(page.locator('[data-value-legend]')).toHaveText(
       'Customer value orients benefits and service. It is never a signal of abuse and never feeds the risk score.',
     );
-    const giulia = page.locator('[data-demo-customer="C-GIULIA"] circle').first();
+    const giulia = page.locator(`[data-demo-customer="${demoCase('giulia').customer_id}"] circle`).first();
     const box = await giulia.boundingBox();
     expect(box).not.toBeNull();
     await page.mouse.move((box?.x ?? 0) + (box?.width ?? 0) / 2, (box?.y ?? 0) + (box?.height ?? 0) / 2);
     await expect(page.locator('[data-matrix-tooltip]')).toContainText('Giulia Conti');
     await page.locator('[data-open-quadrant="Q4"]').click();
     const drawer = page.getByRole('dialog', { name: 'Q4 customers' });
-    await expect(drawer.locator('[data-customer]')).toHaveCount(7);
-    await expect(drawer.locator('[data-customer="C-MARCO-1"]')).toContainText('CL-000417');
+    await expect(drawer.locator('[data-customer]')).toHaveCount(10);
+    await expect(drawer.locator(`[data-customer="${marco.customer_id}"]`)).toContainText(marco.cluster_id!);
     await page.keyboard.press('Escape');
     await expect(drawer).toBeHidden();
     await expect(page).toHaveURL(/\/portfolio$/);
+  });
+
+  test('before a demo reset (404) the matrix annotates nothing and still renders', async ({ page }) => {
+    await actAs(page, 'luca');
+    await page.goto('/portfolio?scenario=empty');
+    await settle(page);
+    await expect(page.locator('[data-quadrant-tile]')).toHaveCount(4);
+    await expect(page.locator('[data-demo-cluster], [data-demo-customer]')).toHaveCount(0);
   });
 });
 
@@ -139,6 +158,15 @@ test.describe('economic simulator (US-602, pitch beat 5)', () => {
 });
 
 test.describe('fairness and KPIs (US-603, US-605)', () => {
+  test('an offline report not in the snapshot (404) is an empty state with the API reason', async ({ page }) => {
+    await actAs(page, 'luca');
+    await page.goto('/fairness?scenario=no_report');
+    await settle(page);
+    await expect(page.locator('[data-report-unavailable]')).toContainText('Offline report not in the snapshot');
+    await expect(page.locator('[data-report-unavailable] [data-verbatim]')).toContainText('is not in the serving snapshot');
+    await expect(page.locator('[data-error-state]')).toHaveCount(0);
+  });
+
   test('the little-data gap is above the threshold and needs review; realised benefit is not observed yet', async ({ page }) => {
     await actAs(page, 'luca');
     await page.goto('/fairness');
@@ -155,10 +183,11 @@ test.describe('fairness and KPIs (US-603, US-605)', () => {
 test.describe('product issues and catalogue tasks (US-208, US-606, E2E-04 part)', () => {
   test("Elena's jacket: z = 6.86, regular returns, no restriction, and the trend", async ({ page }) => {
     await actAs(page, 'luca');
-    await page.goto('/products/V-JKT-DEF~defective~2026-09-21');
+    // Opened from her card: her return is the one a task names (contract 1.6.1, queued_return_ids).
+    await page.goto(`/products/V-JKT-DEF~defective~2026-09-21?return=${demoCase('elena').return_id}`);
     await settle(page);
     await expect(page.locator('[data-anomaly-summary]')).toContainText('z = 6.86');
-    await expect(page.locator('[data-linked-returns]')).toContainText('RET-000105');
+    await expect(page.locator('[data-linked-returns]')).toContainText('RET-000097');
     await expect(page.getByText(/No restriction applies to these customers/)).toBeVisible();
     await expect(page.locator('[data-trend-chart] svg').first()).toBeVisible();
   });
@@ -188,6 +217,7 @@ test.describe('reviews and audit (US-607, US-604)', () => {
     const row = page.locator('[data-review-row="RET-000088"]');
     await expect(row.locator('[data-lapsed]')).toContainText('Lapsed on 27 Sep 2026');
     await expect(row).toContainText('luca');
+    await expect(row.locator('[data-review-link]')).toHaveText('Review: lift or renew…');
     await row.locator('[data-review-link]').click();
     await expect(page).toHaveURL(/\/returns\/RET-000088\?action=review$/);
   });
@@ -196,15 +226,17 @@ test.describe('reviews and audit (US-607, US-604)', () => {
     await actAs(page, 'luca');
     await page.goto('/audit');
     await settle(page);
-    await expect(page.locator('[data-audit-row="3"] [data-human-approval]')).toContainText('27 Dec 2026');
-    await page.locator('[data-audit-row="3"]').getByRole('button', { name: /Details/ }).click();
-    await expect(page.locator('[data-audit-details="3"]')).toContainText('policy-2026-10-12');
-    await page.getByLabel('Return', { exact: true }).fill('RET-000102');
+    // Marco's approval (entry 38): the restriction with its review date, approved by a person.
+    await expect(page.locator('[data-audit-row="38"] [data-human-approval]')).toContainText('27 Dec 2026');
+    await page.locator('[data-audit-row="38"]').getByRole('button', { name: /Details/ }).click();
+    await expect(page.locator('[data-audit-details="38"]')).toContainText('policy-2026-10-12');
+    const marco = demoCase('marco').return_id;
+    await page.getByLabel('Return', { exact: true }).fill(marco);
     await page.getByRole('button', { name: 'Apply' }).click();
-    await expect(page).toHaveURL(/return_id=RET-000102/);
+    await expect(page).toHaveURL(new RegExp(`return_id=${marco}`));
     await expect(page.locator('[data-audit-row]')).toHaveCount(4);
     const download = page.waitForEvent('download');
     await page.getByRole('button', { name: 'Export CSV' }).click();
-    expect((await download).suggestedFilename()).toBe('returnring-audit-RET-000102.csv');
+    expect((await download).suggestedFilename()).toBe(`returnring-audit-${marco}.csv`);
   });
 });

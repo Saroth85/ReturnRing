@@ -9,7 +9,7 @@ import { DotPlot } from '@/components/charts';
 import { Figure, ProvenanceFooter, ProvenanceScope } from '@/components/provenance';
 import { MANAGER } from '../copy';
 import type { FairnessDimension } from '../types';
-import { Loadable, ManagerPage } from '../ui';
+import { Loadable, ManagerPage, ReportUnavailable } from '../ui';
 
 const F = MANAGER.fairness;
 
@@ -138,7 +138,7 @@ export default function FairnessPage() {
   if (!fairness.data) {
     return (
       <ManagerPage screen="fairness" title={MANAGER.titles.fairness}>
-        <Loadable query={fairness} label="GET /api/fairness" rows={6}>
+        <Loadable query={fairness} label="GET /api/fairness" rows={6} notFound={(message) => <ReportUnavailable message={message} />}>
           {() => null}
         </Loadable>
       </ManagerPage>

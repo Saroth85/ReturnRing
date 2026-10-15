@@ -14,7 +14,7 @@ import { RECORDS } from '@/components/records';
 import { Button } from '@/components/ui';
 import { P50_LABEL, P95_LABEL } from '../constants';
 import { MANAGER } from '../copy';
-import { Loadable, ManagerPage } from '../ui';
+import { Loadable, ManagerPage, ReportUnavailable } from '../ui';
 import { shiftWeek } from './week';
 
 const K = MANAGER.kpi;
@@ -207,7 +207,7 @@ export default function KpiPage() {
   if (!kpi.data) {
     return (
       <ManagerPage screen="kpi" title={MANAGER.titles.kpi}>
-        <Loadable query={kpi} label="GET /api/kpi" rows={8}>
+        <Loadable query={kpi} label="GET /api/kpi" rows={8} notFound={(message) => <ReportUnavailable message={message} />}>
           {() => null}
         </Loadable>
       </ManagerPage>

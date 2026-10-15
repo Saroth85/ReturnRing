@@ -5,7 +5,7 @@
 import clsx from 'clsx';
 import { CircleCheck, CircleMinus, OctagonAlert } from 'lucide-react';
 import { API_MODE } from '@/api/adapters';
-import { useDemoClock } from '@/api/clock';
+import { frozenAtSnapshot, useDemoClock } from '@/api/clock';
 import { useApiMeta } from '@/api/meta';
 import type { ReadyzResponse } from '@/api/models';
 import { useHealthz, useReadyz } from '@/api/queries';
@@ -18,14 +18,16 @@ import { headerAgreement, readinessTone, type ReadinessTone } from './readiness'
 const s = SYSTEM;
 
 /**
- * The service's clock (/readyz `clock`, ADR-15 sections 15, 19 and 20): its kind, its 'now' (a
- * running demo clock advanced from the moment /readyz answered, a frozen or fixed one still), the
- * snapshot instant, the wall time of the reset and the API's note verbatim.
+ * The service's clock (/readyz `clock`, ADR-15 sections 15, 19, 20 and 21): its kind, its 'now'
+ * (a running demo clock advanced from the moment /readyz answered, a frozen or fixed one still; a
+ * frozen one at the snapshot instant or at the latest act recorded after it), the snapshot
+ * instant, the wall time of the reset and the API's note verbatim.
  */
 function ClockFact({ example }: { example: (text: string) => string }) {
   const clock = useDemoClock();
   const c = clock.clock;
   if (!c || !clock.now) return null;
+  const frozenState = frozenAtSnapshot(c) ? s.clockFrozen : s.clockFrozenAfterActs;
   return (
     <Fact label={s.clock} className="sm:col-span-2">
       <span className="flex flex-col gap-0.5" data-clock={c.kind} data-clock-frozen={c.frozen ? 'yes' : 'no'}>
@@ -33,7 +35,7 @@ function ClockFact({ example }: { example: (text: string) => string }) {
           <span className="font-medium">{example(s.clockKind[c.kind])}</span>
           <span>·</span>
           <span className={c.frozen ? 'font-medium text-ink-1' : 'text-ink-2'} data-clock-state>
-            {c.frozen ? s.clockFrozen : clock.running ? s.clockRunning : s.clockStill}
+            {c.frozen ? frozenState : clock.running ? s.clockRunning : s.clockStill}
           </span>
           <span>·</span>
           <span>

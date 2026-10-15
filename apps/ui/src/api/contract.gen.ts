@@ -3,7 +3,7 @@
 // examples/api/index.json and contracts/vocab.py. Do not edit: run `npm run gen:types`.
 
 /** From endpoints.json contract_version. */
-export const CONTRACT_VERSION = "1.8.0" as const;
+export const CONTRACT_VERSION = "1.8.1" as const;
 
 /** From Quadrant. */
 export const QUADRANTS = [

@@ -39,13 +39,16 @@ async function expectReadOnlyGate(control: Locator): Promise<void> {
   await expect(control.locator('xpath=ancestor::*[@data-role-gate][1]').locator('[data-role-reason]')).toHaveText(READ_ONLY);
 }
 
-test('the shell says read-only and the clock stands at the snapshot', async ({ page }) => {
+test('the shell says read-only and the clock stands still (snapshot or latest act)', async ({ page }) => {
   expect(ready.clock.frozen, 'the read-only demo runs on a frozen clock (ADR-15 section 19)').toBe(true);
   const errors = await open(page, '/about');
   await expect(page.getByRole('region', { name: 'Service mode' })).toContainText('read-only public demo');
   const clock = page.locator('[data-banner-clock]');
   await expect(clock).toHaveAttribute('data-clock-frozen', 'yes');
-  await expect(clock).toContainText('frozen at the snapshot');
+  // At the snapshot after a fresh reset; at the latest act when the store was acted on with
+  // writes on before (ADR-15 section 21).
+  const atSnapshot = ready.clock.snapshot_as_of !== null && Date.parse(ready.clock.now) === Date.parse(ready.clock.snapshot_as_of);
+  await expect(clock).toContainText(atSnapshot ? 'frozen at the snapshot' : 'frozen at the latest recorded act');
   await expect(page.locator('[data-top-clock] time')).toHaveAttribute('datetime', new Date(ready.clock.now).toISOString());
   await expectClean(page, errors);
 });

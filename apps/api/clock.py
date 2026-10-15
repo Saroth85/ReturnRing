@@ -9,7 +9,9 @@
   without a snapshot it is the wall clock. A frozen DemoClock (the public read-only demo,
   Settings.frozen_clock; contract 1.7.0) stands at the snapshot instant: no refund deadline of
   the reset's proposals passes however long the demo stays up. It is never used with writes on
-  (1.8.0): acts at one instant could not follow one another.
+  (1.8.0): acts at one instant could not follow one another. It never stands before an act the
+  store recorded (1.8.1, ADR-15 section 21): anchored with the latest act, it stands at the later
+  of the two, so a store acted on with writes on is served read-only at its last act.
 - SystemClock (DEMO_CLOCK=off): the wall clock, UTC.
 - FixedClock: a clock that stands still until moved (tests, the demo reset itself).
 
@@ -75,8 +77,8 @@ class FixedClock:
 
 class DemoClock:
     """The snapshot instant plus the wall time elapsed since the clock started (never before
-    the snapshot instant); frozen, the snapshot instant itself. Unanchored, it is the wall
-    clock."""
+    the snapshot instant); frozen, the snapshot instant itself, or the latest act recorded in
+    the store when that is later (ADR-15 section 21). Unanchored, it is the wall clock."""
 
     kind: ClockKind = "demo"
 
@@ -91,27 +93,40 @@ class DemoClock:
         self._wall = wall
         self.frozen = frozen
         self._lock = threading.Lock()
-        self._state: tuple[datetime, datetime] | None = None
+        # (snapshot instant, wall time it started, the instant a frozen clock stands at)
+        self._state: tuple[datetime, datetime, datetime] | None = None
         if anchor is not None:
             self.anchor(anchor, started_at or wall())
 
-    def anchor(self, snapshot_as_of: datetime, started_at: datetime) -> None:
-        """Start the clock at `snapshot_as_of`, as of the wall time `started_at`."""
+    def anchor(
+        self,
+        snapshot_as_of: datetime,
+        started_at: datetime,
+        *,
+        latest_act: datetime | None = None,
+    ) -> None:
+        """Start the clock at `snapshot_as_of`, as of the wall time `started_at`. A frozen clock
+        stands at the later of `snapshot_as_of` and `latest_act`, the latest act the store
+        recorded (Runtime.refresh_clock), so it never shows a 'now' before an act; a running
+        clock ignores it: its acts are dated on it."""
+        snapshot = _aware(snapshot_as_of)
+        stands = snapshot if latest_act is None else max(snapshot, _aware(latest_act))
         with self._lock:
-            self._state = (_aware(snapshot_as_of), _aware(started_at))
+            self._state = (snapshot, _aware(started_at), stands)
 
     @property
     def anchored(self) -> tuple[datetime, datetime] | None:
         """(snapshot instant, wall time the clock started), or None for the wall clock."""
-        return self._state
+        state = self._state
+        return None if state is None else (state[0], state[1])
 
     def now(self) -> datetime:
         state = self._state
         if state is None:
             return self._wall()
-        anchor, started = state
+        anchor, started, stands = state
         if self.frozen:
-            return anchor
+            return stands
         return anchor + max(self._wall() - started, timedelta(0))
 
     def wall(self) -> datetime:

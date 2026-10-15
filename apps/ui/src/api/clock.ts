@@ -1,9 +1,9 @@
-// The API's clock in the browser (ADR-15 sections 15 and 19): /readyz `clock` says what 'now' is
-// for the service. A demo clock is the snapshot instant plus the time since the reset; the
+// The API's clock in the browser (ADR-15 sections 15, 19 and 21): /readyz `clock` says what 'now'
+// is for the service. A demo clock is the snapshot instant plus the time since the reset; the
 // client advances it from the moment /readyz answered, so a label can show the service's 'now'
-// between two polls. A frozen clock (the public read-only demo) and a fixed one (tests) stand
-// still: the client never advances them. Every period that ends 'now' on screen uses this time,
-// never the browser's date.
+// between two polls. A frozen clock (the public read-only demo: at the snapshot instant, or at
+// the latest act recorded after it) and a fixed one (tests) stand still: the client never
+// advances them. Every period that ends 'now' on screen uses this time, never the browser's date.
 import { useEffect, useState } from 'react';
 import type { ClockKind, ClockView } from './models';
 import { useReadyz } from './queries';
@@ -14,6 +14,15 @@ export const CLOCK_TICK_MS = 15_000;
 /** Whether the client advances this clock: a demo or system clock that is not frozen. */
 export function isRunning(clock: Pick<ClockView, 'kind' | 'frozen'>): boolean {
   return !clock.frozen && clock.kind !== 'fixed';
+}
+
+/**
+ * Whether a frozen clock stands at its snapshot instant (the read-only demo of a fresh reset)
+ * rather than at the latest act the store recorded after it (a store acted on with writes on,
+ * then served read-only: contract 1.8.1, ADR-15 section 21).
+ */
+export function frozenAtSnapshot(clock: Pick<ClockView, 'frozen' | 'now' | 'snapshot_as_of'>): boolean {
+  return clock.frozen && clock.snapshot_as_of !== null && Date.parse(clock.now) === Date.parse(clock.snapshot_as_of);
 }
 
 /**

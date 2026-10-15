@@ -1,8 +1,8 @@
 # ReturnRing UI design
 
 Final design for phase 5 (`apps/ui`), designed on API contract 1.1.0 (commit `5b3c8e9`, ADR-15). The UI
-now runs on the live contract 1.8.0: the generators read `contracts/` directly (no pinned copy), and ADR-15
-sections 13 to 20 list every change since 1.1.0; where this document predates them it says so. It merges three
+now runs on the live contract 1.8.1: the generators read `contracts/` directly (no pinned copy), and ADR-15
+sections 13 to 21 list every change since 1.1.0; where this document predates them it says so. It merges three
 proposals: operator efficiency first (P1), demo and pitch first (P2), trust and compliance first (P3).
 It takes P3's trust system as the backbone, P2's case hero, pitch path and visual highlights, and P1's
 operator loop and action friction. Section 2 lists every conflict and how it was resolved.
@@ -26,7 +26,8 @@ engineers, one view area each (section 13).
   never accuracy (US-906).
 - **Demo clock.** `as_of` 2026-09-30T18:00:00Z, the end of the synthetic year, in the examples. Live, the
   service's clock is `/readyz` `clock` (contract 1.5.0): the snapshot instant plus the time since the reset,
-  or frozen at the snapshot on the read-only public demo (1.7.0); the UI never uses the browser's date.
+  or frozen at the snapshot on the read-only public demo (1.7.0), at the latest act recorded after it when
+  a store acted on with writes on is served read-only (1.8.1); the UI never uses the browser's date.
 
 ---
 
@@ -425,7 +426,7 @@ until measured.
 | UI on the mock server | **CONTRACT EXAMPLES** · UI running on `contracts/examples/api` | cached style |
 | `status: degraded` or `not_ready` | second line in attention style listing the failing `checks` with `detail` | attention |
 | `public_read_only` (`VITE_READ_ONLY` until `/readyz` answers) | appended: "· read-only public demo" | same |
-| `clock` (1.5.0) | appended: "· demo clock running since the reset · snapshot …" or "· demo clock frozen at the snapshot · snapshot …", the API's note as the tooltip; the top bar shows the clock's 'now' | same |
+| `clock` (1.5.0) | appended: "· demo clock running since the reset · snapshot …" or "· demo clock frozen at the snapshot · snapshot …" ("frozen at the latest recorded act" when `now` is past the snapshot, 1.8.1), the API's note as the tooltip; the top bar shows the clock's 'now' | same |
 
 - **`ModeCornerTag`**: 11 px, in cached and mock modes, so a cropped screenshot keeps it. Fixed at the bottom
   left over the navigation column from 1024 px (that column holds no page content, so the tag never covers a
@@ -1376,7 +1377,7 @@ Tablet first, 48 px targets, a stepper:
 │ │ cost per decision, idle time included                    │ │                                    │ │
 │ └──────────────────────────────────────────────────────────┘ └────────────────────────────────────┘ │
 │ Telemetry · every 5 s · GPU % ▁▃▇▆ · memory used / total · W · LLM requests · p50/p95 · tok/s · API p95 │
-│ Readiness · database ✓ scores ✓ models ✓ vllm ✓ demo_cache – telemetry ✓ · contract 1.8.0 · versions │
+│ Readiness · database ✓ scores ✓ models ✓ vllm ✓ demo_cache – telemetry ✓ · contract 1.8.1 · versions │
 └────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 

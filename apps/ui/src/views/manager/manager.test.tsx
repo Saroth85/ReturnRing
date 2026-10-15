@@ -24,8 +24,8 @@ describe('/portfolio (US-601)', () => {
     renderApp('/portfolio');
     await loaded();
     const q4 = await screen.findByText((_, el) => el?.getAttribute('data-quadrant-tile') === 'Q4');
-    expect(within(q4).getByRole('button', { name: /^7/ })).toBeInTheDocument();
-    expect(within(q4).getByRole('button', { name: /€271\.60/ })).toBeInTheDocument();
+    expect(within(q4).getByRole('button', { name: /^10/ })).toBeInTheDocument();
+    expect(within(q4).getByRole('button', { name: /€344\.85/ })).toBeInTheDocument();
     expect(document.querySelector('[data-value-legend]')?.textContent).toBe(
       'Customer value orients benefits and service. It is never a signal of abuse and never feeds the risk score.',
     );
@@ -49,7 +49,7 @@ describe('/portfolio (US-601)', () => {
     await loaded();
     const drawer = await screen.findByRole('dialog', { name: 'Q4 customers' });
     const rows = drawer.querySelectorAll('[data-customer]');
-    expect(rows).toHaveLength(7);
+    expect(rows).toHaveLength(10);
     expect(drawer.querySelector('[data-customer="C-MARCO-1"]')).not.toBeNull();
     fireEvent.click(within(drawer).getByRole('button', { name: 'Sort by Value' }));
     expect(drawer.querySelector('[data-customer]')?.getAttribute('data-customer')).toBe('C-MARCO-7');
@@ -188,7 +188,7 @@ describe('/products (US-208, US-606)', () => {
     expect(document.querySelectorAll('[data-anomaly]')).toHaveLength(3);
     fireEvent.click(screen.getByRole('button', { name: 'Open' }));
     await waitFor(() => expect(router.state.location.search).toBe('?status=open'));
-    expect(document.querySelectorAll('[data-anomaly]')).toHaveLength(1);
+    expect(document.querySelectorAll('[data-anomaly]')).toHaveLength(2);
     cleanScreen();
   });
 
@@ -243,10 +243,11 @@ describe('/audit (US-604)', () => {
   it('lists the entries with the human approval pill, and expands a row into what changed', async () => {
     renderApp('/audit');
     await loaded();
-    const approval = await screen.findByText((_, el) => el?.getAttribute('data-audit-row') === '3', {});
+    // Marco's approval (entry 38): the restriction with its review date, approved by a person.
+    const approval = await screen.findByText((_, el) => el?.getAttribute('data-audit-row') === '38', {});
     expect(within(approval).getByText('27 Dec 2026')).toBeInTheDocument();
     fireEvent.click(within(approval).getByRole('button', { name: /Details/ }));
-    const details = document.querySelector('[data-audit-details="3"]') as HTMLElement;
+    const details = document.querySelector('[data-audit-details="38"]') as HTMLElement;
     expect(within(details).getAllByText('Coupons paused for the linked accounts')).toHaveLength(2);
     expect(within(details).getByText('policy-2026-10-12')).toBeInTheDocument();
     cleanScreen();

@@ -232,7 +232,8 @@ function CaseScreen({ card, sentMessage, refetch }: CaseScreenProps) {
     noticeStore.set({
       returnId: result.decision.return_id,
       text: resultText(result),
-      messageId: result.outbox_message.message_id,
+      // No message for a lift, a renewal or an act after the refund deadline (ADR-15 section 19).
+      messageId: result.outbox_message?.message_id ?? null,
       auditEntryIds: [result.audit_entry.entry_id],
     });
     setSheet(null);

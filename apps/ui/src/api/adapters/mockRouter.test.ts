@@ -1,14 +1,15 @@
 // The mock server answers every route of index.json with its example (docs/ui-design.md 11.5),
-// enforces the endpoint roles, and serves the UI fixtures for 403, 409, 429 and 503. Behaviour the
-// pinned contract has no route for yet (streams in .sse files, a contract 403 for a role, examples
-// per approver) is shown on small synthetic route tables.
+// enforces the endpoint roles, serves the contract's scenarios (cached 503, rate_limited 429 with
+// Retry-After, conflict 409, read_only 403, ...) and the three UI fixtures the contract does not
+// ship. Behaviour beyond the example table (examples per approver, the role check fallback) is
+// also shown on small synthetic route tables.
 import { describe, expect, it } from 'vitest';
 import type { CaseCard, QueueResponse } from '@/api/models';
 import { encodeSseFrame, parseSseBuffer, type AgentEvent } from '@/api/sse';
 import { readExample, readExampleText, readIndex } from '@/test/examples';
 import { CONTRACT_VERSION } from '../contract.gen';
 import { compareContract } from '../contractVersion';
-import { createMockRouter, findEndpoint, normaliseQuery, queueItemMatches, responseFile, type MockRoute } from './mockRouter';
+import { createMockRouter, findEndpoint, normaliseQuery, queueItemMatches, responseFile, retryAfterOf, type MockRoute } from './mockRouter';
 
 const index = readIndex();
 const route = createMockRouter(index, async (file) => readExample(file), { requestIdPrefix: 'test' });
@@ -72,13 +73,21 @@ describe('scenarios the contract ships', () => {
 });
 
 describe('roles from endpoints.json (ADR-15 section 5)', () => {
-  it('refuses a warehouse approval with a 403', async () => {
+  it("refuses a warehouse approval with the contract's 403 for it", async () => {
     const body = { ...readExample<Record<string, unknown>>('decision_request.marco_approve.json'), approver: 'ahmed' };
     const result = await route({ method: 'POST', path: '/api/returns/RET-000102/decision', headers: {}, body: JSON.stringify(body) });
     expect(result.status).toBe(403);
+    expect(result.example).toBe('error.forbidden_role.json');
     const value = (result.body as { value: { code: string; message: string } }).value;
     expect(value.code).toBe('forbidden_role');
-    expect(value.message).toMatch(/^UI fixture:/);
+    expect(value.message).toBe(readExample<{ message: string }>('error.forbidden_role.json').message);
+  });
+
+  it('refuses a warehouse rejection with the role check, as a UI fixture', async () => {
+    const body = { ...readExample<Record<string, unknown>>('decision_request.reject.json'), approver: 'ahmed' };
+    const result = await route({ method: 'POST', path: '/api/returns/RET-000107/decision', headers: {}, body: JSON.stringify(body) });
+    expect(result.status).toBe(403);
+    expect((result.body as { value: { message: string } }).value.message).toMatch(/^UI fixture:/);
   });
 
   it('refuses an inspection by an operator', async () => {
@@ -88,39 +97,89 @@ describe('roles from endpoints.json (ADR-15 section 5)', () => {
   });
 });
 
-describe('UI fixtures (open question O-1)', () => {
+describe('contract scenarios', () => {
   const regenerate = { method: 'POST', path: '/api/returns/RET-000101/regenerate', body: readExampleText('regenerate_request.json') };
   const ask = { method: 'POST', path: '/api/agent/ask', body: readExampleText('agent_ask_request.marco_link.json') };
+  const evaluate = { method: 'POST', path: '/api/checkout/evaluate', body: readExampleText('checkout_evaluate_request.giulia.json') };
+  const approve = { method: 'POST', path: '/api/returns/RET-000102/decision', body: readExampleText('decision_request.marco_approve.json') };
+  const code = (result: { body: unknown }) => (result.body as { value: { code: string } }).value.code;
 
-  it('403 forbidden_role on writes', async () => {
-    const result = await route({ ...regenerate, headers: { 'X-Mock-Scenario': 'forbidden_role' } });
-    expect(result.status).toBe(403);
-  });
-
-  it('503 llm_unavailable on regenerate and on the agent', async () => {
+  it('cached: 503 llm_unavailable on regenerate and on the agent', async () => {
     for (const request of [regenerate, ask]) {
-      const result = await route({ ...request, headers: { 'X-Mock-Scenario': 'llm_unavailable' } });
+      const result = await route({ ...request, headers: { 'X-Mock-Scenario': 'cached' } });
       expect(result.status).toBe(503);
-      expect((result.body as { value: { code: string } }).value.code).toBe('llm_unavailable');
+      expect(code(result)).toBe('llm_unavailable');
     }
   });
 
-  it('429 rate_limited on the agent only', async () => {
-    expect((await route({ ...ask, headers: { 'X-Mock-Scenario': 'rate_limited' } })).status).toBe(429);
+  it('rate_limited: 429 with Retry-After on the agent and the checkout evaluation only', async () => {
+    const agent = await route({ ...ask, headers: { 'X-Mock-Scenario': 'rate_limited' } });
+    expect(agent.status).toBe(429);
+    expect(agent.headers['retry-after']).toBe('60');
+    const checkout = await route({ ...evaluate, headers: { 'X-Mock-Scenario': 'rate_limited' } });
+    expect(checkout.status).toBe(429);
+    expect(checkout.headers['retry-after']).toBe('12');
     expect((await route({ ...regenerate, headers: { 'X-Mock-Scenario': 'rate_limited' } })).status).toBe(200);
+    expect((await route({ ...regenerate, headers: {} })).headers['retry-after']).toBeUndefined();
   });
 
-  it('409 conflict on a decision', async () => {
+  it('a 429 or 503 of the scenario holds for any question, not only the examples', async () => {
+    const free = { method: 'POST', path: '/api/agent/ask', body: JSON.stringify({ return_id: 'RET-000102', question: 'Anything else?', lang: 'en', asked_by: 'sara' }) };
+    expect((await route({ ...free, headers: { 'X-Mock-Scenario': 'rate_limited' } })).status).toBe(429);
+    expect((await route({ ...free, headers: { 'X-Mock-Scenario': 'cached' } })).status).toBe(503);
+    expect((await route({ ...free, headers: {} })).status).toBe(200);
+  });
+
+  it('reads the wait of a 429 from its message, a minute otherwise', () => {
+    expect(retryAfterOf(readExample('error.rate_limited_public.json'))).toBe(12);
+    expect(retryAfterOf(readExample('error.rate_limited.json'))).toBe(60);
+    expect(retryAfterOf(null)).toBe(60);
+  });
+
+  it('conflict, stale_proposal and refund_overdue: 409 on a decision', async () => {
+    for (const scenario of ['conflict', 'stale_proposal', 'refund_overdue']) {
+      const result = await route({ ...approve, headers: { 'X-Mock-Scenario': scenario } });
+      expect(result.status).toBe(409);
+      expect(code(result)).toBe('conflict');
+    }
+  });
+
+  it('an early renewal is a 409 in the default scenario', async () => {
     const result = await route({
       method: 'POST',
       path: '/api/returns/RET-000102/decision',
-      headers: { 'X-Mock-Scenario': 'conflict' },
-      body: readExampleText('decision_request.marco_approve.json'),
+      headers: {},
+      body: readExampleText('decision_request.renew_early.json'),
     });
     expect(result.status).toBe(409);
-    expect((result.body as { value: { code: string } }).value.code).toBe('conflict');
+    expect(result.example).toBe('error.conflict_early_renewal.json');
   });
 
+  it('read_only: /readyz says so and every write but the agent and the checkout evaluation is a 403', async () => {
+    const headers = { 'X-Mock-Scenario': 'read_only' };
+    const readyz = await route({ method: 'GET', path: '/readyz', headers });
+    expect((readyz.body as { value: { public_read_only: boolean } }).value.public_read_only).toBe(true);
+    const refused = await route({ ...approve, headers });
+    expect(refused.status).toBe(403);
+    expect(code(refused)).toBe('forbidden_role');
+    expect((refused.body as { value: { message: string } }).value.message).toContain('POST /api/returns/{return_id}/decision');
+    const confirm = await route({ method: 'POST', path: '/api/checkout/confirm', headers, body: readExampleText('checkout_confirm_request.giulia.json') });
+    expect(confirm.status).toBe(403);
+    expect(confirm.example).toBe('error.read_only.json');
+    expect((await route({ ...evaluate, headers })).status).toBe(200);
+    expect((await route({ ...ask, headers })).status).toBe(200);
+    expect((await route({ method: 'GET', path: '/readyz', headers: {} })).body).toMatchObject({ value: { public_read_only: false } });
+  });
+
+  it('empty: no demo reset (404 on the demo cases) and an empty queue', async () => {
+    const cases = await route({ method: 'GET', path: '/api/demo/cases', headers: { 'X-Mock-Scenario': 'empty' } });
+    expect(cases.status).toBe(404);
+    const empty = await route({ method: 'GET', path: '/api/returns', headers: { 'X-Mock-Scenario': 'empty' } });
+    expect((empty.body as { value: QueueResponse }).value.items).toEqual([]);
+  });
+});
+
+describe('UI fixtures the contract does not ship', () => {
   it('contract_mismatch: /readyz names the next minor contract version (UI1)', async () => {
     const result = await route({ method: 'GET', path: '/readyz', headers: { 'X-Mock-Scenario': 'contract_mismatch' } });
     const version = (result.body as { value: { contract_version: string } }).value.contract_version;
@@ -128,9 +187,8 @@ describe('UI fixtures (open question O-1)', () => {
     expect(compareContract(version).status).toBe('mismatch');
   });
 
-  it('an empty queue, a pending draft and an agent error event', async () => {
-    const empty = await route({ method: 'GET', path: '/api/returns', headers: { 'X-Mock-Scenario': 'empty' } });
-    expect((empty.body as { value: QueueResponse }).value.items).toEqual([]);
+  it('a pending draft and an agent error event', async () => {
+    const ask = { method: 'POST', path: '/api/agent/ask', body: readExampleText('agent_ask_request.marco_link.json') };
     const pending = await route({ method: 'GET', path: '/api/returns/RET-000102', headers: { 'X-Mock-Scenario': 'draft_pending' } });
     const card = (pending.body as { value: CaseCard }).value;
     expect(card.draft).toBeNull();
@@ -167,7 +225,7 @@ const post = (path: string, body: unknown, scenario?: string) => {
 };
 const valueOf = (result: { body: unknown }) => (result.body as { value: Record<string, unknown> }).value;
 
-describe('streams in .sse files (the next contract)', () => {
+describe('streams in .sse files', () => {
   const events = readExample<AgentEvent[]>('agent_stream.marco_link.json');
   const ask = readExample<Record<string, unknown>>('agent_ask_request.marco_link.json');
 
@@ -202,7 +260,7 @@ describe('streams in .sse files (the next contract)', () => {
   });
 });
 
-describe('a contract route for the request comes before the role check (the next contract)', () => {
+describe('a contract route for the request comes before the role check', () => {
   const forbidden = { code: 'forbidden_role', message: 'ahmed (warehouse) cannot decide a return', violations: [], request_id: 'x' };
   const { router } = synthetic(
     [
@@ -291,7 +349,7 @@ describe('a contract route for the request comes before the role check (the next
   });
 });
 
-describe('decision examples by approver (the next contract)', () => {
+describe('decision examples by approver', () => {
   const route = (request: string, response: string, extra: Partial<MockRoute> = {}): SyntheticRoute => ({
     method: 'POST',
     endpoint: DECISION,

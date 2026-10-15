@@ -78,7 +78,7 @@ function SizeTip({
   if (advice.kind === 'specific') {
     body = (
       <span data-verbatim lang="en">
-        {advice.text}.
+        {advice.text.en}.
       </span>
     );
   } else if (advice.kind === 'measurement_guide') {

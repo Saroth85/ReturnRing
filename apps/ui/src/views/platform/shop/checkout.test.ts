@@ -66,13 +66,16 @@ describe('compareTerms', () => {
 
 describe('adviceFor (US-401)', () => {
   it('gives advice exactly when the line is at or above the threshold', () => {
-    const [m, l] = giulia.lines;
-    expect(adviceFor(m!, giulia.p_return_threshold)).toEqual({ aboveThreshold: false, advice: null, consistent: true });
-    expect(adviceFor(l!, giulia.p_return_threshold)).toEqual({
-      aboveThreshold: true,
-      advice: { kind: 'specific', suggested_size: 'M', text: 'Customers with your measurements kept size M of this dress' },
-      consistent: true,
-    });
+    // Both sizes of Giulia's dress at 0.47, above 0.35: the measurement guide on each (1.6.0).
+    for (const line of giulia.lines) {
+      const view = adviceFor(line, giulia.p_return_threshold);
+      expect(view).toEqual({ aboveThreshold: true, advice: line.size_advice, consistent: true });
+      expect(view.advice?.kind).toBe('measurement_guide');
+      expect(view.advice?.suggested_size).toBeNull();
+    }
+    const marco = readExample<CheckoutEvaluateResponse>('checkout_evaluate_response.marco.json');
+    const [jacket] = marco.lines;
+    expect(adviceFor(jacket!, marco.p_return_threshold)).toEqual({ aboveThreshold: false, advice: null, consistent: true });
   });
 
   it('treats the threshold itself as above (p >= threshold)', () => {
@@ -85,7 +88,11 @@ describe('adviceFor (US-401)', () => {
       variant_id: 'V-X-1',
       size: 'S',
       p_return: 0.1,
-      size_advice: { kind: 'measurement_guide' as const, suggested_size: null, text: 'Check the size guide' },
+      size_advice: {
+        kind: 'measurement_guide' as const,
+        suggested_size: null,
+        text: { it: 'Controlla la guida alle taglie', en: 'Check the size guide' },
+      },
     };
     expect(adviceFor(line, 0.35).consistent).toBe(false);
   });

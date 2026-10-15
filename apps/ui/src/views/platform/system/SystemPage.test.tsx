@@ -118,7 +118,9 @@ describe('telemetry (US-905)', () => {
     await loaded();
     const panel = document.querySelector('#telemetry') as HTMLElement;
     await waitFor(() => expect(panel.querySelector('[data-telemetry-cached]')).not.toBeNull());
-    expect(panel.textContent).toContain('GPU off: cached mode serves results precomputed on the AMD MI300X');
+    // The cached note names no hardware (contract 1.5.2): where outputs were made is readyz.label's claim.
+    expect(panel.textContent).toContain('GPU off: cached mode serves precomputed results');
+    expect(panel.textContent).not.toContain('MI300X');
     expect(panel.querySelectorAll('[data-figure]')).toHaveLength(0);
   });
 });

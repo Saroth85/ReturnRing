@@ -15,12 +15,15 @@ npm run dev:live       # live adapter; /api, /healthz, /readyz proxied to RETURN
 RETURNRING_API_URL=mock npm run dev:live   # live adapter against the examples served over HTTP
 ```
 
-- `?scenario=cached` (or the scenario switcher in the mode banner) sets the mock scenario:
-  `default`, `cached`, `stale_decision`, `invalid_request` from the contract, plus the UI fixtures
-  `forbidden_role`, `llm_unavailable`, `rate_limited`, `conflict`, `empty`, `draft_pending`,
-  `agent_error` (open question O-1).
+- `?scenario=cached` (or the scenario switcher in the mode banner) sets the mock scenario: the
+  scenarios of `contracts/examples/api/index.json` (`default`, `cached`, `conflict`, `empty`,
+  `invalid_request`, `no_report`, `rate_limited`, `read_only`, `refund_overdue`, `renewed`,
+  `stale_decision`, `stale_proposal`, `task_opened`), plus three UI fixtures the contract does not
+  ship: `draft_pending`, `agent_error`, `contract_mismatch` (`src/api/adapters/fixtures.ts`). A 429
+  carries `Retry-After`; `read_only` refuses every write but the agent and the checkout evaluation.
 - `?theme=light|dark`, `?present=1` (presenter mode). The persona is chosen under "Acting as".
-- `VITE_READ_ONLY=true` builds the public read-only demo.
+- The public read-only demo follows `/readyz` `public_read_only`; `VITE_READ_ONLY=true` is the
+  fallback until `/readyz` answers.
 
 ## Scripts
 

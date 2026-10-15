@@ -5,8 +5,9 @@ import { UI_FIXTURE_SCENARIOS } from './adapters/fixtures';
 import { createStore, safeStorage, useStore } from './store';
 
 /**
- * The contract scenarios in their order, then the UI fixtures the contract does not ship. A
- * fixture named like a contract scenario is the contract's (one entry, one key in the switcher).
+ * The contract scenarios in their order, then the UI fixtures the contract does not ship
+ * (adapters/fixtures.ts). A fixture named like a contract scenario is the contract's: one entry,
+ * one key in the switcher.
  */
 export function mergeScenarios(contract: readonly string[], fixtures: readonly string[]): string[] {
   return [...new Set([...contract, ...fixtures])];

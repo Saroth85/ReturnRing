@@ -1,7 +1,7 @@
 // Operator area strings (docs/ui-design.md 6). English; no number literals: numbers come from
 // data or from named constants (docs/ui-design.md 10.2). Plurals are chosen in ./format.ts.
 import { LEGAL_MINIMUM_WINDOW_DAYS } from '@/api/contract.gen';
-import type { QueueQuery } from '@/api/models';
+import type { QueueQuery, RevisionTrigger } from '@/api/models';
 import { HISTORY_MONTHS, REVIEW_HORIZON_DAYS } from '@/copy/constants';
 
 export const OPERATOR = {
@@ -55,6 +55,7 @@ export const OPERATOR = {
       '-requested_at': 'Newest request first',
       requested_at: 'Oldest request first',
       '-risk': 'Risk score, highest first',
+      refund_due_by: 'Refund deadline, soonest first',
     } satisfies Record<NonNullable<QueueQuery['sort']>, string>,
     any: 'Any',
     quadrantNone: 'none',
@@ -382,9 +383,9 @@ export const OPERATOR = {
       initial: 'initial',
       evidence_added: 'evidence added',
       link_disputed: 'link disputed',
-      scores_refreshed: 'scores refreshed',
       review: 'review',
-    } as Record<string, string>,
+      stale_proposal: 'proposal past its review date, decided again',
+    } satisfies Record<RevisionTrigger, string>,
     openRecord: 'Open the decision record',
     audit: 'Audit entries for this return',
     noAudit: 'No audit entry for this return yet.',
@@ -394,6 +395,7 @@ export const OPERATOR = {
       decision_overridden: 'Decision overridden',
       decision_rejected: 'Proposal rejected',
       restriction_lifted: 'Restriction lifted',
+      restriction_renewed: 'Restriction renewed',
       case_recomputed: 'Case recomputed',
       draft_generated: 'Draft generated',
       draft_regenerated: 'Draft regenerated',

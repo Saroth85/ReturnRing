@@ -33,7 +33,7 @@ describe('tabs', () => {
     expect(matching(TAB_QUERIES.guarantee as Record<string, unknown>)).toEqual(['RET-000105', 'RET-000112']);
     expect(matching(TAB_QUERIES.insufficient as Record<string, unknown>)).toEqual(['RET-000109']);
     expect(matching(TAB_QUERIES.open as Record<string, unknown>)).toHaveLength(12);
-    expect(matching(TAB_QUERIES.all as Record<string, unknown>)).toHaveLength(13);
+    expect(matching(TAB_QUERIES.all as Record<string, unknown>)).toHaveLength(14);
   });
 });
 

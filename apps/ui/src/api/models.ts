@@ -17,8 +17,10 @@ export type {
   AuditQuery,
   Benchmark,
   BenchmarksResponse,
+  CartLine,
   CaseCard,
   CaseSnapshot,
+  CheckoutLine,
   CatalogTask,
   CatalogTaskCreate,
   CatalogTaskUpdate,
@@ -26,17 +28,28 @@ export type {
   CheckoutConfirmResponse,
   CheckoutEvaluateRequest,
   CheckoutEvaluateResponse,
+  CitedFact,
+  ClaimView,
+  ClockView,
   CohortRate,
   ComponentCheck,
+  CouponBlock,
   CouponRule,
   CouponRuleApplication,
+  CouponRuleRef,
   CouponRulesResponse,
   CustomerMessageView,
+  CustomerText,
   DecisionAuditState,
+  DecisionInputs,
   DecisionRecord,
   DecisionRequest,
   DecisionResult,
   DecisionView,
+  DemoCart,
+  DemoCase,
+  DemoCasesResponse,
+  DemoDispute,
   DraftView,
   EntityRef,
   ErrorResponse,
@@ -46,13 +59,14 @@ export type {
   FairnessResponse,
   FairnessSegment,
   FollowUp,
+  GenerationAuditState,
   GenerationInfo,
   InspectionView,
   KpiResponse,
-  Lever,
   LinkDisputeResponse,
   LinkedAccountsView,
   MatrixPoint,
+  MessageChoice,
   Metric,
   NetBenefitComponent,
   NetBenefitView,
@@ -68,10 +82,13 @@ export type {
   QueueResponse,
   ReadyzResponse,
   RecomputeResponse,
+  RegenerateRequest,
   RegenerateResponse,
+  RenderedMessage,
   RevisionSummary,
   SensitivityScenario,
   SimulatorAssumptionsResponse,
+  SizeAdvice,
   TelemetryResponse,
   TemplateFields,
   Terms,
@@ -88,10 +105,30 @@ export type PathId = Gen.Path;
 export type EvidenceQualityId = Gen.EvidenceQuality;
 export type DecisionState = Gen.DecisionView['state'];
 export type DecisionAction = Gen.DecisionRequest['action'];
-export type Lang = Gen.CustomerMessageView['lang'];
+/**
+ * A lever of a decision: the contract inlines the lever into each list (no `Lever` definition
+ * since 1.2.0), so the type is the item of `DecisionView.levers`. A lever of scope all_orders is
+ * only ever true (contracts/levers.py): src/domain/levers.ts never builds one with false.
+ */
+export type Lever = Gen.DecisionView['levers'][number];
+export type LeverScope = Lever['scope'];
+export type Lang = Gen.MessageChoice['lang'];
 export type LegalClauseKind = NonNullable<Gen.CustomerMessageView['legal_clause_kind']>;
 export type TemplateFieldName = keyof Gen.TemplateFields;
+/** A phrasebook sentence id (llm/phrasebook.py): the operator chooses reviewed sentences, never free text. */
+export type SentenceId = Gen.CustomerMessageView['sentence_ids'][number];
 export type Mode = Gen.ReadyzResponse['mode'];
+export type CachedLabel = NonNullable<Gen.ReadyzResponse['label']>;
+export type ClockKind = Gen.ClockView['kind'];
+export type RevisionTrigger = Gen.DecisionView['revision_trigger'];
+export type GenerationPath = Gen.GenerationInfo['generation_path'];
+export type FallbackReason = NonNullable<Gen.GenerationInfo['fallback_reason']>;
+export type ValidatorCode = Gen.GenerationInfo['validator_codes'][number];
+export type AuditAction = Gen.AuditEntry['action'];
+export type QueueSort = NonNullable<Gen.QueueQuery['sort']>;
+export type DemoCaseKey = Gen.DemoCase['key'];
+export type DemoCartKey = Gen.DemoCart['key'];
+export type FactEntity = Gen.CitedFact['entity'];
 
 export type Role = (typeof DEMO_USERS)[number]['role'];
 export type DemoUserId = (typeof DEMO_USERS)[number]['id'];

@@ -3,7 +3,7 @@
 // so a contract change breaks the compile here first.
 import { adapter } from './adapters';
 import { ENDPOINTS } from './contract.gen';
-import { ApiError, isErrorResponse } from './errors';
+import { ApiError, isErrorResponse, parseRetryAfter } from './errors';
 import { recordAsOf, recordLlmUnavailable, recordResponse } from './meta';
 import { scenarioStore } from './scenario';
 import { readAgentEvents, type AgentEvent } from './sse';
@@ -94,11 +94,20 @@ async function send<K extends EndpointKey>(key: K, init: CallInit<K>): Promise<R
   return response;
 }
 
+/**
+ * A 401 comes from the proxy, not the API: on a public server Caddy protects the admin data
+ * (/api/telemetry) with basic auth, and every write when the views are not read-only
+ * (infra/Caddyfile). The browser asks for the password itself; this is what is left if it did not.
+ */
+export const PROTECTED_MESSAGE =
+  'Protected by the admin sign-in of this server (basic auth, user admin): retry and enter the password when the browser asks.';
+
 async function toApiError(response: Response): Promise<ApiError> {
   const requestId = response.headers.get('x-request-id');
   if (response.status === 401) {
-    return new ApiError({ status: 401, code: 'protected', message: 'Protected: sign in at /admin/.', requestId });
+    return new ApiError({ status: 401, code: 'protected', message: PROTECTED_MESSAGE, requestId });
   }
+  const retryAfterS = response.status === 429 ? parseRetryAfter(response.headers.get('retry-after')) : null;
   let body: unknown = null;
   try {
     body = await response.json();
@@ -113,6 +122,7 @@ async function toApiError(response: Response): Promise<ApiError> {
       message: body.message,
       violations: body.violations,
       requestId: body.request_id ?? requestId,
+      retryAfterS,
     });
   }
   return new ApiError({
@@ -120,6 +130,7 @@ async function toApiError(response: Response): Promise<ApiError> {
     code: 'unexpected_response',
     message: `The service answered ${response.status} without an error body.`,
     requestId,
+    retryAfterS,
   });
 }
 
@@ -178,6 +189,7 @@ const R = {
   agentAsk: route('POST /api/agent/ask'),
   benchmarks: route('GET /api/benchmarks'),
   telemetry: route('GET /api/telemetry'),
+  demoCases: route('GET /api/demo/cases'),
 } as const;
 
 type Q<K extends EndpointKey> = QueryOf<K>;
@@ -243,6 +255,9 @@ export const api = {
 
   getBenchmarks: (o?: CallOptions) => apiFetch(R.benchmarks, o),
   getTelemetry: (o?: CallOptions) => apiFetch(R.telemetry, o),
+
+  /** The golden cases of the demo with their live ids (404 before a reset: python -m apps.api.reset). */
+  demoCases: (o?: CallOptions) => apiFetch(R.demoCases, o),
 };
 
 export type Api = typeof api;

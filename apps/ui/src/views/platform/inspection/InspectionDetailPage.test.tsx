@@ -8,9 +8,14 @@ import { findBannedWording, findUnprovenancedNumbers } from '@/test/scan';
 
 afterEach(() => act(() => setPersona('sara')));
 
-/** The photo of the request examples: the mock routes on it (docs/ui-design.md 11.5). */
-function examplePhoto(): File {
-  const { photo } = readExample<{ photo: { data_base64: string } }>('inspection_create_request.json');
+/**
+ * The photo of a request example: the mock routes on it (docs/ui-design.md 11.5). The awaiting
+ * example carries a photo the mock vision reads as damaged, the manual review one a photo it reads
+ * as unclear (contract 1.6.0).
+ */
+function examplePhoto(returnId: string): File {
+  const file = returnId === 'RET-000111' ? 'inspection_create_request.manual_review.json' : 'inspection_create_request.json';
+  const { photo } = readExample<{ photo: { data_base64: string } }>(file);
   const bytes = Uint8Array.from(atob(photo.data_base64), (c) => c.charCodeAt(0));
   return new File([bytes], 'item.jpg', { type: 'image/jpeg' });
 }
@@ -20,7 +25,7 @@ async function sendPhoto(returnId: string) {
   renderApp(`/inspection/${returnId}`);
   await screen.findByText(returnId, {});
   const input = document.querySelector('[data-photo-input]') as HTMLInputElement;
-  fireEvent.change(input, { target: { files: [examplePhoto()] } });
+  fireEvent.change(input, { target: { files: [examplePhoto(returnId)] } });
   const send = await screen.findByRole('button', { name: 'Suggest a checklist from the photo' });
   await waitFor(() => expect(send).toBeEnabled());
   fireEvent.click(send);
@@ -80,7 +85,9 @@ describe('proposal and confirmation (US-502)', () => {
     expect(result.querySelector('[data-claim]')?.textContent).toContain('€17.98');
     expect(result.querySelector('[data-claim]')?.textContent).toContain('DEC-000110-1');
     expect(result.querySelector('[data-claim]')?.textContent).toContain('MSG-000110-1');
-    expect(result.querySelector('[data-template-field="amount"]')?.textContent).toContain('17,98 €');
+    // The message states the refund (the price paid for the line less the claim) and the deduction.
+    expect(result.querySelector('[data-template-field="amount"]')?.textContent).toContain('71,92 €');
+    expect(result.querySelector('[data-template-field="deduction"]')?.textContent).toContain('17,98 €');
   });
 
   it('confirms with Ctrl+Enter but never with a bare Enter', async () => {
@@ -120,7 +127,7 @@ describe('manual review (US-503)', () => {
     await sendPhoto('RET-000111');
     const notice = document.querySelector('[data-manual-review]') as HTMLElement;
     expect(notice.textContent).toContain('The system stopped: verify by hand.');
-    expect(notice.textContent).toContain('Photo too dark to check the tag and the fabric: verify by hand');
+    expect(notice.textContent).toContain('The photo is not clear enough to check the item: verify by hand');
     expect(document.querySelector('[data-proposal="none"]')).not.toBeNull();
     expect(document.querySelector('[data-apply-compensation]')).toBeNull();
   });

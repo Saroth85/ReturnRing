@@ -3,10 +3,10 @@
 // lever: its direction against the base terms. Pure functions; the labels live with the
 // decision components (src/components/decision/levers.ts).
 import { LEGAL_MINIMUM_WINDOW_DAYS } from '@/api/contract.gen';
-import type { Lever, Terms } from '@/api/models';
+import type { Lever, LeverScope, Terms } from '@/api/models';
 
 export type LeverId = Lever['id'];
-export type LeverScope = Lever['scope'];
+export type { LeverScope };
 /** A change against the base terms: less generous, more generous, or none. */
 export type Direction = 'less' | 'more' | 'same';
 export type TermKey = keyof Terms;
@@ -51,6 +51,20 @@ export const LEVER_SPECS: readonly LeverSpec[] = [
 
 const SPEC_BY_ID = new Map(LEVER_SPECS.map((s) => [s.id, s]));
 
+/**
+ * A lever of scope all_orders also holds for orders already placed, so it can only be granted:
+ * its value is always true (contracts/levers.py, rule 3). The API refuses false with 422.
+ */
+export const isGrantOnly = (spec: Pick<LeverSpec, 'scope'>): boolean => spec.scope === 'all_orders';
+
+/** Whether a value is admissible for a lever (catalogue type, legal minimum, grant-only). */
+export function admissibleValue(id: LeverId, value: number | boolean): boolean {
+  const spec = SPEC_BY_ID.get(id);
+  if (!spec) return false;
+  if (spec.valueType === 'boolean') return typeof value === 'boolean' && (!isGrantOnly(spec) || value);
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && (spec.minimum === null || value >= spec.minimum);
+}
+
 export function leverSpec(id: LeverId): LeverSpec {
   const spec = SPEC_BY_ID.get(id);
   if (!spec) throw new Error(`unknown lever ${id}`);
@@ -69,6 +83,7 @@ export function parseLeverKey(text: string): Lever {
   if (!spec || raw === undefined) throw new Error(`not a lever id: ${text}`);
   if (spec.valueType === 'boolean') {
     if (raw !== 'true' && raw !== 'false') throw new Error(`${id} takes true or false, got ${raw}`);
+    if (isGrantOnly(spec) && raw !== 'true') throw new Error(`${id} has scope all_orders: it can only be true`);
     return { id: spec.id, value: raw === 'true', scope: spec.scope };
   }
   if (!/^(0|[1-9][0-9]*)$/.test(raw)) throw new Error(`${id} takes an integer, got ${raw}`);
@@ -110,13 +125,19 @@ export function leverValues(levers: readonly Pick<Lever, 'id' | 'value'>[], base
   return values;
 }
 
-/** The levers of a set of values: every value that differs from the base, in catalogue order. */
+/**
+ * The levers of a set of values: every value that differs from the base, in catalogue order.
+ * Never a lever of scope all_orders with the value false (contracts/levers.py: grant only, the
+ * API answers 422): withdrawing such a concession is not a lever, so it is left out.
+ */
 export function leversFromValues(values: LeverValues, base: Terms): Lever[] {
-  return LEVER_SPECS.filter((s) => values[s.id] !== baseValue(s.id, base)).map((s) => ({
-    id: s.id,
-    value: values[s.id],
-    scope: s.scope,
-  })) as Lever[];
+  return LEVER_SPECS.filter((s) => values[s.id] !== baseValue(s.id, base))
+    .filter((s) => !(isGrantOnly(s) && values[s.id] === false))
+    .map((s) => ({
+      id: s.id,
+      value: values[s.id],
+      scope: s.scope,
+    })) as Lever[];
 }
 
 /** Two lever lists name the same levers and values, in any order. */

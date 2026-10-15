@@ -53,6 +53,24 @@ export type Endpoint = (typeof ENDPOINTS)[number];
 
 const SCENARIO_HEADER = 'x-mock-scenario';
 
+/**
+ * The writes the public read-only API keeps (ADR-15 section 15): the scenario `read_only` answers
+ * every other write with the contract's 403 forbidden_role, as PUBLIC_READ_ONLY=on does.
+ */
+const READ_ONLY_OPEN_WRITES: ReadonlySet<string> = new Set(['POST /api/agent/ask', 'POST /api/checkout/evaluate']);
+const READ_ONLY_SCENARIO = 'read_only';
+/** Statuses of a scenario that hold for every request of the endpoint: 429 per client, 503 model off. */
+const CLIENT_WIDE_STATUSES: ReadonlySet<number> = new Set([429, 503]);
+/** Retry-After when a 429 example states no wait in seconds ("try again in a minute"). */
+const DEFAULT_RETRY_AFTER_S = 60;
+
+/** The Retry-After of a 429 example (ADR-15 section 16): the seconds its message states. */
+export function retryAfterOf(body: unknown): number {
+  const message = body && typeof body === 'object' ? (body as { message?: unknown }).message : undefined;
+  const match = typeof message === 'string' ? /\bin (\d+) s\b/.exec(message) : null;
+  return match ? Math.max(1, Number(match[1])) : DEFAULT_RETRY_AFTER_S;
+}
+
 function escapeRegex(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -265,6 +283,7 @@ export function createMockRouter(index: MockIndex, load: ExampleLoader, options:
         'x-request-id': requestId,
       };
       if (example) replyHeaders['x-mock-example'] = example;
+      if (status === 429 && replyBody.kind === 'json') replyHeaders['retry-after'] = String(retryAfterOf(replyBody.value));
       if (notes.length > 0) replyHeaders['x-mock-note'] = notes.join('; ');
       return { status, body: replyBody, headers: replyHeaders, example, note: notes.length > 0 ? notes.join('; ') : null };
     };
@@ -330,19 +349,12 @@ export function createMockRouter(index: MockIndex, load: ExampleLoader, options:
       }
     }
 
-    // UI-only scenarios (open question O-1).
-    const errors = endpoint.errors as readonly number[];
-    if (scenario === 'forbidden_role' && method !== 'GET' && errors.includes(403)) {
-      return reply(403, fixtureError('forbidden_role', `your role cannot call ${key}`, requestId), null, 'UI fixture');
-    }
-    if (scenario === 'llm_unavailable' && errors.includes(503)) {
-      return reply(503, fixtureError('llm_unavailable', 'the language model is unavailable; templates still work', requestId), null, 'UI fixture');
-    }
-    if (scenario === 'rate_limited' && errors.includes(429)) {
-      return reply(429, fixtureError('rate_limited', 'too many questions in a short time', requestId), null, 'UI fixture');
-    }
-    if (scenario === 'conflict' && method !== 'GET' && errors.includes(409)) {
-      return reply(409, fixtureError('conflict', 'already decided by luca at 18:20 UTC; nothing was saved', requestId), null, 'UI fixture');
+    // The public read-only API (ADR-15 section 15): every write but the agent and the checkout
+    // evaluation answers 403 with the contract's read-only error, named for this route.
+    if (scenario === READ_ONLY_SCENARIO && method !== 'GET' && !READ_ONLY_OPEN_WRITES.has(key) && !(contractRoute && asked.includes(contractRoute))) {
+      const readOnly = (await load('error.read_only.json')) as ErrorResponse;
+      const message = readOnly.message.replace(/(GET|POST|PUT|PATCH|DELETE) \/api\/\S+/, `${method} ${endpoint.path}`);
+      return reply(403, { kind: 'json', value: { ...readOnly, message, request_id: requestId } }, 'error.read_only.json', 'read-only demo');
     }
 
     // Example lookup: method and concrete path, then scenario, then query or body keys.
@@ -396,9 +408,14 @@ export function createMockRouter(index: MockIndex, load: ExampleLoader, options:
       // request. Within each step the most specific match wins.
       const inScenario = async (routes: MockRoute[]) =>
         (await firstOf(routes, async (r) => r.request === null || (await strict(r)))) ?? (await firstOf(routes, loose));
+      // A refusal of the scenario asked for that does not depend on the request (the per-client
+      // rate limit, the language model off in the cached demo) answers every request of the
+      // endpoint, as the live service does.
+      const anyRequest = askedEndpoint.find((r) => CLIENT_WIDE_STATUSES.has(r.status)) ?? null;
       chosen =
         (await inScenario(asked)) ??
         (await inScenario(askedEndpoint)) ??
+        anyRequest ??
         contractRoute ??
         (await firstOf(defaults, async (r) => (keys.length > 0 ? strict(r) : r.status < 400))) ??
         null;
@@ -439,6 +456,8 @@ export function createMockRouter(index: MockIndex, load: ExampleLoader, options:
     let value: unknown = withRequestId(example);
     if (endpoint.path === '/api/returns' && method === 'GET') {
       const base = value as QueueResponse;
+      // The contract's `empty` scenario (no reset yet: GET /api/demo/cases answers 404) has an
+      // empty queue too.
       if (scenario === 'empty') {
         value = { ...base, items: [], total: 0 };
         notes.push('UI fixture: empty queue');
@@ -446,6 +465,10 @@ export function createMockRouter(index: MockIndex, load: ExampleLoader, options:
         value = filterQueue(base, filterQuery);
         notes.push('filtered by the mock with QueueQuery.matches');
       }
+    }
+    if (endpoint.path === '/readyz' && scenario === READ_ONLY_SCENARIO) {
+      value = { ...(value as object), public_read_only: true };
+      notes.push('read-only demo: public_read_only');
     }
     if (endpoint.path === '/readyz' && scenario === 'contract_mismatch') {
       const [major = '1', minor = '0'] = CONTRACT_VERSION.split('.');

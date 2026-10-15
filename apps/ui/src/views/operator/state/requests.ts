@@ -1,8 +1,14 @@
 // Request bodies of the operator actions (ADR-15 section 3, docs/ui-design.md 6.3). Every action
-// sends the decision_id it was shown and the acting person; the customer message is never free
-// text (`message.text` null): the API fills the template fields and appends the legal clause.
+// sends the decision_id it was shown and the acting person. The customer message is never free
+// text: the operator picks a language and, at most, reviewed phrasebook sentences
+// (`message.sentence_ids`, null for the draft's own selection); the API writes the body, the
+// template fields and the legal clause (rule 10). DecisionRequest (contract 1.8.0):
+// - approve, override, reject: a message; override and reject a reason and a category;
+// - lift: a reason and a category, no message (the customer sees the terms at checkout);
+// - renew: no reason, no category, no message;
+// - levers only for override (approve repeats the proposal, as the contract example does).
 import type { BodyOf } from '@/api/client';
-import type { CaseCard, DecisionView, Lang, Lever } from '@/api/models';
+import type { CaseCard, DecisionView, Lang, Lever, SentenceId } from '@/api/models';
 import type { OverrideCategory } from '../ui/fields';
 
 export type DecisionBody = BodyOf<'POST /api/returns/{return_id}/decision'>;
@@ -10,18 +16,27 @@ export type EvidenceBody = BodyOf<'POST /api/returns/{return_id}/evidence'>;
 export type DisputeBody = BodyOf<'POST /api/links/{link_id}/dispute'>;
 export type RegenerateBody = BodyOf<'POST /api/returns/{return_id}/regenerate'>;
 export type EvidenceKind = EvidenceBody['kind'];
-export type Tone = NonNullable<RegenerateBody['tone']>;
 
 /** Kinds of evidence that explain links: the request names them (EvidenceRequest). */
 export const LINK_EXPLAINING_KINDS: readonly EvidenceKind[] = ['household_members', 'shared_payment_explained', 'collective_address'];
 
+/** The message of an act: its language and, optionally, other reviewed sentences than the draft's. */
+function messageChoice(lang: Lang, sentenceIds: SentenceId[] | null): NonNullable<DecisionBody['message']> {
+  return { lang, sentence_ids: sentenceIds };
+}
+
 /** Approve: `levers` equal to the proposal, exactly as decision_request.marco_approve.json. */
-export function approveBody(decision: Pick<DecisionView, 'decision_id' | 'proposed_levers'>, lang: Lang, approver: string): DecisionBody {
+export function approveBody(
+  decision: Pick<DecisionView, 'decision_id' | 'proposed_levers'>,
+  lang: Lang,
+  approver: string,
+  sentenceIds: SentenceId[] | null = null,
+): DecisionBody {
   return {
     decision_id: decision.decision_id,
     action: 'approve',
     levers: decision.proposed_levers,
-    message: { lang, text: null },
+    message: messageChoice(lang, sentenceIds),
     override_reason: null,
     override_category: null,
     approver,
@@ -35,37 +50,61 @@ export function overrideBody(
   category: OverrideCategory,
   lang: Lang,
   approver: string,
+  sentenceIds: SentenceId[] | null = null,
 ): DecisionBody {
   return {
     decision_id: decision.decision_id,
     action: 'override',
     levers,
-    message: { lang, text: null },
+    message: messageChoice(lang, sentenceIds),
     override_reason: reason.trim(),
     override_category: category,
     approver,
   };
 }
 
-/**
- * Reject, lift and (once the contract has it) renew carry no levers: reject keeps this order's
- * terms, lift goes back to the standard terms, renew keeps the restriction with a new review date.
- */
-export function withoutLeversBody(
-  action: DecisionBody['action'],
+/** Reject: this order keeps its terms; the customer gets a message (unless the refund is overdue). */
+export function rejectBody(
   decision: Pick<DecisionView, 'decision_id'>,
   reason: string,
   category: OverrideCategory,
   lang: Lang,
   approver: string,
+  sentenceIds: SentenceId[] | null = null,
 ): DecisionBody {
   return {
     decision_id: decision.decision_id,
-    action,
+    action: 'reject',
     levers: null,
-    message: { lang, text: null },
+    message: messageChoice(lang, sentenceIds),
     override_reason: reason.trim(),
     override_category: category,
+    approver,
+  };
+}
+
+/** Lift a restriction back to the standard terms: a reason and a category, no message. */
+export function liftBody(decision: Pick<DecisionView, 'decision_id'>, reason: string, category: OverrideCategory, approver: string): DecisionBody {
+  return {
+    decision_id: decision.decision_id,
+    action: 'lift',
+    levers: null,
+    message: null,
+    override_reason: reason.trim(),
+    override_category: category,
+    approver,
+  };
+}
+
+/** Renew a restriction at or after its review date: the fresh proposal, a new review date, nothing else. */
+export function renewBody(decision: Pick<DecisionView, 'decision_id'>, approver: string): DecisionBody {
+  return {
+    decision_id: decision.decision_id,
+    action: 'renew',
+    levers: null,
+    message: null,
+    override_reason: null,
+    override_category: null,
     approver,
   };
 }
@@ -90,12 +129,8 @@ export function disputeBody(card: Pick<CaseCard, 'return_id' | 'decision'>, reas
   return { reason: reason.trim(), author, return_id: card.return_id, decision_id: card.decision.decision_id };
 }
 
-export function regenerateBody(
-  decision: Pick<DecisionView, 'decision_id'>,
-  languages: Lang[],
-  tone: Tone,
-  requestedBy: string,
-): RegenerateBody {
-  const langs = languages.length === 2 ? ([languages[0], languages[1]] as [Lang, Lang]) : ([languages[0] ?? 'it'] as [Lang]);
-  return { decision_id: decision.decision_id, languages: langs, tone, requested_by: requestedBy };
+/** A new draft in one or both languages (no tone since contract 1.2.0: llm/ has none to apply). */
+export function regenerateBody(decision: Pick<DecisionView, 'decision_id'>, languages: Lang[], requestedBy: string): RegenerateBody {
+  const unique = [...new Set(languages)];
+  return { decision_id: decision.decision_id, languages: unique.length > 0 ? unique : ['it'], requested_by: requestedBy };
 }

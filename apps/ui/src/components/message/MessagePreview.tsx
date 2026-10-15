@@ -6,21 +6,20 @@ import { LegalClause } from './LegalClause';
 import { TemplateField } from './TemplateField';
 
 interface MessagePreviewProps {
+  /** One language of a draft (messageFor, draftSources) or an outbox message (outboxSource). */
   message: MessageSource;
-  /** The text the customer receives: `rendered_text` of a draft, `body` of an outbox message. */
-  stored: string;
   title?: string;
 }
 
 /**
  * A customer message in its three layers, which never mix (rule 10, docs/ui-design.md 5.4):
- * connective text, template fields filled by code, and the fixed legal clause. If the layers do
- * not rebuild the stored text, the stored text is shown plain with an attention note.
+ * reviewed sentences, template fields filled by code, and the fixed legal clause. If the layers do
+ * not split the text as rule 10 requires, the text is shown plain with an attention note.
  */
-export function MessagePreview({ message, stored, title = MESSAGE.title }: MessagePreviewProps) {
+export function MessagePreview({ message, title = MESSAGE.title }: MessagePreviewProps) {
   const [asCustomer, setAsCustomer] = useState(false);
   const toggleId = useId();
-  const layers = toMessageSegments(message, stored);
+  const layers = toMessageSegments(message);
 
   return (
     <section className="rounded-card border border-border bg-surface p-4" data-message-preview data-verbatim>

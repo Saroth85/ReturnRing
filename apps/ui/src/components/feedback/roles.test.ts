@@ -16,8 +16,10 @@ describe('gateFor', () => {
     expect(gateFor('PUT /api/simulator/assumptions', 'manager', true).allowed).toBe(false);
   });
 
-  it('keeps the read-only agent in the public demo, still by role', () => {
+  it('keeps the read-only agent and the checkout evaluation in the public demo, still by role', () => {
     expect(gateFor('POST /api/agent/ask', 'operator', true)).toEqual({ allowed: true, reason: null });
     expect(gateFor('POST /api/agent/ask', 'warehouse', true).allowed).toBe(false);
+    expect(gateFor('POST /api/checkout/evaluate', 'operator', true)).toEqual({ allowed: true, reason: null });
+    expect(gateFor('POST /api/checkout/confirm', 'operator', true).allowed).toBe(false);
   });
 });

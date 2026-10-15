@@ -5,8 +5,8 @@ import { encodeSseFrame } from '../sse';
 import type { ApiAdapter, ApiRequest } from '../transport';
 import { createMockRouter, type MockIndex, type MockResult } from './mockRouter';
 
-const EXAMPLES = '../../../contract-pin/examples/api/';
-const examples = import.meta.glob<unknown>('../../../contract-pin/examples/api/*.json', { import: 'default' });
+const EXAMPLES = '../../../../../contracts/examples/api/';
+const examples = import.meta.glob<unknown>('../../../../../contracts/examples/api/*.json', { import: 'default' });
 
 export async function loadExample(file: string): Promise<unknown> {
   const loader = examples[`${EXAMPLES}${file}`];

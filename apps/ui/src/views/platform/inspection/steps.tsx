@@ -5,6 +5,7 @@ import clsx from 'clsx';
 import { Camera, CircleCheck, ImageUp, OctagonAlert, TriangleAlert } from 'lucide-react';
 import { useId, useState, type DragEvent, type KeyboardEvent, type ReactNode } from 'react';
 import { Link } from 'react-router';
+import { outboxSource } from '@/api/adapters/messageSegments';
 import type { InspectionView } from '@/api/models';
 import { GenerationBadge, MessagePreview } from '@/components/message';
 import { DateText, Figure, IdText, PlainNumber, ProvenanceFooter, ProvenanceScope } from '@/components/provenance';
@@ -408,7 +409,7 @@ export function InspectionResult({ result }: { result: ConfirmResult }) {
         </div>
       )}
       {message ? (
-        <MessagePreview message={message} stored={message.body} title={r.messageTitle} />
+        <MessagePreview message={outboxSource(message)} title={r.messageTitle} />
       ) : (
         <p className="text-body text-ink-3">{r.noMessage}</p>
       )}

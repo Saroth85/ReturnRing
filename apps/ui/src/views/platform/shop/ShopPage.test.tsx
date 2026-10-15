@@ -1,7 +1,10 @@
 // The simulated checkout on the contract examples (US-401..403, docs/ui-design.md 9.1, E2E-02).
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { api } from '@/api/client';
+import type { CheckoutConfirmResponse } from '@/api/models';
 import { setPersona } from '@/app/persona';
+import { readExample } from '@/test/examples';
 import { SHOP } from './copy';
 import { renderApp } from '@/test/render';
 import { findBannedWording, findUnprovenancedNumbers } from '@/test/scan';
@@ -31,12 +34,14 @@ describe('shop view (customer-facing)', () => {
     expect(within(shop).getByText('You can always withdraw within 14 days of delivery, without giving a reason.')).toBeInTheDocument();
   });
 
-  it('gives Giulia the specific size tip without a probability, and the upgraded terms (US-401)', async () => {
+  it('gives Giulia the size guide on both sizes, no size as the safer one, and the upgraded terms (US-401)', async () => {
+    // Contract 1.6.0: the store holds no measurements, so the checkout never suggests a size; both
+    // sizes of the dress get the same probability and the measurement guide.
     const { shop } = await ready('giulia');
-    const advice = shop.querySelector('[data-size-advice="specific"]') as HTMLElement;
-    expect(advice.textContent).toContain('Customers with your measurements kept size M of this dress');
-    expect(within(advice).getByRole('button', { name: 'Switch to M' })).toBeEnabled();
-    expect(within(advice).getByRole('button', { name: 'Keep size L' })).toBeEnabled();
+    expect(shop.querySelectorAll('[data-size-advice="measurement_guide"]')).toHaveLength(2);
+    expect(shop.querySelector('[data-size-advice="specific"]')).toBeNull();
+    expect(within(shop).queryByRole('button', { name: /^Switch to/ })).toBeNull();
+    expect(within(shop).queryByRole('button', { name: /^Keep size/ })).toBeNull();
     expect(shop.querySelector('[data-shop-terms]')?.textContent).toContain('60-day return window');
     expect(shop.querySelector('[data-terms-until]')).toBeNull();
     expect(shop.querySelector('[data-coupon-paused]')).toBeNull();
@@ -54,28 +59,14 @@ describe('shop view (customer-facing)', () => {
     expect(paused.className).not.toMatch(/danger/);
   });
 
-  it('keeps the size the customer chose when asked', async () => {
-    const { shop } = await ready('giulia');
-    fireEvent.click(within(shop).getByRole('button', { name: 'Keep size L' }));
-    expect(within(shop).getByText('Size kept as chosen.')).toBeInTheDocument();
-  });
-
-  it('evaluates again after "Switch to M", and says when the answer is for another cart', async () => {
-    const { shop } = await ready('giulia');
-    fireEvent.click(within(shop).getByRole('button', { name: 'Switch to M' }));
-    expect(document.querySelector('[data-evaluation-status="evaluating"]')).not.toBeNull();
-    // The mock answers only the preset carts: the answer is for M and L, the cart is M and M.
-    await waitFor(() => expect(document.querySelector('[data-cart-mismatch]')).not.toBeNull());
-    expect(within(shop).getByRole('button', { name: 'Place order' })).toBeDisabled();
-  });
 });
 
 describe('behind the scenes', () => {
   it('shows the line probabilities against the threshold and the advice rule', async () => {
     const { scenes } = await ready('giulia');
     const lines = scenes.querySelectorAll('[data-line-advice]');
-    expect(Array.from(lines).map((l) => l.getAttribute('data-line-advice'))).toEqual(['below', 'above']);
-    expect(lines[0]?.textContent).toContain('0.18');
+    expect(Array.from(lines).map((l) => l.getAttribute('data-line-advice'))).toEqual(['above', 'above']);
+    expect(lines[0]?.textContent).toContain('0.47');
     expect(lines[1]?.textContent).toContain('0.47');
     expect(scenes.textContent).toContain('threshold 0.35');
   });
@@ -112,8 +103,8 @@ describe('behind the scenes', () => {
     expect(scenes.textContent).toContain('DEC-000102-1');
     expect(scenes.textContent).toContain('TS-CHK-000982');
     expect(scenes.textContent).toContain('propensity-xgb-0.1.0');
-    // No decision record example for DEC-000102-1: said quietly, not as an error.
-    await waitFor(() => expect(scenes.querySelector('[data-record-missing]')).not.toBeNull());
+    // The decision record of DEC-000102-1 (decision_record.marco_v1.json) names its state.
+    await waitFor(() => expect(scenes.querySelector('[data-decision-source]')).not.toBeNull());
     expect(scenes.querySelector('[data-error-state]')).toBeNull();
   });
 
@@ -137,11 +128,19 @@ describe('placing the order (US-403, E2E-02)', () => {
     const receipt = scenes.querySelector('[data-snapshot-receipt]') as HTMLElement;
     expect(receipt.getAttribute('data-snapshot-receipt')).toBe('ok');
     expect(receipt.textContent).toContain('The terms shown are the terms stored (TS-CHK-000981).');
-    expect(within(shop).getByRole('button', { name: 'Switch to M' })).toBeDisabled();
+  });
+
+  it("confirms Marco's order with the snapshot shown (checkout_confirm_response.marco.json)", async () => {
+    const { shop, scenes } = await ready('marco');
+    fireEvent.click(within(shop).getByRole('button', { name: 'Place order' }));
+    await waitFor(() => expect(scenes.querySelector('[data-snapshot-receipt]')).not.toBeNull());
+    expect(scenes.querySelector('[data-snapshot-receipt]')?.getAttribute('data-snapshot-receipt')).toBe('ok');
+    expect(scenes.querySelector('[data-snapshot-receipt]')?.textContent).toContain('TS-CHK-000982');
   });
 
   it('shows a stored snapshot that differs from the shown terms as a failure, never as a success', async () => {
-    // The contract has a confirm example for Giulia only: Marco's order comes back with her snapshot.
+    // A confirmation that stored another snapshot than the one shown (here Giulia's for Marco's cart).
+    vi.spyOn(api, 'checkoutConfirm').mockResolvedValue(readExample<CheckoutConfirmResponse>('checkout_confirm_response.giulia.json'));
     const { shop, scenes } = await ready('marco');
     fireEvent.click(within(shop).getByRole('button', { name: 'Place order' }));
     await waitFor(() => expect(scenes.querySelector('[data-snapshot-receipt]')).not.toBeNull());

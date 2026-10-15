@@ -18,6 +18,22 @@ if (SHOTS) mkdirSync(SHOTS, { recursive: true });
 const here = path.dirname(fileURLToPath(import.meta.url));
 const EXAMPLES = path.resolve(here, '../../../../contracts/examples/api');
 
+interface DemoCases {
+  cases: { key: string; return_id: string; customer_id: string; cluster_id: string | null }[];
+  dispute: { return_id: string; link_id: string; changes_decision: boolean } | null;
+  carts: { key: string; request: { customer_id: string } }[];
+}
+const example = <T,>(name: string): T => JSON.parse(readFileSync(path.join(EXAMPLES, name), 'utf8')) as T;
+/** The golden cases the mock serves (GET /api/demo/cases): the UI reads its ids from there. */
+const CASES = example<DemoCases>('demo_cases.json');
+const caseId = (key: string) => CASES.cases.find((c) => c.key === key)?.return_id ?? '';
+interface Evaluation {
+  lines: { size_advice: { kind: string; text: { it: string; en: string } } | null }[];
+  coupon_block: { text: { it: string; en: string } } | null;
+}
+const GIULIA = example<Evaluation>('checkout_evaluate_response.giulia.json');
+const RING = example<Evaluation>('checkout_evaluate_response.marco.json');
+
 /**
  * The photo of an inspection request example: the mock routes on it (docs/ui-design.md 11.5). The
  * default example's photo reads as damaged, the manual review one's as unclear (contract 1.6.0).
@@ -65,21 +81,27 @@ async function actAs(page: Page, persona: 'sara' | 'luca' | 'ahmed'): Promise<vo
 }
 
 test.describe('simulated checkout (US-401..403)', () => {
-  test('Giulia: size tip without a probability, upgraded terms, order bound to the shown snapshot (E2E-02)', async ({ page }) => {
+  test('Giulia: the measurement guide without a probability, upgraded terms, order bound to the shown snapshot (E2E-02)', async ({ page }) => {
     const errors = watchConsole(page);
     await page.goto('/shop?preset=giulia');
     const shop = page.locator('[data-shop-pane]');
     const scenes = page.locator('[data-scenes-pane]');
     await expect(page.locator('[data-evaluation-status="ready"]')).toBeVisible();
-    await expect(shop.locator('[data-size-advice="specific"]')).toContainText('Customers with your measurements kept size M of this dress');
-    await expect(shop.getByRole('button', { name: 'Switch to M' })).toBeVisible();
+    // Contract 1.6.0: no size is suggested; both sizes get the measurement guide, in Italian by default.
+    await expect(shop.locator('[data-size-advice="measurement_guide"]')).toHaveCount(2);
+    await expect(shop.locator('[data-size-advice] [lang="it"]').first()).toHaveText(GIULIA.lines[0]!.size_advice!.text.it);
+    await expect(shop.getByRole('button', { name: /^Switch to/ })).toHaveCount(0);
     await expect(shop).not.toContainText('0.47');
     await expect(shop).toContainText('60-day return window');
     await expect(shop).toContainText('You can always withdraw within 14 days of delivery, without giving a reason.');
-    await expect(scenes.locator('[data-line-advice="above"]')).toContainText('0.47');
+    await expect(scenes.locator('[data-line-advice="above"]')).toHaveCount(2);
+    await expect(scenes.locator('[data-line-advice="above"]').first()).toContainText('0.47');
     await expect(scenes.locator('[data-latency] [data-figure][data-nature="real"]')).toBeVisible();
     await expectClean(page, errors);
     await shoot(page, 'shop-giulia');
+
+    await page.getByRole('button', { name: 'English' }).click();
+    await expect(shop.locator('[data-size-advice] [lang="en"]').first()).toHaveText(GIULIA.lines[0]!.size_advice!.text.en);
 
     await shop.getByRole('button', { name: 'Place order' }).click();
     await expect(shop.locator('[data-order-placed]')).toContainText('Order ORD-CHK-000001 placed. The terms above are saved with your order.');
@@ -88,23 +110,52 @@ test.describe('simulated checkout (US-401..403)', () => {
     await shoot(page, 'shop-giulia-ordered');
   });
 
-  test('Marco account: terms for future orders with their review date, coupon pause with its rule (US-402)', async ({ page }) => {
+  test('the account of the Marco case (?preset=marco): terms for future orders with their review date, the coupon pause in the API words (US-402)', async ({ page }) => {
     const errors = watchConsole(page);
     await page.goto('/shop?preset=marco');
     const shop = page.locator('[data-shop-pane]');
     const scenes = page.locator('[data-scenes-pane]');
     await expect(page.locator('[data-evaluation-status="ready"]')).toBeVisible();
+    await expect(page.locator('[data-presets] [aria-current="page"]')).toContainText(CASES.carts.find((c) => c.key === 'ring')!.request.customer_id);
     await expect(shop.locator('[data-terms-until]')).toHaveText('These return terms apply to your account until 27 Dec 2026, when they are reviewed.');
-    await expect(shop.locator('[data-coupon-paused]')).toHaveText("Welcome coupons aren't available on this account until 27 Dec 2026.");
+    await expect(shop.locator('[data-coupon-paused]')).toHaveText(RING.coupon_block!.text.it);
     for (const word of ['Q4', 'cluster', 'linked', 'risk', 'model']) await expect(shop).not.toContainText(word);
     const pause = scenes.locator('[data-coupon-pause]');
     await expect(pause).toContainText('confirmed by sara');
     await expect(pause).toContainText('coupon-rule-v1');
     await expect(pause).toContainText('Reversible at any time');
+    await expect(pause.locator('[data-coupon-text]')).toContainText('every other linked account reads a neutral text');
     await expect(scenes.locator('[data-term-row="return_window_days"]')).toContainText('legal minimum');
     await expect(scenes.locator('[data-term-row="coupons_enabled"]')).toContainText('less generous');
     await expectClean(page, errors);
     await shoot(page, 'shop-marco');
+  });
+
+  test('a lapsed snapshot (409) evaluates the cart again; the public limit (429) waits for Retry-After', async ({ page }) => {
+    await page.goto('/shop?preset=ring&scenario=conflict');
+    const shop = page.locator('[data-shop-pane]');
+    await expect(page.locator('[data-evaluation-status="ready"]')).toBeVisible();
+    await shop.getByRole('button', { name: 'Place order' }).click();
+    await expect(shop.locator('[data-checkout-notice="terms_changed"]')).toContainText('can no longer be confirmed');
+    await expect(page.locator('[data-evaluation-status="ready"]')).toBeVisible();
+    await expect(shop.locator('[data-order-placed]')).toHaveCount(0);
+
+    await page.goto('/shop?preset=giulia&scenario=rate_limited');
+    await expect(page.locator('[data-checkout-notice="rate_limited"]')).toContainText(/the terms are checked again in \d+ s/);
+    await expect(page.locator('[data-evaluation-status="waiting"]')).toBeVisible();
+  });
+
+  test('the read-only public demo shows the terms but places no order', async ({ page }) => {
+    await page.goto('/shop?preset=giulia&scenario=read_only');
+    const shop = page.locator('[data-shop-pane]');
+    await expect(page.locator('[data-evaluation-status="ready"]')).toBeVisible();
+    await expect(shop.getByRole('button', { name: 'Place order' })).toBeDisabled();
+    await expect(shop.locator('[data-role-reason]')).toHaveText('Read-only public demo');
+  });
+
+  test('before a demo reset (404) the shop says to run it, in the API words', async ({ page }) => {
+    await page.goto('/shop?preset=giulia&scenario=empty');
+    await expect(page.locator('[data-no-demo-reset]')).toContainText('no demo reset yet: run python -m apps.api.reset');
   });
 
   test('a second evaluation of the same cart answers within the US-403 target', async ({ page }) => {
@@ -123,7 +174,7 @@ test.describe('warehouse inspection (US-501..503)', () => {
     await actAs(page, 'ahmed');
     await page.goto('/inspection');
     await expect(page.locator('[data-inspection-row="RET-000110"]')).toBeVisible();
-    await expect(page.locator('[data-inspection-row="RET-000105"]')).toHaveCount(0);
+    await expect(page.locator(`[data-inspection-row="${caseId('elena')}"]`)).toHaveCount(0);
     await expectClean(page, errors);
     await shoot(page, 'inspection-list');
   });
@@ -164,7 +215,10 @@ test.describe('warehouse inspection (US-501..503)', () => {
     const result = page.locator('[data-inspection-result="claim"]');
     await expect(result.locator('[data-claim]')).toContainText('€17.98');
     await expect(result.locator('[data-claim]')).toContainText('confirmed by ahmed');
-    await expect(result.locator('[data-template-field="amount"]')).toContainText('17,98 €');
+    // The claim is on the price paid for the line; the message states the refund left and the deduction.
+    await expect(result.locator('[data-line-price]')).toContainText('€89.90');
+    await expect(result.locator('[data-template-field="amount"]')).toContainText('71,92 €');
+    await expect(result.locator('[data-template-field="deduction"]')).toContainText('17,98 €');
     await expectClean(page, errors);
     await shoot(page, 'inspection-confirmed');
   });
@@ -217,16 +271,18 @@ test.describe('system and benchmarks (US-901, US-902, US-905)', () => {
     await shoot(page, 'system');
   });
 
-  test('cached: the label, the GPU off and no telemetry numbers (MODE-UI)', async ({ page }) => {
+  test('cached: the label of /readyz, the frozen clock, the GPU off and no telemetry numbers (MODE-UI)', async ({ page }) => {
     const errors = watchConsole(page);
     await page.goto('/system?scenario=cached');
-    const banner = page.getByRole('region', { name: 'Service mode' });
-    await expect(banner).toContainText('Precomputed on AMD MI300X');
     await expect(page).toHaveTitle(/^\[Cached\]/);
     await expect(page.locator('[data-mode-facts] [data-mode]')).toHaveText('contract example: Cached');
+    // The cached label is readyz.label's claim alone (ADR-15 sections 16, 17).
+    await expect(page.locator('[data-mode-facts] [data-cached-label]')).toHaveText('Precomputed on AMD MI300X');
+    await expect(page.locator('[data-clock-frozen="yes"] [data-clock-state]')).toHaveText('frozen at the snapshot instant: it does not move');
     await expect(page.locator('[data-component="vllm"]')).toContainText('GPU off in cached mode');
-    await expect(page.locator('#telemetry [data-telemetry-cached]')).toContainText('GPU off: cached mode serves results precomputed');
+    await expect(page.locator('#telemetry [data-telemetry-cached]')).toContainText('GPU off: cached mode serves precomputed results');
     await expect(page.locator('#telemetry [data-figure]')).toHaveCount(0);
+    await expect(page.locator('#telemetry [data-wall-time]')).toBeVisible();
     await expectClean(page, errors);
     await shoot(page, 'system-cached');
   });
@@ -254,10 +310,17 @@ test.describe('demo path and coupon rules (US-903, US-402)', () => {
     await expect(page.locator('[data-preflight="adapter"]')).toHaveAttribute('data-state', 'fail');
     await expect(page.locator('[data-preflight-state]')).toHaveAttribute('data-preflight-state', 'fail');
     // The load time is measured for real: a cold server may miss the target, the rest is green.
-    for (const id of ['readiness', 'components', 'contract', 'marco', 'rossi', 'assumptions']) {
+    for (const id of ['readiness', 'components', 'contract', 'cases', 'marco', 'rossi', 'assumptions']) {
       await expect(page.locator(`[data-preflight="${id}"]`)).toHaveAttribute('data-state', 'pass');
     }
     await expect(page.locator('[data-preflight="load"] [data-figure][data-nature="real"]')).toBeVisible();
+    // The beats open the cases of GET /api/demo/cases; the ring checkout comes after Marco.
+    await expect(page.locator('[data-beat-id="marco"]')).toContainText(`/returns/${caseId('marco')}`);
+    await expect(page.locator('[data-beat-id="shop_ring"] [data-after-marco]')).toHaveAttribute('data-after-marco', 'proposed');
+    await expect(page.locator('[data-beat-id="dispute"] a').first()).toHaveAttribute(
+      'href',
+      `/returns/${CASES.dispute!.return_id}?link=${encodeURIComponent(CASES.dispute!.link_id)}`,
+    );
     await expectClean(page, errors);
     await shoot(page, 'demo');
     await page.locator('[data-beat="4"]').getByRole('link', { name: 'Open', exact: true }).click();
@@ -265,12 +328,22 @@ test.describe('demo path and coupon rules (US-903, US-402)', () => {
     await expect(page.getByRole('combobox', { name: 'Acting as' })).toHaveValue('luca');
   });
 
+  test('before a demo reset (404) the demo page quotes the API and keeps the beats without a case', async ({ page }) => {
+    const errors = watchConsole(page);
+    await page.goto('/demo?scenario=empty');
+    await expect(page.locator('[data-no-demo-reset]')).toContainText('no demo reset yet: run python -m apps.api.reset');
+    await expect(page.locator('[data-preflight="cases"]')).toHaveAttribute('data-state', 'fail');
+    await expect(page.locator('[data-beat-id]')).toHaveCount(2);
+    await expectClean(page, errors);
+  });
+
   test('presenter mode shows the beat rail, and Alt+→ moves to the next beat', async ({ page }) => {
-    await page.goto('/compare?a=RET-000101&b=RET-000102&present=1');
+    const compare = `/compare?a=${caseId('giulia')}&b=${caseId('marco')}`;
+    await page.goto(`${compare}&present=1`);
     const rail = page.getByRole('navigation', { name: 'Demo beats' });
     await expect(rail.locator('[aria-current="step"]')).toContainText('Same indicator');
     await page.keyboard.press('Alt+ArrowRight');
-    await expect(page).toHaveURL(/\/returns\/RET-000102$/);
+    await expect(page).toHaveURL(new RegExp(`/returns/${caseId('marco')}$`));
     await expect(rail.locator('[aria-current="step"]')).toContainText('Marco');
   });
 

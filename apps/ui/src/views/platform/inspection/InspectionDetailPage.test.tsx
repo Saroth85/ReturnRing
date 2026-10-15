@@ -1,12 +1,18 @@
 // Warehouse inspection on the contract examples (US-501..503, docs/ui-design.md 9.2).
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
+import { setScenario } from '@/api/scenario';
 import { setPersona } from '@/app/persona';
 import { readExample } from '@/test/examples';
 import { renderApp } from '@/test/render';
 import { findBannedWording, findUnprovenancedNumbers } from '@/test/scan';
 
-afterEach(() => act(() => setPersona('sara')));
+afterEach(() =>
+  act(() => {
+    setPersona('sara');
+    setScenario('default');
+  }),
+);
 
 /**
  * The photo of a request example: the mock routes on it (docs/ui-design.md 11.5). The awaiting
@@ -85,6 +91,9 @@ describe('proposal and confirmation (US-502)', () => {
     expect(result.querySelector('[data-claim]')?.textContent).toContain('€17.98');
     expect(result.querySelector('[data-claim]')?.textContent).toContain('DEC-000110-1');
     expect(result.querySelector('[data-claim]')?.textContent).toContain('MSG-000110-1');
+    // The claim is on the price paid for the line (ClaimView.line_price, its own provenance).
+    expect(result.querySelector('[data-line-price] [data-figure]')?.textContent).toContain('€89.90');
+    expect(result.querySelector('[data-claim]')?.textContent).toContain('on the price paid for the line');
     // The message states the refund (the price paid for the line less the claim) and the deduction.
     expect(result.querySelector('[data-template-field="amount"]')?.textContent).toContain('71,92 €');
     expect(result.querySelector('[data-template-field="deduction"]')?.textContent).toContain('17,98 €');
@@ -150,6 +159,26 @@ describe('roles and photos', () => {
     expect(screen.getByRole('button', { name: 'Suggest a checklist from the photo' })).toBeDisabled();
     expect(screen.getAllByText('This action is for warehouses (operator can view).').length).toBeGreaterThan(0);
     expect((document.querySelector('[data-photo-input]') as HTMLInputElement).disabled).toBe(true);
+  });
+
+  it('disables every write on the read-only public demo, also for the warehouse, and says so', async () => {
+    act(() => {
+      setScenario('read_only');
+      setPersona('ahmed');
+    });
+    renderApp('/inspection/RET-000110');
+    await screen.findByText('RET-000110', {});
+    await waitFor(() => expect(document.querySelector('[data-inspection-read-only]')).not.toBeNull());
+    expect(screen.getByRole('button', { name: 'Suggest a checklist from the photo' })).toBeDisabled();
+    expect(screen.getAllByText('Read-only public demo').length).toBeGreaterThan(0);
+    expect((document.querySelector('[data-photo-input]') as HTMLInputElement).disabled).toBe(true);
+  });
+
+  it('says in cached mode that the checklist is the template and the inspection stops for a check by hand', async () => {
+    act(() => setScenario('cached'));
+    renderApp('/inspection/RET-000110');
+    await waitFor(() => expect(document.querySelector('[data-inspection-cached]')).not.toBeNull());
+    expect(document.querySelector('[data-inspection-cached]')?.textContent).toContain('no proposal and no claim');
   });
 
   it('refuses a file that is not a JPEG, PNG or WebP photo before any upload', async () => {

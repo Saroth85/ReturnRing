@@ -297,13 +297,14 @@ function CouponPause({ evaluation }: { evaluation: CheckoutEvaluateResponse }) {
           {SHOP.couponReverseOn}
         </Link>
       </p>
-      <p className="text-caption text-ink-3">
-        {SHOP.couponOperatorText}{' '}
-        <span data-verbatim className="flex flex-col text-ink-2">
+      <div className="flex flex-col gap-1 text-caption text-ink-3" data-coupon-text>
+        <p>{SHOP.couponCustomerText}</p>
+        <p data-verbatim className="flex flex-col text-ink-2">
           <span lang="it">“{block.text.it}”</span>
           <span lang="en">“{block.text.en}”</span>
-        </span>
-      </p>
+        </p>
+        <p>{SHOP.couponWording}</p>
+      </div>
       {rules.isError && <ErrorState error={rules.error} onRetry={() => void rules.refetch()} />}
     </div>
   );
@@ -327,7 +328,9 @@ function SnapshotFacts({ evaluation, latency }: { evaluation: CheckoutEvaluateRe
           <span className="flex flex-wrap items-center gap-x-2" data-latency={within ? 'within' : 'above'}>
             <Figure metric={latency} label={SHOP.latency} />
             {/* On the mock adapter the timing says nothing about the service: no verdict (UI31). */}
-            <span className="text-caption text-ink-3">{API_MODE === 'mock' ? SHOP.latencyNoteMock : SHOP.latencyNote}</span>
+            <span className="text-caption text-ink-3">
+              {API_MODE === 'mock' ? SHOP.latencyNoteMock : SHOP.latencyNote} · {SHOP.latencyClock}
+            </span>
             {API_MODE !== 'mock' && (
               <span className="text-caption text-ink-2">
                 · {SHOP.latencyTarget} <span data-constant>{formatValue(CHECKOUT_TARGET_MS / 1000, 'seconds')}</span>:{' '}

@@ -7,8 +7,10 @@ import { describe, expect, it } from 'vitest';
 import { AGENT_TOOLS } from '@/api/contract.gen';
 import { findBannedTerms, UI_COPY_BANNED } from '@/copy/bannedTerms';
 import { EXAMPLES_DIR, readExample } from '@/test/examples';
+import type { CaseCard } from '@/api/models';
 import { AGENT } from './copy';
 import { QUESTION_MAX_LENGTH } from './limits';
+import { suggestedQuestions } from './questions';
 
 const ID_TOKEN = /(?<![\p{L}\p{N}])[A-Z][A-Z0-9]*(?:[-~][A-Za-z0-9]+)+(?![\p{L}\p{N}])/gu;
 
@@ -32,9 +34,9 @@ describe('agent copy', () => {
     expect(withDigits).toEqual([]);
   });
 
-  it('asks the three US-702 questions exactly as the contract examples do', () => {
+  it("asks the three US-702 questions on Marco's card exactly as the contract examples do", () => {
     const asked = ['marco_link', 'marco_rossi', 'marco_terms'].map((name) => readExample<{ question: string }>(`agent_ask_request.${name}.json`).question);
-    expect(AGENT.suggested).toEqual(asked);
+    expect(suggestedQuestions(readExample<CaseCard>('case_card.marco.json'))).toEqual(asked);
   });
 
   it('names every contract tool in words', () => {

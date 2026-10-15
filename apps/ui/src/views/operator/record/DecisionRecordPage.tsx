@@ -82,6 +82,12 @@ function RecordBody({ record, returnId }: { record: DecisionRecord; returnId: st
             <Row label={t.baseTerms}>
               <TermsLine terms={inputs.base_terms} />
             </Row>
+            {/* The days the engine's inputs were measured (rule 11): the customer snapshot it read, and
+                the day the risk was scored (null exactly when there is no risk: the guarantee path). */}
+            <Row label={t.snapshotOn}>
+              <DateText value={inputs.snapshot_on} />
+            </Row>
+            <Row label={t.scoredOn}>{inputs.scored_on ? <DateText value={inputs.scored_on} /> : t.notScored}</Row>
             <Row label={t.risk}>
               {inputs.risk === null ? t.notScored : <PlainNumber value={inputs.risk} unit="probability" />}
               <span className="text-ink-3">

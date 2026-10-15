@@ -3,11 +3,14 @@
 // shown (`shown`, snapshotted when the sheet opened, UI38) and the acting person; override, reject
 // and lift need a reason, approve and renew do not. Approve, override and reject send a message;
 // lift and renew send none (the customer sees the terms at checkout). A newer version blocks the
-// confirm until loaded.
-import { Check } from 'lucide-react';
+// confirm until loaded. On the service's clock (ADR-15 sections 19, 20): past the refund deadline
+// a proposal can only be rejected or set to the standard terms, with no message, and the case
+// stays refund overdue; a renewal opens on the review date (US-607).
+import { Check, MailX } from 'lucide-react';
 import { useState } from 'react';
 import { LEGAL_MINIMUM_WINDOW_DAYS, OVERRIDE_CATEGORIES } from '@/api/contract.gen';
 import { messageFor } from '@/api/adapters/messageSegments';
+import { useDemoClock } from '@/api/clock';
 import { HAS_RENEW } from '@/api/models';
 import type { DecisionResult, DecisionView, Lever } from '@/api/models';
 import { usePersona } from '@/app/persona';
@@ -18,7 +21,10 @@ import { DateText, IdText } from '@/components/provenance';
 import { Kbd } from '@/components/ui';
 import { overrideLock, termsRows, type OverrideLock } from '@/domain/decision';
 import {
+  admissibleValue,
+  baseValue,
   hasRestrictiveLever,
+  isGrantOnly,
   leverDirection,
   LEVER_SPECS,
   leversFromValues,
@@ -28,6 +34,7 @@ import {
   type LeverValues,
 } from '@/domain/levers';
 import { OPERATOR } from '../../copy';
+import { lateProposal } from '../../state/refund';
 import { approveBody, liftBody, overrideBody, rejectBody, renewBody } from '../../state/requests';
 import { CategorySelect, LangChoice, ReasonField, type OverrideCategory } from '../../ui/fields';
 import { Sheet } from '../../ui/Sheet';
@@ -49,9 +56,29 @@ export interface DecisionSheetProps {
   shown: DecisionView;
 }
 
-function MessageChoice() {
+/** Past the refund deadline the act sends no message: said where the message choice would be. */
+function NoMessageLate() {
+  return (
+    <p
+      className="flex gap-2 rounded-control border border-attn-border bg-attn-bg px-3 py-2 text-body text-attn-fg"
+      data-no-message="late"
+    >
+      <MailX aria-hidden="true" size={16} className="mt-0.5 shrink-0" />
+      <span>{OPERATOR.refund.noMessage}</span>
+    </p>
+  );
+}
+
+/** Whether the decision on the sheet is a proposal past its refund deadline, on the service's clock. */
+function useLate(shown: DecisionView): boolean {
+  const clock = useDemoClock();
+  return lateProposal(shown, clock.today);
+}
+
+function MessageChoice({ late = false }: { late?: boolean }) {
   const { card, sendLang, setSendLang } = useCaseUi();
   const message = messageFor(card.draft, sendLang);
+  if (late) return <NoMessageLate />;
   return (
     <div className="flex flex-col gap-2">
       <LangChoice value={sendLang} onChange={setSendLang} />
@@ -74,6 +101,7 @@ export function ApproveRestrictionSheet({ open, onOpenChange, onDone, onReload, 
   const persona = usePersona();
   const action = useDecisionAction(card, onDone);
   const newer = useNewerVersion(shown);
+  const late = useLate(shown);
   const [ack, setAck] = useState(false);
   const t = OPERATOR.sheets.approve;
   const d = shown;
@@ -82,6 +110,7 @@ export function ApproveRestrictionSheet({ open, onOpenChange, onDone, onReload, 
   const rule = d.coupon_rule;
   const reasons = [
     ...(newer ? [OPERATOR.sheets.staleReason] : []),
+    ...(late ? [OPERATOR.refund.primaryReason] : []),
     // Rule 5: a restriction is approved only with its review date (the server checks it too).
     ...(!d.review_at ? [t.noReviewDate] : []),
     ...(rule && !ack ? [t.couponRequired] : []),
@@ -196,8 +225,15 @@ export function ApproveRestrictionSheet({ open, onOpenChange, onDone, onReload, 
 
 // ---------------------------------------------------------------------------------------------
 
+/**
+ * What keeps the editor's levers where they are: the guarantee path (no restrictive change, rule
+ * 4), not enough evidence (the base terms only, US-307) and a proposal past its refund deadline
+ * (the standard terms only: other terms would need a message with a past date, ADR-15 section 19).
+ */
+type EditorLock = OverrideLock | 'late';
+
 /** The lever editor of the override sheet (docs/ui-design.md 6.3.4). */
-function LeverEditor({ values, onChange, lock }: { values: LeverValues; onChange(values: LeverValues): void; lock: OverrideLock | null }) {
+function LeverEditor({ values, onChange, lock }: { values: LeverValues; onChange(values: LeverValues): void; lock: EditorLock | null }) {
   const { card } = useCaseUi();
   const base = card.order_terms.base_terms;
   const o = OPERATOR.sheets.override;
@@ -208,6 +244,11 @@ function LeverEditor({ values, onChange, lock }: { values: LeverValues; onChange
       {lock === 'insufficient' && (
         <p className="px-3 py-2 text-body text-ink-2" data-insufficient-lock>
           {o.insufficientLocked}
+        </p>
+      )}
+      {lock === 'late' && (
+        <p className="px-3 py-2 text-body text-ink-2" data-late-lock>
+          {o.lateLocked}
         </p>
       )}
       {LEVER_SPECS.map((spec) => {
@@ -221,8 +262,9 @@ function LeverEditor({ values, onChange, lock }: { values: LeverValues; onChange
             <span className="text-micro uppercase text-ink-3">{LEVER_COPY.moreGenerous}</span>
           ) : null;
         const guarantee = lock === 'guarantee';
-        // Not enough evidence: every lever stays at the base terms (US-307, UI13).
-        const frozen = lock === 'insufficient';
+        // Not enough evidence, or past the refund deadline: every lever stays at the base terms
+        // (US-307, UI13; ADR-15 section 19).
+        const frozen = lock === 'insufficient' || lock === 'late';
         if (spec.valueType === 'integer') {
           const min = guarantee ? Math.max(LEGAL_MINIMUM_WINDOW_DAYS, Number(base.return_window_days)) : LEGAL_MINIMUM_WINDOW_DAYS;
           return (
@@ -252,14 +294,25 @@ function LeverEditor({ values, onChange, lock }: { values: LeverValues; onChange
         const checked = value === true;
         // On the guarantee path every change less generous than the base is disabled (rule 4).
         const wouldRestrict = leverDirection({ id: spec.id, value: !checked }, base) === 'less';
-        const locked = frozen || (guarantee && wouldRestrict && direction !== 'less');
+        const guarded = guarantee && wouldRestrict && direction !== 'less';
+        // A lever of scope all_orders holds for orders already placed: it can only be granted
+        // (true), never withdrawn (contracts/levers.py, rule 3). Unticking it is offered only when
+        // that returns to the base terms (no lever at all).
+        const next = !checked;
+        const grantOnly = isGrantOnly(spec) && !admissibleValue(spec.id, next) && baseValue(spec.id, base) !== next;
+        const locked = frozen || guarded || grantOnly;
         return (
           <label key={spec.id} className="flex flex-wrap items-center gap-2 px-3 py-2 text-body" data-lever-row={spec.id}>
             <input type="checkbox" checked={checked} disabled={locked} onChange={(e) => set(spec.id, e.target.checked)} />
             <span>{LEVER_COPY.label[spec.id as Exclude<LeverId, 'return_window_days'>].true}</span>
             <span className="text-micro uppercase text-ink-3">· {scope}</span>
             {tag}
-            {locked && !frozen && <span className="basis-full text-caption text-ink-3">{o.notOnGuarantee}</span>}
+            {guarded && !frozen && <span className="basis-full text-caption text-ink-3">{o.notOnGuarantee}</span>}
+            {grantOnly && !frozen && !guarded && (
+              <span className="basis-full text-caption text-ink-3" data-grant-only>
+                {o.grantOnly}
+              </span>
+            )}
           </label>
         );
       })}
@@ -280,18 +333,22 @@ export function OverrideSheet({
   const persona = usePersona();
   const action = useDecisionAction(card, onDone);
   const newer = useNewerVersion(shown);
+  const late = useLate(shown);
   const d = shown;
   const base = card.order_terms.base_terms;
   const o = OPERATOR.sheets.override;
-  const lock = overrideLock({ path: card.path, decision: d });
+  // Past the refund deadline only the standard terms (no lever) can be set (ADR-15 section 19).
+  const lock: EditorLock | null = overrideLock({ path: card.path, decision: d }) ?? (late ? 'late' : null);
+  const atBase = lock === 'insufficient' || lock === 'late';
   const starts = [
     { key: 'proposal', label: o.proposal, levers: d.proposed_levers },
     ...card.alternatives
       .filter((a) => a.kind !== 'proposal')
       .map((a) => ({ key: a.kind, label: OPERATOR.alternatives.kinds[a.kind] ?? a.kind, levers: a.levers })),
   ];
-  // Not enough evidence: the editor starts and stays on the base terms, whatever the prefill (UI13).
-  const initial = lock === 'insufficient' ? [] : (prefill ?? d.proposed_levers);
+  // Not enough evidence, or past the refund deadline: the editor starts and stays on the base
+  // terms, whatever the prefill (UI13).
+  const initial = atBase ? [] : (prefill ?? d.proposed_levers);
   const [start, setStart] = useState(() => starts.find((s) => sameLevers(s.levers, initial))?.key ?? 'proposal');
   const [values, setValues] = useState<LeverValues>(() => leverValues(initial, base));
   // "Load the new version" moves the sheet onto the new decision: the levers start again from its
@@ -300,7 +357,7 @@ export function OverrideSheet({
   if (basedOn !== d.decision_id) {
     setBasedOn(d.decision_id);
     setStart('proposal');
-    setValues(leverValues(lock === 'insufficient' ? [] : d.proposed_levers, base));
+    setValues(leverValues(atBase ? [] : d.proposed_levers, base));
   }
   const [reason, setReason] = useState('');
   const [category, setCategory] = useState<OverrideCategory | ''>('');
@@ -311,7 +368,8 @@ export function OverrideSheet({
   const reasons = [
     ...(newer ? [OPERATOR.sheets.staleReason] : []),
     ...(lock === 'insufficient' && levers.length > 0 ? [o.insufficientLocked] : []),
-    ...(asProposal ? [o.noChange] : []),
+    ...(lock === 'late' && levers.length > 0 ? [o.lateLocked] : []),
+    ...(asProposal ? [late ? o.lateNoChange : o.noChange] : []),
     ...(!reasonValid(reason) ? [OPERATOR.sheets.reasonTooShort] : []),
     ...(category === '' ? [OPERATOR.sheets.chooseCategory] : []),
     ...(draftPending ? [OPERATOR.actions.draftPendingReason] : []),
@@ -336,7 +394,7 @@ export function OverrideSheet({
       dirty={reason.trim().length > 0}
       footer={
         <ConfirmFooter
-          label={restrictive ? o.submitRestrictive : o.submit}
+          label={late ? o.submitStandard : restrictive ? o.submitRestrictive : o.submit}
           restrictive={restrictive}
           disabled={reasons.length > 0}
           pending={action.pending}
@@ -354,7 +412,7 @@ export function OverrideSheet({
           <span className="font-medium">{o.startFrom}</span>
           <select
             value={start}
-            disabled={lock === 'insufficient'}
+            disabled={atBase}
             onChange={(e) => {
               const chosen = starts.find((s) => s.key === e.target.value);
               setStart(e.target.value);
@@ -387,7 +445,7 @@ export function OverrideSheet({
         )}
         <CategorySelect value={category} onChange={setCategory} showError={tried} />
         <ReasonField value={reason} onChange={setReason} showError={tried} />
-        <MessageChoice />
+        <MessageChoice late={late} />
         <ActingAs />
       </div>
     </Sheet>
@@ -401,6 +459,7 @@ export function RejectSheet({ open, onOpenChange, onDone, onReload, changes, sho
   const persona = usePersona();
   const action = useDecisionAction(card, onDone);
   const newer = useNewerVersion(shown);
+  const late = useLate(shown);
   const [reason, setReason] = useState('');
   const [category, setCategory] = useState<OverrideCategory | ''>('');
   const [tried, setTried] = useState(false);
@@ -445,7 +504,7 @@ export function RejectSheet({ open, onOpenChange, onDone, onReload, changes, sho
         <p className="text-body text-ink-1">{r.body}</p>
         <CategorySelect value={category} onChange={setCategory} showError={tried} />
         <ReasonField value={reason} onChange={setReason} showError={tried} />
-        <MessageChoice />
+        <MessageChoice late={late} />
         <ActingAs />
         {action.error ? <ActionError error={action.error} onLoadNew={onReload} onShowCurrent={onReload} changes={changes} /> : null}
         {action.mismatch && <InlineNotice tone="attention">{action.mismatch}</InlineNotice>}
@@ -458,20 +517,34 @@ export function RejectSheet({ open, onOpenChange, onDone, onReload, changes, sho
 
 const REVIEW_CATEGORIES = OVERRIDE_CATEGORIES.filter((c) => c === 'periodic_review' || c === 'customer_context');
 
-export function ReviewSheet({ open, onOpenChange, onDone, onReload, changes, shown }: DecisionSheetProps) {
+export function ReviewSheet({
+  open,
+  onOpenChange,
+  onDone,
+  onReload,
+  changes,
+  shown,
+  initial = 'lift',
+}: DecisionSheetProps & { initial?: 'lift' | 'renew' }) {
   const { card, gates, draftPending } = useCaseUi();
   const persona = usePersona();
+  const clock = useDemoClock();
   const action = useDecisionAction(card, onDone);
   const newer = useNewerVersion(shown);
-  const [choice, setChoice] = useState<'lift' | 'renew'>('lift');
+  const d = shown;
+  // A renewal opens on the review date (409 before it, US-607); with no clock yet, `in_force`
+  // says whether the date has passed.
+  const renewOpen =
+    HAS_RENEW && d.review_at !== null && (clock.today !== null ? clock.today >= d.review_at : !d.in_force);
+  const [picked, setChoice] = useState<'lift' | 'renew'>(initial);
+  const choice = picked === 'renew' && !renewOpen ? 'lift' : picked;
   const [reason, setReason] = useState('');
   const [category, setCategory] = useState<OverrideCategory | ''>('periodic_review');
   const [tried, setTried] = useState(false);
   const v = OPERATOR.sheets.review;
-  const d = shown;
   // A lift needs a reason and a category; a renewal needs neither (restriction_renewed is not a
   // reason-required action). Neither sends a message.
-  const lifting = choice === 'lift' || !HAS_RENEW;
+  const lifting = choice === 'lift';
   const reasons = [
     ...(newer ? [OPERATOR.sheets.staleReason] : []),
     ...(lifting && !reasonValid(reason) ? [OPERATOR.sheets.reasonTooShort] : []),
@@ -499,7 +572,7 @@ export function ReviewSheet({ open, onOpenChange, onDone, onReload, changes, sho
       dirty={reason.trim().length > 0}
       footer={
         <ConfirmFooter
-          label={choice === 'lift' ? v.submitLift : v.submitRenew}
+          label={lifting ? v.submitLift : v.submitRenew}
           disabled={reasons.length > 0}
           pending={action.pending}
           reasons={reasons}
@@ -526,7 +599,8 @@ export function ReviewSheet({ open, onOpenChange, onDone, onReload, changes, sho
             </dd>
           </dl>
         </section>
-        <fieldset className="flex flex-col gap-2">
+        <fieldset className="flex flex-col gap-2" data-review-choice={choice}>
+          <legend className="sr-only">{v.title}</legend>
           <label className="grid grid-cols-[auto_1fr] items-start gap-x-2 text-body">
             <input type="radio" name="review-choice" className="mt-1" checked={choice === 'lift'} onChange={() => setChoice('lift')} />
             <span className="font-medium">{v.lift}</span>
@@ -536,17 +610,37 @@ export function ReviewSheet({ open, onOpenChange, onDone, onReload, changes, sho
           </label>
           {HAS_RENEW && (
             <label className="grid grid-cols-[auto_1fr] items-start gap-x-2 text-body">
-              <input type="radio" name="review-choice" className="mt-1" checked={choice === 'renew'} onChange={() => setChoice('renew')} />
-              <span className="font-medium">{v.renew}</span>
+              <input
+                type="radio"
+                name="review-choice"
+                className="mt-1"
+                checked={choice === 'renew'}
+                disabled={!renewOpen}
+                onChange={() => setChoice('renew')}
+                data-renew-choice
+              />
+              <span className={renewOpen ? 'font-medium' : 'font-medium text-ink-3'}>{v.renew}</span>
               <span className="col-start-2 text-caption text-ink-2">{v.renewBody}</span>
+              {!renewOpen && d.review_at && (
+                <span className="col-start-2 text-caption text-ink-3" data-renew-reason>
+                  {v.renewFrom} <DateText value={d.review_at} />
+                </span>
+              )}
             </label>
           )}
         </fieldset>
-        {lifting && (
+        <p className="text-caption text-ink-2" data-no-message="review">
+          {v.noMessage}
+        </p>
+        {lifting ? (
           <>
             <CategorySelect value={category} onChange={setCategory} showError={tried} allowed={REVIEW_CATEGORIES} />
             <ReasonField value={reason} onChange={setReason} showError={tried} />
           </>
+        ) : (
+          <p className="text-caption text-ink-2" data-renew-no-reason>
+            {v.renewNoReason}
+          </p>
         )}
         <ActingAs />
         {action.error ? <ActionError error={action.error} onLoadNew={onReload} onShowCurrent={onReload} changes={changes} /> : null}

@@ -5,6 +5,7 @@ export {
   entityHref,
   HUMAN_ONLY_ACTIONS,
   isDecisionState,
+  isGenerationState,
   keepHumanRows,
   matchesAuditFilters,
   REASON_REQUIRED_ACTIONS,
@@ -16,6 +17,7 @@ export {
   type AuditAction,
   type AuditFilters,
   type DecisionAuditState,
+  type GenerationAuditState,
 } from './audit';
 export { AuditDiff } from './AuditDiff';
 export { AuditEntryList, HumanApprovalPill } from './AuditEntryList';

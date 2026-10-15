@@ -1,6 +1,9 @@
 // Operator area in mock mode (docs/ui-design.md 6, 14.2: E2E-01, E2E-04, E2E-05, KEYBOARD, the
-// operator beats of E2E-PITCH). Every screen renders with no console error, no number without
-// provenance and no banned wording; the actions send the contract requests and show the answers.
+// operator beats of E2E-PITCH) on contract 1.8.0. Every screen renders with no console error, no
+// number without provenance and no banned wording; the actions send the contract requests and
+// show the answers: the refund deadlines of the queue, the 409 recoveries, the review sheet (lift
+// and renew send no message; renew from the review date), the grant-only levers, the read-only
+// public demo and the cached demo.
 // OPERATOR_SCREENSHOT_DIR=<dir> saves each screen at 1440 × 900 and 390 × 844.
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
@@ -49,6 +52,10 @@ const SCREENS: Array<{ name: string; url: string; ready: string }> = [
   { name: 'case-chiara', url: '/returns/RET-000106', ready: '[data-link-table]' },
   { name: 'decision-record', url: '/returns/RET-000106/versions/DEC-000106-1', ready: '[data-decision-record]' },
   { name: 'compare', url: '/compare?a=RET-000101&b=RET-000102', ready: '[data-compare-closing]' },
+  { name: 'compare-default', url: '/compare', ready: '[data-compare-closing]' },
+  { name: 'case-earlier-q4', url: '/returns/RET-000077', ready: '[data-decision-rail]' },
+  { name: 'case-marco-read-only', url: '/returns/RET-000102?scenario=read_only', ready: '[data-read-only-banner="public"]' },
+  { name: 'case-giulia-cached', url: '/returns/RET-000101?scenario=cached', ready: '[data-regenerate-unavailable="cached"]' },
   { name: 'outbox', url: '/outbox', ready: '[data-outbox-detail]' },
 ];
 
@@ -112,7 +119,7 @@ test.describe('queue (US-301)', () => {
   test('filters and search live in the URL; a contradicting filter empties the view', async ({ page }) => {
     await page.goto('/queue?tab=all');
     const rows = page.locator('[data-queue-table] [data-return-row]');
-    await expect(rows).toHaveCount(13);
+    await expect(rows).toHaveCount(14);
     await page.getByRole('search').getByRole('button', { name: 'Q2' }).click();
     await expect(page).toHaveURL(/quadrant=Q2/);
     await expect(rows).toHaveCount(4);
@@ -120,6 +127,16 @@ test.describe('queue (US-301)', () => {
     await expect(rows).toHaveCount(2);
     await page.goto('/queue?quadrant=Q1');
     await expect(page.getByText('These filters exclude every return of this view.')).toBeVisible();
+  });
+
+  test('the refund deadline of each row, none on the guarantee path, and its sort in the URL', async ({ page }) => {
+    await page.goto('/queue?tab=all');
+    await expect(page.getByRole('columnheader', { name: 'Refund due by' })).toBeVisible();
+    await expect(page.locator('[data-return-row="RET-000102"] [data-refund-due="2026-10-12"]')).toHaveText('12 Oct 2026');
+    await expect(page.locator('[data-return-row="RET-000105"] [data-refund-due="none"]')).toHaveText('none on the guarantee path');
+    await expect(page.locator('[data-refund-overdue]')).toHaveCount(0);
+    await page.getByLabel('Sort').selectOption('refund_due_by');
+    await expect(page).toHaveURL(/sort=refund_due_by/);
   });
 
   test('j, k and Enter open a case of the view, and [ ] walk the view (KEYBOARD)', async ({ page }) => {
@@ -162,6 +179,9 @@ test.describe('case card (US-302 to US-310)', () => {
     await expect(page.locator('[data-statement-group="OBSERVED"]')).toBeVisible();
     await expect(page.locator('[data-statement-group="HYPOTHESIS"]')).toBeVisible();
     await expect(page.locator('[data-echo="match"]')).toContainText('Q4');
+    // The cited facts carry the draft's provenance and the days code dated them with (rule 11).
+    await expect(page.locator('[data-fact-dates]')).toContainText('Facts dated with the customer snapshot of 1 Sep 2026');
+    await expect(page.locator('[data-fact="F1"]').first()).toContainText('as of 28 Sep 2026');
     const message = page.locator('[data-message-panel]');
     await expect(message.locator('[data-template-field="deadline"]')).toContainText('12 ottobre 2026');
     await expect(message.locator('[data-legal-clause="withdrawal"]')).toContainText('Fixed legal clause');
@@ -218,7 +238,7 @@ test.describe('case card (US-302 to US-310)', () => {
     await page.locator('[data-regenerate]').click();
     const menu = page.locator('[data-regenerate-menu]');
     await menu.getByLabel('Italiano').uncheck();
-    await menu.getByLabel('Formal').check();
+    await expect(menu).not.toContainText('Tone');
     await menu.getByRole('button', { name: 'Generate and validate' }).click();
     await expect(page.locator('[data-action-notice]')).toContainText('Draft regenerated');
     await expect(page.locator('[data-message-view="en"]')).toBeVisible();
@@ -279,7 +299,7 @@ test.describe('case card (US-302 to US-310)', () => {
   test('Davide: not enough evidence, standard terms, no risk number anywhere (US-307)', async ({ page }) => {
     await page.goto('/returns/RET-000109');
     await expect(page.locator('[data-insufficient-panel]')).toContainText('Not enough evidence to score: standard terms apply');
-    await expect(page.locator('[data-insufficient-panel]')).toContainText('Fewer than 4 order lines observed');
+    await expect(page.locator('[data-insufficient-panel]')).toContainText('Too few order lines with a settled outcome for this customer');
     await expect(page.locator('[data-figure][data-unit="probability"]')).toHaveCount(0);
     await expect(page.locator('[data-quadrant-badge]')).toHaveCount(0);
   });
@@ -295,6 +315,72 @@ test.describe('case card (US-302 to US-310)', () => {
     await expect(sheet).toBeHidden();
     await expect(page.locator('[data-decision-rail] [data-restriction="lifted"]')).toContainText('Restriction lifted');
     await expect(page.locator('[data-version-chain] [data-version-node]')).toHaveCount(2);
+    // A lift sends no message: the notice says why and names the version it supersedes.
+    const notice = page.locator('[data-action-notice]');
+    await expect(notice.locator('[data-notice-no-message]')).toContainText('no message: the customer sees the terms at checkout');
+    await expect(notice.locator('[data-notice-superseded]')).toContainText('DEC-000088-1');
+  });
+
+  test('Lorenzo: from the review date a renewal needs no reason and sends no message (US-607)', async ({ page }) => {
+    await page.goto('/returns/RET-000088?scenario=renewed');
+    await page.locator('[data-action="review"]').click();
+    const sheet = page.locator('[data-sheet="review"]');
+    await sheet.locator('[data-renew-choice]').check();
+    await expect(sheet.locator('[data-renew-no-reason]')).toContainText('A renewal needs no reason or category');
+    await expect(sheet.getByLabel('Reason')).toHaveCount(0);
+    await expect(sheet.locator('[data-no-message="review"]')).toContainText('Neither a lift nor a renewal sends a message');
+    await sheet.locator('[data-sheet-confirm="review"]').click();
+    await expect(sheet).toBeHidden();
+    const notice = page.locator('[data-action-notice]');
+    await expect(notice).toContainText('Renewed by');
+    await expect(notice.locator('[data-notice-no-message]')).toBeVisible();
+  });
+
+  test('an approved restriction before its review date: renew waits for the date (409 otherwise)', async ({ page }) => {
+    const errors = watchConsole(page);
+    await page.goto('/returns/RET-000077');
+    await expect(page.locator('[data-action="renew"]')).toBeDisabled();
+    await expect(page.locator('[data-renew-reason]')).toContainText('Renewal opens on the review date, 28 Dec 2026');
+    await page.locator('[data-action="lift"]').click();
+    await expect(page.locator('[data-sheet="review"] [data-renew-choice]')).toBeDisabled();
+    await expectClean(page, errors);
+  });
+
+  test('Marco: a refund past its deadline refuses the approval (409): the case loads again, the message verbatim', async ({ page }) => {
+    await page.goto('/returns/RET-000102?scenario=refund_overdue');
+    await page.locator('[data-action="approve-restriction"]').click();
+    const sheet = page.locator('[data-sheet="approve"]');
+    await sheet.locator('[data-coupon-ack-box]').check();
+    await sheet.locator('[data-sheet-confirm="approve"]').click();
+    const conflict = sheet.locator('[data-conflict]');
+    await expect(conflict.locator('[data-conflict-message]')).toHaveText(
+      'the refund of RET-000102 was due by 2026-10-10 (14 days from the notice, rule 3): it is overdue; no message states a past deadline',
+    );
+    await expect(conflict).toContainText('Nothing was saved.');
+    await expect(conflict).toContainText('The case was loaded again');
+    await expect(sheet).toBeVisible();
+  });
+
+  test('Martina: a lever that also holds for orders already placed can only be granted', async ({ page }) => {
+    await page.goto('/returns/RET-000108');
+    await page.locator('[data-action="override"]').click();
+    const sheet = page.locator('[data-sheet="override"]');
+    await expect(sheet.locator('[data-lever-row="free_size_exchange"] input')).toBeDisabled();
+    await expect(sheet.locator('[data-lever-row="free_size_exchange"] [data-grant-only]')).toContainText('can only be granted');
+    await expect(sheet.locator('[data-lever-row="priority_size_exchange"] input')).toBeEnabled();
+  });
+
+  test('the read-only public demo: every write of the case is off with the read-only notice', async ({ page }) => {
+    const errors = watchConsole(page);
+    await page.goto('/returns/RET-000102?scenario=read_only');
+    await expect(page.locator('[data-read-only-banner="public"]')).toContainText('Read-only public demo');
+    await expect(page.locator('[data-action="approve-restriction"]')).toBeDisabled();
+    await expect(page.locator('[data-action="override"]')).toBeDisabled();
+    await expect(page.locator('[data-action="reject"]')).toBeDisabled();
+    await expect(page.locator('[data-action-reason]')).toContainText('Read-only public demo');
+    await expect(page.locator('[data-add-evidence]')).toBeDisabled();
+    await expect(page.locator('[data-regenerate]')).toBeDisabled();
+    await expectClean(page, errors);
   });
 
   test('Rossi with a shared card: favourable evidence recomputes the case, before and after (pitch beat 3, E2E-05)', async ({ page }) => {
@@ -311,6 +397,7 @@ test.describe('case card (US-302 to US-310)', () => {
     await expect(comparison.locator('[data-row="risk"]')).toContainText('changed');
     await expect(comparison.locator('[data-row="quadrant"]')).not.toContainText('changed');
     await expect(comparison.locator('[data-row="active_links"]')).toContainText('changed');
+    await expect(comparison.locator('[data-decision-unchanged="true"]')).toContainText('Decision unchanged');
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'case-rossi-recompute-1440x900.png') });
     await page.keyboard.press('Enter');
     await expect(comparison).toBeHidden();
@@ -344,6 +431,7 @@ test.describe('case card (US-302 to US-310)', () => {
     await page.keyboard.press('Control+Enter');
     const comparison = page.locator('[data-recompute-comparison]');
     await expect(comparison.locator('[data-row="quadrant"]')).toContainText('changed');
+    await expect(comparison.locator('[data-decision-unchanged="false"]')).toContainText('The decision changed');
     await comparison.locator('[data-open-new-version]').click();
     await expect(page.locator('[data-approval-gate]')).toHaveCount(0);
     await expect(page.locator('[data-case-header] [data-quadrant-badge="Q1"]')).toBeVisible();
@@ -371,6 +459,14 @@ test.describe('case card (US-302 to US-310)', () => {
 });
 
 test.describe('compare, record and outbox', () => {
+  test('compare without a pair opens the demo cases Giulia and Marco', async ({ page }) => {
+    await page.goto('/queue');
+    await page.getByRole('link', { name: 'Compare cases' }).first().click();
+    await expect(page).toHaveURL(/\/compare$/);
+    await expect(page.locator('[data-compare-column="RET-000101"]')).toBeVisible();
+    await expect(page.locator('[data-compare-column="RET-000102"]')).toBeVisible();
+  });
+
   test('compare shows the same indicator twice, then the rows that differ (pitch beat 1)', async ({ page }) => {
     await page.goto('/compare?a=RET-000101&b=RET-000102');
     await expect(page.locator('[data-same-indicator]')).toHaveText(/same indicator/i);
@@ -385,13 +481,15 @@ test.describe('compare, record and outbox', () => {
     const record = page.locator('[data-decision-record]');
     await expect(record).toContainText('superseded by DEC-000106-2');
     await expect(record).toContainText('Inputs given to the engine');
+    await expect(record).toContainText('Customer snapshot');
+    await expect(record).toContainText('Risk scored on');
     await page.keyboard.press('Escape');
     await expect(page).toHaveURL(/\/returns\/RET-000106$/);
   });
 
   test('the outbox shows each message in its three layers', async ({ page }) => {
     await page.goto('/outbox');
-    await expect(page.locator('[data-outbox-table] [data-outbox-row]')).toHaveCount(5);
+    await expect(page.locator('[data-outbox-table] [data-outbox-row]')).toHaveCount(6);
     await page.locator('[data-outbox-row="MSG-000102-1"] button').first().click();
     const detail = page.locator('[data-outbox-detail="MSG-000102-1"]');
     await expect(detail.locator('[data-template-field]').first()).toBeVisible();

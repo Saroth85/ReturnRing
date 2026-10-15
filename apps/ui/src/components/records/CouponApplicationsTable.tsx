@@ -3,7 +3,8 @@ import { CalendarClock, TriangleAlert } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useInRouterContext } from 'react-router';
 import type { CouponRuleApplication } from '@/api/models';
-import { EmptyState, RoleGate } from '@/components/feedback';
+import { usePersona } from '@/app/persona';
+import { EmptyState, gateFor, useReadOnly } from '@/components/feedback';
 import { DateText, IdText } from '@/components/provenance';
 import { Button } from '@/components/ui';
 import { RECORDS } from './copy';
@@ -19,6 +20,28 @@ interface CouponApplicationsTableProps {
   /** After a reversal, with the server's answer. */
   onReversed?(result: CouponRuleApplication): void;
   className?: string;
+}
+
+/**
+ * "Reverse…" for the persona's role and the service's read-only flag (/readyz public_read_only,
+ * ADR-15 section 15): disabled with the reason, never hidden (docs/ui-design.md 5.8).
+ */
+function ReverseButton({ onClick }: { onClick(): void }) {
+  const persona = usePersona();
+  const readOnly = useReadOnly();
+  const gate = gateFor('POST /api/coupon-rules/applications/{application_id}/reverse', persona.role, readOnly);
+  return (
+    <div data-role-gate={gate.allowed ? 'allowed' : 'blocked'} className="inline-flex flex-col gap-1">
+      <Button disabled={!gate.allowed} title={gate.reason ?? undefined} onClick={onClick}>
+        {C.reverse}
+      </Button>
+      {gate.reason && (
+        <p className="text-caption text-ink-3" data-role-reason>
+          {gate.reason}
+        </p>
+      )}
+    </div>
+  );
 }
 
 function DecisionLink({ decisionId }: { decisionId: string }) {
@@ -134,13 +157,7 @@ export function CouponApplicationsTable({ applications, reversible = false, onRe
                     )}
                   </span>
                 ) : reversible ? (
-                  <RoleGate action="POST /api/coupon-rules/applications/{application_id}/reverse">
-                    {(gate) => (
-                      <Button disabled={!gate.allowed} title={gate.reason ?? undefined} onClick={() => setReversing(app)}>
-                        {C.reverse}
-                      </Button>
-                    )}
-                  </RoleGate>
+                  <ReverseButton onClick={() => setReversing(app)} />
                 ) : null}
               </td>
             </tr>

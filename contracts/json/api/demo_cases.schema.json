@@ -28,8 +28,7 @@
       },
       "required": [
         "variant_id",
-        "size",
-        "quantity"
+        "size"
       ],
       "title": "CartLine",
       "type": "object"
@@ -71,8 +70,7 @@
       },
       "required": [
         "customer_id",
-        "lines",
-        "coupon_code"
+        "lines"
       ],
       "title": "CheckoutEvaluateRequest",
       "type": "object"
@@ -164,7 +162,7 @@
     },
     "DemoDispute": {
       "additionalProperties": false,
-      "description": "A link whose dispute changes the cluster of the case named (US-310): the customer's\ncluster has cluster_size_before accounts, and cluster_size_after once the link is out (1:\nthe account alone).",
+      "description": "A link whose dispute changes the cluster of the case named (US-310): the customer's\ncluster has cluster_size_before accounts, and cluster_size_after once the link is out (1:\nthe account alone). changes_decision (1.6.0) says whether the recompute the dispute makes\nchanges the engine's quadrant or levers of the case (a dry run at the reset, which prefers\nsuch a link): false, the UI says \"decision unchanged\".",
       "properties": {
         "link_id": {
           "maxLength": 96,
@@ -203,6 +201,10 @@
           "minimum": 1,
           "title": "Cluster Size After",
           "type": "integer"
+        },
+        "changes_decision": {
+          "title": "Changes Decision",
+          "type": "boolean"
         }
       },
       "required": [
@@ -211,7 +213,8 @@
         "decision_id",
         "cluster_id",
         "cluster_size_before",
-        "cluster_size_after"
+        "cluster_size_after",
+        "changes_decision"
       ],
       "title": "DemoDispute",
       "type": "object"

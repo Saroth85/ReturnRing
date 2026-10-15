@@ -1,6 +1,7 @@
-// The question input of the case assistant (docs/ui-design.md 7): the three suggested questions,
-// a free question with Ask (Enter), Stop while an answer streams. Disabled with the reason for a
-// role that cannot ask, after a 429, and for free text in cached mode.
+// The question input of the case assistant (docs/ui-design.md 7): the suggested questions, a free
+// question with Ask (Enter), Stop while an answer streams. Disabled with the reason for a role that
+// cannot ask, during the wait a 429 asked for (Retry-After), and in the cached demo, where no model
+// runs and the agent answers 503 to every question (contract 1.5.0): unavailable up front.
 import { useId, useState, type FormEvent, type Ref } from 'react';
 import { Button, Kbd } from '@/components/ui';
 import { AGENT } from './copy';
@@ -10,13 +11,17 @@ import { SuggestedQuestions } from './SuggestedQuestions';
 
 interface ComposerProps {
   inputRef?: Ref<HTMLInputElement>;
+  /** The suggested questions of this case (questions.ts). */
+  questions: readonly string[];
   onAsk(question: string): void;
   onStop(): void;
   streaming: boolean;
   /** Why no question can be asked (role, read-only demo), or null. */
   blockedReason: string | null;
   coolingDown: boolean;
-  /** Cached mode: only the suggested questions have precomputed answers. */
+  /** Seconds left of the wait a 429 asked for, while it lasts. */
+  cooldownSeconds?: number | null;
+  /** Cached demo: no model runs, so no question can be answered (503). */
   cached: boolean;
   /** Room for the mode corner tag under the drawer's footer. */
   cornerTagRoom?: boolean;
@@ -24,7 +29,19 @@ interface ComposerProps {
   hasTurns: boolean;
 }
 
-export function Composer({ inputRef, onAsk, onStop, streaming, blockedReason, coolingDown, cached, cornerTagRoom = false, hasTurns }: ComposerProps) {
+export function Composer({
+  inputRef,
+  questions,
+  onAsk,
+  onStop,
+  streaming,
+  blockedReason,
+  coolingDown,
+  cooldownSeconds = null,
+  cached,
+  cornerTagRoom = false,
+  hasTurns,
+}: ComposerProps) {
   const inputId = useId();
   const notesId = useId();
   const [draft, setDraft] = useState('');
@@ -32,8 +49,8 @@ export function Composer({ inputRef, onAsk, onStop, streaming, blockedReason, co
   // null: folded on a phone once a question was asked; the disclosure overrides it until the next question.
   const [suggestionsOpen, setSuggestionsOpen] = useState<boolean | null>(null);
   const suggestionsExpanded = suggestionsOpen ?? !hasTurns;
-  const canAsk = blockedReason === null && !coolingDown;
-  const canType = canAsk && !cached;
+  const canAsk = blockedReason === null && !coolingDown && !cached;
+  const canType = canAsk;
   const submit = (event: FormEvent) => {
     event.preventDefault();
     const question = draft.trim();
@@ -50,6 +67,7 @@ export function Composer({ inputRef, onAsk, onStop, streaming, blockedReason, co
       data-agent-composer
     >
       <SuggestedQuestions
+        questions={questions}
         onAsk={(question) => {
           setSuggestionsOpen(null);
           onAsk(question);
@@ -89,12 +107,12 @@ export function Composer({ inputRef, onAsk, onStop, streaming, blockedReason, co
       </div>
       <div id={notesId} className="flex flex-col gap-1 text-caption text-ink-3">
         {blockedReason && <p data-role-reason>{blockedReason}</p>}
-        {coolingDown && <p data-cooldown>{AGENT.composer.coolingDown}</p>}
-        {cached && canAsk && (
-          <p data-constant data-cached-note>
-            {AGENT.composer.cached}
+        {coolingDown && cooldownSeconds !== null && (
+          <p data-cooldown data-constant>
+            {AGENT.composer.coolingDown(cooldownSeconds)}
           </p>
         )}
+        {cached && blockedReason === null && <p data-cached-note>{AGENT.composer.cached}</p>}
         <p data-constant>{AGENT.footer}</p>
       </div>
     </form>

@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { API_MODE } from './adapters';
 import { api, apiFetch, CLIENT_ROUTES, toQueryString } from './client';
 import { ENDPOINTS } from './contract.gen';
-import { ApiError } from './errors';
+import { ApiError, parseRetryAfter } from './errors';
 import { metaStore, resetModesSeen } from './meta';
 import type { AgentEvent, DecisionRequest } from './models';
 import { setScenario } from './scenario';
@@ -68,11 +68,37 @@ describe('api client', () => {
     expect(result.decision.approver).toBe('sara');
   });
 
-  it('records a 503 from the language model', async () => {
-    setScenario('llm_unavailable');
+  it('records a 503 from the language model (the cached demo has none)', async () => {
+    setScenario('cached');
     const error = await api.regenerate('RET-000101', readExample('regenerate_request.json')).catch((e: unknown) => e);
     expect(error).toMatchObject({ status: 503, code: 'llm_unavailable' });
     expect(metaStore.get().llmUnavailableAt).not.toBeNull();
+  });
+
+  it('reads the Retry-After of a 429 into retryAfterS', async () => {
+    setScenario('rate_limited');
+    const error = await api.checkoutEvaluate(readExample('checkout_evaluate_request.giulia.json')).catch((e: unknown) => e);
+    expect(error).toMatchObject({ status: 429, code: 'rate_limited', retryAfterS: 12 });
+    setScenario('default');
+    const other = await api.getCase('RET-999999').catch((e: unknown) => e);
+    expect(other).toMatchObject({ status: 404, retryAfterS: null });
+  });
+
+  it('parses Retry-After as whole seconds or an HTTP date, at least one second', () => {
+    expect(parseRetryAfter('12')).toBe(12);
+    expect(parseRetryAfter(' 0 ')).toBe(1);
+    const now = Date.parse('2026-10-15T10:00:00Z');
+    expect(parseRetryAfter('Thu, 15 Oct 2026 10:00:30 GMT', now)).toBe(30);
+    expect(parseRetryAfter('soon')).toBeNull();
+    expect(parseRetryAfter(null)).toBeNull();
+  });
+
+  it('loads the demo cases, and answers 404 before a reset', async () => {
+    expect(await api.demoCases()).toEqual(readExample('demo_cases.json'));
+    setScenario('empty');
+    const error = await api.demoCases().catch((e: unknown) => e);
+    expect(error).toMatchObject({ status: 404, code: 'not_found' });
+    expect((error as ApiError).message).toContain('python -m apps.api.reset');
   });
 
   it('streams the agent answer in contract order', async () => {

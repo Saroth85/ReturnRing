@@ -1,30 +1,50 @@
 // Dev harness /dev/agent?return=RET-000102 (dev builds only, docs/ui-design.md 3.2 and 7): the
 // case assistant as a full page, without the case card. The panel is the one the drawer shows;
 // the side column lists the refs it asked the case card to focus (onRefSelect) and the raw
-// events of the latest stream. "Open the drawer" mounts the exported CaseAssistant itself.
+// events of the latest stream. "Open the drawer" mounts the exported CaseAssistant itself. With
+// no ?return= it opens the demo's Marco case by its live id (GET /api/demo/cases).
 import { PanelRight, Search } from 'lucide-react';
 import { useCallback, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import type { EntityRef } from '@/api/models';
+import { useDemoCases } from '@/api/queries';
 import { usePersona } from '@/app/persona';
+import { LoadingBlock } from '@/components/feedback';
+import { caseOf } from '@/domain/demoCases';
 import { IdText } from '@/components/provenance';
 import { Button } from '@/components/ui';
 import { AssistantPanel } from '../AssistantPanel';
 import { CaseAssistant } from '../CaseAssistant';
 import { citationHref, citationLabel } from '../citations';
 import { AGENT } from '../copy';
+import { useAssistantModel } from '../model';
 import { useAgentStream } from '../useAgentStream';
 
-const DEFAULT_RETURN = 'RET-000102';
 const STORIES = ['US-701', 'US-702'];
 /** The focus log keeps the latest few requests. */
 const FOCUS_LOG_SIZE = 6;
 
 export default function AgentHarness() {
   const [params] = useSearchParams();
-  const returnId = params.get('return') || DEFAULT_RETURN;
+  const cases = useDemoCases();
+  const asked = params.get('return');
+  const returnId = asked || caseOf(cases.data, 'marco')?.return_id || null;
+  if (!returnId) {
+    return (
+      <div className="mx-auto flex max-w-content flex-col gap-4" data-agent-harness>
+        <h1 className="text-page">{AGENT.harnessTitle}</h1>
+        <p className="text-body text-ink-2">{AGENT.harnessIntro}</p>
+        {cases.isPending ? <LoadingBlock rows={4} /> : <p className="text-body">{AGENT.harness.pickReturn}</p>}
+      </div>
+    );
+  }
+  return <Harness key={returnId} returnId={returnId} />;
+}
+
+function Harness({ returnId }: { returnId: string }) {
   const persona = usePersona();
   const conversation = useAgentStream(returnId, persona.id);
+  const modelName = useAssistantModel();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [focusLog, setFocusLog] = useState<EntityRef[]>([]);
   const onRefSelect = useCallback((entity: EntityRef) => {
@@ -61,9 +81,11 @@ export default function AgentHarness() {
             <h2 id="agent-harness-panel-title" className="text-title text-ink-1">
               <Search aria-hidden="true" size={16} className="mr-2 inline-block align-[-2px] text-ink-2" />
               {AGENT.title(returnId)}{' '}
-              <span className="font-normal text-ink-3" data-constant>
-                {AGENT.modelName}
-              </span>
+              {modelName && (
+                <span className="font-normal text-ink-3" data-constant data-assistant-model>
+                  {modelName}
+                </span>
+              )}
             </h2>
             <p className="text-body text-ink-2">{AGENT.readOnly}</p>
           </div>

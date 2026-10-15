@@ -4,16 +4,17 @@ import clsx from 'clsx';
 import { Check, CircleDot, Circle, XCircle } from 'lucide-react';
 import { useId, useState, type ReactNode } from 'react';
 import { Link, NavLink } from 'react-router';
-import { isApiError } from '@/api/errors';
+import { TASK_NOTE_MAX_LENGTH } from '@/api/contract.gen';
 import type { CatalogTask } from '@/api/models';
 import { useCreateCatalogTask, useUpdateCatalogTask } from '@/api/mutations';
 import { usePersona } from '@/app/persona';
-import { ErrorState, ForbiddenRoleNotice, InlineNotice, RoleGate } from '@/components/feedback';
+import { InlineNotice, RoleGate } from '@/components/feedback';
 import { DateText, Figure, IdText, PlainNumber, ProvenanceFooter, ProvenanceScope } from '@/components/provenance';
 import { MIN_REASON_CHARS } from '@/components/records';
 import { Button } from '@/components/ui';
 import { MANAGER } from '../copy';
 import type { ProductAnomaly } from '../types';
+import { WriteError } from '../ui';
 
 const T = MANAGER.tasks;
 const PR = MANAGER.products;
@@ -43,13 +44,28 @@ export function ProductTabs() {
 
 const KINDS: CatalogTask['kind'][] = ['description', 'size_guide', 'batch_check'];
 
-/** POST /api/catalog-tasks (201): kind, note, optional return; the customer is never restricted. */
-export function CatalogTaskForm({ anomaly, onCreated }: { anomaly: ProductAnomaly; onCreated?(task: CatalogTask): void }) {
+/**
+ * POST /api/catalog-tasks (201): kind, note, optional return; the customer is never restricted.
+ * The returns offered are the ones a task can name: `queued_return_ids` (ADR-15 section 18, any
+ * queued return of the variant), from the anomaly list or, opened from a case card, the card's
+ * anomaly, which also holds the case's own return (Elena's, requested after the anomaly's week).
+ */
+export function CatalogTaskForm({
+  anomaly,
+  offered = anomaly.queued_return_ids,
+  preselected = null,
+  onCreated,
+}: {
+  anomaly: ProductAnomaly;
+  offered?: readonly string[];
+  preselected?: string | null;
+  onCreated?(task: CatalogTask): void;
+}) {
   const persona = usePersona();
   const create = useCreateCatalogTask();
   const [kind, setKind] = useState<CatalogTask['kind']>(anomaly.reason === 'defective' ? 'batch_check' : 'description');
   const [note, setNote] = useState('');
-  const [returnId, setReturnId] = useState('');
+  const [returnId, setReturnId] = useState(preselected && offered.includes(preselected) ? preselected : '');
   const [created, setCreated] = useState<CatalogTask | null>(null);
   const noteId = useId();
   const returnSelectId = useId();
@@ -94,6 +110,7 @@ export function CatalogTaskForm({ anomaly, onCreated }: { anomaly: ProductAnomal
         id={noteId}
         rows={3}
         value={note}
+        maxLength={TASK_NOTE_MAX_LENGTH}
         onChange={(event) => setNote(event.target.value)}
         className="rounded-control border border-border-strong bg-surface px-2 py-1 text-body"
         aria-describedby={`${noteId}-hint`}
@@ -101,7 +118,7 @@ export function CatalogTaskForm({ anomaly, onCreated }: { anomaly: ProductAnomal
       <p id={`${noteId}-hint`} className="text-caption text-ink-3">
         {T.form.noteHint}
       </p>
-      {anomaly.return_ids.length > 0 && (
+      {offered.length > 0 ? (
         <label htmlFor={returnSelectId} className="flex flex-col gap-1 text-dense">
           <span className="font-medium">{T.form.returnId}</span>
           <select
@@ -109,15 +126,21 @@ export function CatalogTaskForm({ anomaly, onCreated }: { anomaly: ProductAnomal
             value={returnId}
             onChange={(event) => setReturnId(event.target.value)}
             className="min-h-8 max-w-xs rounded-control border border-border-strong bg-surface px-2"
+            data-task-returns
           >
             <option value="">—</option>
-            {anomaly.return_ids.map((id) => (
+            {offered.map((id) => (
               <option key={id} value={id}>
                 {id}
               </option>
             ))}
           </select>
+          <span className="text-caption text-ink-3">{T.form.returnHint}</span>
         </label>
+      ) : (
+        <p className="text-caption text-ink-3" data-no-queued-returns>
+          {T.form.noQueued}
+        </p>
       )}
       <p className="text-caption text-ink-2">{T.form.noRestriction}</p>
       <RoleGate action="POST /api/catalog-tasks">
@@ -137,12 +160,7 @@ export function CatalogTaskForm({ anomaly, onCreated }: { anomaly: ProductAnomal
           </span>
         </InlineNotice>
       )}
-      {create.error &&
-        (isApiError(create.error) && create.error.code === 'forbidden_role' ? (
-          <ForbiddenRoleNotice role={persona.role} action={T.form.submit.toLowerCase()} />
-        ) : (
-          <ErrorState error={create.error} />
-        ))}
+      {create.error && <WriteError error={create.error} action={T.form.submit.toLowerCase()} endpoint="POST /api/catalog-tasks" />}
     </form>
   );
 }
@@ -238,9 +256,13 @@ export function TaskCard({ task, children }: { task: CatalogTask; children?: Rea
   const shown = result && result.updated_at >= task.updated_at ? result : task;
   const moves = NEXT[shown.status];
 
+  // The step note is optional, but a note is at least MIN_REASON_CHARS once trimmed (the schema's
+  // minLength): a shorter one blocks the move instead of earning a 422; empty sends null.
+  const trimmed = note.trim();
+  const noteShort = trimmed.length > 0 && trimmed.length < MIN_REASON_CHARS;
   const move = (status: 'in_progress' | 'done' | 'cancelled') =>
     update.mutate(
-      { status, note: note.trim() || null, author: persona.id },
+      { status, note: trimmed || null, author: persona.id },
       {
         onSuccess: (next) => {
           setResult(next);
@@ -301,9 +323,17 @@ export function TaskCard({ task, children }: { task: CatalogTask; children?: Rea
           <input
             id={noteId}
             value={note}
+            maxLength={TASK_NOTE_MAX_LENGTH}
             onChange={(event) => setNote(event.target.value)}
             className="rounded-control border border-border-strong bg-surface px-2 py-1 text-body"
+            aria-invalid={noteShort || undefined}
+            aria-describedby={noteShort ? `${noteId}-short` : undefined}
           />
+          {noteShort && (
+            <p id={`${noteId}-short`} className="text-caption text-attn-fg" data-move-note-short>
+              {T.moveNoteShort(MIN_REASON_CHARS)}
+            </p>
+          )}
           <RoleGate action="PATCH /api/catalog-tasks/{task_id}">
             {(gate) => (
               <div className="flex flex-wrap gap-2">
@@ -311,8 +341,8 @@ export function TaskCard({ task, children }: { task: CatalogTask; children?: Rea
                   <Button
                     key={m}
                     variant={m === 'cancelled' ? 'secondary' : 'primary'}
-                    disabled={!gate.allowed || update.isPending}
-                    title={gate.reason ?? undefined}
+                    disabled={!gate.allowed || update.isPending || noteShort}
+                    title={gate.reason ?? (noteShort ? T.moveNoteShort(MIN_REASON_CHARS) : undefined)}
                     onClick={() => move(m)}
                     data-move={m}
                   >
@@ -329,12 +359,7 @@ export function TaskCard({ task, children }: { task: CatalogTask; children?: Rea
           <span data-task-updated>{T.updated(result.task_id, T.status[result.status])}</span>
         </InlineNotice>
       )}
-      {update.error &&
-        (isApiError(update.error) && update.error.code === 'forbidden_role' ? (
-          <ForbiddenRoleNotice role={persona.role} action={T.updateAction} />
-        ) : (
-          <ErrorState error={update.error} />
-        ))}
+      {update.error && <WriteError error={update.error} action={T.updateAction} endpoint="PATCH /api/catalog-tasks/{task_id}" />}
     </article>
   );
 }

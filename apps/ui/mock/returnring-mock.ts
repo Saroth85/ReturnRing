@@ -12,7 +12,7 @@ import { encodeSseFrame } from '../src/api/sse';
 const SSE_FRAME_DELAY_MS = 60;
 
 export function returnringMock({ repoRoot }: { repoRoot: string }): Plugin {
-  const dir = path.join(repoRoot, 'apps/ui/contract-pin/examples/api');
+  const dir = path.join(process.env.RETURNRING_CONTRACTS_DIR ? path.resolve(process.env.RETURNRING_CONTRACTS_DIR) : path.join(repoRoot, 'contracts'), 'examples/api');
   const load = async (file: string) => {
     if (file.includes('/') || file.includes('..')) throw new Error(`mock: bad example name ${file}`);
     return JSON.parse(await readFile(path.join(dir, file), 'utf8')) as unknown;

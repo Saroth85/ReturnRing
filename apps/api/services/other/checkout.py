@@ -165,14 +165,22 @@ def line_probabilities(
     return [round(float(p), 4) for p in serving.checkout_model.predict(frame)]
 
 
+def advice_for(size_range: object, anomaly_reason: str | None) -> s.SizeAdvice:
+    """US-401 without measurement data, for a variant's size range and the reason of its flagged
+    anomaly (None without one): the size guide, or no reliable recommendation. Never a specific
+    size: the store holds no measurements or exchange outcomes (the contract examples use this
+    too, ADR-15 section 18)."""
+    if not size_range or anomaly_reason in GUIDE_DOUBTS:
+        return s.SizeAdvice.of("no_reliable_recommendation")
+    return s.SizeAdvice.of("measurement_guide")
+
+
 def size_advice(serving: Serving, variant_id: str, at: datetime) -> s.SizeAdvice:
     """US-401 without measurement data: the size guide, or no reliable recommendation."""
     variant = serving.by_key("store/variants", variant_id) or {}
     anomaly = variant_anomaly(serving, variant_id, at)
-    doubtful = anomaly is not None and str(anomaly["reason"]) in GUIDE_DOUBTS
-    if not variant.get("size_range") or doubtful:
-        return s.SizeAdvice.of("no_reliable_recommendation")
-    return s.SizeAdvice.of("measurement_guide")
+    reason = None if anomaly is None else str(anomaly["reason"])
+    return advice_for(variant.get("size_range"), reason)
 
 
 # ---- Terms and coupon block (US-402, US-403, US-607) ---------------------------------------------
@@ -228,7 +236,9 @@ async def coupon_block(
 ) -> s.CouponBlock | None:
     """The confirmed cluster coupon application in force that names the customer (the latest
     confirmed when several do): confirmed, not reversed, its decision in force, before its
-    review date (CouponRuleRef.in_force)."""
+    review date (CouponRuleRef.in_force). Its text speaks of previous returns only to the
+    customer of the case; every other account sees the text that gives no cause, with the
+    review date (rule 11; contract 1.7.0)."""
     rows = (
         (
             await conn.execute(
@@ -254,7 +264,11 @@ async def coupon_block(
             rule_version=app["rule_version"],
             application_id=app["application_id"],
             review_at=app["review_at"],
-            text=s.COUPON_BLOCK,
+            text=(
+                s.COUPON_BLOCK
+                if row["customer_id"] == customer_id
+                else s.cluster_coupon_block(app["review_at"])
+            ),
         )
         key = (app["confirmed_at"], str(app["application_id"]))
         if best is None or key > best[0]:

@@ -1,35 +1,46 @@
 // Demo path /demo (spec 16, US-903; docs/ui-design.md 9.5 and 12): the preflight that must be green
-// before the pitch, each red line with its fix, then the six beats in order with what to say, the
-// persona of each beat, a new-tab link per beat, presenter mode and the cached URL.
+// before the pitch, each red line with its fix, then the beats in order with what to say, the
+// persona of each beat, a new-tab link per beat, presenter mode and the cached URL. Every case id
+// comes from GET /api/demo/cases; before a reset the page says to run it, in the API's words.
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
 import { CircleCheck, CircleDashed, CircleX, ExternalLink, RefreshCw } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router';
 import { API_MODE } from '@/api/adapters';
 import { api } from '@/api/client';
-import type { DemoUserId } from '@/api/models';
-import { useAssumptions, useCase, useReadyz } from '@/api/queries';
+import { useDemoClock } from '@/api/clock';
+import { isApiError } from '@/api/errors';
+import type { CaseCard, DemoCasesResponse } from '@/api/models';
+import { useAssumptions, useCase, useDemoCases, useReadyz } from '@/api/queries';
 import { setPersona, personaName } from '@/app/persona';
 import { setPresent, usePresent } from '@/app/display';
-import { Figure } from '@/components/provenance';
+import { ErrorState, LoadingBlock, useReadOnly } from '@/components/feedback';
+import { Figure, IdText, PlainNumber, ProvenanceFooter, ProvenanceScope } from '@/components/provenance';
 import { Button } from '@/components/ui';
-import { CACHED_ORIGIN, GOLDEN_RETURN_IDS, MARCO_RETURN_ID, ROSSI_RETURN_ID } from '../constants';
+import { caseOf, goldenReturnIds } from '@/domain/demoCases';
+import { CACHED_ORIGIN } from '../constants';
 import { PLATFORM } from '../copy';
 import { PageHeader, Panel } from '../shared/layout';
+import { NoResetNotice } from '../shared/NoResetNotice';
+import { buildBeats, readOnlyLimit, type Beat } from './beats';
 import { loadMetric, preflightChecks, preflightState, type CheckState, type ExpectedMode, type PreflightCheck } from './preflight';
 
 const t = PLATFORM.demo;
-const LOAD_KEY = ['demoPreflightLoad'] as const;
+const LOAD_KEY = 'demoPreflightLoad';
 
-/** The golden cards and the matrix fetched together, timed in this browser (never from the cache). */
-function useGoldenLoad() {
+/**
+ * The golden cards and the matrix fetched together, timed in this browser (never from the cache):
+ * the milliseconds only, dated with the service's clock when shown.
+ */
+function useGoldenLoad(returnIds: readonly string[]) {
   return useQuery({
-    queryKey: LOAD_KEY,
+    queryKey: [LOAD_KEY, returnIds.join(',')],
     queryFn: async ({ signal }) => {
       const started = performance.now();
-      await Promise.all([...GOLDEN_RETURN_IDS.map((id) => api.getCase(id, { signal })), api.getMatrix({ signal })]);
-      return loadMetric(performance.now() - started, new Date().toISOString(), API_MODE);
+      await Promise.all([...returnIds.map((id) => api.getCase(id, { signal })), api.getMatrix({ signal })]);
+      return performance.now() - started;
     },
+    enabled: returnIds.length > 0,
     staleTime: 0,
     gcTime: 0,
     retry: false,
@@ -40,7 +51,7 @@ function useGoldenLoad() {
 const ICON: Record<CheckState, typeof CircleCheck> = { pass: CircleCheck, fail: CircleX, pending: CircleDashed };
 const TONE: Record<CheckState, string> = { pass: 'text-ok-fg', fail: 'text-danger-fg', pending: 'text-ink-3' };
 
-function CheckRow({ check, load }: { check: PreflightCheck; load?: ReturnType<typeof useGoldenLoad>['data'] }) {
+function CheckRow({ check, load }: { check: PreflightCheck; load?: ReturnType<typeof loadMetric> }) {
   const Icon = ICON[check.state];
   return (
     <li className="flex gap-2 border-t border-border py-2 first:border-t-0" data-preflight={check.id} data-state={check.state}>
@@ -58,7 +69,7 @@ function CheckRow({ check, load }: { check: PreflightCheck; load?: ReturnType<ty
           )}
         </p>
         {check.found && (
-          <p className="text-caption text-ink-3" data-constant>
+          <p className="break-words text-caption text-ink-3" data-constant>
             {`${t.found}: ${check.found}`}
           </p>
         )}
@@ -74,27 +85,34 @@ function Preflight() {
   const expected: ExpectedMode = params.get('expect') === 'cached' ? 'cached' : 'live';
   const client = useQueryClient();
   const readyz = useReadyz();
-  const marco = useCase(MARCO_RETURN_ID);
-  const rossi = useCase(ROSSI_RETURN_ID);
+  const cases = useDemoCases();
+  const clock = useDemoClock();
+  const marcoId = caseOf(cases.data, 'marco')?.return_id;
+  const rossiId = (caseOf(cases.data, 'rossi_card') ?? caseOf(cases.data, 'rossi'))?.return_id;
+  const marco = useCase(marcoId);
+  const rossi = useCase(rossiId);
   const assumptions = useAssumptions();
-  const load = useGoldenLoad();
-  const answer = <T,>(q: { data: T | undefined; isError: boolean }) => ({ data: q.data, failed: q.isError });
+  const load = useGoldenLoad(goldenReturnIds(cases.data));
+  const loadFigure = load.data !== undefined && clock.today ? loadMetric(load.data, clock.today, API_MODE) : undefined;
+  const answer = <T,>(q: { data: T | undefined; isError: boolean; error: unknown }) => ({ data: q.data, failed: q.isError, error: q.error });
   const checks = preflightChecks({
     expected,
     adapter: API_MODE,
     readyz: answer(readyz),
+    cases: answer(cases),
     marco: answer(marco),
     rossi: answer(rossi),
     assumptions: answer(assumptions),
-    load: answer(load),
+    load: { data: loadFigure, failed: load.isError || cases.isError, error: load.error },
   });
   const state = preflightState(checks);
   const runAgain = () => {
     void readyz.refetch();
-    void marco.refetch();
-    void rossi.refetch();
+    void cases.refetch();
+    if (marcoId) void marco.refetch();
+    if (rossiId) void rossi.refetch();
     void assumptions.refetch();
-    void client.refetchQueries({ queryKey: LOAD_KEY });
+    void client.refetchQueries({ queryKey: [LOAD_KEY] });
   };
   const setExpected = (mode: ExpectedMode) => {
     const next = new URLSearchParams(params);
@@ -140,61 +158,147 @@ function Preflight() {
       </p>
       <ul className="flex flex-col">
         {checks.map((check) => (
-          <CheckRow key={check.id} check={check} load={check.id === 'load' ? load.data : undefined} />
+          <CheckRow key={check.id} check={check} load={check.id === 'load' ? loadFigure : undefined} />
         ))}
       </ul>
     </Panel>
   );
 }
 
+/**
+ * Whether Marco is approved, from his card: the ring checkout shows his restriction only then. On
+ * the read-only demo a proposed Marco stays proposed: the page never asks for the approval.
+ */
+function AfterMarco({ card, readOnly }: { card: CaseCard | undefined; readOnly: boolean }) {
+  if (!card) return null;
+  const state = card.decision.state;
+  const proposed = readOnly ? t.afterMarco.readOnly : t.afterMarco.proposed;
+  const text = state === 'approved' ? t.afterMarco.approved : state === 'proposed' ? proposed : t.afterMarco.other;
+  return (
+    <p className={clsx('text-caption', state === 'approved' ? 'text-ink-2' : 'font-medium text-attn-fg')} data-after-marco={state}>
+      {text}
+    </p>
+  );
+}
+
+/** The dispute of the reset: the cluster before and after, and whether the decision changes. */
+function DisputeDetail({ beat, provenance }: { beat: Beat; provenance: DemoCasesResponse['provenance'] }) {
+  const dispute = beat.dispute;
+  if (!dispute) return null;
+  return (
+    <ProvenanceScope provenance={provenance} covers="the cluster sizes of the demo dispute" className="flex flex-col gap-0.5 text-caption">
+      <p className="text-ink-2" data-dispute-cluster>
+        {t.disputeCluster} <IdText id={dispute.cluster_id} />
+        {': '}
+        {/* One account left is no cluster of linked accounts (as RecomputeComparison says it). */}
+        {dispute.cluster_size_after > 1 ? (
+          <>
+            <PlainNumber value={dispute.cluster_size_before} unit="count" /> → <PlainNumber value={dispute.cluster_size_after} unit="count" />{' '}
+            {t.disputeAccounts}
+          </>
+        ) : (
+          <>
+            <PlainNumber value={dispute.cluster_size_before} unit="count" /> {t.disputeAccounts} → {t.disputeNoCluster}
+          </>
+        )}
+      </p>
+      <ProvenanceFooter compact />
+      <p className={dispute.changes_decision ? 'text-ink-2' : 'font-medium text-ink-1'} data-dispute-changes={dispute.changes_decision ? 'yes' : 'no'}>
+        {dispute.changes_decision ? t.disputeChanges : t.disputeUnchanged}
+      </p>
+    </ProvenanceScope>
+  );
+}
+
+function BeatRow({ beat, index, beats, cases, marco }: { beat: Beat; index: number; beats: readonly Beat[]; cases: DemoCasesResponse | undefined; marco: CaseCard | undefined }) {
+  const after = beat.after ? beats.find((b) => b.id === beat.after) : undefined;
+  const readOnly = useReadOnly();
+  const limit = readOnly ? readOnlyLimit(beat.id) : null;
+  return (
+    <li
+      className="flex flex-col gap-1 border-t border-border py-3 first:border-t-0 md:flex-row md:items-start md:gap-4"
+      data-beat={index}
+      data-beat-id={beat.id}
+      data-playable={limit && !limit.playable ? 'no' : 'yes'}
+    >
+      <span
+        aria-hidden="true"
+        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-border-strong text-dense font-semibold"
+        data-constant
+      >
+        {index + 1}
+      </span>
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        <p className="flex flex-wrap items-baseline gap-x-2">
+          <span className="text-title">{beat.label}</span>
+          <span className="text-caption text-ink-3">{t.asPersona(personaName(beat.persona))}</span>
+          <code className="break-all text-caption text-ink-3" data-id>
+            {beat.to}
+          </code>
+        </p>
+        {after && <p className="text-caption text-ink-3">{t.after(after.label)}</p>}
+        <p className="max-w-prose text-body text-ink-2" data-constant>
+          <span className="font-medium text-ink-1">{t.say}:</span> {beat.say}
+        </p>
+        {limit && (
+          <p
+            className={clsx('text-caption', limit.playable ? 'text-ink-2' : 'font-medium text-attn-fg')}
+            data-read-only-beat={limit.playable ? 'limited' : 'not-playable'}
+          >
+            <span className="font-medium">{limit.playable ? t.readOnly.limited : t.readOnly.notPlayable}:</span> {limit.note}
+          </p>
+        )}
+        {beat.after === 'marco' && <AfterMarco card={marco} readOnly={readOnly} />}
+        {cases && <DisputeDetail beat={beat} provenance={cases.provenance} />}
+      </div>
+      <div className="flex shrink-0 flex-wrap items-center gap-3">
+        <Link
+          to={beat.to}
+          onClick={() => setPersona(beat.persona)}
+          className="inline-flex min-h-8 items-center rounded-control border border-border-strong bg-surface px-3 text-body font-medium text-ink-1 hover:bg-surface-2"
+        >
+          {t.open}
+        </Link>
+        <a
+          href={beat.to}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={() => setPersona(beat.persona)}
+          className="inline-flex items-center gap-1 text-accent underline underline-offset-2"
+        >
+          {t.openTab}
+          <ExternalLink aria-hidden="true" size={14} />
+        </a>
+      </div>
+    </li>
+  );
+}
+
 function Beats() {
+  const cases = useDemoCases();
+  const marco = useCase(caseOf(cases.data, 'marco')?.return_id);
+  const beats = buildBeats(cases.data);
+  const main = beats.filter((b) => !b.offPath);
+  const offPath = beats.filter((b) => b.offPath);
+  const noReset = cases.isError && isApiError(cases.error) && cases.error.status === 404;
+  const row = (beat: Beat) => (
+    <BeatRow key={beat.id} beat={beat} index={beats.indexOf(beat)} beats={beats} cases={cases.data} marco={marco.data} />
+  );
   return (
     <Panel title={t.beats}>
       <p className="text-body text-ink-2">{t.beatsIntro}</p>
-      <ol className="flex flex-col">
-        {t.beatList.map((beat, index) => (
-          <li key={beat.to} className="flex flex-col gap-1 border-t border-border py-3 first:border-t-0 md:flex-row md:items-start md:gap-4" data-beat={index}>
-            <span
-              aria-hidden="true"
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-border-strong text-dense font-semibold"
-              data-constant
-            >
-              {index + 1}
-            </span>
-            <div className="flex min-w-0 flex-1 flex-col gap-1">
-              <p className="flex flex-wrap items-baseline gap-x-2">
-                <span className="text-title">{beat.label}</span>
-                <span className="text-caption text-ink-3">{t.asPersona(personaName(beat.persona))}</span>
-                <code className="text-caption text-ink-3" data-id>
-                  {beat.to}
-                </code>
-              </p>
-              <p className="max-w-prose text-body text-ink-2" data-constant>
-                <span className="font-medium text-ink-1">{t.say}:</span> {beat.say}
-              </p>
-            </div>
-            <div className="flex shrink-0 flex-wrap items-center gap-3">
-              <Link
-                to={beat.to}
-                onClick={() => setPersona(beat.persona as DemoUserId)}
-                className="inline-flex min-h-8 items-center rounded-control border border-border-strong bg-surface px-3 text-body font-medium text-ink-1 hover:bg-surface-2"
-              >
-                {t.open}
-              </Link>
-              <a
-                href={beat.to}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={() => setPersona(beat.persona as DemoUserId)}
-                className="inline-flex items-center gap-1 text-accent underline underline-offset-2"
-              >
-                {t.openTab}
-                <ExternalLink aria-hidden="true" size={14} />
-              </a>
-            </div>
-          </li>
-        ))}
-      </ol>
+      {cases.isError && (noReset ? <NoResetNotice error={cases.error} /> : <ErrorState error={cases.error} onRetry={() => void cases.refetch()} />)}
+      {cases.isPending && <LoadingBlock rows={3} />}
+      <ol className="flex flex-col">{main.map(row)}</ol>
+      {offPath.length > 0 && (
+        <section aria-labelledby="demo-off-path" className="flex flex-col gap-1 border-t border-border-strong pt-3" data-off-path>
+          <h3 id="demo-off-path" className="text-title">
+            {t.offPath}
+          </h3>
+          <p className="text-body text-ink-2">{t.offPathIntro}</p>
+          <ol className="flex flex-col">{offPath.map(row)}</ol>
+        </section>
+      )}
     </Panel>
   );
 }

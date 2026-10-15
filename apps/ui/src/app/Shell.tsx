@@ -1,7 +1,8 @@
 import { Suspense, useEffect, useState } from 'react';
 import { Outlet, useMatches } from 'react-router';
+import { useDemoCases } from '@/api/queries';
 import { LoadingBlock } from '@/components/feedback';
-import { ModeBanner, ModeCornerTag, useModeView } from '@/components/mode';
+import { ModeBanner, ModeCornerTag, NoDemoResetNotice, useModeView } from '@/components/mode';
 import { ContractExampleBanner, toggleProvenanceMode } from '@/components/provenance';
 import { APP_NAME, MODE, SHELL } from '@/copy/common';
 import { SHELL_SLOTS } from './composition';
@@ -28,6 +29,9 @@ function useDocumentTitle(): void {
 export function Shell() {
   useDisplaySettings();
   useDocumentTitle();
+  // The golden cases of the demo (GET /api/demo/cases), loaded once for every role ahead of the
+  // views that open them (demo path, shop carts, compare, matrix highlights, agent harness).
+  useDemoCases();
   const present = usePresent();
   const [gpuDock, setGpuDock] = useState(false);
   const [shortcuts, setShortcuts] = useState(false);
@@ -49,6 +53,7 @@ export function Shell() {
       </a>
       <ModeBanner />
       <ContractExampleBanner />
+      <NoDemoResetNotice />
       <TopBar />
       <div className="flex min-w-0 flex-1 flex-col lg:flex-row">
         <SideNav collapsed={present} />

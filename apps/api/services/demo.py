@@ -13,7 +13,9 @@ flows open:
 - insufficient: the first withdrawal case with insufficient evidence (US-307);
 - dispute: a link whose dispute changes the cluster of a queued case (US-310), looked for in
   the Rossi families first, then in the clusters of the other cases (the Marco ring and the
-  other golden cases keep their story);
+  other golden cases keep their story). Each candidate's recompute is dry-run (at most
+  MAX_DISPUTE_DRY_RUNS, nothing written): the first that changes the engine's quadrant or
+  levers is chosen, else the first candidate, with changes_decision false (ADR-15 section 18);
 - carts: Giulia's sizes of her order, and the returned item of the ring account with an
   unredeemed coupon of the account when it has one.
 
@@ -24,7 +26,7 @@ the API's DemoClock reads its anchor there.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import datetime
 from typing import Any, Final
 
@@ -33,8 +35,10 @@ from sqlalchemy import delete, insert, select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from apps.api import schemas as s
+from apps.api.services.cases import propose
 from apps.api.services.operator.graph import GraphView
 from apps.api.services.provenance import from_file
+from apps.api.services.seeds import current_assumptions, current_coupon_rule
 from apps.api.serving import ReturnRecord, Serving
 from contracts.sql import decisions, demo_reset, return_requests
 from pipeline.generator.golden import (
@@ -54,7 +58,10 @@ GOLDEN: Final[dict[s.DemoCaseKey, tuple[str, ...]]] = {
 }
 GOLDEN_CUSTOMERS: Final = frozenset(c for group in GOLDEN.values() for c in group)
 MAX_DISPUTE_CASES: Final = 40  # clustered cases tried for the dispute, after the Rossi families
+MAX_DISPUTE_DRY_RUNS: Final = 12  # candidate links whose recompute is dry-run, in order
 MAX_CART_LINES: Final = 20  # CheckoutEvaluateRequest.lines
+# Whether the recompute of a case on the graph without a link changes its decision.
+DecisionChanges = Callable[[Serving, ReturnRecord, Mapping[str, Any]], bool]
 
 
 async def _cases(conn: AsyncConnection) -> list[dict[str, Any]]:
@@ -68,6 +75,7 @@ async def _cases(conn: AsyncConnection) -> list[dict[str, Any]]:
             decisions.c.path,
             decisions.c.evidence_quality,
             decisions.c.quadrant,
+            decisions.c.proposed_levers,
             decisions.c.requires_approval,
         )
         .join(return_requests, return_requests.c.return_id == decisions.c.return_id)
@@ -103,13 +111,42 @@ def _cluster_size(graph: Serving, record: ReturnRecord) -> tuple[str | None, int
     return context.cluster_id, len(graph.cluster_members(context.cluster_id, context.as_of))
 
 
-def find_dispute(serving: Serving, rows: Sequence[Mapping[str, Any]]) -> s.DemoDispute | None:
-    """The first link, in the order of the module docstring, whose dispute makes the cluster of
-    the case customer smaller (pipeline.graph.build.dispute_link, through GraphView)."""
+def decision_changes(assumptions: s.Assumptions, coupon_rule_version: str) -> DecisionChanges:
+    """A dry run of the recompute a dispute makes (services.operator.recompute: the engine's
+    proposal on the graph without the link), compared with version 1 of the case as the reset
+    decided it: whether the quadrant or the proposed levers change. Nothing is written."""
+
+    def changes(graph: Serving, record: ReturnRecord, row: Mapping[str, Any]) -> bool:
+        after = propose(
+            graph,
+            record,
+            created_at=graph.as_of,
+            assumptions=assumptions,
+            coupon_rule_version=coupon_rule_version,
+        ).view
+        quadrant = None if after.quadrant is None else after.quadrant.value
+        levers = [s.Lever.model_validate(dict(x)).lever_id() for x in row["proposed_levers"]]
+        return (quadrant, [x.lever_id() for x in after.proposed_levers]) != (
+            row["quadrant"],
+            levers,
+        )
+
+    return changes
+
+
+def find_dispute(
+    serving: Serving, rows: Sequence[Mapping[str, Any]], changes: DecisionChanges
+) -> s.DemoDispute | None:
+    """Among the links, in the order of the module docstring, whose dispute makes the cluster of
+    the case customer smaller (pipeline.graph.build.dispute_link, through GraphView): the first
+    whose recompute changes the decision (`changes`, tried on at most MAX_DISPUTE_DRY_RUNS of
+    them), else the first one."""
     clustered = [r for r in rows if r["cluster_id"] is not None and r["path"] == "withdrawal"]
     rossi = [r for r in clustered if r["customer_id"] in ROSSI_CARD_ACCOUNTS]
     rossi += [r for r in clustered if r["customer_id"] in ROSSI_ACCOUNTS]
     others = [r for r in clustered if r["customer_id"] not in GOLDEN_CUSTOMERS]
+    first: s.DemoDispute | None = None
+    tried = 0
     for row in [*rossi, *others[:MAX_DISPUTE_CASES]]:
         record = serving.store_return(str(row["return_id"]))
         if record is None:
@@ -127,17 +164,28 @@ def find_dispute(serving: Serving, rows: Sequence[Mapping[str, Any]]) -> s.DemoD
             if not disputed
         )
         for a, b in pairs:
-            _, after = _cluster_size(GraphView.of(serving, [(a, b)]), record)
-            if after < len(members):
-                return s.DemoDispute(
-                    link_id=s.link_id(a, b),
-                    return_id=str(row["return_id"]),
-                    decision_id=str(row["decision_id"]),
-                    cluster_id=context.cluster_id,
-                    cluster_size_before=len(members),
-                    cluster_size_after=after,
-                )
-    return None
+            graph = GraphView.of(serving, [(a, b)])
+            _, after = _cluster_size(graph, record)
+            if after >= len(members):
+                continue
+            changed = changes(graph, record, row)
+            found = s.DemoDispute(
+                link_id=s.link_id(a, b),
+                return_id=str(row["return_id"]),
+                decision_id=str(row["decision_id"]),
+                cluster_id=context.cluster_id,
+                cluster_size_before=len(members),
+                cluster_size_after=after,
+                changes_decision=changed,
+            )
+            if changed:
+                return found
+            if first is None:
+                first = found
+            tried += 1
+            if tried >= MAX_DISPUTE_DRY_RUNS:
+                return first
+    return first
 
 
 def _lines(serving: Serving, order_id: str) -> pd.DataFrame:
@@ -221,7 +269,8 @@ async def build_cases(
             row = _pick(key, rows)
         if row is not None:
             found[key] = _case(key, row)
-    return list(found.values()), find_dispute(serving, rows), carts(serving, found)
+    changes = decision_changes(await current_assumptions(conn), await current_coupon_rule(conn))
+    return list(found.values()), find_dispute(serving, rows, changes), carts(serving, found)
 
 
 def provenance(serving: Serving) -> s.Provenance:

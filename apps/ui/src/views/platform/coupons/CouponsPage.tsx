@@ -179,6 +179,7 @@ export default function CouponsPage() {
                 <span data-reversed={reversed.application_id}>{t.reversed(reversed.application_id, reversed.reversed_by ?? '')}</span>
               </InlineNotice>
             )}
+            {/* Reverse… follows the persona's role and the read-only public demo: disabled with the reason, never hidden. */}
             <CouponApplicationsTable applications={data.applications} reversible onReversed={setReversed} />
           </Panel>
           <History rules={data.history} />

@@ -41,9 +41,13 @@ export function useRegenerate(returnId: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (body: BodyOf<'POST /api/returns/{return_id}/regenerate'>) => api.regenerate(returnId, body),
+    // The response carries the latest decision version the draft explains (contract 1.2.0): the
+    // draft is written into the case only when the cached card shows that same version.
     onSuccess: (result) => {
       client.setQueryData<CaseCard>(queryKeys.case(returnId), (card) =>
-        card && card.decision.decision_id === result.decision_id ? { ...card, draft: result.draft, draft_status: 'ready' } : card,
+        card && card.decision.decision_id === result.decision.decision_id
+          ? { ...card, decision: result.decision, draft: result.draft, draft_status: 'ready' }
+          : card,
       );
       return client.invalidateQueries({ queryKey: ['audit'] });
     },

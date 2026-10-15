@@ -225,6 +225,9 @@ def propose(
             risk=thresholds.risk, value_eur=float(thresholds.value_eur)
         ),
         provenance=inputs_provenance(serving, score, context, decided_on),
+        snapshot_on=s.utc_day(context.as_of),  # the period of the draft's facts (rule 11)
+        # the risk is scored at the request: the period of its fact (rule 11, 1.8.0)
+        scored_on=s.utc_day(score.decided_at) if withdrawal and score is not None else None,
     )
     coupon_rule = None
     if decision.coupon_rule is not None:
@@ -261,7 +264,7 @@ def propose(
         in_force=not decision.requires_approval,
         current_return_terms=s.Terms.from_policy(decision.current_return_terms),
         future_terms=s.Terms.from_policy(decision.levers.future_terms),
-        refund_due_by=decision.refund_due_by,
+        refund_due_by=s.refund_deadline(decision.path, record.notice_on),
         review_at=decision.review_on,
         approver=None,
         approved_at=None,
@@ -796,11 +799,13 @@ def anomaly_detail(
 
 
 async def product_anomaly(
-    conn: AsyncConnection, serving: Serving, variant_id: str, at: datetime
+    conn: AsyncConnection, serving: Serving, variant_id: str, at: datetime, return_id: str
 ) -> s.ProductAnomaly | None:
     """The anomaly of the returned variant (spec 8.9) with its catalogue task, if one is active
     (the latest one not cancelled, as the manager's list shows it: a cancelled task frees the
-    anomaly), and the variant's weekly returns for the reason (the trend)."""
+    anomaly), and the variant's weekly returns for the reason (the trend). The queued returns a
+    task can name include the case's own return `return_id`, sold in the anomaly's week or not
+    (a task names any queued return of the variant, ADR-15 section 18)."""
     row = variant_anomaly(serving, variant_id, at)
     if row is None:
         return None
@@ -842,7 +847,7 @@ async def product_anomaly(
         status=status,
         catalog_task_id=None if task is None else task["task_id"],
         return_ids=[str(i) for i in ids],
-        queued_return_ids=await _queued(conn, [str(i) for i in ids]),
+        queued_return_ids=sorted({*await _queued(conn, [str(i) for i in ids]), return_id}),
         trend=trend,
     )
 
@@ -937,7 +942,9 @@ async def case_card(
         alternatives=store.alternatives_of(row),
         draft_status="ready" if draft is not None else "pending",
         draft=draft,
-        product_anomaly=await product_anomaly(conn, serving, record.variant_id, as_of),
+        product_anomaly=await product_anomaly(
+            conn, serving, record.variant_id, as_of, record.return_id
+        ),
         revisions=[store.revision(r) for r in rows],
         provenance=store_prov,
     )

@@ -5,8 +5,9 @@ import clsx from 'clsx';
 import { Camera, CircleCheck, ImageUp, OctagonAlert, TriangleAlert } from 'lucide-react';
 import { useId, useState, type DragEvent, type KeyboardEvent, type ReactNode } from 'react';
 import { Link } from 'react-router';
+import { outboxSource } from '@/api/adapters/messageSegments';
 import type { InspectionView } from '@/api/models';
-import { GenerationBadge, MessagePreview } from '@/components/message';
+import { GenerationBadge, MessagePreview, RefundStated } from '@/components/message';
 import { DateText, Figure, IdText, PlainNumber, ProvenanceFooter, ProvenanceScope } from '@/components/provenance';
 import { Kbd } from '@/components/ui';
 import { PHOTO_TYPES } from '../constants';
@@ -379,7 +380,11 @@ export function InspectionResult({ result }: { result: ConfirmResult }) {
         <p className="flex flex-wrap items-baseline gap-x-1 text-body" data-claim>
           <span className="font-medium">{r.claim}</span>
           <Figure metric={claim.amount} label={r.claim} />
-          {r.attachedTo} <IdText id={decision.decision_id} /> · {r.confirmedBy} <strong>{claim.confirmed_by}</strong>
+          <span className="text-ink-2">{r.linePrice}</span>
+          <span data-line-price>
+            <Figure metric={claim.line_price} label={r.linePrice} />
+          </span>
+          · {r.attachedTo} <IdText id={decision.decision_id} /> · {r.confirmedBy} <strong>{claim.confirmed_by}</strong>
           {message && (
             <>
               {' '}
@@ -408,7 +413,10 @@ export function InspectionResult({ result }: { result: ConfirmResult }) {
         </div>
       )}
       {message ? (
-        <MessagePreview message={message} stored={message.body} title={r.messageTitle} />
+        <>
+          <MessagePreview message={outboxSource(message)} title={r.messageTitle} />
+          <RefundStated refund={message.refund} />
+        </>
       ) : (
         <p className="text-body text-ink-3">{r.noMessage}</p>
       )}

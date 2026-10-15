@@ -7,5 +7,5 @@
   "gpu_history": [],
   "llm": null,
   "api_latency_p95": null,
-  "note": "GPU off: cached mode serves results precomputed on the AMD MI300X"
+  "note": "GPU off: cached mode serves precomputed results"
 }

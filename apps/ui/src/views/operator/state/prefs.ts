@@ -2,7 +2,7 @@
 // sections, auto-advance after an action, and the last action's confirmation. Storage can fail
 // (private windows): safeStorage never throws and the page works without it.
 import { createStore, safeStorage, useStore } from '@/api/store';
-import type { Lang } from '@/api/models';
+import type { Lang, Provenance } from '@/api/models';
 
 const AUTO_ADVANCE_KEY = 'returnring.operator.autoAdvance';
 const SECTIONS_KEY = 'returnring.operator.collapsed';
@@ -43,6 +43,20 @@ export interface ActionNotice {
   text: string;
   messageId: string | null;
   auditEntryIds: number[];
+  /** Why the act sent no message: a lift or a renewal, or an act after the refund deadline. */
+  noMessage?: string | null;
+  /** The version a lift or a renewal superseded (DecisionResult.superseded). */
+  supersededId?: string | null;
+  /** The cluster coupon pause the act confirmed or reversed (DecisionResult.coupon_application). */
+  coupon?: {
+    applicationId: string;
+    state: string;
+    accounts: number;
+    /** The provenance of the account count: the decision's inputs (the snapshot holding the cluster). */
+    accountsProvenance: Provenance;
+    reviewAt: string;
+    inForce: boolean;
+  } | null;
 }
 export const noticeStore = createStore<ActionNotice | null>(null);
 export const useActionNotice = () => useStore(noticeStore);

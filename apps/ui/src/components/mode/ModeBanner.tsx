@@ -2,6 +2,7 @@ import clsx from 'clsx';
 import { TriangleAlert } from 'lucide-react';
 import { useLayoutEffect, useRef } from 'react';
 import { MODE } from '@/copy/common';
+import { ClockSegment } from './ClockSegment';
 import { ContractVersionNotice } from './ContractVersionNotice';
 import { ScenarioSwitcher } from './ScenarioSwitcher';
 import { useModeView, type ModeKind } from './useModeView';
@@ -49,8 +50,9 @@ export function ModeBanner() {
         {view.suffix.map((s) => (
           <span key={s}>· {s}</span>
         ))}
+        <ClockSegment />
         {view.kind === 'live-cpu' && <span aria-hidden="true" className="hatch-cached ml-auto h-4 w-16 rounded-chip" />}
-        {view.isMock && <ScenarioSwitcher />}
+        {__MOCK_SCENARIOS__ && view.isMock && <ScenarioSwitcher />}
       </div>
       {view.degraded.length > 0 && (
         <div className="flex flex-wrap items-center gap-x-2 border-t border-attn-border bg-attn-bg px-4 py-1 text-caption text-attn-fg">

@@ -2,12 +2,15 @@
 
 Status: accepted, 13 Oct 2026; amended the same day after four reviews (sections 9 to 12), and on
 14 Oct 2026 by the phase 4 integration (section 13), the merge of the LLM layer's closing
-rounds (section 14) and the review of the running API (section 15). API contract version
-`1.5.0`. Covers spec section 9 (API table, flows F1 to F7), the stories of E3,
-E4, E5, E6, E7 and E9, NFR-16 and CLAUDE.md rules 1, 3, 4, 5, 9, 10, 11 and 12. Changes
-`contracts/` (new `contracts/vocab.py`, `contracts/sql.py`, `contracts/json/api/`,
-`contracts/examples/api/`), removes two v1 API schemas, and adds `apps/api/schemas.py` and two
-scripts.
+rounds (section 14), the review of the running API (section 15), the two reviews of the
+public deployment (sections 16 and 17), the examples checked against the live service (section
+18), and the rules and legal items of the review backlog (section 19) and the review of that
+section (section 20); on 15 Oct 2026 by a store served read-only after writes (section 21). API
+contract version `1.8.1`. Covers spec section 9 (API table, flows F1
+to F7), the stories of E3, E4, E5, E6, E7 and E9, NFR-16 and CLAUDE.md rules 1, 3, 4, 5, 9, 10,
+11 and 12. Changes `contracts/` (new `contracts/vocab.py`, `contracts/sql.py`,
+`contracts/json/api/`, `contracts/examples/api/`), removes two v1 API schemas, and adds
+`apps/api/schemas.py` and two scripts.
 
 ## Context
 
@@ -128,7 +131,7 @@ Rules on these files:
   | 413 | `invalid_request` | The body is larger than 8 MiB, on every endpoint with a body (section 15, H24) |
   | 422 | `legal_guard` | `policy.legal_guard` refused the decision; `violations` carries its codes |
   | 404 | `not_found` | |
-  | 409 | `conflict` | Already decided, already confirmed, "approve" sent with levers different from the proposal, "lift" or "renew" on a version that is not a restriction, "renew" before the review date or when the fresh proposal is not a restriction, a restriction approved on or after its review date (a stale proposal: the case is recomputed), `/checkout/confirm` of terms whose decision is no longer in force; an act whose message would state a refund deadline already past (section 15, H1); a restriction proposal at or past its review date, decided again first (trigger `stale_proposal`, section 15, H16) |
+  | 409 | `conflict` | Already decided, already confirmed, "approve" sent with levers different from the proposal, "lift" or "renew" on a version that is not a restriction, "renew" before the review date or when the fresh proposal is not a restriction, a restriction approved on or after its review date (a stale proposal: the case is recomputed), `/checkout/confirm` of terms whose decision is no longer in force; an act whose message would state a refund deadline already past (section 15, H1): approve, or an override to levers other than the standard ones (a rejection or an override to the standard levers goes on without a message, section 19, on a case with a diminished-value claim too since section 20; a guarantee case has no refund deadline); a restriction proposal at or past its review date, decided again first (trigger `stale_proposal`, section 15, H16) |
   | 409 | `stale_decision` | The `decision_id` sent is not the latest version of the case |
   | 403 | `forbidden_role` | The actor's role is not among the endpoint's `roles` (section 5); a write on the public read-only demo (section 15, H21) |
   | 429 | `rate_limited` | The agent; on the public read-only demo, the checkout evaluation too |
@@ -229,7 +232,8 @@ The intake function, and only it, triggers the decision:
 - **`DecisionView`** is one version of a case's decision. It holds the engine inputs (`inputs`,
   with the order and the customer: re-runnable for US-604) and the engine output: path, evidence
   quality, quadrant, `proposed_levers`, `requires_approval`, `current_return_terms`,
-  `refund_due_by` (notice + 14 days), `review_at` and the coupon rule application. It adds the
+  `refund_due_by` (notice + 14 days on the withdrawal path, null on the guarantee path:
+  section 19), `review_at` and the coupon rule application. It adds the
   human outcome and the version chain: `version`, `revision_trigger`, `supersedes`,
   `superseded_by`, and `as_of`, the time the view was served.
 - **States.** `proposed`, `approved`, `overridden`, `rejected`. The last three are the policy
@@ -349,9 +353,12 @@ The intake function, and only it, triggers the decision:
 
   `_check_draft` checks that `case_facts` are the facts `llm.case.build_case` writes for the
   version: ids in order, one fact per metric, the nature of the inputs, and each metric with
-  the entity, period and value build_case gives it (risk and value "as of" and "12 months to"
-  the decision day, the days since delivery over the delivery and notice days, the cluster only
-  for a customer in a cluster, no lever (ADR-14 decision 9; section 14),
+  the entity, period and value build_case gives it (value, factors and cluster "as of" and "12
+  months to" the day of the customer snapshot the engine read, `inputs.snapshot_on`, section
+  19; the risk "as of" the day it was scored at the request, `inputs.scored_on`, section 20;
+  the decision day before 1.7.0), the days since delivery over the delivery and
+  notice days, the cluster only for a customer in a cluster, no lever (ADR-14 decision 9;
+  section 14),
   score factors that may be shown and are never customer value, at most three). Where the
   response shows the score factors and the cluster size (the case card, a recompute), the facts
   must equal a rebuild with `llm.case.build_case` (`expected_case_facts`). It then runs
@@ -422,7 +429,9 @@ mock routes serve every version a version chain of the examples points to.
   - the customer texts (the size advice, the coupon block) are `{it, en}` pairs of fixed,
     reviewed texts of `llm/phrasebook.py`; the coupon block uses the neutral wording of the
     transparency notice and never names the linked accounts or the cluster (rule 11, section
-    12, E25).
+    12, E25). Only the customer of the case sees that wording ("your previous returns"); every
+    other account of the cluster sees a text that gives no cause, with the review date of the
+    block (section 19).
 - **Terms and their source.** `terms_source: base` shows exactly the base terms, with no review
   date and no quadrant. Terms less generous than the base come from a decision in force and carry
   its review date. A restriction lapses at its review date, so its terms are shown only before
@@ -559,8 +568,9 @@ Tables:
 
 - `return_requests`;
 - `decisions`: one row per version, with the engine inputs and their provenance
-  (`inputs_provenance`), the outputs, the alternatives, the human outcome, the version chain and
-  the versions;
+  (`inputs_provenance`), the day of the customer snapshot the engine read (`snapshot_on`, 1.7.0),
+  the day the risk was scored (`scored_on`, 1.8.0), the outputs (`refund_due_by` null on the guarantee path, 1.7.0), the alternatives, the human
+  outcome, the version chain and the versions;
 - `audit_log`, `outbox` (with the phrasebook ids, the template fields, the refund stated with
   its provenance, and the rendered body);
 - `terms_snapshots`: shown, then confirmed; with the base terms and the review date;
@@ -594,6 +604,9 @@ is refused with its CHECK, and accepted once that one CHECK is removed.
 | Rule | Constraints |
 | --- | --- |
 | The guarantee path is unscored and unrestricted (rule 4) | `ck_decisions_guarantee_unscored` |
+| The 14-day refund deadline is a withdrawal's, and only a withdrawal's (rules 3 and 4, 1.7.0) | `ck_decisions_refund_due_on_withdrawal` |
+| The engine reads a customer snapshot made by the decision day (rule 7, 1.7.0) | `ck_decisions_snapshot_by_decision` |
+| A risk, and only a risk, is scored at the request: after that snapshot, by the decision day (rule 7, 1.8.0) | `ck_decisions_risk_scored_by_decision` |
 | Insufficient evidence has no quadrant (US-307) | `ck_decisions_insufficient_no_quadrant` |
 | Q3 and Q4 need approval (rule 5) | `ck_decisions_q3_q4_need_approval` |
 | A restriction, and only a restriction, has a review date after the decision, within 180 days (US-607) | `ck_decisions_restriction_has_review`, `ck_decisions_review_only_restriction`, `ck_decisions_review_after_decision`, `ck_decisions_review_within_max` |
@@ -1027,8 +1040,9 @@ dispute of one link is a 409, also when two arrive together (the unique key of
 telemetry behind basic auth. `PUBLIC_READ_ONLY=on` answers 403 `forbidden_role` to every write
 route but `POST /api/agent/ask` and `POST /api/checkout/evaluate`, which stay for the public
 pages and are rate limited per client (30 per minute, the first `X-Forwarded-For` hop the proxy
-sets); `/readyz` says `public_read_only`. The proxy protects the admin page (`/system`) and
-`/api/telemetry` with basic auth (Caddy `basic_auth` on those paths, ADR-17) and limits request
+sets); `/readyz` says `public_read_only`. The proxy protects the admin data, `/api/telemetry`,
+with basic auth (Caddy `basic_auth` on that path, ADR-17; the client route `/system` of the admin
+page was protected too until section 16) and limits request
 bodies to 10 MB (`request_body max_size`); the API refuses bodies over 8 MiB itself (413). Checkout
 `/confirm` declares 403 now; the checkout evaluation declares 429.
 
@@ -1131,8 +1145,8 @@ setting below under these names and `tests/test_infra.py` checks that the API re
   the body), with a start period of 60 s or more.
 - H30: pass `GEMMA_MODEL` (and `VLLM_TIMEOUT_S`, `LLM_CONCURRENCY` if changed) to the api, the
   reset and `batch_generate`.
-- H21: the demo profile sets `PUBLIC_READ_ONLY=on`; Caddy protects the admin page and
-  `/api/telemetry` with `basic_auth`, sets `X-Forwarded-For`, and limits request bodies
+- H21: the demo profile sets `PUBLIC_READ_ONLY=on`; Caddy protects `/api/telemetry` (the admin
+  page's data; section 16) with `basic_auth`, sets `X-Forwarded-For`, and limits request bodies
   (`request_body { max_size 10MB }`).
 - H40: a telemetry sampler service on the GPU profile (`python -m
   apps.api.services.other.telemetry`).
@@ -1144,13 +1158,367 @@ Known limits, reported as they are:
   labelled "as of" the decision day while the card dates the customer snapshot (a month
   earlier). Fixing it needs the snapshot day in `DecisionInputs` (a column of `decisions` and a
   field of every decision example) and in `_check_case_facts`: not cheap, left for a later
-  round.
+  round. *Fixed in section 19.*
 - **An overdue refund blocks the acts that send a message** (409) until the merchant pays it;
-  the queue flags it. A reviewed sentence for a late refund would let the act go on.
+  the queue flags it. A reviewed sentence for a late refund would let the act go on. *Section
+  19 lets a rejection or an override to the standard levers go on without a message.*
 - **The demo clock of a long-running public demo** moves past the refund deadlines two days
   after the reset (the earliest is 2 October at full scale); the public demo is read-only, so
-  no message is composed there, and a reset restarts the clock.
+  no message is composed there, and a reset restarts the clock. *Section 19 freezes it.*
 - **E15 is still open** (section 12).
+
+### 16. Review of the public deployment (14 Oct 2026, contract 1.5.1)
+
+A review of the deployment, the README and the public demo (docs/review-backlog.md, "A judge
+following the README" and "Security of the public deployment") found two contract-visible gaps.
+The version is 1.5.1: one more value of an existing field and one documented header, no new
+endpoint or field. The infrastructure side is in ADR-17 (amendments of 14 Oct 2026).
+
+- **The cached label is a claim about hardware (rules 11 and 13).** `/readyz` showed
+  "Precomputed on AMD MI300X" whenever the cache had entries, so a CPU rehearsal package with a
+  fake vLLM server was labelled MI300X. `CachedLabel` gains "Precomputed in a rehearsal, not
+  verified on AMD MI300X" (`REHEARSAL_LABEL`). The MI300X label is shown only when the demo
+  package's `MANIFEST.json`, next to the serving snapshot as in `demo-cache/`
+  (`SERVING_DIR/../MANIFEST.json`), is not a rehearsal and names the MI300X in `generated_on`,
+  and every entry of `llm_cache/` was written by `GEMMA_MODEL`; otherwise the rehearsal label,
+  with the reason in the `demo_cache` check (`apps.api.services.demo_package`). `make
+  demo-export` has no default hardware, refuses drafts of another model unless the package is
+  declared a rehearsal, and records `rehearsal` and `gemma_model` in the manifest.
+- **Retry-After on every 429 `rate_limited`.** The public limit (checkout evaluation, agent) and
+  the agent's limit per person answer 429 with `Retry-After`: the whole seconds to wait, rounded
+  up, at least 1, also stated in the message. `endpoints.json` lists the header with the two of
+  every response, and the OpenAPI document declares it on each 429. The error body is unchanged.
+- **Not contract changes, recorded here because they change behaviour.** On the public
+  read-only API the public limit is checked before the agent's, and the agent's limit counts per
+  client and person (`roles.client_key`, the first `X-Forwarded-For` hop as before), so one
+  anonymous client cannot lock the agent for every visitor. The limiters forget the keys whose
+  calls have all left the window (swept at most once per window) and count an IPv6 client by its
+  /64. A refused `VLLM_BASE_URL` is named by the refused part (a scheme, a user, a query, a
+  fragment, a host that is not local), never echoed: the message reaches `/readyz` and the 503
+  bodies. The access log writes the path percent-encoded, so an encoded newline cannot forge a
+  line. `GET /api/portfolio/matrix` serializes and gzips its body in a worker thread; the encoded
+  bytes are not cached, because the matrix depends on the clock's 'now' (the 12-month return
+  counts, the periods of its figures) and no key short of the full instant is provably correct.
+  The reset retries its first database connection for about 30 s.
+
+Schemas whose shape changed: `readyz_response.schema.json` (the `label` enum),
+`endpoints.json` (`headers`) and `openapi.json` (the label, the `Retry-After` header of the 429
+of `POST /api/checkout/evaluate` and `POST /api/agent/ask`). Examples: the contract version of
+both readyz responses.
+
+### 17. Second review of the public deployment (14 Oct 2026, contract 1.5.2)
+
+A second review of the same branch found the MI300X claim still made, or refused, where section
+16 did not look. The version is 1.5.2: one example text changes, no schema.
+
+- **The cached telemetry note.** In cached mode the telemetry check of `/readyz` and the `note`
+  of `GET /api/telemetry` said "GPU off: cached mode serves results precomputed on the AMD
+  MI300X", also beside the rehearsal label. The note is now "GPU off: cached mode serves
+  precomputed results" (`telemetry.cached.json`): where the outputs were made is the claim of
+  the label alone. The UI's own badges must follow `readyz.label` (docs/review-backlog.md, UI
+  migration).
+- **Not contract changes, recorded here because they change behaviour.** The label compares the
+  drafts with the model the package's `MANIFEST.json` names (`llm_cache.gemma_model`, which the
+  export checked against `GEMMA_MODEL` of the droplet), not with `GEMMA_MODEL` of the demo
+  server: in cached mode the API calls no model, and the runbook's demo server keeps the
+  `.env.example` default while the package may hold the plan-B model's drafts. A manifest that
+  names no model is a rehearsal. `python -m apps.api.batch_generate` stops before the first case
+  unless the local vLLM lists `GEMMA_MODEL` (the fake server of `bench/fake_vllm.py` answers any
+  model name with its own drafts), records the `device` of the batch in each cache entry, and
+  makes again a cached draft of another model instead of keeping it; `make demo-export` packs
+  only `device` gpu drafts as the MI300X's. `GET /api/portfolio/matrix` reads the database on
+  the event loop and builds, serializes and gzips the matrix in one worker thread. On the full
+  snapshot with the database of a reset (623 decided returns, 4 shared vCPUs): before, 0.36 to
+  0.95 s on the loop per request (the longest stall of a 5 ms ticker 0.34 to 0.91 s); after,
+  0.015 to 0.024 s on the loop and 0.48 to 1.21 s in the thread, during which the loop's longest
+  stall was 0.031 to 0.044 s (the thread holds the interpreter lock in turns). Nature: real
+  timings of three runs each, measured once.
+
+Schemas whose shape changed: none (`endpoints.json` and `openapi.json` carry the version).
+Examples: `telemetry.cached.json` (the note) and the contract version of both readyz responses.
+
+### 18. The examples against the live service (14 Oct 2026, contract 1.6.0)
+
+The review of 14 Oct 2026 (`docs/review-backlog.md`, API side of "UI readiness" and "Examples
+vs live") found places where the contract or its examples show what the running service never
+does; the UI, built on the examples, would rehearse beats the live demo cannot play. Each is a
+test in `tests/test_api_examples_live.py` (the schema clash in `tests/test_api_schemas.py`).
+The version is 1.6.0: a new field (`DemoDispute.changes_decision`) and changed schemas.
+
+- **One schema per model.** `CartLine` and `CheckoutEvaluateRequest` are requests that a
+  response also carries (`DemoCart.request`). The serialization export made their defaults
+  required there, so `demo_cases.schema.json` defined them differently from the request
+  schemas, `openapi.json` split them into `-Input` and `-Output`, and the UI's type generation
+  failed. Both keep their defaults optional in both modes
+  (`json_schema_serialization_defaults_required=False`; the API sends `quantity` and
+  `coupon_code` anyway). `test_a_model_has_one_schema_in_every_file_that_defines_it` requires a
+  byte-identical body for every `$def` and root model in every `contracts/json/api/*.schema.json`
+  that defines it, and no split in `openapi.json`; it found no other clash.
+- **Size advice at checkout (US-401).** The store holds no measurements or exchange outcomes, so
+  the live checkout never suggests a size (`checkout.advice_for`: the size guide, or no reliable
+  recommendation), and the personalized predictor has no size feature: two sizes of one
+  variant in one cart get one probability. `checkout_evaluate_response.giulia` is built through
+  `advice_for` and the live threshold: both sizes of V-DRS-2500 at 0.47, each with the
+  measurement guide. `specific` stays in `SizeAdviceKind` (a shop with measurement data could
+  use it), but no example and no live path produce it.
+- **Catalogue tasks (H14, decided).** A task may name any queued return of the anomaly's
+  variant, sold in the anomaly's week or not: the case that led to it (Elena's return is
+  requested after the anomaly's snapshot, so it is never among the anomaly's `return_ids`). A
+  return outside the queue is a 404, one of another variant a 422; section 15's H14 row
+  ("another one is a 404") is superseded. `queued_return_ids` is what the UI offers: in the
+  anomaly list the queued returns of the anomaly's week (`ProductAnomaliesResponse` keeps them
+  among `return_ids`), on a case card those and the case's own return (`CaseCard` requires it
+  and allows nothing else). The live Elena card now offers her return.
+- **Inspections (US-501..503).** The examples are built through the mock vision of
+  `LLM_MODE=mock` (`MockVision`, `assess` and `generation_of` of
+  `apps/api/services/other/inspections.py`). The request of `inspection.awaiting` carries a tiny
+  JPEG the mock reads as damaged (the DV-RULE-1 proposal), the one of `inspection.manual_review`
+  a JPEG it reads as unclear (manual review: "The photo is not clear enough to check the item:
+  verify by hand"); checklists, reasons and generation records are the mock's (`latency_ms`
+  null: the mock records none). Before, both requests carried a photo the mock reads as clean,
+  so the claim beat answered 422 `no_proposal` live. **The claim beat needs `LLM_MODE=mock`
+  (the photo of the example request, or any photo the mock reads as damaged) or
+  `LLM_MODE=vllm` (a photo with visible damage).** With `DEMO_MODE=cached`, or vLLM down, the
+  checklist is the template: every item not observable, manual review, no proposal, no claim.
+- **The demo dispute (US-310).** `find_dispute` dry-runs the recompute of each candidate link
+  (the engine's proposal on the graph without the link, compared with version 1; at most 12
+  candidates, nothing written, about 0.3 s each on the tiny test store) and takes the first
+  that changes the quadrant or the levers, else the first candidate as before.
+  `DemoDispute.changes_decision` (new) says which: on the tiny test store no candidate changes
+  the decision (a Q1 case of two accounts stays Q1); the example's dispute (Chiara, Q3) does.
+  The demo walk checks the flag against the recompute. The evidence beat on a Rossi case
+  (never Q3 or Q4, E2E-05) changes the cluster and the risk shown, rarely the decision; the
+  `before` and `after` of its recompute response say so. The reset stores the demo cases, so a
+  database reset before 1.6.0 needs a new reset (`make reset`) before `/api/demo/cases` answers.
+- **Model versions.** Every `model_versions` of the examples (decisions, audit entries,
+  `/readyz`) has the keys of the serving manifest (`pipeline.serving.manifest.
+  MODEL_VERSION_KEYS`: risk, risk_customer, checkout, reference, value, evidence, anomalies),
+  which the export writes and the live API records; before, the examples had `propensity` and
+  `graph`, keys the service never sends. The checkout examples' `model_version` is the
+  `checkout` one.
+- **Marco before the shop.** A proposal awaiting approval is not in force (rule 5), so the ring
+  checkout shows the restriction and the coupon block only once Marco's Q4 is approved:
+  `checkout_evaluate_response.marco` is that state, and the shop beat comes after the Marco
+  beat (spec 16; `scripts/demo_walk.py` already approves Marco, step 3, before the checkout).
+
+**For the UI migration (contract 1.6.0).**
+
+- Shop beat: show the measurement-guide text of each line (`size_advice.text`, in the
+  customer's language) and drop "Switch to M"; both sizes show the same probability, so no
+  size is presented as the safer one. Run it after Marco's approval.
+- Elena beat: the catalogue task form offers the card's `queued_return_ids`, which hold her
+  return.
+- Dispute and evidence beats: when `dispute.changes_decision` is false, or the recompute's
+  `before` and `after` have the same quadrant and `lever_ids`, say "decision unchanged" and
+  show what did change (the cluster, the active links, the risk).
+- Inspection beat: with `LLM_MODE=mock` upload the photo of `inspection_create_request` to get
+  the claim; in cached mode show the manual review, with no claim to confirm.
+
+Schemas whose shape changed: `demo_cases` (`CartLine.quantity` and
+`CheckoutEvaluateRequest.coupon_code` optional, `DemoDispute.changes_decision`), `openapi.json`
+(one `CartLine` and one `CheckoutEvaluateRequest` component, `changes_decision`) and the
+version in `endpoints.json`. Examples whose shape changed: `demo_cases` and every example with
+`model_versions` (case cards, decision records and results, the recomputes, the dispute, the
+regeneration, the audit page, both readyz). Examples whose values changed:
+`checkout_evaluate_response.giulia` and the six inspection examples. The rule
+`queued_return_ids` ⊆ `return_ids` moved from `ProductAnomaly` to the anomaly list, and the
+case card has its own (models only). No table changes.
+
+**Amendment (14 Oct 2026, contract 1.6.1).** The examples of the Elena beat still put her
+return `RET-000105` among the jacket anomaly's `return_ids`, and the anomaly list offered it
+in `queued_return_ids`. Live, her return is requested after the anomaly's snapshot: it is
+never among `return_ids`, and the list offers nothing for this anomaly. The examples now
+show that: `return_ids` are the week's returns only, the list item's `queued_return_ids` is
+empty and the card's anomaly offers her return alone (`scripts/build_api_examples.py`
+`jacket_anomaly`; `test_a_card_anomaly_lists_the_case_return_among_the_returns_a_task_can_name`
+requires it). Examples whose values changed: `case_card.elena`, `product_anomalies`,
+`product_anomalies.task_opened`, and the version in both readyz examples, `endpoints.json` and
+`openapi.json`. No model or table changes.
+
+### 19. Rules and legal behaviour after the review backlog (14 Oct 2026, contract 1.7.0)
+
+The review of the merged API, deployment and README (`docs/review-backlog.md`, 14 Oct 2026)
+left six items on rules and legal behaviour. Each is a test in
+`tests/test_api_legal_backlog.py`, written to fail on 1.5.0 (one more guards the 409 that stays
+for a case with a claim); `tests/test_api_round5.py` (the stale proposal can now be rejected),
+`tests/test_api_examples.py`, `tests/test_api_services.py` and `tests/test_sql_contract.py`
+follow the changes. The version is 1.7.0: new fields
+(`ClockView.frozen`, `DecisionInputs.snapshot_on`) and a field that becomes nullable
+(`refund_due_by`).
+
+- **The public and the cached demo run on a frozen clock.** With `PUBLIC_READ_ONLY=on` or
+  `DEMO_MODE=cached` (`Settings.frozen_clock`) the demo clock stands at the snapshot instant
+  instead of running from the reset, so no open return of the reset drifts into an overdue
+  refund however long the public demo stays up (the reset is one-shot at `make demo-up`). Those
+  demos write nothing (the public one refuses every write; the cached one serves the outputs
+  precomputed for the reset's decisions). *Corrected in section 20: a cached demo with writes
+  on (`PUBLIC_READ_ONLY=false`) keeps a running clock; acts at one instant cannot follow one
+  another.* `/readyz` still tells the truth:
+  `clock.kind` demo, `now` equal to `snapshot_as_of`, `started_at` the wall time of the reset,
+  and the new `clock.frozen` true, with a note that says so; a client never advances a frozen
+  clock. `DEMO_CLOCK=off` keeps the wall clock, as before.
+- **A guarantee case has no refund deadline (rule 4, NFR-17).** The 14 days of the withdrawal
+  are not a deadline of the guarantee path, and its message has no `{deadline}` field.
+  `DecisionView.refund_due_by` and `QueueItem.refund_due_by` are null exactly when the message
+  of the path states no deadline (`states_refund_deadline`, from
+  `llm.messages.available_placeholders`): on the guarantee path. Such a case is never
+  `refund_overdue`, its acts are never refused for a deadline, and `sort=refund_due_by` puts it
+  last. `policy.engine` still dates the refund on every path for its own checks:
+  `to_policy_decision` gives it back from the notice day. SQL: `decisions.refund_due_by` is
+  nullable, CHECK `ck_decisions_refund_due_on_withdrawal`.
+- **After the refund deadline, a proposal can still be rejected or set to the standard
+  terms.** Before 1.7.0 every act on a proposal past `refund_due_by` answered 409, so a pending
+  Q3 or Q4 restriction could be neither approved nor rejected, and the stale-proposal recompute
+  always ended there. Now a rejection, or an override to the standard levers, of a case without
+  a diminished-value claim goes on with no message (`outbox_message` null,
+  `late_without_message`): it sets no terms to announce, and its message would state a past
+  date. The request still carries its `message` choice, unused. The refund is a separate legal
+  obligation the merchant honours all the same. Approve, an override to other levers (terms to
+  announce) and any act on a case with a claim (the message must state the deduction and its
+  reason) still answer 409 until a reviewed late-refund sentence exists. `DecisionResult`
+  accepts a null message exactly for lift, renew and such a late act. *Section 20: a case with
+  a claim may be rejected or set to the standard terms late too, and every such case stays
+  `refund_overdue`.*
+- **Draft and agent facts are dated with the customer snapshot (rule 11).** The engine reads
+  the last customer snapshot before the request (value, evidence, cluster); the facts of a
+  draft and the agent's case summary said "as of" the decision day (*section 20: the risk score
+  is dated with the day it was scored*). `DecisionInputs.snapshot_on`
+  (new, a column of `decisions`, CHECK `ck_decisions_snapshot_by_decision`) is the UTC day of
+  that snapshot (`Proposal.context.as_of`; the request day when no snapshot preceded it). The
+  API builds the llm_case with `build_case(as_of=snapshot_on)`, `_check_case_facts` and
+  `expected_case_facts` expect that day, and `ApiCaseReader`'s case says "as of" it. The day
+  travels with the version, so `DraftInputs` needs no field of its own. The llm_case digest
+  changes for every scored case: **a batch cache made before 1.7.0 (`python -m
+  apps.api.batch_generate`, `make demo-export`) must be regenerated**; none is committed.
+- **The refund of a message has its own provenance (rule 11).** A message stated the refund
+  left after a diminished-value claim with the provenance of the claim. `ClaimView.refund()` is
+  now the refund figure: the price paid for the returned line less the claim, with the
+  provenance of the line price (period and nature) and the claim named in its origin ("price
+  paid for the returned line: its list price less its share of the order's coupon
+  (store/order_lines, store/orders), less the diminished-value claim of INS-...").
+  `check_outbox_message` requires it; the approval and the inspection confirmation use it.
+- **The coupon block of a linked account gives no cause (rule 11).** The checkout coupon
+  block told every account of the cluster that its own previous returns caused it. The
+  customer of the case keeps that wording (`COUPON_BLOCK_TEXT`); every other account sees the
+  new reviewed text `CLUSTER_COUPON_BLOCK_TEXT` of `llm/phrasebook.py`, "Discount codes cannot
+  be used on orders placed before {date}." / "I codici sconto non sono utilizzabili sugli
+  ordini effettuati prima {date}.", with the review date of the block written by code (rule
+  10; in Italian with its article joined to "di", "del 30 dicembre 2026", "dell'11 dicembre
+  2026"). It passes the checks of the other checkout texts (language, digits, banned terms,
+  legal wording, script) and names neither the accounts nor the cluster. `CouponBlock` accepts
+  exactly one of the two texts, the second with its own review date.
+
+Schemas whose shape changed: `readyz_response` (`clock.frozen`); every schema with a
+`DecisionView` (`snapshot_on` in `inputs`, `refund_due_by` nullable: `case_card`,
+`decision_record`, `decision_result`, `inspection_confirm_response`, `link_dispute_response`,
+`recompute_response`, `regenerate_response`); `queue_response` (`refund_due_by` nullable);
+`checkout_evaluate_response` (its description); `endpoints.json` and `openapi.json`. Examples
+whose values changed: both readyz responses (the cached one frozen), every decision view
+(`snapshot_on`, the first of the month of the notice; null `refund_due_by` for the guarantee
+cases Elena and Francesca), the draft facts of the scored cases (dated with the snapshot), the
+queue response, and the refund of `inspection_confirm_response` and `outbox`.
+
+For the UI migration: show `clock.frozen` and never advance a frozen clock; show no refund
+date for a guarantee case; after the deadline offer reject and the standard terms, and expect
+`outbox_message` null; date the score facts as they come.
+
+### 20. Review of section 19 (14 Oct 2026, contract 1.8.0)
+
+An adversarial review of the section 19 branch found four defects, each now a test in
+`tests/test_api_legal_backlog.py` that failed on 1.7.0 (`tests/test_llm_case.py`,
+`tests/test_sql_contract.py` and `tests/test_api_round5.py` follow). The version is 1.8.0: a new
+field (`DecisionInputs.scored_on`) and a new column and CHECK.
+
+- **The clock is frozen only where writes are refused.** 1.7.0 froze it on the cached demo
+  too, so with writes on every act had the same instant: once someone reversed the cluster
+  coupon application of a Q4 restriction, its lift answered 500 (`DecisionResult` read the
+  earlier reversal as one made by the lift, `reversed_at >= approved_at`). Now
+  `Settings.frozen_clock` is `PUBLIC_READ_ONLY` alone. `infra/compose.demo.yml` starts the
+  cached demo read-only by default, so its clock stays frozen; with `PUBLIC_READ_ONLY=false`
+  the demo clock runs from the reset, as on 1.5.0, and `make demo-reset` restarts it. The note
+  of a frozen clock says "the read-only demo".
+- **A late act without a message keeps the refund flagged.** A rejection or the standard
+  terms after the refund deadline sends no message (section 19), and the queue then cleared
+  `refund_overdue`, though no message had stated the refund. `refund_overdue` is now: past
+  `refund_due_by` and no message has stated the refund, that is a proposed case, or one a
+  person rejected or set to the standard terms after that day (`acted_late`: not a lift or a
+  renewal, whose restriction stated the refund in time). The case keeps its place in
+  `sort=refund_due_by`. `QueueResponse` accepts either flag for a rejected or standard-terms
+  item past its deadline (the item does not carry the time of the act), and only false for
+  an approved one or one with levers.
+- **A case with a claim is not stuck after the deadline.** A claim confirmed while a Q3 or Q4
+  proposal awaits approval sends no message; after `refund_due_by` every act on it answered
+  409, the stale-proposal recompute included (the claim carries over), so the case stayed
+  proposed for good. A rejection or the standard terms now go on without a message on such a
+  case too; the claim stays on the decision, the case stays `refund_overdue`, and the merchant
+  states the refund and the deduction outside ReturnRing. Approve and other levers still
+  answer 409. A reviewed late-refund body (with `{amount}`, no `{deadline}`) is left for a
+  later round: it is new customer wording for `llm/phrasebook.py`.
+- **The risk score is dated with the day it was scored (rule 11).** Section 19 dated every
+  score fact with the customer snapshot, the risk score included; but the risk is computed at
+  the request (request features as the shop knew them, and that snapshot:
+  `ml.scoring.batch.score_requests`), so its fact said "as of" a day before the return
+  existed, while the engine-input provenance of the same card says "at the request".
+  `DecisionInputs.scored_on` (new, nullable column `decisions.scored_on`, CHECK
+  `ck_decisions_risk_scored_by_decision`) is the UTC day of the score's `decided_at`, null
+  exactly when there is no risk (the guarantee path). `llm.case.build_case(risk_as_of=...)`
+  dates the `risk_score` fact with it; value, factors and cluster keep `snapshot_on`.
+  `_check_case_facts` and `expected_case_facts` expect it. The agent's case summary states no
+  risk figure (its numbers are the factors), so it keeps the snapshot day. The llm_case digest
+  changes again for every scored case: **a batch cache made before 1.8.0 must be
+  regenerated**.
+
+Schemas whose shape changed: every schema with a `DecisionView` (`scored_on` in `inputs`);
+`readyz_response` (the description of `ClockView`); `endpoints.json` and `openapi.json`.
+Examples whose values changed: every decision view (`scored_on`, the notice day of a
+withdrawal), the `risk_score` facts of the scored drafts (dated with it), and the frozen
+clock's note in `readyz_response.cached`.
+
+For the UI migration: a rejected or overridden case may be `refund_overdue`; date the risk
+score fact as it comes.
+
+### 21. A store acted on with writes on, served read-only (15 Oct 2026, contract 1.8.1)
+
+The UI migration found two defects; each is now a test that failed on 1.8.0
+(`tests/test_api_read_only_after_writes.py`, `tests/test_api_manager_kpi.py`). The version is
+1.8.1: no field changes, but the description of `ClockView` does, and a frozen clock may now
+stand after `snapshot_as_of`.
+
+- **A frozen clock never stands before a recorded act.** Section 20 froze the read-only
+  demo's clock at the snapshot instant. A store someone had acted on with writes on (approve
+  and lift the Marco ring case on the running demo clock), then served with
+  `PUBLIC_READ_ONLY=on` on the same database, showed a 'now' before those acts: the case card
+  answered 500 (`DecisionView`: "approved_at is between created_at and as_of") and so did
+  `GET /api/coupon-rules` (`CouponRuleApplication`: "proposed, confirmed and reversed in this
+  order, before as_of"). A frozen clock now stands at the later of the snapshot instant and the
+  latest act the store recorded (`apps.api.runtime.latest_act`: the maximum of every timestamp
+  column of `contracts/sql.py` that dates an act on the API's clock; `NOT_ACTS` names the
+  others, the wall-clock columns `demo_reset.started_at` and `telemetry_samples.sampled_at`,
+  `demo_reset.snapshot_as_of`, and the shop's `return_requests.requested_at`, and a test makes
+  every new timestamp column take a side). It is computed when the clock is anchored: at the
+  start of the service and whenever the demo reset changes, so `make demo-reset` brings it back
+  to the snapshot instant. The reset dates every row at the snapshot instant, so a fresh reset
+  still freezes exactly there, with the section 19 note. Everything that reads 'now' follows:
+  `as_of` of the views and of `GET /api/demo/cases`, the queue's `refund_overdue` (a deadline
+  passed by the time of the last act is overdue), the week a KPI request may ask for. The
+  public writes of the read-only demo (the agent, the checkout evaluation) are dated at the
+  frozen instant, so they never move it. A running clock ignores the latest act: its acts are
+  dated on it.
+- **`/readyz` says why.** `clock.snapshot_as_of` stays the snapshot instant; `clock.now` is the
+  frozen instant. Past the snapshot instant the note is `FROZEN_AFTER_ACTS_NOTE` ("Demo clock,
+  frozen at the latest act recorded after the serving snapshot: ..."). `ClockView` accepts a
+  frozen clock past its snapshot instant only with that note (rule 11), never before it.
+- **A KPI week not started names its field.** `GET /api/kpi?week_start=<a week after the API's
+  today>` answered 422 `invalid_request` with no violation. It now carries
+  `{code: week_not_started, message: "query.week_start: the week of ... has not started yet"}`,
+  like the pydantic refusals of the same query field.
+
+Schemas whose shape changed: none. `readyz_response` (the description of `ClockView`),
+`endpoints.json` and `openapi.json` change; examples whose values changed: both readyz responses
+(`contract_version`).
+
+For the UI: a frozen clock may stand after the snapshot instant; say "frozen" without claiming
+the snapshot instant when `now` differs from `snapshot_as_of`, and show the API's note.
 
 ## Consequences
 

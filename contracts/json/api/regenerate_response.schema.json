@@ -299,7 +299,7 @@
     },
     "DecisionInputs": {
       "additionalProperties": false,
-      "description": "The inputs given to policy.engine.decide, kept for audit (US-604) and re-runnable: the\nreturn request (with order_id and customer_id), the scores, the terms and the thresholds.\nprovenance covers the plain numbers of the inputs (risk, value_eur, thresholds): the scores\nat decision time, stored with the version so an earlier one is served as it was (rule 11).",
+      "description": "The inputs given to policy.engine.decide, kept for audit (US-604) and re-runnable: the\nreturn request (with order_id and customer_id), the scores, the terms and the thresholds.\nprovenance covers the plain numbers of the inputs (risk, value_eur, thresholds): the scores\nat decision time, stored with the version so an earlier one is served as it was (rule 11).\nsnapshot_on (1.7.0) is the UTC day of the customer snapshot the engine read (value, evidence,\ncluster: the last one before the request, or the request itself when none preceded it): the\nperiod of the value, factor and cluster facts of a draft and of the agent (rule 11).\nscored_on (1.8.0) is the UTC day the risk was scored, at the request (the score's decided_at:\nrequest features as the shop knew them, and that snapshot): the period of the risk_score\nfact. Null exactly when there is no risk (the guarantee path, rule 4).",
       "properties": {
         "order_id": {
           "maxLength": 96,
@@ -380,6 +380,23 @@
         },
         "provenance": {
           "$ref": "#/$defs/Provenance"
+        },
+        "snapshot_on": {
+          "format": "date",
+          "title": "Snapshot On",
+          "type": "string"
+        },
+        "scored_on": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Scored On"
         }
       },
       "required": [
@@ -395,7 +412,9 @@
         "evidence_quality",
         "cluster_id",
         "thresholds",
-        "provenance"
+        "provenance",
+        "snapshot_on",
+        "scored_on"
       ],
       "title": "DecisionInputs",
       "type": "object"
@@ -1309,9 +1328,16 @@
           "$ref": "#/$defs/Terms"
         },
         "refund_due_by": {
-          "format": "date",
-          "title": "Refund Due By",
-          "type": "string"
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Refund Due By"
         },
         "review_at": {
           "anyOf": [

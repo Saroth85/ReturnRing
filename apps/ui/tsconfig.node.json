@@ -21,5 +21,5 @@
     "noUncheckedSideEffectImports": true,
     "noUncheckedIndexedAccess": true
   },
-  "include": ["vite.config.ts", "playwright.config.ts", "tailwind.config.ts", "mock"]
+  "include": ["vite.config.ts", "playwright.config.ts", "playwright.live.config.ts", "tailwind.config.ts", "mock"]
 }

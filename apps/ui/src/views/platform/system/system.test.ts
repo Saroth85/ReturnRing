@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { Benchmark, BenchmarksResponse, ReadyzResponse, TelemetryResponse } from '@/api/models';
 import { readExample } from '@/test/examples';
 import { barFraction, costPerDecision, resultCharts, speedups } from './benchmarks';
-import { headerAgreement, readinessTone } from './readiness';
+import { headerAgreement, readinessTone, serviceLine } from './readiness';
 import { sparkline, telemetryNatures } from './telemetry';
 
 const benchmarks = readExample<BenchmarksResponse>('benchmarks.json');
@@ -129,5 +129,29 @@ describe('readiness', () => {
     expect(headerAgreement('live', 'live')).toBe('agrees');
     expect(headerAgreement('live', 'cached')).toBe('differs');
     expect(headerAgreement('cached', null)).toBe('unknown');
+  });
+});
+
+describe('serviceLine: what answers now, from /readyz (ADR-15 sections 16, 17)', () => {
+  const live = readExample<ReadyzResponse>('readyz_response.live.json');
+  const cached = readExample<ReadyzResponse>('readyz_response.cached.json');
+
+  it('a CPU run with the mock model never reads as the MI300X', () => {
+    const line = serviceLine({ ...live, device: 'cpu', llm_mode: 'mock', label: null }, 'live');
+    expect(line).toBe('This service: live on the CPU, language model: mock: hand-written stand-ins');
+    expect(line).not.toContain('MI300X');
+  });
+
+  it('a cached demo names where its outputs were made only through readyz.label', () => {
+    expect(serviceLine(cached, 'live')).toBe(`This service: cached demo, GPU off · ${cached.label}`);
+    const unlabelled = serviceLine({ ...cached, label: null }, 'live');
+    expect(unlabelled).toContain('no label');
+    expect(unlabelled).not.toContain('MI300X');
+  });
+
+  it('live on the GPU with vLLM, and contract examples on the mock adapter', () => {
+    expect(serviceLine(live, 'live')).toBe('This service: live on the GPU, language model: Gemma 4 on vLLM');
+    expect(serviceLine(live, 'mock')).toBe('This UI: contract examples, no service behind it');
+    expect(serviceLine(undefined, 'live')).toBeNull();
   });
 });

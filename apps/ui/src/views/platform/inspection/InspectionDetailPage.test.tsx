@@ -1,16 +1,27 @@
 // Warehouse inspection on the contract examples (US-501..503, docs/ui-design.md 9.2).
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
+import { setScenario } from '@/api/scenario';
 import { setPersona } from '@/app/persona';
 import { readExample } from '@/test/examples';
 import { renderApp } from '@/test/render';
 import { findBannedWording, findUnprovenancedNumbers } from '@/test/scan';
 
-afterEach(() => act(() => setPersona('sara')));
+afterEach(() =>
+  act(() => {
+    setPersona('sara');
+    setScenario('default');
+  }),
+);
 
-/** The photo of the request examples: the mock routes on it (docs/ui-design.md 11.5). */
-function examplePhoto(): File {
-  const { photo } = readExample<{ photo: { data_base64: string } }>('inspection_create_request.json');
+/**
+ * The photo of a request example: the mock routes on it (docs/ui-design.md 11.5). The awaiting
+ * example carries a photo the mock vision reads as damaged, the manual review one a photo it reads
+ * as unclear (contract 1.6.0).
+ */
+function examplePhoto(returnId: string): File {
+  const file = returnId === 'RET-000111' ? 'inspection_create_request.manual_review.json' : 'inspection_create_request.json';
+  const { photo } = readExample<{ photo: { data_base64: string } }>(file);
   const bytes = Uint8Array.from(atob(photo.data_base64), (c) => c.charCodeAt(0));
   return new File([bytes], 'item.jpg', { type: 'image/jpeg' });
 }
@@ -20,7 +31,7 @@ async function sendPhoto(returnId: string) {
   renderApp(`/inspection/${returnId}`);
   await screen.findByText(returnId, {});
   const input = document.querySelector('[data-photo-input]') as HTMLInputElement;
-  fireEvent.change(input, { target: { files: [examplePhoto()] } });
+  fireEvent.change(input, { target: { files: [examplePhoto(returnId)] } });
   const send = await screen.findByRole('button', { name: 'Suggest a checklist from the photo' });
   await waitFor(() => expect(send).toBeEnabled());
   fireEvent.click(send);
@@ -80,7 +91,12 @@ describe('proposal and confirmation (US-502)', () => {
     expect(result.querySelector('[data-claim]')?.textContent).toContain('€17.98');
     expect(result.querySelector('[data-claim]')?.textContent).toContain('DEC-000110-1');
     expect(result.querySelector('[data-claim]')?.textContent).toContain('MSG-000110-1');
-    expect(result.querySelector('[data-template-field="amount"]')?.textContent).toContain('17,98 €');
+    // The claim is on the price paid for the line (ClaimView.line_price, its own provenance).
+    expect(result.querySelector('[data-line-price] [data-figure]')?.textContent).toContain('€89.90');
+    expect(result.querySelector('[data-claim]')?.textContent).toContain('on the price paid for the line');
+    // The message states the refund (the price paid for the line less the claim) and the deduction.
+    expect(result.querySelector('[data-template-field="amount"]')?.textContent).toContain('71,92 €');
+    expect(result.querySelector('[data-template-field="deduction"]')?.textContent).toContain('17,98 €');
   });
 
   it('confirms with Ctrl+Enter but never with a bare Enter', async () => {
@@ -120,7 +136,7 @@ describe('manual review (US-503)', () => {
     await sendPhoto('RET-000111');
     const notice = document.querySelector('[data-manual-review]') as HTMLElement;
     expect(notice.textContent).toContain('The system stopped: verify by hand.');
-    expect(notice.textContent).toContain('Photo too dark to check the tag and the fabric: verify by hand');
+    expect(notice.textContent).toContain('The photo is not clear enough to check the item: verify by hand');
     expect(document.querySelector('[data-proposal="none"]')).not.toBeNull();
     expect(document.querySelector('[data-apply-compensation]')).toBeNull();
   });
@@ -143,6 +159,26 @@ describe('roles and photos', () => {
     expect(screen.getByRole('button', { name: 'Suggest a checklist from the photo' })).toBeDisabled();
     expect(screen.getAllByText('This action is for warehouses (operator can view).').length).toBeGreaterThan(0);
     expect((document.querySelector('[data-photo-input]') as HTMLInputElement).disabled).toBe(true);
+  });
+
+  it('disables every write on the read-only public demo, also for the warehouse, and says so', async () => {
+    act(() => {
+      setScenario('read_only');
+      setPersona('ahmed');
+    });
+    renderApp('/inspection/RET-000110');
+    await screen.findByText('RET-000110', {});
+    await waitFor(() => expect(document.querySelector('[data-inspection-read-only]')).not.toBeNull());
+    expect(screen.getByRole('button', { name: 'Suggest a checklist from the photo' })).toBeDisabled();
+    expect(screen.getAllByText('Read-only public demo').length).toBeGreaterThan(0);
+    expect((document.querySelector('[data-photo-input]') as HTMLInputElement).disabled).toBe(true);
+  });
+
+  it('says in cached mode that the checklist is the template and the inspection stops for a check by hand', async () => {
+    act(() => setScenario('cached'));
+    renderApp('/inspection/RET-000110');
+    await waitFor(() => expect(document.querySelector('[data-inspection-cached]')).not.toBeNull());
+    expect(document.querySelector('[data-inspection-cached]')?.textContent).toContain('no proposal and no claim');
   });
 
   it('refuses a file that is not a JPEG, PNG or WebP photo before any upload', async () => {
@@ -188,5 +224,16 @@ describe('the list (find the return)', () => {
   it('searches through the queue query', async () => {
     renderApp('/inspection?q=Valentina');
     await waitFor(() => expect(document.querySelectorAll('[data-inspection-row]')).toHaveLength(1));
+  });
+});
+
+describe('the confirmation note (InspectionConfirmRequest.note)', () => {
+  it('stops at the schema limit of 300 characters and counts them, so no note earns a 422', async () => {
+    await sendPhoto('RET-000110');
+    const note = screen.getByLabelText('Note for the record (optional)');
+    expect(note).toHaveAttribute('maxLength', '300');
+    fireEvent.change(note, { target: { value: 'Seam opened on the left sleeve' } });
+    expect(document.querySelector('[data-note-count]')).toHaveTextContent('30/300 characters');
+    expect(findUnprovenancedNumbers(document.body)).toEqual([]);
   });
 });

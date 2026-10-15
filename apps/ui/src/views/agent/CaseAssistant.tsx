@@ -11,6 +11,7 @@ import { usePersona } from '@/app/persona';
 import { AssistantPanel } from './AssistantPanel';
 import { AGENT } from './copy';
 import { useDrawerTop } from './layout';
+import { useAssistantModel } from './model';
 import { useAgentStream, type AgentConversation } from './useAgentStream';
 
 export interface CaseAssistantProps {
@@ -35,6 +36,7 @@ interface AssistantDrawerProps extends CaseAssistantProps {
 /** The drawer around a conversation (also used by the dev harness). */
 export function AssistantDrawer({ conversation, returnId, open, onOpenChange, onRefSelect }: AssistantDrawerProps) {
   const top = useDrawerTop(open);
+  const modelName = useAssistantModel();
   const input = useRef<HTMLInputElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
@@ -91,9 +93,11 @@ export function AssistantDrawer({ conversation, returnId, open, onOpenChange, on
               <Dialog.Title className="text-title text-ink-1">
                 <Search aria-hidden="true" size={16} className="mr-2 inline-block align-[-2px] text-ink-2" />
                 {AGENT.title(returnId)}{' '}
-                <span className="font-normal text-ink-3" data-constant>
-                  {AGENT.modelName}
-                </span>
+                {modelName && (
+                  <span className="font-normal text-ink-3" data-constant data-assistant-model>
+                    {modelName}
+                  </span>
+                )}
               </Dialog.Title>
               <Dialog.Description className="text-body text-ink-2">{AGENT.readOnly}</Dialog.Description>
             </div>

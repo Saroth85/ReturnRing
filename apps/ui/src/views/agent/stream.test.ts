@@ -177,9 +177,12 @@ describe('stepsUsedMetric (the tool-call count through the provenance component)
   });
 
   it('is real when Gemma ran on vLLM, and says when it was precomputed', () => {
-    const live = { ...done(), generation: { ...done().generation, llm_mode: 'vllm' as const } };
+    const live = { ...done(), generation: { ...done().generation, llm_mode: 'vllm' as const, model: 'google/gemma-4-31b-it' } };
     expect(stepsUsedMetric(live, 'live').provenance).toMatchObject({ nature: 'real' });
+    // The model of the generation record, never a fixed name (rules 11, 13).
+    expect(stepsUsedMetric(live, 'live').provenance.origin).toMatch(/^google\/gemma-4-31b-it on vLLM: /);
     const cached = { ...live, generation: { ...live.generation, served_from: 'cached' as const } };
-    expect(stepsUsedMetric(cached, 'live').provenance.origin).toContain('precomputed on MI300X');
+    expect(stepsUsedMetric(cached, 'live').provenance.origin).toMatch(/, precomputed$/);
+    expect(stepsUsedMetric(cached, 'live').provenance.origin).not.toContain('MI300X');
   });
 });

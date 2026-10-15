@@ -1,14 +1,21 @@
 // System and benchmarks on the contract examples (US-901, US-902, US-905; docs/ui-design.md 9.4).
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClientProvider } from '@tanstack/react-query';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { api } from '@/api/client';
+import { ApiError } from '@/api/errors';
+import type { ReadyzResponse, TelemetryResponse } from '@/api/models';
 import { createQueryClient } from '@/api/queries';
 import { setScenario } from '@/api/scenario';
+import { readExample } from '@/test/examples';
 import { renderApp } from '@/test/render';
 import { findBannedWording, findUnprovenancedNumbers } from '@/test/scan';
 import { GpuDock } from './GpuDock';
 
-afterEach(() => act(() => setScenario('default')));
+afterEach(() => {
+  vi.restoreAllMocks();
+  act(() => setScenario('default'));
+});
 
 async function loaded() {
   renderApp('/system');
@@ -99,7 +106,102 @@ describe('service mode and readiness (US-901)', () => {
   });
 });
 
+describe('the service clock (ADR-15 sections 15, 19, 20)', () => {
+  it('shows the kind, the now, the snapshot instant, the reset in wall time and the note', async () => {
+    await loaded();
+    const clock = await waitFor(() => {
+      const el = document.querySelector('[data-clock]');
+      expect(el).not.toBeNull();
+      return el as HTMLElement;
+    });
+    expect(clock.getAttribute('data-clock')).toBe('demo');
+    expect(clock.getAttribute('data-clock-frozen')).toBe('no');
+    expect(clock.textContent).toContain('contract example: demo clock');
+    expect(clock.textContent).toContain('snapshot 30 Sep 2026, 18:00 UTC');
+    expect(clock.textContent).toContain('(wall time)');
+    expect(clock.querySelector('[data-verbatim]')?.textContent).toMatch(/^Demo clock/);
+  });
+
+  it('says a frozen clock is frozen and never moves it (the read-only demo)', async () => {
+    act(() => setScenario('cached'));
+    await loaded();
+    const clock = await waitFor(() => {
+      const el = document.querySelector('[data-clock][data-clock-frozen="yes"]');
+      expect(el).not.toBeNull();
+      return el as HTMLElement;
+    });
+    expect(clock.querySelector('[data-clock-state]')?.textContent).toBe('frozen at the snapshot instant: it does not move');
+    expect(clock.textContent).toContain('now 30 Sep 2026, 18:00 UTC');
+    expect(clock.textContent).toContain('the read-only demo');
+  });
+
+  it('says a frozen clock past its snapshot stands at the latest recorded act (contract 1.8.1)', async () => {
+    const cached = readExample<ReadyzResponse>('readyz_response.cached.json');
+    const note = 'Demo clock, frozen at the latest act recorded after the serving snapshot: the read-only demo';
+    vi.spyOn(api, 'readyz').mockResolvedValue({ ...cached, clock: { ...cached.clock, now: '2026-09-30T19:12:00Z', note } });
+    act(() => setScenario('cached'));
+    await loaded();
+    const clock = await waitFor(() => {
+      const el = document.querySelector('[data-clock][data-clock-frozen="yes"]');
+      expect(el).not.toBeNull();
+      return el as HTMLElement;
+    });
+    expect(clock.querySelector('[data-clock-state]')?.textContent).toBe(
+      'frozen at the latest act recorded after the snapshot: it does not move',
+    );
+    expect(clock.textContent).toContain('now 30 Sep 2026, 19:12 UTC');
+    expect(clock.textContent).toContain('snapshot 30 Sep 2026, 18:00 UTC');
+    expect(clock.querySelector('[data-verbatim]')?.textContent).toBe(note);
+  });
+});
+
 describe('telemetry (US-905)', () => {
+  it('labels the sample times as wall time', async () => {
+    await loaded();
+    const panel = document.querySelector('#telemetry') as HTMLElement;
+    await waitFor(() => expect(panel.querySelector('[data-wall-time]')).not.toBeNull());
+    expect(panel.textContent).toContain('GPU samples keep the real clock, not the demo clock');
+    expect(panel.querySelector('[data-telemetry-history] th')?.textContent).toBe('Time (UTC, wall time)');
+  });
+
+  it('shows the note of a live service without a GPU sample as such, not as the cached mode', async () => {
+    const cpu: TelemetryResponse = {
+      mode: 'live',
+      sampled_at: '2026-10-15T00:36:35Z',
+      interval_s: 5,
+      device: null,
+      gpu: null,
+      gpu_history: [],
+      llm: null,
+      api_latency_p95: null,
+      note: 'No GPU sample in the last 60 s: the amd-smi sampler is not running (DEVICE=cpu)',
+    };
+    vi.spyOn(api, 'getTelemetry').mockResolvedValue(cpu);
+    await loaded();
+    const panel = document.querySelector('#telemetry') as HTMLElement;
+    const note = await waitFor(() => {
+      const el = panel.querySelector('[data-telemetry-no-sample]');
+      expect(el).not.toBeNull();
+      return el as HTMLElement;
+    });
+    expect(note.textContent).toContain('No GPU sample to show');
+    expect(note.textContent).toContain('the amd-smi sampler is not running');
+    expect(panel.querySelector('[data-telemetry-cached]')).toBeNull();
+    expect(panel.querySelectorAll('[data-figure]')).toHaveLength(0);
+    expect(findUnprovenancedNumbers(panel)).toEqual([]);
+  });
+
+  it('says how to sign in when the proxy protects the telemetry (401), never a page that does not exist', async () => {
+    vi.spyOn(api, 'getTelemetry').mockRejectedValue(new ApiError({ status: 401, code: 'protected', message: 'protected' }));
+    await loaded();
+    const panel = document.querySelector('#telemetry') as HTMLElement;
+    await waitFor(() => expect(panel.querySelector('[data-telemetry-protected]')).not.toBeNull());
+    const text = panel.querySelector('[data-telemetry-protected]')?.textContent ?? '';
+    expect(text).toContain('basic auth');
+    expect(text).toContain('/api/telemetry');
+    expect(text).not.toContain('/admin');
+  });
+
   it('shows GPU, memory, power, the language model and the API, marked illustrative', async () => {
     await loaded();
     const panel = document.querySelector('#telemetry') as HTMLElement;
@@ -118,7 +220,9 @@ describe('telemetry (US-905)', () => {
     await loaded();
     const panel = document.querySelector('#telemetry') as HTMLElement;
     await waitFor(() => expect(panel.querySelector('[data-telemetry-cached]')).not.toBeNull());
-    expect(panel.textContent).toContain('GPU off: cached mode serves results precomputed on the AMD MI300X');
+    // The cached note names no hardware (contract 1.5.2): where outputs were made is readyz.label's claim.
+    expect(panel.textContent).toContain('GPU off: cached mode serves precomputed results');
+    expect(panel.textContent).not.toContain('MI300X');
     expect(panel.querySelectorAll('[data-figure]')).toHaveLength(0);
   });
 });

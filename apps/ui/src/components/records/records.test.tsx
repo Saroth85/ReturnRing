@@ -56,10 +56,11 @@ describe('audit helpers', () => {
   it('filters entries like the API, plus human actions only', () => {
     const humans = audit.items.filter((e) => matchesAuditFilters(e, { humanOnly: true }));
     expect(humans.every((e) => e.actor_role !== 'system')).toBe(true);
-    expect(audit.items.filter((e) => matchesAuditFilters(e, { actor: 'luca' })).map((e) => e.entry_id)).toEqual([14, 13, 9]);
+    expect(audit.items.filter((e) => matchesAuditFilters(e, { actor: 'luca' })).map((e) => e.entry_id)).toEqual([62, 61, 60, 59, 51, 36, 23, 6, 5, 3]);
     const day = audit.items.filter((e) => matchesAuditFilters(e, { since: sinceOf('2026-09-30'), until: untilOf('2026-09-30') }));
     expect(day.every((e) => e.at.startsWith('2026-09-30'))).toBe(true);
-    expect(day.length).toBe(audit.items.length - 2);
+    expect(day.length).toBe(audit.items.filter((e) => e.at.startsWith('2026-09-30')).length);
+    expect(day.length).toBeGreaterThan(0);
     expect(toAuditQuery({ actor: 'luca', action: [], humanOnly: true })).toEqual({ actor: 'luca' });
   });
 
@@ -118,7 +119,7 @@ describe('ActorBadge', () => {
 });
 
 describe('AuditDiff', () => {
-  it('marks what a lift changed, without printing an unprovenanced risk', () => {
+  it('marks what a lift changed, the risk as a Figure with its own provenance', () => {
     const lift = entry('restriction_lifted');
     const { container } = renderWithProviders(<AuditDiff before={lift.before} after={lift.after} recordHref={entityHref(lift)} />);
     const changed = Array.from(container.querySelectorAll('[data-changed]')).map((r) => r.getAttribute('data-diff-row'));
@@ -127,6 +128,8 @@ describe('AuditDiff', () => {
     expect(changed).not.toContain('risk');
     expect(screen.getByText('Refund within the legal terms')).toBeInTheDocument();
     expect(screen.getByText('same as before')).toBeInTheDocument();
+    const risk = container.querySelector('[data-diff-row="risk"]') as HTMLElement;
+    expect(risk.querySelectorAll('[data-figure][data-unit="probability"]')).toHaveLength(2);
     expect(findUnprovenancedNumbers(container)).toEqual([]);
   });
 
@@ -136,12 +139,43 @@ describe('AuditDiff', () => {
     expect(screen.getByText('lower than before')).toBeInTheDocument();
   });
 
-  it('shows a generic payload, keeping numbers in their record', () => {
+  it('shows a generic payload, a Metric with its provenance and a plain number kept in its record', () => {
     const inspection = entry('inspection_confirmed');
     const { container } = renderWithProviders(<AuditDiff before={inspection.before} after={inspection.after} />);
     expect(screen.getByText('DV-RULE-1')).toBeInTheDocument();
-    expect(screen.getByText(RECORDS.diff.numberHidden)).toBeInTheDocument();
+    expect(container.querySelector('[data-figure][data-unit="eur"]')).not.toBeNull();
     expect(findUnprovenancedNumbers(container)).toEqual([]);
+  });
+
+  it('shows a generated text as its GenerationAuditState: path, fallback reason, model calls, validator codes', () => {
+    const generation = audit.items.find((e) => e.action === 'draft_generated' && e.entity_id === 'GEN-000109-1')!;
+    const { container } = renderWithProviders(<AuditDiff before={generation.before} after={generation.after} />);
+    expect(container.querySelector('[data-audit-diff="generation"]')).not.toBeNull();
+    const row = (key: string) => (container.querySelector(`[data-diff-row="${key}"]`) as HTMLElement).textContent;
+    expect(row('kind')).toContain(RECORDS.diff.kinds.case_draft);
+    expect(row('path')).toContain('Reviewed template, no model text');
+    expect(row('fallback')).toContain('the model output restated a different decision');
+    expect(row('model_calls')).toContain('1 model call');
+    expect(row('validator_codes')).toContain('DECISION_ECHO, TERMS_TOPIC');
+    expect(row('served_from')).toContain('Live');
+    expect(screen.queryByText(RECORDS.diff.numberHidden)).toBeNull();
+    expect(findUnprovenancedNumbers(container)).toEqual([]);
+  });
+
+  it('names the model of the entry in the path row: the mock model, or the served model id (rules 11, 13)', () => {
+    const generation = audit.items.find((e) => e.action === 'draft_generated' && e.entity_id === 'GEN-000109-1')!;
+    const after = generation.after as Extract<AuditEntry['after'], { generation_path: string }>;
+    const mock = { ...after, generation_path: 'model' as const, fallback_reason: null, validator_codes: [] };
+    const { container, unmount } = renderWithProviders(<AuditDiff before={null} after={mock} />);
+    const row = () => (container.querySelector('[data-diff-row="path"]') as HTMLElement).textContent;
+    expect(row()).toContain('Mock language model (hand-written stand-in) · validated on the first call');
+    expect(row()).not.toContain('Gemma');
+    unmount();
+    const vllm = { ...mock, llm_mode: 'vllm' as const, model: 'google/gemma-4-31b-it', generation_path: 'regenerated' as const, model_calls: 2 };
+    const second = renderWithProviders(<AuditDiff before={null} after={vllm} />);
+    expect((second.container.querySelector('[data-diff-row="path"]') as HTMLElement).textContent).toContain(
+      'google/gemma-4-31b-it · validated on the second call',
+    );
   });
 });
 
@@ -167,7 +201,7 @@ describe('CouponApplicationsTable', () => {
   });
 
   it('shows a lapse when the server says so', () => {
-    const lapsed = { ...coupons.applications[0]!, review_due: true } as (typeof coupons.applications)[number];
+    const lapsed = { ...coupons.applications[0]!, in_force: false };
     const { container } = renderWithProviders(<CouponApplicationsTable applications={[lapsed]} />);
     expect(container.querySelector('[data-lapsed]')).toHaveTextContent('Lapsed');
   });

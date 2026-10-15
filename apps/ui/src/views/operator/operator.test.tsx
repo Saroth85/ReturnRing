@@ -3,7 +3,9 @@
 // (COPY-LINT: no banned word, no number literal).
 import { screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
+import { LEGAL_MINIMUM_WINDOW_DAYS } from '@/api/contract.gen';
 import type { CaseCard, QueueResponse } from '@/api/models';
+import { HISTORY_MONTHS, REVIEW_HORIZON_DAYS, SOON_AFTER_DELIVERY_DAYS } from '@/copy/constants';
 import { findBannedTerms, UI_COPY_BANNED } from '@/copy/bannedTerms';
 import { readExample } from '@/test/examples';
 import { renderWithProviders } from '@/test/render';
@@ -56,10 +58,23 @@ describe('ExplanationSection', () => {
     expect(container.querySelector('[data-statement-group="SCORE"]')).not.toBeNull();
     expect(container.querySelector('[data-statement-group="HYPOTHESIS"]')).not.toBeNull();
     const citations = Array.from(container.querySelectorAll('[data-fact-citation]')).map((c) => c.textContent);
+    // The SCORE statement cites the risk score (dated the day it was scored, contract 1.8.0) and a
+    // cluster fact: each with its entity, metric, value, period and nature.
     expect(citations[1]).toContain('C-MARCO-1');
-    expect(citations[1]).toContain('· risk · 0.87 · 2025-10-01 to 2026-09-30');
+    expect(citations[1]).toContain('· risk_score · 0.87 · as of 28 Sep 2026');
+    expect(citations[1]).toContain('CL-000417');
+    expect(citations[1]).toContain('· welcome_coupons_per_account · 1 · as of 1 Sep 2026');
     expect(citations[1]).toContain('Synthetic');
     expect(citations[2]).toContain('no figure cited');
+    // The values are plain numbers under the draft's provenance, with a footer (rule 11).
+    const scope = container.querySelector('[data-provenance-scope][data-covers="' + OPERATOR.explanation.factsCover + '"]') as HTMLElement;
+    expect(scope).toHaveAttribute('data-has-footer');
+    expect(scope.querySelectorAll('[data-fact] [data-plain-number]').length).toBeGreaterThan(0);
+    expect(scope.querySelector('[data-provenance-footer]')).toHaveTextContent(marco.draft!.provenance.origin);
+    // The facts are dated with the customer snapshot and the day the risk was scored (1.7.0, 1.8.0).
+    expect(container.querySelector('[data-fact-dates]')).toHaveTextContent(
+      'Facts dated with the customer snapshot of 1 Sep 2026; the risk score with the day it was scored, 28 Sep 2026.',
+    );
     expect(container.querySelector('[data-echo="match"]')?.textContent).toContain('6 levers');
     expect(findUnprovenancedNumbers(container)).toEqual([]);
     expect(findBannedWording(container).errors).toEqual([]);
@@ -82,7 +97,7 @@ describe('ExplanationSection', () => {
         ...elena.draft!,
         explanation: [
           ...elena.draft!.explanation,
-          { label: 'SCORE', text: 'A forged score', entity: null, metric: null, value: null, period: null },
+          { label: 'SCORE', fact_ids: [], text: 'A forged score', facts: [] },
         ],
       },
     };
@@ -145,6 +160,29 @@ describe('QueueTable', () => {
   });
 });
 
+describe('QueueTable refund deadlines (ADR-15 sections 15, 19, 20)', () => {
+  it('shows the refund day, never one on the guarantee path, and the server flag refund_overdue', () => {
+    const base = readExample<QueueResponse>('queue_response.json');
+    const page: QueueResponse = {
+      ...base,
+      items: base.items.map((i) => (i.return_id === 'RET-000101' ? { ...i, refund_overdue: true } : i)) as QueueResponse['items'],
+    };
+    const { container } = renderWithProviders(
+      <QueueTable page={page} tab="all" selected={0} onSelect={() => undefined} onPrefetch={() => undefined} newIds={new Set()} />,
+    );
+    const row = (id: string) => container.querySelector(`[data-return-row="${id}"]`) as HTMLElement;
+    expect(row('RET-000102').querySelector('[data-refund-due="2026-10-12"]')).toHaveTextContent('12 Oct 2026');
+    expect(row('RET-000102').querySelector('[data-refund-overdue]')).toBeNull();
+    // Elena: the guarantee path states no refund deadline (rule 4).
+    expect(row('RET-000105').querySelector('[data-refund-due="none"]')).toHaveTextContent(OPERATOR.queue.noRefundDeadline);
+    expect(row('RET-000105').querySelector('[data-refund-due] time')).toBeNull();
+    expect(row('RET-000101').querySelector('[data-refund-overdue]')).toHaveTextContent(OPERATOR.queue.refundOverdue);
+    // A deadline is a date, never a number without provenance.
+    for (const cell of container.querySelectorAll('[data-refund-due]')) expect(findUnprovenancedNumbers(cell)).toEqual([]);
+    expect(screen.getByRole('columnheader', { name: OPERATOR.queue.columns.refundDue })).toBeInTheDocument();
+  });
+});
+
 describe('operator copy (COPY-LINT)', () => {
   it('uses no banned word and no number literal', () => {
     const strings: string[] = [];
@@ -155,8 +193,11 @@ describe('operator copy (COPY-LINT)', () => {
     };
     collect(OPERATOR);
     expect(findBannedTerms(strings.join('\n'), UI_COPY_BANNED)).toEqual([]);
-    // Digits come only from named constants (HISTORY_MONTHS, LEGAL_MINIMUM_WINDOW_DAYS, REVIEW_HORIZON_DAYS).
-    const literal = strings.filter((s) => /\d/.test(s.replace(/\b(12|14|90)\b/g, '')));
+    // Digits come only from named constants (HISTORY_MONTHS, LEGAL_MINIMUM_WINDOW_DAYS,
+    // REVIEW_HORIZON_DAYS, SOON_AFTER_DELIVERY_DAYS).
+    const named = [HISTORY_MONTHS, LEGAL_MINIMUM_WINDOW_DAYS, REVIEW_HORIZON_DAYS, SOON_AFTER_DELIVERY_DAYS];
+    const constants = new RegExp(`\\b(${named.join('|')})\\b`, 'g');
+    const literal = strings.filter((s) => /\d/.test(s.replace(constants, '')));
     expect(literal).toEqual([]);
   });
 });

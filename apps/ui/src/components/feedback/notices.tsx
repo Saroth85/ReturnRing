@@ -1,11 +1,14 @@
 import clsx from 'clsx';
 import { Info, OctagonAlert, TriangleAlert, type LucideIcon } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
+import type { EndpointKey } from '@/api/client';
 import { DEMO_USERS } from '@/api/contract.gen';
+import type { Role } from '@/api/models';
 import { personaName, setPersona } from '@/app/persona';
 import { FEEDBACK, SHELL } from '@/copy/common';
 import { LLM_RETRY_SECONDS } from '@/copy/constants';
 import { Button } from '@/components/ui/Button';
+import { isReadOnlyRefusal, useReadOnly } from './roles';
 
 type Tone = 'info' | 'attention' | 'danger';
 const TONES: Record<Tone, { className: string; Icon: LucideIcon }> = {
@@ -48,8 +51,38 @@ export function LlmUnavailableNotice({ onRetry }: { onRetry?: () => void }) {
   );
 }
 
-/** A 403 that RoleGate should have prevented: say why and offer the other personas. */
-export function ForbiddenRoleNotice({ role, action }: { role: string; action: string }) {
+/**
+ * The read-only public demo refused a write (403 while /readyz says `public_read_only`, ADR-15
+ * section 15): nothing was saved, and no persona can do it here. The API's message, verbatim.
+ */
+export function ReadOnlyNotice({ message }: { message?: string | null }) {
+  return (
+    <div data-read-only-refusal>
+      <InlineNotice tone="attention" title={FEEDBACK.readOnlyDemo}>
+        {message && <p data-verbatim>{message}</p>}
+        <p>{FEEDBACK.readOnlyBody}</p>
+      </InlineNotice>
+    </div>
+  );
+}
+
+interface ForbiddenRoleNoticeProps {
+  role: string;
+  /** What the persona tried, in words ("approve", "save the assumptions"). */
+  action: string;
+  /** The endpoint refused: tells the read-only demo from a role that may not call it. */
+  endpoint?: EndpointKey;
+  /** The API's message, shown verbatim on the read-only refusal. */
+  message?: string | null;
+}
+
+/**
+ * A 403 that RoleGate should have prevented: on the read-only public demo, the read-only notice;
+ * otherwise say why and offer the other personas.
+ */
+export function ForbiddenRoleNotice({ role, action, endpoint, message }: ForbiddenRoleNoticeProps) {
+  const readOnly = useReadOnly();
+  if (isReadOnlyRefusal(readOnly, role as Role, endpoint)) return <ReadOnlyNotice message={message} />;
   return (
     <InlineNotice tone="attention">
       <p>{FEEDBACK.forbidden(SHELL.roles[role] ?? role, action)}</p>

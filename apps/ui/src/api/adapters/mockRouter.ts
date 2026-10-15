@@ -4,7 +4,7 @@
 // the file system. Relative imports only: the Vite config bundles this file too.
 import { CONTRACT_VERSION, DEMO_USERS, ENDPOINTS, QUERY_PARAMS } from '../contract.gen';
 import type { AgentEvent } from '../sse';
-import type { AuditPage, CaseCard, ErrorResponse, OutboxResponse, QueueItem, QueueResponse } from '../types.gen';
+import type { AuditPage, CaseCard, DecisionResult, ErrorResponse, OutboxResponse, QueueItem, QueueResponse, ReadyzResponse } from '../types.gen';
 import { UI_FIXTURE_SCENARIOS } from './fixtures';
 
 export interface MockRoute {
@@ -52,6 +52,38 @@ export { UI_FIXTURE_SCENARIOS };
 export type Endpoint = (typeof ENDPOINTS)[number];
 
 const SCENARIO_HEADER = 'x-mock-scenario';
+
+/**
+ * The writes the public read-only API keeps (ADR-15 section 15): the scenario `read_only` answers
+ * every other write with the contract's 403 forbidden_role, as PUBLIC_READ_ONLY=on does.
+ */
+const READ_ONLY_OPEN_WRITES: ReadonlySet<string> = new Set(['POST /api/agent/ask', 'POST /api/checkout/evaluate']);
+const READ_ONLY_SCENARIO = 'read_only';
+/** Statuses of a scenario that hold for every request of the endpoint: 429 per client, 503 model off. */
+const CLIENT_WIDE_STATUSES: ReadonlySet<number> = new Set([429, 503]);
+/**
+ * The UI fixture `refund_deadline_passed`: /readyz says it is a day past most refund deadlines of
+ * the examples (a running demo clock), the queue flags every proposal past its deadline as the API
+ * does (apps/api/schemas.py refund_overdue), and a rejection or an override to the standard terms
+ * goes on without a message (late_without_message, ADR-15 sections 19 and 20).
+ */
+const LATE_SCENARIO = 'refund_deadline_passed';
+export const LATE_NOW = '2026-10-13T09:00:00Z';
+
+/** refund_overdue of a queue item on the UTC day `today`: a proposal past its deadline. */
+export function proposalOverdue(item: Pick<QueueItem, 'state' | 'refund_due_by'>, today: string): boolean {
+  return item.state === 'proposed' && item.refund_due_by !== null && item.refund_due_by < today;
+}
+
+/** Retry-After when a 429 example states no wait in seconds ("try again in a minute"). */
+const DEFAULT_RETRY_AFTER_S = 60;
+
+/** The Retry-After of a 429 example (ADR-15 section 16): the seconds its message states. */
+export function retryAfterOf(body: unknown): number {
+  const message = body && typeof body === 'object' ? (body as { message?: unknown }).message : undefined;
+  const match = typeof message === 'string' ? /\bin (\d+) s\b/.exec(message) : null;
+  return match ? Math.max(1, Number(match[1])) : DEFAULT_RETRY_AFTER_S;
+}
 
 function escapeRegex(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -122,16 +154,32 @@ function sameValue(a: unknown, b: unknown): boolean {
   return a === b;
 }
 
-/** Fields compared between a request body and the request example (free text never is). */
-const BODY_KEYS: Record<string, (body: Record<string, unknown> | null) => unknown> = {
-  'POST /api/returns/{return_id}/decision': (b) => b?.action,
-  'POST /api/agent/ask': (b) => b?.question,
-  'POST /api/checkout/evaluate': (b) => b?.customer_id,
-  'POST /api/checkout/confirm': (b) => b?.customer_id,
+type BodyKey = (body: Record<string, unknown> | null) => unknown;
+
+/**
+ * Fields compared between a request body and the request example (free text never is), most
+ * specific first. Only the first key ties an example to the body, so an error example is served
+ * for it alone; the looser keys pick a success example, or a route of the scenario asked for.
+ */
+const BODY_KEYS: Record<string, readonly BodyKey[]> = {
+  // The approver too: an example of another approver (a contract refusal of their role) is not
+  // this request. The action alone still picks a success example for any other approver.
+  'POST /api/returns/{return_id}/decision': [(b) => ({ action: b?.action, approver: b?.approver }), (b) => b?.action],
+  'POST /api/agent/ask': [(b) => b?.question],
+  'POST /api/checkout/evaluate': [(b) => b?.customer_id],
+  'POST /api/checkout/confirm': [(b) => b?.customer_id],
   // The two inspection examples carry the same photo, so the return decides (RET-000111 is the
   // manual review), together with the photo of docs/ui-design.md 11.5.
-  'POST /api/inspections': (b) => [b?.return_id, (b?.photo as Record<string, unknown> | undefined)?.data_base64],
+  'POST /api/inspections': [(b) => [b?.return_id, (b?.photo as Record<string, unknown> | undefined)?.data_base64]],
 };
+
+/**
+ * The example file that holds a route's answer. A `.sse` stream is read from its `.json` sibling,
+ * which carries the same events as a list (the adapters write the frames themselves).
+ */
+export function responseFile(response: string): string {
+  return response.endsWith('.sse') ? `${response.slice(0, -'.sse'.length)}.json` : response;
+}
 
 /** QueueQuery.matches of apps/api/schemas.py, the reference meaning of the queue filters. */
 export function queueItemMatches(item: QueueItem, q: Record<string, unknown>): boolean {
@@ -153,6 +201,10 @@ export function queueItemMatches(item: QueueItem, q: Record<string, unknown>): b
   );
 }
 
+/** A guarantee case has no refund deadline: after every date (`date.max` of the API). */
+const NO_REFUND_DEADLINE = '9999-12-31';
+const dueKey = (item: QueueItem): string => item.refund_due_by ?? NO_REFUND_DEADLINE;
+
 function sortQueue(items: QueueItem[], sort: string): QueueItem[] {
   const byId = (a: QueueItem, b: QueueItem) => a.return_id.localeCompare(b.return_id);
   const sorted = [...items];
@@ -166,6 +218,10 @@ function sortQueue(items: QueueItem[], sort: string): QueueItem[] {
     case '-risk':
       // Unscored items (guarantee path, not enough evidence) last.
       return sorted.sort((a, b) => (b.risk?.value ?? -1) - (a.risk?.value ?? -1) || byId(a, b));
+    case 'refund_due_by':
+      // SORTS of apps/api/services/operator/queue.py: the earliest refund deadline first (an
+      // overdue case before any other), a guarantee case (no deadline, rule 4) last, ties by id.
+      return sorted.sort((a, b) => dueKey(a).localeCompare(dueKey(b)) || byId(a, b));
     default:
       return sorted.sort((a, b) => b.expected_net_benefit.value - a.expected_net_benefit.value || byId(a, b));
   }
@@ -249,6 +305,7 @@ export function createMockRouter(index: MockIndex, load: ExampleLoader, options:
         'x-request-id': requestId,
       };
       if (example) replyHeaders['x-mock-example'] = example;
+      if (status === 429 && replyBody.kind === 'json') replyHeaders['retry-after'] = String(retryAfterOf(replyBody.value));
       if (notes.length > 0) replyHeaders['x-mock-note'] = notes.join('; ');
       return { status, body: replyBody, headers: replyHeaders, example, note: notes.length > 0 ? notes.join('; ') : null };
     };
@@ -263,9 +320,44 @@ export function createMockRouter(index: MockIndex, load: ExampleLoader, options:
       return reply(404, { kind: 'json', value: { ...notFound, message: `${method} ${pathname} is not a route of the contract`, request_id: requestId } }, 'error.not_found.json', 'no such route');
     }
     const key = `${endpoint.method} ${endpoint.path}`;
+    const samePath = index.routes.filter((r) => r.method === method && r.path === pathname);
+    const endpointRoutes = index.routes.filter((r) => r.method === method && r.endpoint === endpoint.path);
+    const asked = scenario === 'default' ? [] : samePath.filter((r) => r.scenario === scenario);
+    const askedEndpoint = scenario === 'default' ? [] : endpointRoutes.filter((r) => r.scenario === scenario);
+    const defaults = samePath.filter((r) => r.scenario === 'default');
+
+    // Body matching for writes: 0 when the most specific key of BODY_KEYS matches, a higher level
+    // for a looser key, null for none. An endpoint without keys matches every route at 0.
+    const keys = BODY_KEYS[key] ?? [];
+    const requestOf = async (r: MockRoute) => (r.request === null ? null : ((await load(r.request)) as Record<string, unknown>));
+    const matchLevel = async (r: MockRoute): Promise<number | null> => {
+      if (keys.length === 0) return 0;
+      const example = await requestOf(r);
+      if (!example) return null;
+      const level = keys.findIndex((k) => sameValue(k(body), k(example)));
+      return level < 0 ? null : level;
+    };
+    const strict = async (r: MockRoute) => (await matchLevel(r)) === 0;
+    const loose = async (r: MockRoute) => (await matchLevel(r)) !== null;
+    const firstOf = async (routes: MockRoute[], ok: (r: MockRoute) => Promise<boolean> | boolean) => {
+      for (const r of routes) if (await ok(r)) return r;
+      return null;
+    };
+
+    // A contract route for this very request (its example names the same actor, and its first
+    // key matches) is served as the contract states it, a 403 included, unless the scenario asked
+    // for has its own route: the role check below applies only when the contract has no such route.
+    const actorOf = (value: Record<string, unknown> | null) => (endpoint.actorField ? value?.[endpoint.actorField] : undefined);
+    const contractRoute =
+      method === 'GET'
+        ? null
+        : await firstOf([...asked, ...askedEndpoint, ...defaults], async (r) => {
+            const example = await requestOf(r);
+            return example !== null && (await strict(r)) && sameValue(actorOf(example), actorOf(body));
+          });
 
     // Roles (ADR-15 section 5): the actor field of the body names a demo user and their role.
-    if (endpoint.actorField && method !== 'GET') {
+    if (endpoint.actorField && method !== 'GET' && !contractRoute) {
       const actor = body?.[endpoint.actorField];
       const user = DEMO_USERS.find((u) => u.id === actor);
       if (!user || !(endpoint.roles as readonly string[]).includes(user.role)) {
@@ -279,24 +371,15 @@ export function createMockRouter(index: MockIndex, load: ExampleLoader, options:
       }
     }
 
-    // UI-only scenarios (open question O-1).
-    const errors = endpoint.errors as readonly number[];
-    if (scenario === 'forbidden_role' && method !== 'GET' && errors.includes(403)) {
-      return reply(403, fixtureError('forbidden_role', `your role cannot call ${key}`, requestId), null, 'UI fixture');
-    }
-    if (scenario === 'llm_unavailable' && errors.includes(503)) {
-      return reply(503, fixtureError('llm_unavailable', 'the language model is unavailable; templates still work', requestId), null, 'UI fixture');
-    }
-    if (scenario === 'rate_limited' && errors.includes(429)) {
-      return reply(429, fixtureError('rate_limited', 'too many questions in a short time', requestId), null, 'UI fixture');
-    }
-    if (scenario === 'conflict' && method !== 'GET' && errors.includes(409)) {
-      return reply(409, fixtureError('conflict', 'already decided by luca at 18:20 UTC; nothing was saved', requestId), null, 'UI fixture');
+    // The public read-only API (ADR-15 section 15): every write but the agent and the checkout
+    // evaluation answers 403 with the contract's read-only error, named for this route.
+    if (scenario === READ_ONLY_SCENARIO && method !== 'GET' && !READ_ONLY_OPEN_WRITES.has(key) && !(contractRoute && asked.includes(contractRoute))) {
+      const readOnly = (await load('error.read_only.json')) as ErrorResponse;
+      const message = readOnly.message.replace(/(GET|POST|PUT|PATCH|DELETE) \/api\/\S+/, `${method} ${endpoint.path}`);
+      return reply(403, { kind: 'json', value: { ...readOnly, message, request_id: requestId } }, 'error.read_only.json', 'read-only demo');
     }
 
     // Example lookup: method and concrete path, then scenario, then query or body keys.
-    const samePath = index.routes.filter((r) => r.method === method && r.path === pathname);
-    const endpointRoutes = index.routes.filter((r) => r.method === method && r.endpoint === endpoint.path);
     const notFoundReply = async (note: string, message?: string) => {
       const notFound = (await load('error.not_found.json')) as ErrorResponse;
       return reply(404, { kind: 'json', value: { ...notFound, ...(message ? { message } : {}), request_id: requestId } }, 'error.not_found.json', note);
@@ -341,28 +424,30 @@ export function createMockRouter(index: MockIndex, load: ExampleLoader, options:
       }
       if (fallbackNote) notes.push(fallbackNote);
     } else {
-      // Writes (UI2): an error example is served only when its request matches the body or its
-      // scenario was asked for. Otherwise a success example of the same endpoint, with a note, so
-      // a valid action is never answered with a refusal that belongs to another request.
-      const keyOf = BODY_KEYS[key];
-      const wanted = keyOf ? keyOf(body) : undefined;
-      const matches = async (r: MockRoute) =>
-        keyOf ? r.request !== null && sameValue(wanted, keyOf((await load(r.request)) as Record<string, unknown>)) : true;
-      const firstOf = async (routes: MockRoute[], ok: (r: MockRoute) => Promise<boolean> | boolean) => {
-        for (const r of routes) if (await ok(r)) return r;
-        return null;
-      };
-      const asked = scenario === 'default' ? [] : samePath.filter((r) => r.scenario === scenario);
-      const askedEndpoint = scenario === 'default' ? [] : endpointRoutes.filter((r) => r.scenario === scenario);
-      const defaults = samePath.filter((r) => r.scenario === 'default');
+      // Writes (UI2): an error example is served only when its request matches the body on the
+      // first key or its scenario was asked for. Otherwise a success example of the same endpoint,
+      // with a note, so a valid action is never answered with a refusal that belongs to another
+      // request. Within each step the most specific match wins.
+      const inScenario = async (routes: MockRoute[]) =>
+        (await firstOf(routes, async (r) => r.request === null || (await strict(r)))) ?? (await firstOf(routes, loose));
+      // A refusal of the scenario asked for that does not depend on the request (the per-client
+      // rate limit, the language model off in the cached demo) answers every request of the
+      // endpoint, as the live service does.
+      const anyRequest = askedEndpoint.find((r) => CLIENT_WIDE_STATUSES.has(r.status)) ?? null;
       chosen =
-        (await firstOf(asked, (r) => r.request === null || matches(r))) ??
-        (await firstOf(askedEndpoint, (r) => r.request === null || matches(r))) ??
-        (await firstOf(defaults, async (r) => (keyOf ? matches(r) : r.status < 400))) ??
+        (await inScenario(asked)) ??
+        (await inScenario(askedEndpoint)) ??
+        anyRequest ??
+        contractRoute ??
+        (await firstOf(defaults, async (r) => (keys.length > 0 ? strict(r) : r.status < 400))) ??
         null;
+      if (!chosen && keys.length > 1) {
+        chosen = await firstOf(defaults, async (r) => r.status < 400 && (await loose(r)));
+        if (chosen) notes.push(`no example for this request body on ${pathname}; served ${chosen.response} (a looser match)`);
+      }
       if (!chosen) {
         const successes = endpointRoutes.filter((r) => r.scenario === 'default' && r.status < 400);
-        chosen = (await firstOf(successes, matches)) ?? successes[0] ?? null;
+        chosen = (await firstOf(successes, strict)) ?? (await firstOf(successes, loose)) ?? successes[0] ?? null;
         if (chosen) {
           const where = chosen.path === pathname ? '' : ` (an example for ${chosen.path})`;
           notes.push(`no example for this request body on ${pathname}; served ${chosen.response}${where}`);
@@ -374,10 +459,10 @@ export function createMockRouter(index: MockIndex, load: ExampleLoader, options:
       return reply(404, { kind: 'json', value: { ...notFound, request_id: requestId } }, 'error.not_found.json', 'no example matched');
     }
 
-    const example = await load(chosen.response);
+    const example = await load(responseFile(chosen.response));
 
     // Streams: the contract's event list, written frame by frame by the adapter.
-    if (chosen.media_type === 'text/event-stream') {
+    if (chosen.media_type === 'text/event-stream' || chosen.response.endsWith('.sse')) {
       let events = example as AgentEvent[];
       if (scenario === 'agent_error') {
         const done = events.find((e) => e.type === 'done');
@@ -392,7 +477,15 @@ export function createMockRouter(index: MockIndex, load: ExampleLoader, options:
 
     let value: unknown = withRequestId(example);
     if (endpoint.path === '/api/returns' && method === 'GET') {
-      const base = value as QueueResponse;
+      let base = value as QueueResponse;
+      if (scenario === LATE_SCENARIO) {
+        const today = LATE_NOW.slice(0, 10);
+        base = { ...base, as_of: LATE_NOW, items: base.items.map((i) => ({ ...i, refund_overdue: i.refund_overdue || proposalOverdue(i, today) })) };
+        value = base;
+        notes.push('UI fixture: proposals past their refund deadline on the scenario day');
+      }
+      // The contract's `empty` scenario (no reset yet: GET /api/demo/cases answers 404) has an
+      // empty queue too.
       if (scenario === 'empty') {
         value = { ...base, items: [], total: 0 };
         notes.push('UI fixture: empty queue');
@@ -400,6 +493,24 @@ export function createMockRouter(index: MockIndex, load: ExampleLoader, options:
         value = filterQueue(base, filterQuery);
         notes.push('filtered by the mock with QueueQuery.matches');
       }
+    }
+    if (endpoint.path === '/readyz' && scenario === READ_ONLY_SCENARIO) {
+      value = { ...(value as object), public_read_only: true };
+      notes.push('read-only demo: public_read_only');
+    }
+    if (endpoint.path === '/readyz' && scenario === LATE_SCENARIO) {
+      const readyz = value as ReadyzResponse;
+      value = { ...readyz, clock: { ...readyz.clock, now: LATE_NOW, frozen: false } };
+      notes.push('UI fixture: the demo clock past the refund deadlines');
+    }
+    if (
+      endpoint.path === '/api/returns/{return_id}/decision' &&
+      scenario === LATE_SCENARIO &&
+      chosen.status === 200 &&
+      (body?.action === 'reject' || (body?.action === 'override' && Array.isArray(body.levers) && body.levers.length === 0))
+    ) {
+      value = { ...(value as DecisionResult), outbox_message: null };
+      notes.push('UI fixture: a late rejection or standard terms send no message');
     }
     if (endpoint.path === '/readyz' && scenario === 'contract_mismatch') {
       const [major = '1', minor = '0'] = CONTRACT_VERSION.split('.');

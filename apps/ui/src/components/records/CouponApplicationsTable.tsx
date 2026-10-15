@@ -21,6 +21,22 @@ interface CouponApplicationsTableProps {
   className?: string;
 }
 
+/**
+ * "Reverse…" for the persona's role and the service's read-only flag (/readyz public_read_only,
+ * ADR-15 section 15): disabled with the reason, never hidden (docs/ui-design.md 5.8).
+ */
+function ReverseButton({ onClick }: { onClick(): void }) {
+  return (
+    <RoleGate action="POST /api/coupon-rules/applications/{application_id}/reverse">
+      {(gate) => (
+        <Button disabled={!gate.allowed} title={gate.reason ?? undefined} onClick={onClick}>
+          {C.reverse}
+        </Button>
+      )}
+    </RoleGate>
+  );
+}
+
 function DecisionLink({ decisionId }: { decisionId: string }) {
   const inRouter = useInRouterContext();
   const match = /^DEC-([A-Za-z0-9]+)-[A-Za-z0-9]+$/.exec(decisionId);
@@ -134,13 +150,7 @@ export function CouponApplicationsTable({ applications, reversible = false, onRe
                     )}
                   </span>
                 ) : reversible ? (
-                  <RoleGate action="POST /api/coupon-rules/applications/{application_id}/reverse">
-                    {(gate) => (
-                      <Button disabled={!gate.allowed} title={gate.reason ?? undefined} onClick={() => setReversing(app)}>
-                        {C.reverse}
-                      </Button>
-                    )}
-                  </RoleGate>
+                  <ReverseButton onClick={() => setReversing(app)} />
                 ) : null}
               </td>
             </tr>

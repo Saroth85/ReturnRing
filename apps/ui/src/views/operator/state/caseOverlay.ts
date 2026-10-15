@@ -17,9 +17,9 @@ import { useCase } from '@/api/queries';
 import { createStore, useStore } from '@/api/store';
 
 export interface CaseOverlay {
-  /** The decision the API returned to an action (approve, override, reject, lift). */
+  /** The decision the API returned to an action (approve, override, reject, lift, renew). */
   decision?: DecisionView;
-  /** The message that action queued in the simulated outbox. */
+  /** The message that action queued in the simulated outbox (none for lift, renew or a late act). */
   sentMessage?: OutboxMessage;
   /** A recompute after evidence or a dispute: the new version and its draft. */
   recompute?: RecomputeResponse;
@@ -35,7 +35,7 @@ function patch(returnId: string, next: (current: CaseOverlay) => CaseOverlay): v
   overlayStore.set((all) => ({ ...all, [returnId]: next(all[returnId] ?? {}) }));
 }
 
-export function recordDecision(decision: DecisionView, sentMessage?: OutboxMessage): void {
+export function recordDecision(decision: DecisionView, sentMessage?: OutboxMessage | null): void {
   patch(decision.return_id, (o) => ({ ...o, decision, sentMessage: sentMessage ?? o.sentMessage }));
 }
 

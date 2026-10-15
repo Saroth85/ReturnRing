@@ -17,6 +17,9 @@ export const INSPECTION = {
   clearSearch: 'Clear the search',
   readOnly: (role: string) =>
     `Acting as ${role}: inspections are created and confirmed by the warehouse. You can view every step.`,
+  publicReadOnly: 'Read-only public demo: no inspection is created or confirmed here. You can view every step.',
+  cached:
+    'Cached demo: no model reads the photo. The checklist is the reviewed template, every item not observable, so the inspection stops for a check by hand: no proposal and no claim.',
   reasons: {
     size: 'Size',
     changed_mind: 'Changed mind',
@@ -83,6 +86,7 @@ export const INSPECTION = {
   },
   confirm: {
     note: 'Note for the record (optional)',
+    noteCount: (used: number, max: number) => `${used}/${max} characters`,
     button: 'Confirm the observations',
     sending: 'Confirming',
     needAnswers: 'Answer every checklist item first.',
@@ -92,6 +96,7 @@ export const INSPECTION = {
   result: {
     title: 'Inspection confirmed',
     claim: 'Claim',
+    linePrice: 'on the price paid for the line',
     attachedTo: 'attached to',
     confirmedBy: 'confirmed by',
     message: 'message',

@@ -1,7 +1,7 @@
 // Shared UI strings (docs/ui-design.md 10.2), in English. Area strings live in
 // src/views/<area>/copy.ts. No number literals: numbers come from data or src/copy/constants.ts.
-import type { DisplayNature } from '@/api/models';
-import { GPU_NAME, GPU_SHORT_NAME, GUARANTEE_DIRECTIVE, LLM_NAME, LLM_RETRY_SECONDS, SYNTHETIC_SEED } from './constants';
+import type { ClockKind, DisplayNature, FallbackReason, Lang, LegalClauseKind, TemplateFieldName } from '@/api/models';
+import { GPU_NAME, GUARANTEE_DIRECTIVE, LLM_NAME, LLM_RETRY_SECONDS, SYNTHETIC_SEED } from './constants';
 
 export const APP_NAME = 'ReturnRing';
 export const SHOP_LINE = 'Navigli Fashion (fictional shop, synthetic data)';
@@ -61,17 +61,27 @@ export const MODE = {
   titleMock: '[Mock]',
   llmReady: 'LLM ready',
   llmContract: 'LLM: contract example',
-  llmOff: 'LLM off · templates and cache in use',
+  llmMock: 'LLM: mock stand-in (no model)',
+  llmCached: 'LLM off · precomputed texts and templates in use',
+  llmOff: 'LLM off · templates in use',
   llmUnavailable: 'LLM unavailable · templates in use',
   bannerLabel: 'Service mode',
   contractMismatchTitle: 'Contract mismatch',
   contractMismatch: (server: string, ui: string) =>
     `the API serves contract ${server}, this UI was built for ${ui}: some screens may fail. Regenerate the UI types (npm run gen:types) and rebuild.`,
   scenarioLabel: 'Mock scenario',
+  /** The service's clock (/readyz `clock`, ADR-15 sections 15, 19, 20); its note is the tooltip. */
+  clockKind: { demo: 'demo clock', system: 'wall clock', fixed: 'fixed clock' } satisfies Record<ClockKind, string>,
+  clockFrozen: 'frozen at the snapshot',
+  clockFrozenAfterActs: 'frozen at the latest recorded act',
+  clockRunning: 'running since the reset',
+  clockSnapshot: 'snapshot',
 };
 
 export const FEEDBACK = {
   errorTitle: 'The service did not answer.',
+  refusedTitle: 'The service refused the request.',
+  violationsTitle: 'What to correct',
   retry: 'Retry',
   requestId: 'Request id',
   code: 'Code',
@@ -83,6 +93,7 @@ export const FEEDBACK = {
   forbidden: (role: string, action: string) =>
     `Your role (${role}) can't ${action}. Switch user under 'Acting as' to demonstrate another persona.`,
   readOnlyDemo: 'Read-only public demo',
+  readOnlyBody: 'Nothing was saved: this public demo only reads. Every write is refused here, whoever acts.',
   roleReason: (allowed: string, role: string) => `This action is for ${allowed} (${role} can view).`,
   notFoundTitle: 'Page not found',
   notFoundBody: 'This address is not a page of ReturnRing.',
@@ -94,16 +105,24 @@ export const FEEDBACK = {
 };
 
 export const MESSAGE = {
-  fieldLabels: { terms: 'TERMS', amount: 'AMOUNT', deadline: 'DEADLINE' } as Record<'terms' | 'amount' | 'deadline', string>,
-  fieldSource: { terms: 'future_terms', amount: 'diminished_value_claim', deadline: 'refund_due_by' } as Record<
-    'terms' | 'amount' | 'deadline',
+  /** The refund a sent message states, read with its provenance (OutboxMessage.refund). */
+  refundStated: 'Refund stated in the message:',
+  fieldLabels: { terms: 'TERMS', amount: 'AMOUNT', deadline: 'DEADLINE', deduction: 'DEDUCTION' } satisfies Record<
+    TemplateFieldName,
     string
   >,
+  /** Where code takes each field from (TemplateFields, llm.messages.template_fields). */
+  fieldSource: {
+    terms: 'future_terms',
+    amount: 'the refund: price paid for the returned line less the diminished-value claim',
+    deadline: 'refund_due_by',
+    deduction: 'diminished_value_claim',
+  } satisfies Record<TemplateFieldName, string>,
   fieldTooltip: (name: string, source: string) =>
     `{${name}}: filled by code from the decision (${source}), never written by the language model`,
   missingField: (name: string) => `[missing ${name}]`,
-  clauseLabel: { withdrawal: 'Fixed legal clause · withdrawal', guarantee: 'Fixed legal clause · guarantee' } as Record<
-    'withdrawal' | 'guarantee',
+  clauseLabel: { withdrawal: 'Fixed legal clause · withdrawal', guarantee: 'Fixed legal clause · guarantee' } satisfies Record<
+    LegalClauseKind,
     string
   >,
   clauseCaption: 'Fixed text from llm/legal_clause.py, added by code, cannot be edited',
@@ -111,14 +130,25 @@ export const MESSAGE = {
   legend: 'Legend: plain text = reviewed sentences · FIELD = template field filled by code · bar = fixed legal text',
   previewAsCustomer: 'Preview as the customer',
   unverified: 'Message layers could not be verified; showing the text as stored.',
-  langName: { it: 'Italiano', en: 'English' } as Record<'it' | 'en', string>,
+  langName: { it: 'Italiano', en: 'English' } satisfies Record<Lang, string>,
   title: 'Customer message',
+  /** No message in the language asked for: the draft holds only the others. */
+  noTextInLang: (lang: string) => `No message in ${lang} in this draft.`,
   generation: {
-    llm: `${LLM_NAME} · validated first try`,
-    llm_regenerated: `${LLM_NAME} · validated on retry`,
-    template: 'Reviewed template (validator fallback or model unavailable)',
-    cached: `Precomputed on ${GPU_SHORT_NAME}`,
-    mock: 'Mock text (hand-written stand-in)',
+    // The model is the generation record's (generation.model, or the mock model): never a fixed name.
+    firstCall: (model: string) => `${model} · validated on the first call`,
+    secondCall: (model: string) => `${model} · validated on the second call`,
+    template: 'Reviewed template, no model text',
+    mockModel: 'Mock language model (hand-written stand-in)',
+    // Where precomputed outputs were made is the claim of readyz.label alone (ADR-15 section 17).
+    cached: 'Precomputed (cached demo)',
+    fallback: {
+      decision_echo: 'the model output restated a different decision',
+      invalid_twice: 'the model output failed the validator twice',
+      unavailable: 'the language model was unavailable',
+      write_request: 'a request to change something: refused by code before any model call',
+    } satisfies Record<FallbackReason, string>,
+    modelCalls: (count: number) => `${count} model call${count === 1 ? '' : 's'}`,
   },
 };
 
@@ -213,4 +243,13 @@ export const SHELL = {
   collapseNav: 'Collapse navigation',
   expandNav: 'Expand navigation',
   badgeOf: (label: string) => `${label}: number of returns`,
+  /** The service's 'now' in the top bar (the /readyz clock, never the browser's date). */
+  serviceNow: 'service time',
+  clockTip: (note: string) => `The service's clock: ${note}`,
+  /** GET /api/demo/cases answered 404: no demo reset has stored the golden cases yet. */
+  noDemoReset: {
+    title: 'No demo reset yet',
+    body: 'The golden cases of the demo are not in the store, so the demo path, the shop carts and the compare pair have no case to open. The API answered:',
+    fix: 'Run python -m apps.api.reset (make reset), then reload the page.',
+  },
 };

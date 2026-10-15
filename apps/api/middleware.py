@@ -12,7 +12,8 @@ Contract 1.5.0 (ADR-15 section 15):
   answers 413 invalid_request before it is read whole, by its Content-Length or while it
   streams (H24); the proxy limits it too;
 - every request is logged on one line: request id, method, path, status and duration (H39,
-  NFR-12).
+  NFR-12). The path is logged percent-encoded (loggable_path): a decoded %0A or space in it
+  cannot forge a line or a field of the access log.
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ import re
 import time
 import uuid
 from typing import Any, Final
+from urllib.parse import quote
 
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
@@ -33,6 +35,16 @@ _ID: Final = re.compile(ID_PATTERN)
 MAX_ID: Final = 96
 MAX_BODY_BYTES: Final = 8 * 1024 * 1024
 ACCESS: Final = logging.getLogger("returnring.api.access")
+
+
+# RFC 3986 pchar and "/", without "%": everything else is percent-encoded in the access log.
+_PATH_SAFE: Final = "/:@!$&'()*+,;=-._~"
+
+
+def loggable_path(path: object) -> str:
+    """The request path as one field of the access log: percent-encoded, so control
+    characters, spaces and non-ASCII letters of the decoded path cannot forge log lines."""
+    return quote(str(path), safe=_PATH_SAFE)
 
 
 def new_request_id() -> str:
@@ -128,7 +140,7 @@ class RequestContext:
                 "request_id=%s method=%s path=%s status=%s duration_ms=%.1f",
                 request_id,
                 scope.get("method", "-"),
-                scope.get("path", "-"),
+                loggable_path(scope.get("path", "-")),
                 status or "-",
                 (time.perf_counter() - began) * 1000,
             )

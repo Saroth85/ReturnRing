@@ -20,5 +20,6 @@ export const routes: AppRoute[] = [
 export const nav: NavItem[] = [
   { to: '/queue', label: OPERATOR.nav.queue, group: 'work', icon: ListChecks, order: 10, badge: 'needsApproval' },
   { to: '/outbox', label: OPERATOR.nav.outbox, group: 'work', icon: Mail, order: 40 },
-  { to: '/compare?a=RET-000101&b=RET-000102', label: OPERATOR.nav.compare, group: 'demo', icon: Columns2, order: 10 },
+  // The pair comes from the demo cases (ComparePage): Giulia and Marco by their live ids.
+  { to: '/compare', label: OPERATOR.nav.compare, group: 'demo', icon: Columns2, order: 10 },
 ];

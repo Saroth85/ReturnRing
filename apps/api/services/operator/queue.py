@@ -7,10 +7,12 @@ provenance of its inputs, the customer value of the card (services.cases.value_v
 of the recommended alternative, the linked accounts of the cluster the engine was given (the
 graph that version saw: services.operator.graph), the anomaly of the returned variant and the
 draft status. review_due marks an approved or overridden restriction at or past its review date
-(UTC days); refund_overdue a proposed case past the day its refund is due (rule 3, 1.5.0, H1),
-which sort=refund_due_by brings first. The filters mean exactly what QueueQuery.matches says;
-the queue sorts by expected net benefit by default, ties by return id; pages start at 1 and
-total counts after the filters.
+(UTC days); refund_overdue a case past the day its refund is due that no message has stated
+(rule 3): proposed (1.5.0, H1), or rejected or set to the standard terms after that day, an act
+that sends no message (1.8.0); sort=refund_due_by brings such cases first. A guarantee case has
+no refund deadline: refund_due_by null, never overdue, last in that sort (1.7.0; rule 4,
+NFR-17). The filters mean exactly what QueueQuery.matches says; the queue sorts by expected net
+benefit by default, ties by return id; pages start at 1 and total counts after the filters.
 
 One query reads the latest version of every case; the rest is read from the snapshot in memory,
 so the queue answers in well under the 2 seconds of US-301 (623 open returns at full scale).
@@ -20,7 +22,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Final
 
@@ -47,7 +49,7 @@ SORTS: Final[dict[str, SortKey]] = {
     "-requested_at": lambda i: (-i.requested_at.timestamp(), i.return_id),
     "requested_at": lambda i: (i.requested_at.timestamp(), i.return_id),
     "-risk": lambda i: (i.risk is None, -(i.risk.value if i.risk else 0.0), i.return_id),
-    "refund_due_by": lambda i: (i.refund_due_by, i.return_id),
+    "refund_due_by": lambda i: (i.refund_due_by or date.max, i.return_id),  # guarantee last
 }
 _LIVE_CONTEXTS: Final = "_operator_live_contexts"
 # The decision columns a queue item and a dispute's affected cases read: the large JSON the queue
@@ -73,6 +75,7 @@ _DECISION_COLUMNS: Final = (
     "levers",
     "review_at",
     "refund_due_by",
+    "approved_at",
     "alternatives",
     "generation_id",
 )
@@ -276,7 +279,15 @@ def queue_item(
         review_at=review_at,
         review_due=due,
         refund_due_by=row["refund_due_by"],
-        refund_overdue=row["state"] == "proposed" and row["refund_due_by"] < s.utc_day(as_of),
+        refund_overdue=s.refund_overdue(
+            row["state"],
+            row["refund_due_by"],
+            s.utc_day(as_of),
+            late=not levers  # as s.late_without_message: no message stated the refund
+            and s.acted_late(
+                row["state"], row["revision_trigger"], row["refund_due_by"], row["approved_at"]
+            ),
+        ),
         risk=(
             s.Metric(value=row["risk"], unit="probability", provenance=inputs)
             if _scored(row)

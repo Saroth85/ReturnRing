@@ -35,6 +35,9 @@ export default defineConfig(({ mode }) => {
     plugins: [react(), tailwindcss(), mockServer ? returnringMock({ repoRoot }) : null],
     define: {
       __API_MODE__: JSON.stringify(apiMode),
+      // Mock scenarios (?scenario=, X-Mock-Scenario) exist only where a mock answers: the browser
+      // adapter or the dev server's HTTP mock. The production bundle drops them as dead code.
+      __MOCK_SCENARIOS__: JSON.stringify(apiMode === 'mock' || mockServer),
     },
     resolve: {
       alias: [

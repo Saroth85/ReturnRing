@@ -1,6 +1,7 @@
 // Manager area strings (docs/ui-design.md 8, 10.2). English; no number literals: numbers come
 // from data or from ./constants.ts. Never the wording of spec 16: positions, not verdicts.
 import type { CatalogTask } from '@/api/models';
+import type { HIGHLIGHT_CUSTOMER_KEYS } from '@/domain/demoCases';
 import type { ProductAnomaly } from './types';
 
 type TaskStatus = CatalogTask['status'];
@@ -30,6 +31,8 @@ export const MANAGER = {
   },
   loading: 'Loading',
   failed: 'the service did not answer',
+  refused: 'the service refused the request',
+  reportUnavailable: 'Offline report not in the snapshot: these figures need the offline evaluation report, which this serving snapshot does not hold.',
   close: 'Close',
   asOf: 'as of',
   period: 'Period',
@@ -39,7 +42,14 @@ export const MANAGER = {
       'Each dot is a scored customer: risk score from left to right, customer value from bottom to top. The thresholds split the four quadrants; a quadrant is a position, not a judgement of the customer.',
     scored: 'scored customers',
     demoCases: 'Demo cases',
-    demoCasesHint: 'Annotate the demo cases with fixed ids (never accuracy)',
+    demoCasesHint: 'Annotate the golden cases of the demo reset (never accuracy)',
+    demoCustomers: {
+      giulia: { name: 'Giulia', note: 'Giulia: paired with Marco in the pitch (both returned soon after delivery), no linked accounts' },
+      elena: {
+        name: 'Elena',
+        note: 'Elena: her open return follows the guarantee path and is not scored; this is her position as a customer',
+      },
+    } satisfies Record<(typeof HIGHLIGHT_CUSTOMER_KEYS)[number], { name: string; note: string }>,
     highlight: 'Highlight cluster',
     highlightNone: 'No cluster',
     tableView: 'Table view',
@@ -158,6 +168,8 @@ export const MANAGER = {
     intro: 'The week of decisions at a glance. Each tile says where its numbers come from.',
     previous: 'Previous week',
     next: 'Next week',
+    nextNotStarted: (week: string) => `The week of ${week} has not started on the service clock.`,
+    currentWeek: 'Open the current week',
     week: 'Week',
     netBenefit: 'Net benefit, simulated',
     components: 'Components',
@@ -264,6 +276,8 @@ export const MANAGER = {
       note: 'Note (required)',
       noteHint: 'What to check or correct; the audit log keeps it.',
       returnId: 'Return that raised it (optional)',
+      returnHint: 'Returns still in the queue for this variant.',
+      noQueued: 'No return of this variant is in the queue: the task names none. Opened from a case, the form offers its return.',
       submit: 'Open the task',
       created: (id: string) => `Task ${id} opened.`,
       noRestriction: 'The customer’s return stays regular: a product issue never restricts the customer.',
@@ -274,6 +288,7 @@ export const MANAGER = {
     move: { in_progress: 'Start', done: 'Mark done', cancelled: 'Cancel task' } satisfies Record<'in_progress' | 'done' | 'cancelled', string>,
     updateAction: 'update catalogue tasks',
     moveNote: 'Note for this step (optional)',
+    moveNoteShort: (min: number) => `A note has at least ${min} characters; leave it empty to move without one.`,
     updated: (id: string, status: string) => `Task ${id}: ${status}.`,
     openedBy: 'Opened by',
     updatedAt: 'Updated',
@@ -300,6 +315,7 @@ export const MANAGER = {
       canRenew ? ': no longer applies to new orders. Renew or lift.' : ': no longer applies to new orders. Review it and lift it.',
     reviewLift: 'Review: lift…',
     reviewLiftRenew: 'Review: lift or renew…',
+    readOnly: 'Read-only public demo: the case opens to read; renewing or lifting is not available here.',
     openCase: 'Open case',
     approverPending: 'loading the approver',
     noApprover: 'no approver recorded',

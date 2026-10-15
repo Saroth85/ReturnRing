@@ -5,7 +5,10 @@ import type { UseQueryResult } from '@tanstack/react-query';
 import clsx from 'clsx';
 import { X } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { ErrorState, LoadingBlock } from '@/components/feedback';
+import type { EndpointKey } from '@/api/client';
+import { isApiError, isRefusal } from '@/api/errors';
+import { usePersona } from '@/app/persona';
+import { EmptyState, ErrorState, ForbiddenRoleNotice, LoadingBlock } from '@/components/feedback';
 import { MANAGER } from './copy';
 
 interface ManagerPageProps {
@@ -71,14 +74,40 @@ interface LoadableProps<T> {
   /** What failed, e.g. "GET /api/kpi". */
   label: string;
   rows?: number;
+  /** A 404 that is an answer, not a failure (an offline report not in the snapshot): its empty state. */
+  notFound?: (message: string) => ReactNode;
   children: (data: T) => ReactNode;
 }
 
 /** Loading skeleton, panel-level error with the request id and Retry, or the content. */
-export function Loadable<T>({ query, label, rows = 4, children }: LoadableProps<T>) {
+export function Loadable<T>({ query, label, rows = 4, notFound, children }: LoadableProps<T>) {
   if (query.isPending) return <LoadingBlock rows={rows} label={MANAGER.loading} />;
-  if (query.isError) return <ErrorState error={query.error} title={`${label}: ${MANAGER.failed}`} onRetry={() => void query.refetch()} />;
+  if (query.isError) {
+    if (notFound && isApiError(query.error) && query.error.status === 404) return <>{notFound(query.error.message)}</>;
+    // A refusal (4xx) is not retried: the same request gets the same answer.
+    if (isRefusal(query.error)) return <ErrorState error={query.error} title={`${label}: ${MANAGER.refused}`} />;
+    return <ErrorState error={query.error} title={`${label}: ${MANAGER.failed}`} onRetry={() => void query.refetch()} />;
+  }
   return <>{children(query.data)}</>;
+}
+
+/**
+ * The offline evaluation report is not in the serving snapshot (404 report_unavailable, ADR-15
+ * section 15): an empty state with the API's reason verbatim, never retried.
+ */
+export function ReportUnavailable({ message }: { message: string }) {
+  return (
+    <div data-report-unavailable>
+      <EmptyState
+        message={MANAGER.reportUnavailable}
+        action={
+          <p className="max-w-prose text-caption text-ink-2" data-verbatim>
+            {message}
+          </p>
+        }
+      />
+    </div>
+  );
 }
 
 interface SideDrawerProps {
@@ -119,4 +148,16 @@ export function SideDrawer({ open, onOpenChange, title, description, children }:
       </Dialog.Portal>
     </Dialog.Root>
   );
+}
+
+/**
+ * A refused write: a 403 is the shared notice (the read-only public demo in its own words, or a role
+ * the endpoint does not allow with the personas to switch to); anything else is an error.
+ */
+export function WriteError({ error, action, endpoint }: { error: unknown; action: string; endpoint: EndpointKey }) {
+  const persona = usePersona();
+  if (isApiError(error) && error.code === 'forbidden_role') {
+    return <ForbiddenRoleNotice role={persona.role} action={action} endpoint={endpoint} message={error.message} />;
+  }
+  return <ErrorState error={error} />;
 }

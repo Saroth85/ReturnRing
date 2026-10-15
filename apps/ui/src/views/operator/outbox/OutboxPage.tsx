@@ -5,9 +5,10 @@ import clsx from 'clsx';
 import { Mail } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
+import { outboxSource } from '@/api/adapters/messageSegments';
 import { useOutbox } from '@/api/queries';
 import { EmptyState, ErrorState, InlineNotice, LoadingBlock } from '@/components/feedback';
-import { MessagePreview } from '@/components/message';
+import { MessagePreview, RefundStated } from '@/components/message';
 import { DateText, IdText } from '@/components/provenance';
 import { OPERATOR } from '../copy';
 
@@ -126,7 +127,8 @@ export default function OutboxPage() {
                   {t.openCase}
                 </Link>
               </p>
-              <MessagePreview message={selected} stored={selected.body} title={selected.subject} />
+              <MessagePreview message={outboxSource(selected)} title={selected.subject} />
+              <RefundStated refund={selected.refund} />
             </section>
           )}
         </div>

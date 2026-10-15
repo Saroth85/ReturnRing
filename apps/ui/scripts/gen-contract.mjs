@@ -7,7 +7,7 @@
 //
 // Sources: contracts/json/api/*.schema.json, contracts/json/api/endpoints.json,
 // contracts/examples/api/index.json (scenario names) and contracts/vocab.py (DEMO_USERS, the
-// human-only and reason-required audit actions, MIN_REASON_CHARS).
+// human-only, reason-required and generation audit actions, MIN_REASON_CHARS).
 // Every lookup below names its path in the contract and fails loudly when the path is gone:
 // a contract change then breaks this script, not forty components.
 
@@ -18,8 +18,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // RETURNRING_CONTRACTS_DIR points the generator at another checkout's contracts/ (to try a
 // pending contract version before it lands); the default is the repository's own.
-// Pinned contract (contract-pin/README.md) until the UI migrates to the API's current contract.
-const CONTRACTS = path.resolve(process.env.RETURNRING_CONTRACTS_DIR || path.resolve(ROOT, 'contract-pin'));
+const CONTRACTS = path.resolve(process.env.RETURNRING_CONTRACTS_DIR || path.resolve(ROOT, '../../contracts'));
 const SCHEMA_DIR = path.join(CONTRACTS, 'json/api');
 const OUT = path.join(ROOT, 'src/api/contract.gen.ts');
 const check = process.argv.includes('--check');
@@ -59,6 +58,14 @@ function at(defName, propertyPath) {
   return resolve(node);
 }
 
+/** The string branch of a (nullable) string property, for its length limits. */
+function stringAt(defName, propertyPath) {
+  const s = at(defName, propertyPath);
+  const branch = (s.anyOf ?? [s]).map(resolve).find((b) => b.type === 'string');
+  if (!branch) throw new Error(`contract: ${defName}.${propertyPath} is not a string`);
+  return branch;
+}
+
 /** The string values of an enum schema, through $ref and nullable anyOf. */
 function enumOf(schema, where) {
   const s = resolve(schema);
@@ -72,14 +79,6 @@ function enumOf(schema, where) {
 }
 
 const enumAt = (defName, propertyPath) => enumOf(at(defName, `properties.${propertyPath}`), `${defName}.${propertyPath}`);
-
-/** The first of several contract paths that exists, for a value a later contract moved. */
-function enumAtFirst(...paths) {
-  for (const [defName, propertyPath] of paths) {
-    if (defs[defName]?.properties && propertyPath in defs[defName].properties) return enumAt(defName, propertyPath);
-  }
-  throw new Error(`contract: none of ${paths.map((p) => p.join('.')).join(', ')} exists`);
-}
 
 /**
  * The lever schema: the `Lever` definition when the contract names one (1.1.0), otherwise the
@@ -178,6 +177,7 @@ if (!minReasonMatch) throw new Error('contracts/vocab.py: MIN_REASON_CHARS not f
 const auditActions = enumAt('AuditEntry', 'action');
 
 // ---- output -------------------------------------------------------------------------------
+// Every entry must resolve: a value the contract no longer states fails the script.
 const constants = [
   ['CONTRACT_VERSION', 'endpoints.json contract_version', endpointsFile.contract_version],
   ['QUADRANTS', 'Quadrant', enumOf(defs.Quadrant, 'Quadrant')],
@@ -187,6 +187,7 @@ const constants = [
   ['DECISION_ACTIONS', 'DecisionRequest.action', enumAt('DecisionRequest', 'action')],
   ['OVERRIDE_CATEGORIES', 'DecisionRequest.override_category', enumAt('DecisionRequest', 'override_category')],
   ['DECISION_STATES', 'DecisionView.state', enumAt('DecisionView', 'state')],
+  ['QUEUE_SORTS', 'QueueQuery.sort', enumAt('QueueQuery', 'sort')],
   ['REVISION_TRIGGERS', 'DecisionView.revision_trigger', enumAt('DecisionView', 'revision_trigger')],
   ['EVIDENCE_KINDS', 'EvidenceRequest.kind', enumAt('EvidenceRequest', 'kind')],
   ['AUDIT_ACTIONS', 'AuditEntry.action', auditActions],
@@ -194,19 +195,27 @@ const constants = [
   ['LEVER_SCOPES', 'Lever.scope', enumOf(LEVER.properties.scope, 'Lever.scope')],
   ['METRIC_UNITS', 'Metric.unit', enumAt('Metric', 'unit')],
   ['NATURES', 'Provenance.nature', enumAt('Provenance', 'nature')],
-  ['MESSAGE_LANGS', 'CustomerMessageView.lang', enumAtFirst(['CustomerMessageView', 'lang'], ['MessageChoice', 'lang'])],
+  ['MESSAGE_LANGS', 'MessageChoice.lang', enumAt('MessageChoice', 'lang')],
   ['LEGAL_CLAUSE_KINDS', 'CustomerMessageView.legal_clause_kind', enumAt('CustomerMessageView', 'legal_clause_kind')],
-  ['DRAFT_TONES', 'DraftView.tone', enumAt('DraftView', 'tone')],
   ['STATEMENT_LABELS', 'ExplanationStatement.label', enumAt('ExplanationStatement', 'label')],
   ['GENERATION_PATHS', 'GenerationInfo.generation_path', enumAt('GenerationInfo', 'generation_path')],
+  ['FALLBACK_REASONS', 'GenerationInfo.fallback_reason', enumAt('GenerationInfo', 'fallback_reason')],
   ['AGENT_TOOLS', 'ToolCallEvent.tool', enumAt('ToolCallEvent', 'tool')],
   ['ENTITY_REF_KINDS', 'EntityRef.kind', enumAt('EntityRef', 'kind')],
   ['AGENT_MAX_STEPS', 'ToolCallEvent.step maximum', at('ToolCallEvent', 'properties.step').maximum],
   ['AGENT_QUESTION_MAX_LENGTH', 'AgentAskRequest.question maxLength', at('AgentAskRequest', 'properties.question').maxLength],
+  ['PHOTO_BASE64_MAX_LENGTH', 'PhotoUpload.data_base64 maxLength', at('PhotoUpload', 'properties.data_base64').maxLength],
+  ['REASON_MAX_LENGTH', 'DecisionRequest.override_reason maxLength', stringAt('DecisionRequest', 'properties.override_reason').maxLength],
+  ['TASK_NOTE_MAX_LENGTH', 'CatalogTaskUpdate.note maxLength', stringAt('CatalogTaskUpdate', 'properties.note').maxLength],
+  ['INSPECTION_NOTE_MAX_LENGTH', 'InspectionConfirmRequest.note maxLength', stringAt('InspectionConfirmRequest', 'properties.note').maxLength],
   ['HUMAN_ONLY_ACTIONS', 'contracts/vocab.py HUMAN_ONLY_ACTIONS', vocabActionSet('HUMAN_ONLY_ACTIONS', auditActions)],
   ['REASON_REQUIRED_ACTIONS', 'contracts/vocab.py REASON_REQUIRED_ACTIONS', vocabActionSet('REASON_REQUIRED_ACTIONS', auditActions)],
   ['MIN_REASON_CHARS', 'contracts/vocab.py MIN_REASON_CHARS', Number(minReasonMatch[1])],
   ['LEGAL_MINIMUM_WINDOW_DAYS', 'Lever rule: return_window_days minimum', legalMinimumWindowDays()],
+  ['GENERATION_AUDIT_ACTIONS', 'contracts/vocab.py GENERATION_AUDIT_ACTIONS', vocabActionSet('GENERATION_AUDIT_ACTIONS', auditActions)],
+  ['DEMO_CASE_KEYS', 'DemoCase.key', enumAt('DemoCase', 'key')],
+  ['DEMO_CART_KEYS', 'DemoCart.key', enumAt('DemoCart', 'key')],
+  ['CLOCK_KINDS', 'ClockView.kind', enumAt('ClockView', 'kind')],
   ['MOCK_SCENARIOS', 'contracts/examples/api/index.json scenarios', scenarios],
   ['DEMO_USERS', 'contracts/vocab.py DEMO_USERS', demoUsers],
 ];

@@ -4,6 +4,7 @@
 import { Cpu, Server } from 'lucide-react';
 import { useEffect } from 'react';
 import type { BenchmarksResponse } from '@/api/models';
+import { API_MODE } from '@/api/adapters';
 import { useBenchmarks, useReadyz } from '@/api/queries';
 import { usePresent } from '@/app/display';
 import { ErrorState, LoadingBlock } from '@/components/feedback';
@@ -13,6 +14,7 @@ import { PLATFORM } from '../copy';
 import { PageHeader, Panel } from '../shared/layout';
 import { BenchmarkCard, BenchmarkStatus } from './BenchmarkCard';
 import { costPerDecision } from './benchmarks';
+import { serviceLine } from './readiness';
 import { SYSTEM } from './copy';
 import { ModeCard, ReadinessPill } from './ModeCard';
 import { TelemetryPanel } from './TelemetryPanel';
@@ -106,6 +108,7 @@ function Benchmarks() {
 export default function SystemPage() {
   const readyz = useReadyz();
   const present = usePresent();
+  const service = serviceLine(readyz.data, API_MODE);
   // Beat 6 has no clicks (docs/ui-design.md 12): in presenter mode the page opens on the GPU line,
   // so the first viewport holds it, the cost per decision and the first benchmarks (UI27).
   useEffect(() => {
@@ -133,6 +136,11 @@ export default function SystemPage() {
           {s.hero}
         </p>
         <ArchitectureStrip />
+        {service && (
+          <p className="text-body text-ink-1" data-this-service={readyz.data?.mode ?? 'contract'} data-verbatim>
+            {service}
+          </p>
+        )}
       </Panel>
       {/* Beat 6 (docs/ui-design.md 9.4, 12): the benchmarks and the telemetry come first, so the
           first presenter viewport shows B1 to B4; readiness follows (UI27). */}

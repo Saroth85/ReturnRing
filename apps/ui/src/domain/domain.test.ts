@@ -15,7 +15,16 @@ import {
   restrictionStatus,
   termsRows,
 } from './decision';
-import { hasRestrictiveLever, leverDirection, leverKey, leversFromValues, leverValues, parseLeverKey, sameLevers } from './levers';
+import {
+  admissibleValue,
+  hasRestrictiveLever,
+  leverDirection,
+  leverKey,
+  leversFromValues,
+  leverValues,
+  parseLeverKey,
+  sameLevers,
+} from './levers';
 import { linkEnds, refAnchorId } from './refs';
 
 const card = (name: string) => readExample<CaseCard>(`case_card.${name}.json`);
@@ -70,6 +79,36 @@ describe('levers', () => {
     expect(sameLevers(leversFromValues(values, BASE), marco.levers)).toBe(true);
     expect(leversFromValues(leverValues([], BASE), BASE)).toEqual([]);
     expect(sameLevers([{ id: 'instant_refund', value: false }], [{ id: 'instant_refund', value: true }])).toBe(false);
+  });
+
+  it('never builds a lever of scope all_orders with the value false (contracts/levers.py, 422 otherwise)', () => {
+    const values = { ...leverValues([], BASE), free_size_exchange: false, instant_refund: false };
+    const levers = leversFromValues(values, BASE);
+    expect(levers.map(leverKey)).toEqual(['instant_refund:false']);
+    const noExchange: Terms = { ...BASE, free_size_exchange: false };
+    expect(leversFromValues({ ...leverValues([], noExchange), free_size_exchange: true, priority_size_exchange: true }, noExchange).map(leverKey)).toEqual([
+      'free_size_exchange:true',
+      'priority_size_exchange:true',
+    ]);
+    expect(() => parseLeverKey('free_size_exchange:false')).toThrow(/all_orders/);
+    expect(() => parseLeverKey('priority_size_exchange:false')).toThrow(/all_orders/);
+    expect(parseLeverKey('priority_size_exchange:true').scope).toBe('all_orders');
+  });
+
+  it('checks a value against the catalogue: type, legal minimum, grant only', () => {
+    expect(admissibleValue('return_window_days', 14)).toBe(true);
+    expect(admissibleValue('return_window_days', 13)).toBe(false);
+    expect(admissibleValue('return_window_days', true)).toBe(false);
+    expect(admissibleValue('instant_refund', false)).toBe(true);
+    expect(admissibleValue('free_size_exchange', false)).toBe(false);
+    expect(admissibleValue('free_size_exchange', true)).toBe(true);
+  });
+
+  it('reads every lever of the contract examples back from its id', () => {
+    for (const name of ['marco', 'martina', 'chiara', 'lorenzo', 'giulia']) {
+      const d = card(name).decision;
+      for (const lever of [...d.levers, ...d.proposed_levers]) expect(parseLeverKey(leverKey(lever))).toEqual(lever);
+    }
   });
 });
 

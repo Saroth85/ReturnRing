@@ -2,11 +2,19 @@
 label of cached mode ("Precomputed on AMD MI300X"), a check per component and the versions.
 
 Contract 1.5.0 (ADR-15 section 15): /readyz shows the API's clock (the demo clock: the
-snapshot instant plus the time since the reset) and whether the public demo is read-only; the
+snapshot instant plus the time since the reset, frozen at the snapshot instant on the public
+read-only demo, 1.7.0, or at the latest act recorded when a store acted on with writes on is
+served read-only, 1.8.1) and whether the public demo is read-only; the
 cached label is shown only while precomputed outputs are there (H6); the status is not_ready
 while the database, the scores or the models are missing, when every /api route fails (H37);
 the vLLM probe follows no redirect (rule 2, H23) and checks that GEMMA_MODEL is served (H30);
-no server path reaches the public body (H26)."""
+no server path reaches the public body (H26).
+
+Contract 1.5.1 (ADR-15 section 16): the label "Precomputed on AMD MI300X" only when the demo
+package says the drafts were made on the MI300X by the model it names (services.demo_package;
+section 17), the rehearsal label otherwise (rules 11 and 13); a refused VLLM_BASE_URL is named
+by its refused part, never echoed. Contract 1.5.2 (section 17): the cached telemetry check names
+no hardware: the label alone does."""
 
 from __future__ import annotations
 
@@ -25,6 +33,7 @@ from apps.api.clock import DemoClock
 from apps.api.db import ping
 from apps.api.routes.stubs import add_stubs, responses
 from apps.api.runtime import SERVING_UNAVAILABLE, Runtime, runtime
+from apps.api.services.demo_package import CacheOrigin, cache_origin
 from apps.api.services.other.telemetry import CACHED_NOTE, component_check
 from apps.api.services.seeds import ASSUMPTIONS_V1, current_assumptions
 from llm.client import _NoRedirect, check_local_url
@@ -71,27 +80,39 @@ def probe_vllm(base_url: str | None, api_key: str | None, model: str | None = No
 
 
 def clock_view(rt: Runtime) -> s.ClockView:
-    """The API's clock as /readyz shows it (ADR-15 section 15)."""
+    """The API's clock as /readyz shows it (ADR-15 section 15): a frozen clock past its
+    snapshot instant stands at the latest act recorded, and its note says so (section 21)."""
     now = rt.now()
     clock = rt.clock
     if isinstance(clock, DemoClock) and clock.anchored is not None:
         anchor, started = clock.anchored
+        note = s.DEMO_CLOCK_NOTE
+        if clock.frozen:
+            note = s.FROZEN_CLOCK_NOTE if now == anchor else s.FROZEN_AFTER_ACTS_NOTE
         return s.ClockView(
             kind="demo",
             now=now,
             snapshot_as_of=anchor,
             started_at=started,
-            note=(
-                "Demo clock: the instant of the serving snapshot plus the time elapsed since "
-                "the demo reset"
-            ),
+            frozen=clock.frozen,
+            note=note,
         )
     if rt.clock_kind() == "fixed":
         return s.ClockView(
-            kind="fixed", now=now, snapshot_as_of=None, started_at=None, note="A fixed clock"
+            kind="fixed",
+            now=now,
+            snapshot_as_of=None,
+            started_at=None,
+            frozen=False,
+            note="A fixed clock",
         )
     return s.ClockView(
-        kind="system", now=now, snapshot_as_of=None, started_at=None, note="The wall clock, UTC"
+        kind="system",
+        now=now,
+        snapshot_as_of=None,
+        started_at=None,
+        frozen=False,
+        note="The wall clock, UTC",
     )
 
 
@@ -140,14 +161,15 @@ async def readiness(rt: Runtime) -> s.ReadyzResponse:
             probe_vllm, settings.vllm_base_url, settings.vllm_api_key, settings.gemma_model
         )
         checks.append(_check("vllm", "unavailable" if problem else "ok", problem))
+    origin = CacheOrigin(0, None, None)
     if settings.cached:
-        cache = rt.generator.cache_dir
-        entries = any(cache.glob("*.json")) if cache.is_dir() else False
+        origin = await asyncio.to_thread(cache_origin, settings.serving_dir)
+        entries = origin.entries > 0
         checks.append(
             _check(
                 "demo_cache",
                 "ok" if entries else "unavailable",
-                None if entries else "no precomputed output: drafts use the template",
+                origin.detail if entries else "no precomputed output: drafts use the template",
             )
         )
     else:
@@ -166,7 +188,7 @@ async def readiness(rt: Runtime) -> s.ReadyzResponse:
         mode=settings.demo_mode,
         llm_mode=settings.served_llm_mode,
         device=settings.device,
-        label=s.CACHED_LABEL if settings.cached and statuses["demo_cache"] == "ok" else None,
+        label=origin.label if settings.cached and statuses["demo_cache"] == "ok" else None,
         checks=checks,
         contract_version=s.API_CONTRACT_VERSION,
         rules_version=RULES_VERSION,

@@ -88,7 +88,10 @@ def assert_engine_output(view: s.DecisionView, decision: Decision) -> None:
     assert view.evidence_quality is decision.evidence_quality
     assert view.quadrant is decision.quadrant
     assert [x.model_dump() for x in view.proposed_levers] == decision.levers.to_contract(BASE)
-    assert view.refund_due_by == decision.refund_due_by
+    # the engine dates the refund on every path; the view states it on the withdrawal path
+    # only (1.7.0: the guarantee path has no refund deadline, rule 4)
+    stated = decision.refund_due_by if view.path is ReturnPath.WITHDRAWAL else None
+    assert view.refund_due_by == stated
     assert view.current_return_terms.to_policy() == decision.current_return_terms
     assert view.rules_version == decision.rules_version
     if view.state in ("proposed", "approved"):
@@ -225,11 +228,14 @@ def test_elena_follows_the_guarantee_path_with_a_catalogue_anomaly() -> None:
     anomaly = c.product_anomaly
     # E23: at the demo clock the anomaly is open; Luca opens CT-000012 from it at 18:45
     assert anomaly is not None and anomaly.status == "open" and anomaly.catalog_task_id is None
-    assert c.return_id in anomaly.return_ids
+    # her return is requested after the anomaly's snapshot: only her card offers it to a task
+    assert c.return_id in anomaly.queued_return_ids and c.return_id not in anomaly.return_ids
     task = s.CatalogTask.model_validate(load("catalog_task.elena.json"))
     assert task.anomaly_id == anomaly.anomaly_id and task.created_at > c.as_of
     listed = s.ProductAnomaliesResponse.model_validate(load("product_anomalies.json"))
-    assert listed.as_of == c.as_of and anomaly in listed.items
+    in_list = next(a for a in listed.items if a.anomaly_id == anomaly.anomaly_id)
+    assert listed.as_of == c.as_of and c.return_id not in in_list.queued_return_ids
+    assert anomaly.model_copy(update={"queued_return_ids": in_list.queued_return_ids}) == in_list
     after = s.ProductAnomaliesResponse.model_validate(load("product_anomalies.task_opened.json"))
     opened = next(a for a in after.items if a.anomaly_id == anomaly.anomaly_id)
     assert (opened.status, opened.catalog_task_id) == ("task_opened", task.task_id)
@@ -351,7 +357,10 @@ def test_audit_entry_ids_grow_with_time() -> None:
 
 def test_refunds_are_due_within_14_days_of_the_notice() -> None:
     for _, view in ALL_VIEWS:
-        assert view.refund_due_by == view.inputs.notice_on + timedelta(days=LEGAL_REFUND_DAYS)
+        if view.path is ReturnPath.WITHDRAWAL:
+            assert view.refund_due_by == view.inputs.notice_on + timedelta(days=LEGAL_REFUND_DAYS)
+        else:  # 1.7.0: a guarantee case has no refund deadline (rule 4, NFR-17)
+            assert view.refund_due_by is None
 
 
 # ---- Simulator (ECO-01) and drafts (llm/validator.py) --------------------------------------------

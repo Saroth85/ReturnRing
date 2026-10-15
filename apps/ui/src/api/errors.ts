@@ -8,6 +8,8 @@ export class ApiError extends Error {
   readonly code: ApiErrorCode;
   readonly violations: ViolationView[];
   readonly requestId: string | null;
+  /** The whole seconds of a 429's Retry-After header (ADR-15 section 16), null without one. */
+  readonly retryAfterS: number | null;
 
   constructor(init: {
     status: number;
@@ -15,6 +17,7 @@ export class ApiError extends Error {
     message: string;
     violations?: ViolationView[];
     requestId?: string | null;
+    retryAfterS?: number | null;
   }) {
     super(init.message);
     this.name = 'ApiError';
@@ -22,11 +25,35 @@ export class ApiError extends Error {
     this.code = init.code;
     this.violations = init.violations ?? [];
     this.requestId = init.requestId ?? null;
+    this.retryAfterS = init.retryAfterS ?? null;
   }
+}
+
+/**
+ * Retry-After as whole seconds (RFC 9110: delay-seconds or an HTTP date). The API sends whole
+ * seconds, at least 1, on every 429 rate_limited; a date is turned into seconds from `now`.
+ * Null when the header is missing or unreadable.
+ */
+export function parseRetryAfter(value: string | null, now: number = Date.now()): number | null {
+  if (value === null) return null;
+  const text = value.trim();
+  if (/^\d+$/.test(text)) return Math.max(1, Number(text));
+  const at = Date.parse(text);
+  if (Number.isNaN(at)) return null;
+  return Math.max(1, Math.ceil((at - now) / 1000));
 }
 
 export function isApiError(error: unknown): error is ApiError {
   return error instanceof ApiError;
+}
+
+/**
+ * The service answered and refused the request (a 4xx: invalid, forbidden, not found, conflict,
+ * rate limited), as opposed to not answering (network, 5xx). Retrying the same request does not
+ * help, except after a 429's Retry-After.
+ */
+export function isRefusal(error: unknown): error is ApiError {
+  return isApiError(error) && error.status >= 400 && error.status < 500;
 }
 
 /** Whether a body is the contract's ErrorResponse shape. */

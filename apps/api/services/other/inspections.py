@@ -480,6 +480,22 @@ def _vision_provenance(result: VisionResult, photo_id: str, at: datetime) -> s.P
     return provenance(origin, day, day, "real")
 
 
+def generation_of(result: VisionResult, generation_id: str, at: datetime) -> s.GenerationInfo:
+    """The generation record of a checklist, as served (the contract examples use it too)."""
+    return s.GenerationInfo(
+        generation_id=generation_id,
+        generation_path=result.path,
+        fallback_reason=result.fallback_reason,
+        llm_mode=result.llm_mode,
+        served_from="live",
+        model=result.model,
+        model_calls=result.model_calls,
+        validator_codes=result.validator_codes,
+        created_at=at,
+        latency_ms=result.latency_ms,
+    )
+
+
 def proposal_provenance(rule_id: str, inspection_id: str, at: datetime) -> s.Provenance:
     day = s.utc_day(at)
     origin = (
@@ -592,18 +608,7 @@ async def create(
     claim_prov = proposal_provenance(DAMAGE_RULE.rule_id, inspection_id, at)
     verdict = assess(result, view.path, price, claim_prov)
     vision_prov = _vision_provenance(result, photo_id, at)
-    info = s.GenerationInfo(
-        generation_id=generation_id,
-        generation_path=result.path,
-        fallback_reason=result.fallback_reason,
-        llm_mode=result.llm_mode,
-        served_from="live",
-        model=result.model,
-        model_calls=result.model_calls,
-        validator_codes=result.validator_codes,
-        created_at=at,
-        latency_ms=result.latency_ms,
-    )
+    info = generation_of(result, generation_id, at)
     inspection = s.InspectionView(
         inspection_id=inspection_id,
         return_id=body.return_id,
@@ -841,9 +846,7 @@ async def confirm(
     awaiting = after.state == "proposed" and after.requires_approval
     if claim is not None and not awaiting:
         draft = await load_draft(conn, after)
-        refund = s.Metric(
-            value=float(claim.refund_eur()), unit="eur", provenance=claim.amount.provenance
-        )
+        refund = claim.refund()  # its own provenance, not the claim's (rule 11)
         composed = await outbox.compose(
             conn,
             after,

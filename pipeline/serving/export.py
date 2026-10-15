@@ -57,7 +57,7 @@ from pipeline.graph.links import links_table
 from pipeline.graph.snapshot import load_snapshot as load_graph_snapshot
 from pipeline.graph.weights import GraphParams
 from pipeline.serving.evaluation import REPORT_FILE, write_report
-from pipeline.serving.manifest import LLM_CACHE, write_manifest
+from pipeline.serving.manifest import LLM_CACHE, MODEL_VERSION_KEYS, write_manifest
 
 STORE_TABLES: Final = tuple(name for name in SCHEMAS if name.startswith("store/"))
 FEATURE_TABLES: Final = (
@@ -273,7 +273,7 @@ def export(
     features = read_table("features/customer_features", out)[0].to_pandas()
     value = read_table("features/customer_value", out)[0].to_pandas()
     evidence = read_table("features/evidence_quality", out)[0].to_pandas()
-    versions = {  # the model_versions of every decision (keys as in the contract examples)
+    versions = {  # the model_versions of every decision (MODEL_VERSION_KEYS)
         "risk": models.request.version,  # the request model: the risk the engine reads
         "risk_customer": models.customer.version,
         "checkout": checkout_version,
@@ -282,6 +282,7 @@ def export(
         "evidence": _first(evidence, "thresholds_version"),
         "anomalies": ANOMALY_THRESHOLDS.version,
     }
+    assert tuple(versions) == MODEL_VERSION_KEYS, "the contract examples use MODEL_VERSION_KEYS"
     document: dict[str, Any] = {
         "as_of": moment.isoformat(),
         "seed": seed,

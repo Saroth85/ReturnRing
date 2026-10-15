@@ -145,7 +145,8 @@ async def kpi(
     now: datetime,
 ) -> s.KpiResponse:
     if week > s.utc_day(now):
-        raise invalid_request(f"the week of {week} has not started yet")
+        refused = f"the week of {week} has not started yet"
+        raise invalid_request(refused, [("week_not_started", f"query.week_start: {refused}")])
     end = week + timedelta(days=6)
     rows = await week_rows(conn, week)
     served = f"{now:%Y-%m-%d %H:%M} UTC"

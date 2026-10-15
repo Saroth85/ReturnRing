@@ -1,5 +1,7 @@
 // The mock scenario (X-Mock-Scenario, docs/ui-design.md 11.5): `?scenario=cached` on any URL sets
-// it for the tab; the dev ScenarioSwitcher changes it. Ignored by the real API.
+// it for the tab; the dev ScenarioSwitcher changes it. Only builds that a mock answers have one
+// (__MOCK_SCENARIOS__): the production bundle never reads ?scenario= or the stored choice, and
+// never sends the header to the real API.
 import { MOCK_SCENARIOS } from './contract.gen';
 import { UI_FIXTURE_SCENARIOS } from './adapters/fixtures';
 import { createStore, safeStorage, useStore } from './store';
@@ -27,7 +29,7 @@ function initialScenario(): string {
   return stored && SCENARIOS.includes(stored) ? stored : 'default';
 }
 
-export const scenarioStore = createStore<string>(initialScenario());
+export const scenarioStore = createStore<string>(__MOCK_SCENARIOS__ ? initialScenario() : 'default');
 
 export function setScenario(scenario: string): void {
   if (!SCENARIOS.includes(scenario)) throw new Error(`unknown mock scenario ${scenario}`);

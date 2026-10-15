@@ -60,6 +60,13 @@ describe('check-bundle (UI40)', () => {
     expect(found).toContain('assets/mock.js.map: bundles module ../src/api/adapters/mockRouter.ts');
   });
 
+  it('finds the mock scenario store and its header (they must be dead code in a live build)', () => {
+    writeFileSync(path.join(dist, 'assets', 'client.js'), 'if(s!=="default")h["X-Mock-Scenario"]=s;g("returnring.mockScenario");');
+    const found = scan();
+    expect(found).toContain('assets/client.js: "X-Mock-Scenario"');
+    expect(found).toContain('assets/client.js: "returnring.mockScenario"');
+  });
+
   it('runs without the examples (Docker build context) on markers and modules only', () => {
     writeFileSync(path.join(dist, 'assets', 'About.js'), 'const m={origin:"Contract example: risk model on the synthetic shop"};');
     expect(scanBundle({ dist })).toEqual([]);

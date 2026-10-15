@@ -70,11 +70,24 @@ describe('TermsDiff and LeverList', () => {
   it("shows Marco's order terms against the future terms, with the legal minimum", () => {
     const d = card('marco').decision;
     const { container } = render(
-      <TermsDiff current={d.current_return_terms} future={d.future_terms} levers={d.levers} snapshotId="TS-005230" clusterSize={7} />,
+      <TermsDiff
+        current={d.current_return_terms}
+        future={d.future_terms}
+        levers={d.levers}
+        snapshotId="TS-005230"
+        cluster={{ size: 7, provenance: d.inputs.provenance }}
+      />,
     );
     const window = container.querySelector('[data-term-row="return_window_days"]') as HTMLElement;
     expect(window.textContent).toBe('Return window30 days14 days(legal minimum)less generous');
-    expect(container.querySelector('[data-term-row="cluster_coupons_disabled"]')?.textContent).toContain('paused for 7 linked accounts');
+    // The count of linked accounts is data of the account graph: a plain number under the decision
+    // inputs' provenance, with its footer, never a constant (rule 11).
+    const paused = container.querySelector('[data-term-row="cluster_coupons_disabled"]') as HTMLElement;
+    expect(paused.textContent).toContain('paused for7linked accounts');
+    const count = paused.querySelector('[data-linked-accounts-count="7"]') as HTMLElement;
+    expect(count.closest('[data-constant]')).toBeNull();
+    expect(count.closest('[data-provenance-scope]')).toHaveAttribute('data-has-footer');
+    expect(count.closest('[data-provenance-scope]')).toHaveAttribute('data-nature', 'synthetic');
     expect(container.querySelector('[data-term-row="free_size_exchange"]')?.getAttribute('data-change')).toBe('same');
     expect(container.querySelectorAll('[data-change="less"][data-term-row]')).toHaveLength(6);
     expect(findUnprovenancedNumbers(container)).toEqual([]);

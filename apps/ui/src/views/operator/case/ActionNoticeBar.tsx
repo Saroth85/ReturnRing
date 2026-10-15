@@ -4,6 +4,7 @@
 // case, and it is a polite status, never an error (errors that need a decision stay inline).
 import { CircleCheck, X } from 'lucide-react';
 import { Link } from 'react-router';
+import { LinkedAccountsCount } from '@/components/decision';
 import { DateText, IdText } from '@/components/provenance';
 import { OPERATOR } from '../copy';
 import { noticeStore, useActionNotice } from '../state/prefs';
@@ -49,7 +50,12 @@ export function ActionNoticeBar() {
       {notice.coupon && (
         <span className="inline-flex flex-wrap items-center gap-1" data-notice-coupon={notice.coupon.state}>
           · {t.couponPause} <IdText id={notice.coupon.applicationId} /> {t.couponStates[notice.coupon.state] ?? notice.coupon.state}{' '}
-          <span data-constant>{t.couponFor(notice.coupon.accounts)}</span>
+          <LinkedAccountsCount
+            count={notice.coupon.accounts}
+            provenance={notice.coupon.accountsProvenance}
+            before={t.couponForBefore}
+            after={t.couponForAfter}
+          />
           {notice.coupon.state !== 'reversed' && (
             <>
               · {OPERATOR.queue.review} <DateText value={notice.coupon.reviewAt} />

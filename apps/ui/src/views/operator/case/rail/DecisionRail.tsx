@@ -5,7 +5,7 @@ import { Ticket, UserCheck } from 'lucide-react';
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { Link } from 'react-router';
 import type { CaseCard } from '@/api/models';
-import { ApproverLine, DecisionChain, RefundFloorNotice, RestrictionBadge, TermsDiff } from '@/components/decision';
+import { ApproverLine, DecisionChain, LinkedAccountsCount, RefundFloorNotice, RestrictionBadge, TermsDiff } from '@/components/decision';
 import { GenerationBadge } from '@/components/message';
 import { DateText, Figure, IdText } from '@/components/provenance';
 import { restrictionStatus } from '@/domain/decision';
@@ -105,7 +105,13 @@ function CouponApplicationNotice({ card }: { card: CaseCard }) {
       <Ticket aria-hidden="true" size={16} className="mt-0.5 shrink-0 text-ink-2" />
       <p className="flex flex-wrap items-center gap-x-1">
         {r.couponPause} <IdText id={rule.application_id} />{' '}
-        <span data-constant>{r.forAccounts(rule.affected_customer_ids.length, rule.cluster_id)}</span> · {r.rule}{' '}
+        <LinkedAccountsCount
+          count={rule.affected_customer_ids.length}
+          provenance={card.decision.inputs.provenance}
+          before={r.forAccountsBefore}
+          after={r.forAccountsAfter}
+        />{' '}
+        <IdText id={rule.cluster_id} /> · {r.rule}{' '}
         <IdText id={rule.rule_version} /> · {r.reversible} ·{' '}
         {rule.confirmed_by ? (
           <>
@@ -199,7 +205,11 @@ export function DecisionRail(props: ActionBarProps) {
           future={decision.future_terms}
           levers={decision.levers}
           snapshotId={card.order_terms.terms_snapshot_id}
-          clusterSize={decision.coupon_rule?.affected_customer_ids.length}
+          cluster={
+            decision.coupon_rule
+              ? { size: decision.coupon_rule.affected_customer_ids.length, provenance: decision.inputs.provenance }
+              : undefined
+          }
         />
         <div className="flex flex-wrap items-center gap-2">
           <RestrictionBadge decision={decision} />

@@ -45,6 +45,31 @@ const sheet = (name: string) => document.querySelector<HTMLElement>(`[data-sheet
 const confirmButton = (name: string) => document.querySelector<HTMLButtonElement>(`[data-sheet-confirm="${name}"]`) as HTMLButtonElement;
 const action = (name: string) => document.querySelector<HTMLButtonElement>(`[data-action="${name}"]`) as HTMLButtonElement;
 
+describe('the message each sheet previews (rule 10)', () => {
+  it('approve previews the draft, which is what an approval sends', async () => {
+    await openCase('RET-000102');
+    await waitFor(() => expect(action('approve-restriction')).toBeEnabled());
+    fireEvent.click(action('approve-restriction'));
+    await waitFor(() => expect(sheet('approve')).not.toBeNull());
+    expect(sheet('approve').querySelector('[data-message-preview]')).not.toBeNull();
+    expect(sheet('approve').querySelector('[data-message-composed]')).toBeNull();
+  });
+
+  it.each(['reject', 'override'])('%s previews no draft: the service composes the message for the decision acted on', async (name) => {
+    await openCase('RET-000102');
+    await waitFor(() => expect(action(name)).toBeEnabled());
+    fireEvent.click(action(name));
+    await waitFor(() => expect(sheet(name)).not.toBeNull());
+    // Neither the proposal's TERMS nor its legal clause: they are not the ones sent.
+    expect(sheet(name).querySelector('[data-message-preview]')).toBeNull();
+    expect(sheet(name).querySelector('[data-template-field]')).toBeNull();
+    expect(sheet(name).querySelector('[data-legal-clause]')).toBeNull();
+    expect(sheet(name).querySelector('[data-message-composed]')).toHaveTextContent(OPERATOR.sheets.composedMessage);
+    // The language is still the operator's choice.
+    expect(within(sheet(name)).getByRole('radio', { name: 'Italiano' })).toBeInTheDocument();
+  });
+});
+
 describe('past the refund deadline (ADR-15 sections 19, 20)', () => {
   it('Marco: a banner says the refund is overdue and owed; approving is off, with the reason', async () => {
     clockAt('2026-10-20T10:00:00Z');

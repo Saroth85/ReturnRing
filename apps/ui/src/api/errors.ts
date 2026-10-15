@@ -47,6 +47,15 @@ export function isApiError(error: unknown): error is ApiError {
   return error instanceof ApiError;
 }
 
+/**
+ * The service answered and refused the request (a 4xx: invalid, forbidden, not found, conflict,
+ * rate limited), as opposed to not answering (network, 5xx). Retrying the same request does not
+ * help, except after a 429's Retry-After.
+ */
+export function isRefusal(error: unknown): error is ApiError {
+  return isApiError(error) && error.status >= 400 && error.status < 500;
+}
+
 /** Whether a body is the contract's ErrorResponse shape. */
 export function isErrorResponse(body: unknown): body is ErrorResponse {
   if (!body || typeof body !== 'object') return false;

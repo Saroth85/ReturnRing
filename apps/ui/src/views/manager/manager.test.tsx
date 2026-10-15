@@ -3,7 +3,8 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api } from '@/api/client';
-import type { CatalogTask, DemoCasesResponse } from '@/api/models';
+import { ApiError } from '@/api/errors';
+import type { CatalogTask, DemoCasesResponse, ReadyzResponse } from '@/api/models';
 import { setScenario } from '@/api/scenario';
 import { setPersona } from '@/app/persona';
 import { readExample } from '@/test/examples';
@@ -76,7 +77,7 @@ describe('/portfolio (US-601)', () => {
       expect(el).not.toBeNull();
       return el as HTMLElement;
     });
-    expect(note.textContent).toContain('Giulia: same return rate as Marco');
+    expect(note.textContent).toContain('Giulia: paired with Marco in the pitch');
     expect(note.textContent).toContain('Elena: her open return follows the guarantee path');
   });
 
@@ -204,6 +205,39 @@ describe('/kpi (US-603)', () => {
     cleanScreen();
   });
 
+  it('stops Next at the current week of the service clock, never asking for a week not started', async () => {
+    const readyz = readExample<ReadyzResponse>('readyz_response.live.json');
+    vi.spyOn(api, 'readyz').mockResolvedValue({ ...readyz, clock: { ...readyz.clock, kind: 'fixed', now: '2026-09-24T10:00:00Z' } });
+    renderApp('/kpi?week=2026-09-21');
+    await loaded();
+    const next = await screen.findByRole('button', { name: 'Next week' });
+    await waitFor(() => expect(next).toBeDisabled());
+    expect(next).toHaveAttribute('title', 'The week of 2026-09-28 has not started on the service clock.');
+    expect(screen.getByRole('button', { name: 'Previous week' })).toBeEnabled();
+  });
+
+  it('a refused week (422) is titled as a refusal, without a Retry that cannot succeed', async () => {
+    vi.spyOn(api, 'getKpi').mockRejectedValue(
+      new ApiError({
+        status: 422,
+        code: 'invalid_request',
+        message: 'the week of 2026-10-05 has not started yet',
+        violations: [{ code: 'week_not_started', message: 'query.week_start: the week of 2026-10-05 has not started yet' }],
+      }),
+    );
+    renderApp('/kpi?week=2026-10-05');
+    const error = await waitFor(() => {
+      const found = document.querySelector('[data-error-state]');
+      expect(found).not.toBeNull();
+      return found as HTMLElement;
+    });
+    expect(error).toHaveTextContent('GET /api/kpi: the service refused the request');
+    expect(error).not.toHaveTextContent('did not answer');
+    expect(error.querySelector('[data-violation="week_not_started"]')).toHaveTextContent('query.week_start');
+    expect(within(error).queryByRole('button', { name: 'Retry' })).toBeNull();
+    expect(screen.getByRole('link', { name: 'Open the current week' })).toHaveAttribute('href', '/kpi');
+  });
+
   it('moves to the previous week by URL', async () => {
     const { router } = renderApp('/kpi?week=2026-09-21');
     await loaded();
@@ -327,6 +361,24 @@ describe('/products (US-208, US-606)', () => {
     const done = document.querySelector('[data-task="CT-000007"]') as HTMLElement;
     expect(within(done).getByText('A decrease alone does not prove the effect of the correction: that needs a controlled comparison.')).toBeInTheDocument();
     cleanScreen();
+  });
+
+  it('a step note is empty (sent as null) or at least the minimum length: a shorter one blocks the move, never a 422', async () => {
+    act(() => setPersona('luca'));
+    const update = vi.spyOn(api, 'updateCatalogTask');
+    renderApp('/products/tasks');
+    await loaded();
+    const open = await screen.findByText((_, el) => el?.getAttribute('data-task') === 'CT-000012', {});
+    const input = within(open).getByLabelText('Note for this step (optional)');
+    expect(input).toHaveAttribute('maxLength', '1000');
+    fireEvent.change(input, { target: { value: 'ok' } });
+    expect(within(open).getByRole('button', { name: 'Start' })).toBeDisabled();
+    expect(open.querySelector('[data-move-note-short]')).toHaveTextContent('A note has at least 3 characters');
+    fireEvent.change(input, { target: { value: '  ' } });
+    expect(open.querySelector('[data-move-note-short]')).toBeNull();
+    fireEvent.click(within(open).getByRole('button', { name: 'Start' }));
+    await waitFor(() => expect(update).toHaveBeenCalled());
+    expect(update.mock.calls[0]?.[1]).toMatchObject({ status: 'in_progress', note: null, author: 'luca' });
   });
 });
 

@@ -8,10 +8,11 @@ import { isApiError } from '@/api/errors';
 import { useDemoCases } from '@/api/queries';
 import { setPresent } from '@/app/display';
 import { setPersona } from '@/app/persona';
+import { useReadOnly } from '@/components/feedback';
 import { ModeCornerTag } from '@/components/mode';
 import { Button } from '@/components/ui';
 import { PLATFORM } from '../copy';
-import { buildBeats, currentBeat } from './beats';
+import { buildBeats, currentBeat, readOnlyLimit } from './beats';
 
 export function DemoRail() {
   const location = useLocation();
@@ -20,6 +21,12 @@ export function DemoRail() {
   const beats = buildBeats(cases.data);
   const current = currentBeat(beats, location.pathname, location.search);
   const noReset = cases.isError && isApiError(cases.error) && cases.error.status === 404;
+  const readOnly = useReadOnly();
+  /** On the read-only demo, the beats that need a write the service refuses. */
+  const notPlayable = (id: Parameters<typeof readOnlyLimit>[0]) => {
+    const limit = readOnly ? readOnlyLimit(id) : null;
+    return limit && !limit.playable ? limit.note : null;
+  };
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -50,9 +57,12 @@ export function DemoRail() {
                 to={beat.to}
                 onClick={() => setPersona(beat.persona)}
                 aria-current={index === current ? 'step' : undefined}
+                title={notPlayable(beat.id) ?? undefined}
+                data-rail-playable={notPlayable(beat.id) ? 'no' : 'yes'}
                 className={clsx(
                   'inline-flex items-center gap-1.5 rounded-control px-2 py-1',
                   index === current ? 'bg-accent-bg font-medium text-ink-1' : 'text-ink-2 hover:bg-surface-2',
+                  notPlayable(beat.id) && 'line-through decoration-ink-3',
                 )}
               >
                 <span className="text-caption text-ink-3" data-constant>

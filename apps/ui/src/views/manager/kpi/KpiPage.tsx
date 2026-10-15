@@ -5,6 +5,8 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router';
+import { useDemoClock } from '@/api/clock';
+import { isRefusal } from '@/api/errors';
 import type { KpiResponse, Metric, Provenance } from '@/api/models';
 import { useKpi } from '@/api/queries';
 import { DotPlot } from '@/components/charts';
@@ -65,6 +67,11 @@ function DecisionsBar({ decisions }: { decisions: KpiResponse['decisions'] }) {
 function Kpi({ data, week }: { data: KpiResponse; week: string }) {
   const [, setParams] = useSearchParams();
   const go = (weeks: number) => setParams({ week: shiftWeek(week, weeks) });
+  // The service refuses a week that has not started on its clock (422): Next stops at the
+  // current week of the service's clock, never the browser's date.
+  const clock = useDemoClock();
+  const next = shiftWeek(week, 1);
+  const nextNotStarted = clock.today !== null && next > clock.today;
   const nb = data.net_benefit_simulated;
   const fpProvenance = data.false_positives[0]?.false_positive_rate.provenance ?? data.decisions.total.provenance;
   return (
@@ -82,7 +89,12 @@ function Kpi({ data, week }: { data: KpiResponse; week: string }) {
             <ChevronLeft aria-hidden="true" size={14} />
             {K.previous}
           </Button>
-          <Button onClick={() => go(1)}>
+          <Button
+            onClick={() => go(1)}
+            disabled={nextNotStarted}
+            title={nextNotStarted ? K.nextNotStarted(next) : undefined}
+            data-kpi-next={nextNotStarted ? 'not-started' : 'open'}
+          >
             {K.next}
             <ChevronRight aria-hidden="true" size={14} />
           </Button>
@@ -210,6 +222,11 @@ export default function KpiPage() {
         <Loadable query={kpi} label="GET /api/kpi" rows={8} notFound={(message) => <ReportUnavailable message={message} />}>
           {() => null}
         </Loadable>
+        {requested && isRefusal(kpi.error) && kpi.error.status !== 404 && (
+          <Link to="/kpi" className="text-body text-accent underline underline-offset-2" data-kpi-current-week>
+            {K.currentWeek}
+          </Link>
+        )}
       </ManagerPage>
     );
   }

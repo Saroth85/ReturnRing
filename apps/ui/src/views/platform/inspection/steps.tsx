@@ -7,7 +7,7 @@ import { useId, useState, type DragEvent, type KeyboardEvent, type ReactNode } f
 import { Link } from 'react-router';
 import { outboxSource } from '@/api/adapters/messageSegments';
 import type { InspectionView } from '@/api/models';
-import { GenerationBadge, MessagePreview } from '@/components/message';
+import { GenerationBadge, MessagePreview, RefundStated } from '@/components/message';
 import { DateText, Figure, IdText, PlainNumber, ProvenanceFooter, ProvenanceScope } from '@/components/provenance';
 import { Kbd } from '@/components/ui';
 import { PHOTO_TYPES } from '../constants';
@@ -413,7 +413,10 @@ export function InspectionResult({ result }: { result: ConfirmResult }) {
         </div>
       )}
       {message ? (
-        <MessagePreview message={outboxSource(message)} title={r.messageTitle} />
+        <>
+          <MessagePreview message={outboxSource(message)} title={r.messageTitle} />
+          <RefundStated refund={message.refund} />
+        </>
       ) : (
         <p className="text-body text-ink-3">{r.noMessage}</p>
       )}

@@ -7,9 +7,13 @@ import { LLM_NAME } from '@/copy/constants';
 type Tool = (typeof AGENT_TOOLS)[number];
 
 export const AGENT = {
-  /** The drawer title; the model name follows in its own constant span. */
+  /** The drawer title; the model, as /readyz names it (./model.ts), follows in its own span. */
   title: (returnId: string) => `Ask about ${returnId} · read-only assistant`,
-  modelName: `(${LLM_NAME})`,
+  model: {
+    vllm: `(${LLM_NAME} on vLLM)`,
+    mock: '(mock language model: hand-written stand-ins)',
+    contract: '(contract examples)',
+  },
   readOnly: 'It can read the case; it cannot change it.',
   footer: `Read-only: ${AGENT_TOOLS.length} tools, at most ${AGENT_MAX_STEPS} steps. Answers cannot change the decision.`,
   close: 'Close',
@@ -139,8 +143,8 @@ export const AGENT = {
     originExample: (generationId: string) => `Contract example: steps_used of agent stream ${generationId}`,
     originMockModel: (generationId: string) =>
       `Mock language model (hand-written stand-in): steps_used of agent stream ${generationId}`,
-    originLive: (generationId: string, cached: boolean) =>
-      `${LLM_NAME} on vLLM: steps_used of agent stream ${generationId}${cached ? ', precomputed' : ''}`,
+    originLive: (generationId: string, model: string, cached: boolean) =>
+      `${model} on vLLM: steps_used of agent stream ${generationId}${cached ? ', precomputed' : ''}`,
   },
 
   refs: {

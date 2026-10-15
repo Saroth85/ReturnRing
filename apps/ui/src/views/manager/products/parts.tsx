@@ -4,6 +4,7 @@ import clsx from 'clsx';
 import { Check, CircleDot, Circle, XCircle } from 'lucide-react';
 import { useId, useState, type ReactNode } from 'react';
 import { Link, NavLink } from 'react-router';
+import { TASK_NOTE_MAX_LENGTH } from '@/api/contract.gen';
 import type { CatalogTask } from '@/api/models';
 import { useCreateCatalogTask, useUpdateCatalogTask } from '@/api/mutations';
 import { usePersona } from '@/app/persona';
@@ -109,6 +110,7 @@ export function CatalogTaskForm({
         id={noteId}
         rows={3}
         value={note}
+        maxLength={TASK_NOTE_MAX_LENGTH}
         onChange={(event) => setNote(event.target.value)}
         className="rounded-control border border-border-strong bg-surface px-2 py-1 text-body"
         aria-describedby={`${noteId}-hint`}
@@ -254,9 +256,13 @@ export function TaskCard({ task, children }: { task: CatalogTask; children?: Rea
   const shown = result && result.updated_at >= task.updated_at ? result : task;
   const moves = NEXT[shown.status];
 
+  // The step note is optional, but a note is at least MIN_REASON_CHARS once trimmed (the schema's
+  // minLength): a shorter one blocks the move instead of earning a 422; empty sends null.
+  const trimmed = note.trim();
+  const noteShort = trimmed.length > 0 && trimmed.length < MIN_REASON_CHARS;
   const move = (status: 'in_progress' | 'done' | 'cancelled') =>
     update.mutate(
-      { status, note: note.trim() || null, author: persona.id },
+      { status, note: trimmed || null, author: persona.id },
       {
         onSuccess: (next) => {
           setResult(next);
@@ -317,9 +323,17 @@ export function TaskCard({ task, children }: { task: CatalogTask; children?: Rea
           <input
             id={noteId}
             value={note}
+            maxLength={TASK_NOTE_MAX_LENGTH}
             onChange={(event) => setNote(event.target.value)}
             className="rounded-control border border-border-strong bg-surface px-2 py-1 text-body"
+            aria-invalid={noteShort || undefined}
+            aria-describedby={noteShort ? `${noteId}-short` : undefined}
           />
+          {noteShort && (
+            <p id={`${noteId}-short`} className="text-caption text-attn-fg" data-move-note-short>
+              {T.moveNoteShort(MIN_REASON_CHARS)}
+            </p>
+          )}
           <RoleGate action="PATCH /api/catalog-tasks/{task_id}">
             {(gate) => (
               <div className="flex flex-wrap gap-2">
@@ -327,8 +341,8 @@ export function TaskCard({ task, children }: { task: CatalogTask; children?: Rea
                   <Button
                     key={m}
                     variant={m === 'cancelled' ? 'secondary' : 'primary'}
-                    disabled={!gate.allowed || update.isPending}
-                    title={gate.reason ?? undefined}
+                    disabled={!gate.allowed || update.isPending || noteShort}
+                    title={gate.reason ?? (noteShort ? T.moveNoteShort(MIN_REASON_CHARS) : undefined)}
                     onClick={() => move(m)}
                     data-move={m}
                   >

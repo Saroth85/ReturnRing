@@ -161,6 +161,22 @@ describe('AuditDiff', () => {
     expect(screen.queryByText(RECORDS.diff.numberHidden)).toBeNull();
     expect(findUnprovenancedNumbers(container)).toEqual([]);
   });
+
+  it('names the model of the entry in the path row: the mock model, or the served model id (rules 11, 13)', () => {
+    const generation = audit.items.find((e) => e.action === 'draft_generated' && e.entity_id === 'GEN-000109-1')!;
+    const after = generation.after as Extract<AuditEntry['after'], { generation_path: string }>;
+    const mock = { ...after, generation_path: 'model' as const, fallback_reason: null, validator_codes: [] };
+    const { container, unmount } = renderWithProviders(<AuditDiff before={null} after={mock} />);
+    const row = () => (container.querySelector('[data-diff-row="path"]') as HTMLElement).textContent;
+    expect(row()).toContain('Mock language model (hand-written stand-in) · validated on the first call');
+    expect(row()).not.toContain('Gemma');
+    unmount();
+    const vllm = { ...mock, llm_mode: 'vllm' as const, model: 'google/gemma-4-31b-it', generation_path: 'regenerated' as const, model_calls: 2 };
+    const second = renderWithProviders(<AuditDiff before={null} after={vllm} />);
+    expect((second.container.querySelector('[data-diff-row="path"]') as HTMLElement).textContent).toContain(
+      'google/gemma-4-31b-it · validated on the second call',
+    );
+  });
 });
 
 describe('AuditEntryList', () => {

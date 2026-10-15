@@ -58,6 +58,14 @@ function at(defName, propertyPath) {
   return resolve(node);
 }
 
+/** The string branch of a (nullable) string property, for its length limits. */
+function stringAt(defName, propertyPath) {
+  const s = at(defName, propertyPath);
+  const branch = (s.anyOf ?? [s]).map(resolve).find((b) => b.type === 'string');
+  if (!branch) throw new Error(`contract: ${defName}.${propertyPath} is not a string`);
+  return branch;
+}
+
 /** The string values of an enum schema, through $ref and nullable anyOf. */
 function enumOf(schema, where) {
   const s = resolve(schema);
@@ -197,6 +205,9 @@ const constants = [
   ['AGENT_MAX_STEPS', 'ToolCallEvent.step maximum', at('ToolCallEvent', 'properties.step').maximum],
   ['AGENT_QUESTION_MAX_LENGTH', 'AgentAskRequest.question maxLength', at('AgentAskRequest', 'properties.question').maxLength],
   ['PHOTO_BASE64_MAX_LENGTH', 'PhotoUpload.data_base64 maxLength', at('PhotoUpload', 'properties.data_base64').maxLength],
+  ['REASON_MAX_LENGTH', 'DecisionRequest.override_reason maxLength', stringAt('DecisionRequest', 'properties.override_reason').maxLength],
+  ['TASK_NOTE_MAX_LENGTH', 'CatalogTaskUpdate.note maxLength', stringAt('CatalogTaskUpdate', 'properties.note').maxLength],
+  ['INSPECTION_NOTE_MAX_LENGTH', 'InspectionConfirmRequest.note maxLength', stringAt('InspectionConfirmRequest', 'properties.note').maxLength],
   ['HUMAN_ONLY_ACTIONS', 'contracts/vocab.py HUMAN_ONLY_ACTIONS', vocabActionSet('HUMAN_ONLY_ACTIONS', auditActions)],
   ['REASON_REQUIRED_ACTIONS', 'contracts/vocab.py REASON_REQUIRED_ACTIONS', vocabActionSet('REASON_REQUIRED_ACTIONS', auditActions)],
   ['MIN_REASON_CHARS', 'contracts/vocab.py MIN_REASON_CHARS', Number(minReasonMatch[1])],

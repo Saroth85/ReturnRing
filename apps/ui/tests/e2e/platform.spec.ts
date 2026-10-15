@@ -219,6 +219,8 @@ test.describe('warehouse inspection (US-501..503)', () => {
     await expect(result.locator('[data-line-price]')).toContainText('€89.90');
     await expect(result.locator('[data-template-field="amount"]')).toContainText('71,92 €');
     await expect(result.locator('[data-template-field="deduction"]')).toContainText('17,98 €');
+    // The refund the message states, with its provenance (OutboxMessage.refund, rule 11).
+    await expect(result.locator('[data-refund-stated] [data-figure]')).toContainText('€71.92');
     await expectClean(page, errors);
     await shoot(page, 'inspection-confirmed');
   });
@@ -341,7 +343,7 @@ test.describe('demo path and coupon rules (US-903, US-402)', () => {
     const compare = `/compare?a=${caseId('giulia')}&b=${caseId('marco')}`;
     await page.goto(`${compare}&present=1`);
     const rail = page.getByRole('navigation', { name: 'Demo beats' });
-    await expect(rail.locator('[aria-current="step"]')).toContainText('Same indicator');
+    await expect(rail.locator('[aria-current="step"]')).toContainText('Same signal');
     await page.keyboard.press('Alt+ArrowRight');
     await expect(page).toHaveURL(new RegExp(`/returns/${caseId('marco')}$`));
     await expect(rail.locator('[aria-current="step"]')).toContainText('Marco');

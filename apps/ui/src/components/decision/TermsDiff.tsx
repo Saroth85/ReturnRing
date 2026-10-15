@@ -1,10 +1,11 @@
 import clsx from 'clsx';
 import { ArrowDown, ArrowUp } from 'lucide-react';
 import { LEGAL_MINIMUM_WINDOW_DAYS } from '@/api/contract.gen';
-import type { Lever, Terms } from '@/api/models';
+import type { Lever, Provenance, Terms } from '@/api/models';
 import { changedRows, termsRows, type TermRow } from '@/domain/decision';
 import { LEVER_COPY, TERMS_COPY } from './copy';
 import { termValue } from './labels';
+import { LinkedAccountsCount } from './LinkedAccountsCount';
 
 export interface TermsDiffProps {
   /** The terms stored with this order (decision.current_return_terms). */
@@ -13,8 +14,11 @@ export interface TermsDiffProps {
   levers: readonly Lever[];
   /** The order's terms snapshot id, shown in the column header. */
   snapshotId?: string;
-  /** How many linked accounts a cluster coupon pause covers. */
-  clusterSize?: number;
+  /**
+   * The cluster a coupon pause covers: how many linked accounts, with the provenance of that count
+   * (decision.inputs.provenance). Without it the row says only that coupons are paused.
+   */
+  cluster?: { size: number; provenance: Provenance };
   /** Only the rows that change (the approval sheet). */
   onlyChanges?: boolean;
   className?: string;
@@ -49,7 +53,7 @@ function Change({ row }: { row: TermRow }) {
  * checkout; a restriction applies from the next order. A 14-day window carries "legal minimum".
  * Terms are policy values, not measurements (`data-constant`).
  */
-export function TermsDiff({ current, future, levers, snapshotId, clusterSize, onlyChanges = false, className }: TermsDiffProps) {
+export function TermsDiff({ current, future, levers, snapshotId, cluster, onlyChanges = false, className }: TermsDiffProps) {
   const all = termsRows(current, future, levers);
   const rows = onlyChanges ? changedRows(all) : all;
   return (
@@ -86,10 +90,22 @@ export function TermsDiff({ current, future, levers, snapshotId, clusterSize, on
               <td className="py-1 pr-2" data-constant>
                 {termValue(row.lever, row.current)}
               </td>
-              <td className={clsx('py-1 pr-2', row.change === 'less' && 'font-medium')} data-constant>
-                {termValue(row.lever, row.future, clusterSize)}
+              <td className={clsx('py-1 pr-2', row.change === 'less' && 'font-medium')}>
+                {/* The paused cluster's size is data (a count of the account graph), with its provenance. */}
+                {row.lever === 'cluster_coupons_disabled' && row.future === true && cluster ? (
+                  <LinkedAccountsCount
+                    count={cluster.size}
+                    provenance={cluster.provenance}
+                    before={TERMS_COPY.pausedForBefore}
+                    after={TERMS_COPY.pausedForAfter}
+                  />
+                ) : (
+                  <span data-constant>{termValue(row.lever, row.future)}</span>
+                )}
                 {row.lever === 'return_window_days' && row.future === LEGAL_MINIMUM_WINDOW_DAYS && (
-                  <span className="ml-1 text-caption text-ink-3">({LEVER_COPY.legalMinimum})</span>
+                  <span className="ml-1 text-caption text-ink-3" data-constant>
+                    ({LEVER_COPY.legalMinimum})
+                  </span>
                 )}
               </td>
               <td className="py-1">

@@ -142,3 +142,20 @@ test('the warehouse cannot send a photo on the read-only demo', async ({ page })
   if ((await send.count()) > 0) await expect(send).toBeDisabled();
   await expectClean(page, errors);
 });
+
+test('the demo page never asks for a write the service refuses: the ring checkout and the dispute are not playable', async ({ page }) => {
+  const errors = await open(page, '/demo');
+  const ring = page.locator('[data-beat-id="shop_ring"]');
+  await expect(ring).toHaveAttribute('data-playable', 'no');
+  await expect(ring.locator('[data-read-only-beat="not-playable"]')).toContainText('Marco cannot be approved here');
+  await expect(ring).not.toContainText('Approve Marco first');
+  if (cases.dispute) {
+    const dispute = page.locator('[data-beat-id="dispute"]');
+    await expect(dispute).toHaveAttribute('data-playable', 'no');
+    await expect(dispute.locator('[data-read-only-beat="not-playable"]')).toBeVisible();
+    // One account left is no cluster (never "1 linked accounts").
+    if (cases.dispute.cluster_size_after <= 1) await expect(dispute.locator('[data-dispute-cluster]')).toContainText('→ no cluster');
+  }
+  await expect(page.locator('[data-beat-id="marco"] [data-read-only-beat="limited"]')).toBeVisible();
+  await expectClean(page, errors);
+});

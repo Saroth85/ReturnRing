@@ -14,7 +14,7 @@ import type { CaseCard, DemoCasesResponse } from '@/api/models';
 import { useAssumptions, useCase, useDemoCases, useReadyz } from '@/api/queries';
 import { setPersona, personaName } from '@/app/persona';
 import { setPresent, usePresent } from '@/app/display';
-import { ErrorState, LoadingBlock } from '@/components/feedback';
+import { ErrorState, LoadingBlock, useReadOnly } from '@/components/feedback';
 import { Figure, IdText, PlainNumber, ProvenanceFooter, ProvenanceScope } from '@/components/provenance';
 import { Button } from '@/components/ui';
 import { caseOf, goldenReturnIds } from '@/domain/demoCases';
@@ -22,7 +22,7 @@ import { CACHED_ORIGIN } from '../constants';
 import { PLATFORM } from '../copy';
 import { PageHeader, Panel } from '../shared/layout';
 import { NoResetNotice } from '../shared/NoResetNotice';
-import { buildBeats, type Beat } from './beats';
+import { buildBeats, readOnlyLimit, type Beat } from './beats';
 import { loadMetric, preflightChecks, preflightState, type CheckState, type ExpectedMode, type PreflightCheck } from './preflight';
 
 const t = PLATFORM.demo;
@@ -165,11 +165,15 @@ function Preflight() {
   );
 }
 
-/** Whether Marco is approved, from his card: the ring checkout shows his restriction only then. */
-function AfterMarco({ card }: { card: CaseCard | undefined }) {
+/**
+ * Whether Marco is approved, from his card: the ring checkout shows his restriction only then. On
+ * the read-only demo a proposed Marco stays proposed: the page never asks for the approval.
+ */
+function AfterMarco({ card, readOnly }: { card: CaseCard | undefined; readOnly: boolean }) {
   if (!card) return null;
   const state = card.decision.state;
-  const text = state === 'approved' ? t.afterMarco.approved : state === 'proposed' ? t.afterMarco.proposed : t.afterMarco.other;
+  const proposed = readOnly ? t.afterMarco.readOnly : t.afterMarco.proposed;
+  const text = state === 'approved' ? t.afterMarco.approved : state === 'proposed' ? proposed : t.afterMarco.other;
   return (
     <p className={clsx('text-caption', state === 'approved' ? 'text-ink-2' : 'font-medium text-attn-fg')} data-after-marco={state}>
       {text}
@@ -183,11 +187,20 @@ function DisputeDetail({ beat, provenance }: { beat: Beat; provenance: DemoCases
   if (!dispute) return null;
   return (
     <ProvenanceScope provenance={provenance} covers="the cluster sizes of the demo dispute" className="flex flex-col gap-0.5 text-caption">
-      <p className="text-ink-2">
+      <p className="text-ink-2" data-dispute-cluster>
         {t.disputeCluster} <IdText id={dispute.cluster_id} />
         {': '}
-        <PlainNumber value={dispute.cluster_size_before} unit="count" /> → <PlainNumber value={dispute.cluster_size_after} unit="count" />{' '}
-        {t.disputeAccounts}
+        {/* One account left is no cluster of linked accounts (as RecomputeComparison says it). */}
+        {dispute.cluster_size_after > 1 ? (
+          <>
+            <PlainNumber value={dispute.cluster_size_before} unit="count" /> → <PlainNumber value={dispute.cluster_size_after} unit="count" />{' '}
+            {t.disputeAccounts}
+          </>
+        ) : (
+          <>
+            <PlainNumber value={dispute.cluster_size_before} unit="count" /> {t.disputeAccounts} → {t.disputeNoCluster}
+          </>
+        )}
       </p>
       <ProvenanceFooter compact />
       <p className={dispute.changes_decision ? 'text-ink-2' : 'font-medium text-ink-1'} data-dispute-changes={dispute.changes_decision ? 'yes' : 'no'}>
@@ -199,8 +212,15 @@ function DisputeDetail({ beat, provenance }: { beat: Beat; provenance: DemoCases
 
 function BeatRow({ beat, index, beats, cases, marco }: { beat: Beat; index: number; beats: readonly Beat[]; cases: DemoCasesResponse | undefined; marco: CaseCard | undefined }) {
   const after = beat.after ? beats.find((b) => b.id === beat.after) : undefined;
+  const readOnly = useReadOnly();
+  const limit = readOnly ? readOnlyLimit(beat.id) : null;
   return (
-    <li className="flex flex-col gap-1 border-t border-border py-3 first:border-t-0 md:flex-row md:items-start md:gap-4" data-beat={index} data-beat-id={beat.id}>
+    <li
+      className="flex flex-col gap-1 border-t border-border py-3 first:border-t-0 md:flex-row md:items-start md:gap-4"
+      data-beat={index}
+      data-beat-id={beat.id}
+      data-playable={limit && !limit.playable ? 'no' : 'yes'}
+    >
       <span
         aria-hidden="true"
         className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-border-strong text-dense font-semibold"
@@ -220,7 +240,15 @@ function BeatRow({ beat, index, beats, cases, marco }: { beat: Beat; index: numb
         <p className="max-w-prose text-body text-ink-2" data-constant>
           <span className="font-medium text-ink-1">{t.say}:</span> {beat.say}
         </p>
-        {beat.after === 'marco' && <AfterMarco card={marco} />}
+        {limit && (
+          <p
+            className={clsx('text-caption', limit.playable ? 'text-ink-2' : 'font-medium text-attn-fg')}
+            data-read-only-beat={limit.playable ? 'limited' : 'not-playable'}
+          >
+            <span className="font-medium">{limit.playable ? t.readOnly.limited : t.readOnly.notPlayable}:</span> {limit.note}
+          </p>
+        )}
+        {beat.after === 'marco' && <AfterMarco card={marco} readOnly={readOnly} />}
         {cases && <DisputeDetail beat={beat} provenance={cases.provenance} />}
       </div>
       <div className="flex shrink-0 flex-wrap items-center gap-3">

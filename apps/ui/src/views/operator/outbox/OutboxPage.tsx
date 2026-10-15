@@ -8,7 +8,7 @@ import { Link, useSearchParams } from 'react-router';
 import { outboxSource } from '@/api/adapters/messageSegments';
 import { useOutbox } from '@/api/queries';
 import { EmptyState, ErrorState, InlineNotice, LoadingBlock } from '@/components/feedback';
-import { MessagePreview } from '@/components/message';
+import { MessagePreview, RefundStated } from '@/components/message';
 import { DateText, IdText } from '@/components/provenance';
 import { OPERATOR } from '../copy';
 
@@ -128,6 +128,7 @@ export default function OutboxPage() {
                 </Link>
               </p>
               <MessagePreview message={outboxSource(selected)} title={selected.subject} />
+              <RefundStated refund={selected.refund} />
             </section>
           )}
         </div>

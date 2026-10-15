@@ -250,6 +250,9 @@ test.describe('case card (US-302 to US-310)', () => {
     await page.locator('[data-action="reject"]').click();
     const sheet = page.locator('[data-sheet="reject"]');
     await expect(sheet).toContainText('the return itself is never refused');
+    // No preview of the proposal's draft: the service composes the rejection's message (rule 10).
+    await expect(sheet.locator('[data-message-composed]')).toBeVisible();
+    await expect(sheet.locator('[data-message-preview]')).toHaveCount(0);
     await expect(sheet.locator('[data-sheet-confirm="reject"]')).toBeDisabled();
     await expect(sheet.locator('[data-confirm-reasons]')).toContainText('Choose a category');
     await sheet.getByLabel('Category').selectOption('customer_context');
@@ -467,13 +470,18 @@ test.describe('compare, record and outbox', () => {
     await expect(page.locator('[data-compare-column="RET-000102"]')).toBeVisible();
   });
 
-  test('compare shows the same indicator twice, then the rows that differ (pitch beat 1)', async ({ page }) => {
+  test('compare: the band is the shared notice-days signal, then the rows that differ (pitch beat 1)', async ({ page }) => {
     await page.goto('/compare?a=RET-000101&b=RET-000102');
-    await expect(page.locator('[data-same-indicator]')).toHaveText(/same indicator/i);
-    await expect(page.locator('[data-compare-rate]')).toHaveCount(2);
-    const rates = await page.locator('[data-compare-rate] [data-figure] button > span').first().textContent();
-    await expect(page.locator('[data-compare-rate]').nth(1)).toContainText(rates ?? '');
-    await expect(page.locator('[data-compare-closing]')).toContainText('A rule on return rate alone would treat both the same.');
+    // case_card.giulia.json: notice 3 days after delivery; case_card.marco.json: 6 days.
+    const band = page.locator('[data-compare-band]');
+    await expect(band.locator('[data-compare-days]')).toHaveCount(2);
+    await expect(band.locator('[data-compare-days]').first()).toHaveAttribute('data-compare-days', '3');
+    await expect(band.locator('[data-compare-days]').nth(1)).toHaveAttribute('data-compare-days', '6');
+    await expect(band.locator('[data-same-signal="same"]')).toHaveText(/same signal/i);
+    // The return rate is a row below the band, never called the same indicator.
+    await expect(band.locator('[data-compare-rate]')).toHaveCount(0);
+    await expect(page.locator('[data-compare-row^="Return rate"] [data-compare-rate]')).toHaveCount(2);
+    await expect(page.locator('[data-compare-closing]')).toContainText('A rule on how soon items come back would treat both the same.');
   });
 
   test('the decision record of a superseded version is read-only', async ({ page }) => {

@@ -6,7 +6,7 @@ import clsx from 'clsx';
 import { X } from 'lucide-react';
 import type { ReactNode } from 'react';
 import type { EndpointKey } from '@/api/client';
-import { isApiError } from '@/api/errors';
+import { isApiError, isRefusal } from '@/api/errors';
 import { usePersona } from '@/app/persona';
 import { EmptyState, ErrorState, ForbiddenRoleNotice, LoadingBlock } from '@/components/feedback';
 import { MANAGER } from './copy';
@@ -84,6 +84,8 @@ export function Loadable<T>({ query, label, rows = 4, notFound, children }: Load
   if (query.isPending) return <LoadingBlock rows={rows} label={MANAGER.loading} />;
   if (query.isError) {
     if (notFound && isApiError(query.error) && query.error.status === 404) return <>{notFound(query.error.message)}</>;
+    // A refusal (4xx) is not retried: the same request gets the same answer.
+    if (isRefusal(query.error)) return <ErrorState error={query.error} title={`${label}: ${MANAGER.refused}`} />;
     return <ErrorState error={query.error} title={`${label}: ${MANAGER.failed}`} onRetry={() => void query.refetch()} />;
   }
   return <>{children(query.data)}</>;

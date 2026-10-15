@@ -6,11 +6,18 @@ import type { Phase } from './benchmarks';
 import type { ReadinessTone } from './readiness';
 
 export const SYSTEM = {
-  hero: `${GPU_NAME} · every model on one GPU`,
+  // The target architecture (spec 8.10); what answers now is `thisService`, from /readyz.
+  hero: `Designed for one ${GPU_NAME}: every model on one GPU`,
+  thisService: {
+    live: (device: string, llm: string) => `This service: live on the ${device}, language model: ${llm}`,
+    cached: (label: string) => `This service: cached demo, GPU off · ${label}`,
+    noLabel: 'no label: no precomputed output, the drafts use the template',
+    contract: 'This UI: contract examples, no service behind it',
+  },
   stories: 'US-901 · US-902 · US-905',
   onPage: 'On this page',
   sections: { readiness: 'Service mode and readiness', benchmarks: 'AMD benchmarks', telemetry: 'Telemetry' },
-  arch: { gpu: 'on the GPU', cpu: 'on the CPU' },
+  arch: { gpu: 'on the GPU (target)', cpu: 'on the CPU' },
   status: {
     ready: 'ready',
     degraded: 'degraded',

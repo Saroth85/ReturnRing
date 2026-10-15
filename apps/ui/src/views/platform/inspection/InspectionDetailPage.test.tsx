@@ -226,3 +226,14 @@ describe('the list (find the return)', () => {
     await waitFor(() => expect(document.querySelectorAll('[data-inspection-row]')).toHaveLength(1));
   });
 });
+
+describe('the confirmation note (InspectionConfirmRequest.note)', () => {
+  it('stops at the schema limit of 300 characters and counts them, so no note earns a 422', async () => {
+    await sendPhoto('RET-000110');
+    const note = screen.getByLabelText('Note for the record (optional)');
+    expect(note).toHaveAttribute('maxLength', '300');
+    fireEvent.change(note, { target: { value: 'Seam opened on the left sleeve' } });
+    expect(document.querySelector('[data-note-count]')).toHaveTextContent('30/300 characters');
+    expect(findUnprovenancedNumbers(document.body)).toEqual([]);
+  });
+});

@@ -119,10 +119,21 @@ export const PLATFORM = {
     afterMarco: {
       approved: 'Marco is approved: the checkout shows his restriction and the coupon pause for future orders.',
       proposed: 'Marco is still proposed: a proposal awaiting approval is not in force, so the checkout shows the standard terms. Approve Marco first.',
+      readOnly: 'Marco is still proposed, and the read-only demo cannot approve him: the checkout shows the standard terms.',
       other: 'Marco is not approved: the checkout shows the terms in force for this account.',
+    },
+    /** The read-only public demo refuses every write (ADR-15 section 16): what each beat can still show. */
+    readOnly: {
+      notPlayable: 'Not playable on the read-only demo',
+      limited: 'On the read-only demo',
+      shop_ring: 'Marco cannot be approved here, so the checkout shows the standard terms. Play this beat on the writable demo.',
+      dispute: 'Disputing a link is a write the service refuses here. Play this beat on the writable demo.',
+      marco: 'The approval is refused here: show the proposal, its evidence and the approval gate.',
+      rossi: 'Evidence cannot be added here: show the shared address, device and card; the before and after need the writable demo.',
     },
     disputeCluster: 'Cluster',
     disputeAccounts: 'linked accounts',
+    disputeNoCluster: 'no cluster',
     disputeUnchanged: 'Decision unchanged: the dispute changes the cluster, not the terms.',
     disputeChanges: 'The case is decided again without the link.',
     open: 'Open',
@@ -131,8 +142,8 @@ export const PLATFORM = {
     say: 'Say',
     beat: {
       same_indicator: {
-        label: 'Same indicator',
-        say: 'Same indicator, different actions: a single return-rate threshold would treat both the same.',
+        label: 'Same signal',
+        say: 'Same signal, different actions: both sent the item back a few days after delivery, and a rule on that signal alone would treat both the same. The rows below show what differs, and so does the action.',
       },
       marco: {
         label: 'Marco',

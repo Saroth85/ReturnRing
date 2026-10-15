@@ -4,7 +4,7 @@
 // the file system. Relative imports only: the Vite config bundles this file too.
 import { CONTRACT_VERSION, DEMO_USERS, ENDPOINTS, QUERY_PARAMS } from '../contract.gen';
 import type { AgentEvent } from '../sse';
-import type { AuditPage, CaseCard, ErrorResponse, OutboxResponse, QueueItem, QueueResponse } from '../types.gen';
+import type { AuditPage, CaseCard, DecisionResult, ErrorResponse, OutboxResponse, QueueItem, QueueResponse, ReadyzResponse } from '../types.gen';
 import { UI_FIXTURE_SCENARIOS } from './fixtures';
 
 export interface MockRoute {
@@ -61,6 +61,20 @@ const READ_ONLY_OPEN_WRITES: ReadonlySet<string> = new Set(['POST /api/agent/ask
 const READ_ONLY_SCENARIO = 'read_only';
 /** Statuses of a scenario that hold for every request of the endpoint: 429 per client, 503 model off. */
 const CLIENT_WIDE_STATUSES: ReadonlySet<number> = new Set([429, 503]);
+/**
+ * The UI fixture `refund_deadline_passed`: /readyz says it is a day past most refund deadlines of
+ * the examples (a running demo clock), the queue flags every proposal past its deadline as the API
+ * does (apps/api/schemas.py refund_overdue), and a rejection or an override to the standard terms
+ * goes on without a message (late_without_message, ADR-15 sections 19 and 20).
+ */
+const LATE_SCENARIO = 'refund_deadline_passed';
+export const LATE_NOW = '2026-10-13T09:00:00Z';
+
+/** refund_overdue of a queue item on the UTC day `today`: a proposal past its deadline. */
+export function proposalOverdue(item: Pick<QueueItem, 'state' | 'refund_due_by'>, today: string): boolean {
+  return item.state === 'proposed' && item.refund_due_by !== null && item.refund_due_by < today;
+}
+
 /** Retry-After when a 429 example states no wait in seconds ("try again in a minute"). */
 const DEFAULT_RETRY_AFTER_S = 60;
 
@@ -187,6 +201,10 @@ export function queueItemMatches(item: QueueItem, q: Record<string, unknown>): b
   );
 }
 
+/** A guarantee case has no refund deadline: after every date (`date.max` of the API). */
+const NO_REFUND_DEADLINE = '9999-12-31';
+const dueKey = (item: QueueItem): string => item.refund_due_by ?? NO_REFUND_DEADLINE;
+
 function sortQueue(items: QueueItem[], sort: string): QueueItem[] {
   const byId = (a: QueueItem, b: QueueItem) => a.return_id.localeCompare(b.return_id);
   const sorted = [...items];
@@ -200,6 +218,10 @@ function sortQueue(items: QueueItem[], sort: string): QueueItem[] {
     case '-risk':
       // Unscored items (guarantee path, not enough evidence) last.
       return sorted.sort((a, b) => (b.risk?.value ?? -1) - (a.risk?.value ?? -1) || byId(a, b));
+    case 'refund_due_by':
+      // SORTS of apps/api/services/operator/queue.py: the earliest refund deadline first (an
+      // overdue case before any other), a guarantee case (no deadline, rule 4) last, ties by id.
+      return sorted.sort((a, b) => dueKey(a).localeCompare(dueKey(b)) || byId(a, b));
     default:
       return sorted.sort((a, b) => b.expected_net_benefit.value - a.expected_net_benefit.value || byId(a, b));
   }
@@ -455,7 +477,13 @@ export function createMockRouter(index: MockIndex, load: ExampleLoader, options:
 
     let value: unknown = withRequestId(example);
     if (endpoint.path === '/api/returns' && method === 'GET') {
-      const base = value as QueueResponse;
+      let base = value as QueueResponse;
+      if (scenario === LATE_SCENARIO) {
+        const today = LATE_NOW.slice(0, 10);
+        base = { ...base, as_of: LATE_NOW, items: base.items.map((i) => ({ ...i, refund_overdue: i.refund_overdue || proposalOverdue(i, today) })) };
+        value = base;
+        notes.push('UI fixture: proposals past their refund deadline on the scenario day');
+      }
       // The contract's `empty` scenario (no reset yet: GET /api/demo/cases answers 404) has an
       // empty queue too.
       if (scenario === 'empty') {
@@ -469,6 +497,20 @@ export function createMockRouter(index: MockIndex, load: ExampleLoader, options:
     if (endpoint.path === '/readyz' && scenario === READ_ONLY_SCENARIO) {
       value = { ...(value as object), public_read_only: true };
       notes.push('read-only demo: public_read_only');
+    }
+    if (endpoint.path === '/readyz' && scenario === LATE_SCENARIO) {
+      const readyz = value as ReadyzResponse;
+      value = { ...readyz, clock: { ...readyz.clock, now: LATE_NOW, frozen: false } };
+      notes.push('UI fixture: the demo clock past the refund deadlines');
+    }
+    if (
+      endpoint.path === '/api/returns/{return_id}/decision' &&
+      scenario === LATE_SCENARIO &&
+      chosen.status === 200 &&
+      (body?.action === 'reject' || (body?.action === 'override' && Array.isArray(body.levers) && body.levers.length === 0))
+    ) {
+      value = { ...(value as DecisionResult), outbox_message: null };
+      notes.push('UI fixture: a late rejection or standard terms send no message');
     }
     if (endpoint.path === '/readyz' && scenario === 'contract_mismatch') {
       const [major = '1', minor = '0'] = CONTRACT_VERSION.split('.');

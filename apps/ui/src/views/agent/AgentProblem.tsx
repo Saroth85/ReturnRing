@@ -99,7 +99,7 @@ export function AgentRequestError({ error, returnId, onRetry }: { error: unknown
     case 'forbidden_role':
       return (
         <div className="flex flex-col gap-2" data-agent-problem="forbidden_role">
-          <ForbiddenRoleNotice role={persona.role} action={AGENT.errors.forbiddenAction} />
+          <ForbiddenRoleNotice role={persona.role} action={AGENT.errors.forbiddenAction} endpoint="POST /api/agent/ask" message={error.message} />
           <RequestId id={error.requestId} />
         </div>
       );

@@ -8,10 +8,8 @@ import type { ReactNode } from 'react';
 import type { EndpointKey } from '@/api/client';
 import { isApiError } from '@/api/errors';
 import { usePersona } from '@/app/persona';
-import { EmptyState, ErrorState, ForbiddenRoleNotice, InlineNotice, LoadingBlock, useReadOnly, type Gate } from '@/components/feedback';
-import { FEEDBACK } from '@/copy/common';
+import { EmptyState, ErrorState, ForbiddenRoleNotice, LoadingBlock } from '@/components/feedback';
 import { MANAGER } from './copy';
-import { useWriteGate } from './gate';
 
 interface ManagerPageProps {
   title: string;
@@ -110,21 +108,6 @@ export function ReportUnavailable({ message }: { message: string }) {
   );
 }
 
-/** RoleGate with the read-only demo of /readyz: the control, and its reason under it. */
-export function WriteGate({ action, children }: { action: EndpointKey; children: (gate: Gate) => ReactNode }) {
-  const gate = useWriteGate(action);
-  return (
-    <div data-role-gate={gate.allowed ? 'allowed' : 'blocked'} className="inline-flex flex-col gap-1">
-      {children(gate)}
-      {gate.reason && (
-        <p className="text-caption text-ink-3" data-role-reason>
-          {gate.reason}
-        </p>
-      )}
-    </div>
-  );
-}
-
 interface SideDrawerProps {
   open: boolean;
   onOpenChange(open: boolean): void;
@@ -166,21 +149,13 @@ export function SideDrawer({ open, onOpenChange, title, description, children }:
 }
 
 /**
- * A refused write: the read-only public demo (403 while /readyz says read-only) in its own words,
- * a role the endpoint does not allow with the personas to switch to, anything else as an error.
+ * A refused write: a 403 is the shared notice (the read-only public demo in its own words, or a role
+ * the endpoint does not allow with the personas to switch to); anything else is an error.
  */
-export function WriteError({ error, action }: { error: unknown; action: string }) {
+export function WriteError({ error, action, endpoint }: { error: unknown; action: string; endpoint: EndpointKey }) {
   const persona = usePersona();
-  const readOnly = useReadOnly();
-  if (readOnly && isApiError(error) && error.status === 403) {
-    return (
-      <div data-read-only-refusal>
-        <InlineNotice tone="attention" title={FEEDBACK.readOnlyDemo}>
-          <p data-verbatim>{error.message}</p>
-        </InlineNotice>
-      </div>
-    );
+  if (isApiError(error) && error.code === 'forbidden_role') {
+    return <ForbiddenRoleNotice role={persona.role} action={action} endpoint={endpoint} message={error.message} />;
   }
-  if (isApiError(error) && error.code === 'forbidden_role') return <ForbiddenRoleNotice role={persona.role} action={action} />;
   return <ErrorState error={error} />;
 }

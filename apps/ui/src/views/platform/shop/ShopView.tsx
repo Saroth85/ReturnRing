@@ -9,10 +9,9 @@ import { useId } from 'react';
 import { LEGAL_MINIMUM_WINDOW_DAYS } from '@/api/contract.gen';
 import type { ApiError } from '@/api/errors';
 import type { CheckoutConfirmResponse, CheckoutEvaluateResponse, Lang, Provenance, Terms } from '@/api/models';
-import { ErrorState, InlineNotice, Skeleton } from '@/components/feedback';
+import { ErrorState, InlineNotice, RoleGate, Skeleton } from '@/components/feedback';
 import { DateText, IdText, PlainNumber, ProvenanceFooter, ProvenanceScope } from '@/components/provenance';
 import { Button } from '@/components/ui';
-import { WriteGate } from '../shared/WriteGate';
 import { adviceFor, checkReceipt, type Cart } from './checkout';
 import { SHOP } from './copy';
 
@@ -282,7 +281,7 @@ export function ShopView(props: ShopViewProps) {
               </div>
             )
           ) : (
-            <WriteGate action="POST /api/checkout/confirm">
+            <RoleGate action="POST /api/checkout/confirm">
               {({ allowed }) => (
                 <Button
                   variant="primary"
@@ -294,7 +293,7 @@ export function ShopView(props: ShopViewProps) {
                   {props.placing ? SHOP.placing : SHOP.placeOrder}
                 </Button>
               )}
-            </WriteGate>
+            </RoleGate>
           )}
           {props.notice?.kind === 'read_only' && <NoticeLine notice={props.notice} cooldownLeft={null} />}
           {props.confirmError != null && <ErrorState error={props.confirmError} title={SHOP.confirmFailed} />}

@@ -4,7 +4,7 @@
 import { adapter } from './adapters';
 import { ENDPOINTS } from './contract.gen';
 import { ApiError, isErrorResponse, parseRetryAfter } from './errors';
-import { recordAsOf, recordLlmUnavailable, recordResponse } from './meta';
+import { recordAsOf, recordLlmUnavailable, recordReadyz, recordResponse } from './meta';
 import { scenarioStore } from './scenario';
 import { readAgentEvents, type AgentEvent } from './sse';
 import type { ApiSchemas } from './types.gen';
@@ -198,7 +198,11 @@ type B<K extends EndpointKey> = BodyOf<K>;
 /** Every route of ADR-15 section 3 as a typed function. Actor fields are the caller's to fill. */
 export const api = {
   healthz: (o?: CallOptions) => apiFetch(R.healthz, o),
-  readyz: (o?: CallOptions) => apiFetch(R.readyz, o),
+  readyz: async (o?: CallOptions) => {
+    const body = await apiFetch(R.readyz, o);
+    recordReadyz(body);
+    return body;
+  },
 
   listReturns: (query?: Q<typeof R.queue>, o?: CallOptions) => apiFetch(R.queue, { query, ...o }),
   getCase: (returnId: string, o?: CallOptions) => apiFetch(R.case, { params: { return_id: returnId }, ...o }),

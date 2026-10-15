@@ -167,7 +167,7 @@ function ActionErrorBody({ error, onLoadNew, onShowCurrent, onRetry, changes }: 
           </div>
         );
       }
-      return <ForbiddenRoleNotice role={persona.role} action={s.forbiddenAction} />;
+      return <ForbiddenRoleNotice role={persona.role} action={s.forbiddenAction} message={error.message} />;
     case 'llm_unavailable':
       return <LlmUnavailableNotice onRetry={onRetry} />;
     default:

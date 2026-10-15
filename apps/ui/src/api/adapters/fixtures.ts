@@ -11,4 +11,9 @@ export const UI_FIXTURE_SCENARIOS = [
   'agent_error',
   // /readyz reports another contract minor version: the shell's mismatch notice (UI1).
   'contract_mismatch',
+  // The service's clock stands past the refund deadlines of the proposals: the queue flags them,
+  // a case shows the overdue banner, and a rejection or the standard terms send no message. (The
+  // contract's `refund_overdue` scenario keeps the clock before the deadline and answers the
+  // approval with 409: the server's clock passed it first.)
+  'refund_deadline_passed',
 ] as const;

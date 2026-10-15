@@ -1,6 +1,8 @@
 # ReturnRing UI design
 
-Final design for phase 5 (`apps/ui`), API contract 1.1.0 (commit `5b3c8e9`, ADR-15). It merges three
+Final design for phase 5 (`apps/ui`), designed on API contract 1.1.0 (commit `5b3c8e9`, ADR-15). The UI
+now runs on the live contract 1.8.0: the generators read `contracts/` directly (no pinned copy), and ADR-15
+sections 13 to 20 list every change since 1.1.0; where this document predates them it says so. It merges three
 proposals: operator efficiency first (P1), demo and pitch first (P2), trust and compliance first (P3).
 It takes P3's trust system as the backbone, P2's case hero, pitch path and visual highlights, and P1's
 operator loop and action friction. Section 2 lists every conflict and how it was resolved.
@@ -22,7 +24,9 @@ engineers, one view area each (section 13).
 - **Numbers in this document** come from contract examples. Their nature is synthetic or simulated, their
   origin starts with "Contract example:", and benchmark values are illustrative. They are placeholders,
   never accuracy (US-906).
-- **Demo clock.** `as_of` 2026-09-30T18:00:00Z, the end of the synthetic year.
+- **Demo clock.** `as_of` 2026-09-30T18:00:00Z, the end of the synthetic year, in the examples. Live, the
+  service's clock is `/readyz` `clock` (contract 1.5.0): the snapshot instant plus the time since the reset,
+  or frozen at the snapshot on the read-only public demo (1.7.0); the UI never uses the browser's date.
 
 ---
 
@@ -50,7 +54,7 @@ engineers, one view area each (section 13).
 | Quadrant colour | P1, P3 neutral glyph; P2 four equal-lightness hues | **Neutral glyph, no hue**, everywhere including the matrix | No hue can read as "worse"; fewer tokens; a test can assert identical styles (T-NEUTRAL). The matrix gets its highlight from annotations, not colour. |
 | Case layout | P1 decision first on the left; P2, P3 sticky right rail | **Sticky Decision rail on the right (5/12)**, evidence column on the left (7/12) with P2's **CaseHero slot** at its top | The decision never scrolls away; the hero gives each golden case its picture in the pitch. |
 | Queue | P1 split view (queue, case, rail); P2, P3 full-width table | **Full-width table**, plus P1's loop: `[`/`]` move between cases in the current tab, next two cards prefetched, auto-advance after an action | Same speed for Sara without a three-pane layout that needs 1600 px and two extra days. |
-| Editing the customer message | P1, P3 free connective-text editor now, phrasebook later | **No free-text editor.** `message.text` is always null. Wording changes go through Regenerate (tone, languages). `PhrasebookPicker` only once the contract carries sentence ids (Could) | ADR-14 already replaced free customer prose with the phrasebook; an editor built now would be thrown away and would reopen the risk ADR-14 closed. |
+| Editing the customer message | P1, P3 free connective-text editor now, phrasebook later | **No free-text editor.** Wording changes go through Regenerate (languages; the tone was removed in contract 1.5.0). The contract carries `sentence_ids` since 1.5.0; a `PhrasebookPicker` stays a Could, and requests send `sentence_ids: null` (the draft's own selection) | ADR-14 already replaced free customer prose with the phrasebook; an editor built now would be thrown away and would reopen the risk ADR-14 closed. |
 | Agent placement | P1 right-rail tab; P2, P3 drawer | **Right drawer, 440 px**, exported as one component `CaseAssistant` | Does not compete with the Decision rail; satisfies the "single exported component" boundary. |
 | Provenance density | P1 tag on every figure; P2 glyph plus section footer; P3 scope-aware compact | **Glyph on every `Figure`; the nature word appears when it differs from the section scope or in provenance mode (`P`)**; section footers; `PlainNumber` throws outside a scope | Every number shows its nature at a glance without word noise; the full origin is one hover or focus away. |
 | Nature styling | P1 border styles; P2 glyphs; P3 hues | **Glyph shapes in neutral ink** (solid dot real, hollow diamond synthetic, dashed ring simulated, hatched square illustrative) | Hues are reserved for meaning (section 4.1); shapes survive greyscale and print. |
@@ -86,9 +90,11 @@ and offers the three `DEMO_USERS`: `sara` (operator), `luca` (manager), `ahmed` 
 - It is stored in `localStorage` inside try/catch, default `sara`.
 - `/` redirects by persona: Sara to `/queue`, Luca to `/portfolio`, Ahmed to `/inspection`.
 - Every GET is open to every role, so every page is reachable. Writes go through `RoleGate` (section 5.8).
-- **Public read-only demo.** Spec section 11 makes the public demo views read-only. A build flag
-  `VITE_READ_ONLY=true` disables every write control with the reason "Read-only public demo" and adds a line
-  to the mode banner. The presenter's URL is built without it.
+- **Public read-only demo.** Spec section 11 makes the public demo views read-only. The service says so:
+  `/readyz` `public_read_only` (PUBLIC_READ_ONLY, contract 1.5.0) disables every write control with the
+  reason "Read-only public demo" (`useRoleGate`, `RoleGate`) and adds a line to the mode banner; the agent
+  and the checkout evaluation stay open. A 403 while read-only shows the read-only notice with the API's
+  message. The build flag `VITE_READ_ONLY=true` is only the fallback until `/readyz` answers.
 
 ### 3.2 Route map
 
@@ -349,7 +355,7 @@ No warning triangles next to customers, no shields-and-police imagery, no "AI sp
 
 - Dates (`review_at`, `refund_due_by`) as given, `27 Dec 2026`, never shifted across time zones.
 - Timestamps in UTC with the suffix: `30 Sep 2026, 18:20 UTC`; relative labels ("3 days overdue") are
-  computed against the response `as_of`, never the wall clock.
+  computed against the service's clock (`/readyz` `clock`, `useDemoClock`), never the wall clock.
 - A period is `1 Oct 2025 – 30 Sep 2026`; when start equals end, one date.
 - `null` is never rendered as 0: it is "not observed yet", "not scored" or "—" with screen-reader text.
 
@@ -418,7 +424,8 @@ until measured.
 | `mode: cached` | **CACHED DEMO** · `{readyz.label}` ("Precomputed on AMD MI300X") · GPU off: nothing is computed live | `.hatch-cached`, `--cached-fg` |
 | UI on the mock server | **CONTRACT EXAMPLES** · UI running on `contracts/examples/api` | cached style |
 | `status: degraded` or `not_ready` | second line in attention style listing the failing `checks` with `detail` | attention |
-| `VITE_READ_ONLY` | appended: "· read-only public demo" | same |
+| `public_read_only` (`VITE_READ_ONLY` until `/readyz` answers) | appended: "· read-only public demo" | same |
+| `clock` (1.5.0) | appended: "· demo clock running since the reset · snapshot …" or "· demo clock frozen at the snapshot · snapshot …", the API's note as the tooltip; the top bar shows the clock's 'now' | same |
 
 - **`ModeCornerTag`**: 11 px, in cached and mock modes, so a cropped screenshot keeps it. Fixed at the bottom
   left over the navigation column from 1024 px (that column holds no page content, so the tag never covers a
@@ -770,8 +777,8 @@ latest version. Card `provenance` and section provenances feed `ProvenanceScope`
    terms instead…", which opens the override sheet prefilled with them. For `verification`, `size_exchange`
    and `product_report` the card adds "The decision applies only the levers; the operational step is
    guidance."
-6. **Explanation and message**: `ExplanationList` and `MessagePreview` (5.4), with "Regenerate… (tone,
-   languages)" (6.3.6). The header reads "Generated explanation and message · cannot change the decision" and
+6. **Explanation and message**: `ExplanationList` and `MessagePreview` (5.4), with "Regenerate…
+   (languages)" (6.3.6). The header reads "Generated explanation and message · cannot change the decision" and
    shows **`DecisionEchoCheck`**: "Echo matches the engine decision: withdrawal · Q4 · 6 levers". If
    `draft.decision_echo` differs from `{path, quadrant, lever_ids}` of the decision shown, the draft is hidden
    behind "Draft withheld: it does not match the engine decision" (danger) and the request id is logged.
@@ -801,7 +808,7 @@ latest version. Card `provenance` and section provenances feed `ProvenanceScope`
 10. `ActionBar`, pinned at the bottom of the rail.
 
 **Actions by decision state** (operator and manager; for warehouse every action is disabled with the role
-reason; with `VITE_READ_ONLY` every action is disabled with "Read-only public demo"):
+reason; on the read-only public demo, `/readyz` `public_read_only`, every action is disabled with "Read-only public demo"):
 
 | Decision state | Primary | Secondary |
 | --- | --- | --- |
@@ -925,7 +932,7 @@ instead of the form. Decisions are **never optimistic**: the UI waits for the `D
 
 #### 6.3.6 Regenerate (US-304, US-305)
 
-- `RegenerateMenu`: languages (Italiano, English) and tone (neutral, warm, formal). No free-text instruction
+- `RegenerateMenu`: languages (Italiano, English); contract 1.5.0 removed the tone. No free-text instruction
   (NFR-11). POST `/regenerate` (`regenerate_request.json` → `regenerate_response.json`).
 - While it runs, the old draft stays visible, dimmed, with "Generating and validating…". Nothing streams: the
   validator checks the whole output first.
@@ -1341,7 +1348,7 @@ Tablet first, 48 px targets, a stepper:
 │ │ cost per decision, idle time included                    │ │                                    │ │
 │ └──────────────────────────────────────────────────────────┘ └────────────────────────────────────┘ │
 │ Telemetry · every 5 s · GPU % ▁▃▇▆ · memory used / total · W · LLM requests · p50/p95 · tok/s · API p95 │
-│ Readiness · database ✓ scores ✓ models ✓ vllm ✓ demo_cache – telemetry ✓ · contract 1.1.0 · versions │
+│ Readiness · database ✓ scores ✓ models ✓ vllm ✓ demo_cache – telemetry ✓ · contract 1.8.0 · versions │
 └────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -1397,15 +1404,17 @@ violations, request_id}`.
 | Empty | 0 items | `EmptyState` with screen-specific copy and one next action |
 | Error (network, 5xx) | fetch failure | Panel-level `ErrorState` "The service did not answer." + Retry; the rest of the page keeps working |
 | 404 `not_found` | unknown id (`error.not_found.json`) | "Return RET-999999 not found" + "Back to queue" |
-| 403 `forbidden_role` | wrong persona | Prevented by `RoleGate`; if received, `ForbiddenRoleNotice` inline in the sheet, nothing saved |
+| 403 `forbidden_role` | wrong persona, or any write on the read-only public demo | Prevented by `RoleGate`; if received, `ForbiddenRoleNotice` inline in the sheet, nothing saved; while `public_read_only`, the read-only notice with the API's message |
 | 409 `stale_decision` | decision, evidence, dispute, regenerate | `StaleDecisionPanel` (6.4), typed reason kept |
 | 409 `conflict` | already decided, levers differ, lift on a non-restriction, task or coupon state, assumptions not current, checkout confirm | Inline message + reload; assumptions get `AssumptionDiff` |
 | 422 `legal_guard` | override refused | `LegalGuardViolations` in the sheet, "Nothing was saved" |
 | 422 `invalid_request` | bad body | Field messages from `violations` |
-| 429 `rate_limited` | agent | Input disabled 10 s with copy |
+| 429 `rate_limited` | agent, checkout evaluation | Input disabled for `Retry-After` seconds (whole seconds, ADR-15 section 16), with copy |
+| 404 `not_found` on `/api/demo/cases` | no demo reset yet | Every page: "No demo reset yet", the API's message verbatim, `python -m apps.api.reset` |
+| 404 on `/api/kpi`, `/api/fairness` | offline report not in the snapshot | Empty state with the API's message, no retry |
 | 503 `llm_unavailable` | regenerate, agent | `LlmUnavailableNotice` inline; pill turns to "LLM unavailable" |
 | Template fallback | `generation_path: template` | `GenerationBadge` "Reviewed template"; no error styling |
-| Mock or cached text | `llm_mode: mock`, `served_from: cached` | `GenerationBadge` "Mock text (hand-written stand-in)" or "Precomputed on MI300X" |
+| Mock or cached text | `llm_mode: mock`, `served_from: cached` | `GenerationBadge` "Mock text (hand-written stand-in)" or `/readyz` `label` as served ("Precomputed on AMD MI300X" or the rehearsal label), never a fixed GPU name |
 | Draft pending | `draft_status: pending` | Skeleton + "Draft being prepared in batch"; message-sending actions wait (6.2.4) |
 | Not enough evidence | `evidence.quality: insufficient` | Neutral, dashed, no risk, no quadrant |
 | Guarantee path | `path: guarantee` | `GuaranteeBanner`, no risk, restrictive levers disabled |
@@ -1415,7 +1424,7 @@ violations, request_id}`.
 | Mixed mode | header vs `/readyz` | "MIXED MODE" banner |
 | Protected | 401 on telemetry | "Protected" card |
 | Offline | `navigator.onLine` false | Banner; actions disabled with the reason |
-| Read-only demo | `VITE_READ_ONLY` | Write controls disabled with "Read-only public demo" |
+| Read-only demo | `/readyz` `public_read_only` (`VITE_READ_ONLY` until it answers) | Write controls disabled with "Read-only public demo"; agent and checkout evaluation open |
 
 ### 10.2 Copy and wording (spec 16 "Formulazioni da evitare", rules 11 and 14)
 
@@ -1512,8 +1521,8 @@ violations, request_id}`.
 
 | Adapter | Purpose |
 | --- | --- |
-| `toMessageSegments(msg)` | 1.1.0: tokenise `connective_text` on `/\{(terms\|amount\|deadline)\}/` into `phrase` and `field` segments (values from `fields`); render locally; if that is a prefix of `rendered_text` (or `body`) followed by `\n\n`, the remainder is the `clause` segment; otherwise return `{verified: false, text}`. After the phrasebook change: map API sentence ids, body parts, fields and clause one to one, and drop the prefix check. |
-| `toStatementVM(statement, facts?)` | 1.1.0 `{label, text, entity, metric, value, period}` → one `FactVM` with the card's nature; ADR-14 `{label, fact_ids, text}` + `facts[]` → `FactVM[]` with their own nature. |
+| `toMessageSegments(msg)` | Contract 1.5.0: from `{lang, fields, legal_clause_kind, text}` (each `RenderedMessage` of `message.texts`, an outbox body, an inspection message). With a clause kind, the text splits at the first blank line into body and clause; every non-null field value (terms, amount, deadline, deduction) must appear exactly once in the body, and the segments follow their positions; otherwise `{verified: false, text}`. (1.1.0 tokenised `connective_text`; that field is gone.) |
+| `toStatementVM(statement)` | `{label, fact_ids, text, facts[]}` (ADR-14, contract 1.5.0) → `FactVM[]` with each fact's own period and nature; values through `PlainNumber` inside the draft's `ProvenanceScope`. |
 | `restrictionStatus(view)` | Server fields only (5.3). |
 | `parseAssumptionLabel(label)` | `<decision_id>/<kind>`, `kpi/<week>`, `<version>/<scenario>`, raw fallback. |
 | `toLapseVM(entity)` | Lapse fields on checkout terms, snapshots and coupon applications when present; otherwise the review date only. |
@@ -1554,11 +1563,13 @@ violations, request_id}`.
 - Enforces `roles` from `endpoints.json` using the actor field of the body, so switching to Ahmed returns a
   real 403.
 - Streams `agent_stream.*.sse` with 60 ms between frames so streaming is visible.
-- **UI-only scenarios** until the contract ships examples (open question O-1), built with the
-  `ErrorResponse` shape and labelled "UI fixture": `forbidden_role`, `llm_unavailable`, `rate_limited`,
-  `conflict`, `empty`, `draft_pending`, `agent_error`.
-- A dev-only `ScenarioSwitcher` sits in the mode banner on mocks: default, cached, stale_decision,
-  invalid_request, plus the UI-only ones.
+- **Scenarios.** The contract's own since 1.5.0 (O-1): `default`, `cached`, `conflict`, `empty`,
+  `invalid_request`, `no_report`, `rate_limited` (429 with `Retry-After`), `read_only`, `refund_overdue`,
+  `renewed`, `stale_decision`, `stale_proposal`, `task_opened`. Four UI fixtures the contract does not ship,
+  labelled "UI fixture": `draft_pending`, `agent_error`, `contract_mismatch` and `refund_deadline_passed`
+  (the clock past the refund deadlines). A contract route for the very request (its 403 included) is served
+  before the role check.
+- A dev-only `ScenarioSwitcher` sits in the mode banner on mocks with every scenario, once each.
 
 ---
 
@@ -1739,6 +1750,8 @@ libraries (`Intl` is enough). No runtime CDN request (no egress).
 | ADAPTERS | Eng 2 | Every example in `contracts/examples/api/` passes its adapters |
 | T-NO-HTML | Eng 4 | No `dangerouslySetInnerHTML`; a `customer_text` containing `<b>` renders literally |
 | KEYBOARD | Eng 1 | The Sara loop with no mouse |
+| LIVE-E2E | Eng 2 | `npm run test:e2e:live` (`playwright.live.config.ts`, `tests/e2e/live/`; not in CI, which has no API): against a running API after a reset, the smoke of every route with the ids of `GET /api/demo/cases`, the golden walk of `scripts/demo_walk.py` through the UI, and on `PUBLIC_READ_ONLY=on` the read-only spec (every write disabled with the reason, agent and checkout evaluation open, frozen clock) |
+| MODE-UI (live) | Eng 4 | The banner follows `/readyz`: `label` verbatim (MI300X or rehearsal), `public_read_only`, the clock's kind, frozen state and note |
 
 ---
 
@@ -1749,7 +1762,7 @@ behaviour.
 
 | # | Question or request | Interim behaviour |
 | --- | --- | --- |
-| O-1 | Add examples and `index.json` scenarios for 403 `forbidden_role`, 503 `llm_unavailable` (regenerate, agent), 429, 409 `conflict`, an empty queue, `draft_status: pending` with `draft: null`, and an agent `error` event | UI-only fixtures labelled "UI fixture" |
+| O-1 | Add examples and `index.json` scenarios for 403 `forbidden_role`, 503 `llm_unavailable` (regenerate, agent), 429, 409 `conflict`, an empty queue, `draft_status: pending` with `draft: null`, and an agent `error` event | Answered in contract 1.5.0 (the scenarios above); `draft_pending` and `agent_error` stay UI fixtures |
 | O-2 | What does the API do on a decision action while `draft_status: pending`: send the reviewed template, or 409? | Message-sending actions wait for the draft |
 | O-3 | A restrictive override needs a review date but the request has none: expose the horizon (90 days, assumption) in `/readyz` or the card, and say whether it runs from the decision date or the action date | "Set by the server" before saving; the returned `review_at` after |
 | O-4 | Customer language for the default `message.lang` | Italian by default |
@@ -1757,12 +1770,12 @@ behaviour.
 | O-6 | Thresholds: versioned policy thresholds, and how quadrant changes feed `logistics_returns_avoided` and `undue_discounts_avoided` | Threshold sandbox shows counts only |
 | O-7 | Queue counts per saved view in one call (facets) | One `page_size=1` request per tab |
 | O-8 | "Linked accounts" counts differ: queue `linked_account_count` 6 (other accounts) vs card cluster size 7; align the example texts | UI says "6 other accounts" and "cluster of 7 accounts" |
-| O-9 | Return message segments (sentence ids, body parts, fields, clause) with the phrasebook change, or at least `legal_clause_text` | Client-side segmentation with an integrity check |
+| O-9 | Return message segments (sentence ids, body parts, fields, clause) with the phrasebook change, or at least `legal_clause_text` | Contract 1.5.0 sends `sentence_ids` and `texts[]` (`RenderedMessage`); the UI segments each text with an integrity check |
 | O-10 | Checkout: add `terms_text {it, en}` from the contract renderers and product names and prices | Shop renders terms from the structured fields and shows variant ids |
 | O-11 | Customer-facing wording for a coupon pause (IT and EN); `coupon_block.text` is operator wording | UI copy "Welcome coupons aren't available on this account until {review_at}." |
 | O-12 | Matrix point → open return: add `return_id` to `MatrixPoint`, or confirm the `q=<customer_id>` lookup | Lookup on click |
 | O-13 | Ablation and out-of-distribution rows: an optional `GET /api/evaluation` | Slides only |
-| O-14 | Public demo writes: spec section 11 says read-only; confirm, or expose a capability flag | `VITE_READ_ONLY` build flag; `POST /api/agent/ask` stays enabled because the agent only reads (in the cached demo, only the precomputed questions) |
+| O-14 | Public demo writes: spec section 11 says read-only; confirm, or expose a capability flag | Answered in contract 1.5.0: `/readyz` `public_read_only`; agent ask and checkout evaluation stay open (the agent answers 503 in the cached demo); `VITE_READ_ONLY` is the fallback until `/readyz` answers |
 | O-15 | Which agent questions are cached (in `/readyz` or a small endpoint) | The three US-702 questions |
 | O-16 | Telemetry behind Caddy basic auth vs "the judge sees telemetry" (US-905): protect only `/admin/*`? | "Protected" state on 401 |
 | O-17 | `contracts/examples/llm_output.json` and `llm_case.json` use the truth-ring id `R-MARCO`; rule 12 and ADR-15 require opaque `CL-…` ids | Not shown by the UI; align the fixtures |
@@ -1774,7 +1787,7 @@ behaviour.
 | O-23 | Telemetry has no illustrative flag (benchmarks have `status: illustrative`); add one rather than parsing the origin | The origin text is parsed for "Illustrative" |
 | O-24 | Customer level vs return level: Elena is Q2 as a customer while her open return is on the guarantee path; confirm it is intended | Explained in the matrix tooltip |
 | O-25 | Does `renew` take a reason and a category like `lift`? | Assumed yes |
-| O-26 | Maximum photo size for `POST /api/inspections` (base64 in JSON) | Derived from the contract: 3 bytes per 4 characters of `PhotoUpload.data_base64` maxLength (5.25 MB on 1.1.0) |
+| O-26 | Maximum photo size for `POST /api/inspections` (base64 in JSON) | Derived from the contract: 3 bytes per 4 characters of `PhotoUpload.data_base64` maxLength (5,250,000 bytes: floor(7,000,000 × 3 / 4), `PHOTO_BASE64_MAX_LENGTH` of `contract.gen.ts`) |
 
 ---
 

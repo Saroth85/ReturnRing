@@ -49,7 +49,24 @@ export function gateFor(action: EndpointKey, role: Role, readOnly = READ_ONLY): 
   return { allowed: false, reason: FEEDBACK.roleReason(allowed, SHELL.roles[role] ?? role) };
 }
 
+/**
+ * The gate of a write for the acting persona: the endpoint's roles, and the read-only public demo
+ * as /readyz states it (useReadOnly). RoleGate renders it; a view that lays the reason out itself
+ * reads it here.
+ */
 export function useRoleGate(action: EndpointKey): Gate {
   const persona = usePersona();
-  return gateFor(action, persona.role);
+  const readOnly = useReadOnly();
+  return gateFor(action, persona.role, readOnly);
+}
+
+/**
+ * Whether a 403 on `action` is the read-only public demo refusing a write, not the persona's role:
+ * the service is read-only and the persona's role may call the endpoint. Without an endpoint, any
+ * 403 while read-only counts as the read-only refusal.
+ */
+export function isReadOnlyRefusal(readOnly: boolean, role: Role, action?: EndpointKey): boolean {
+  if (!readOnly) return false;
+  if (!action) return true;
+  return gateFor(action, role, true).reason === FEEDBACK.readOnlyDemo;
 }

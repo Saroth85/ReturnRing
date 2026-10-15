@@ -76,3 +76,15 @@ describe('RecomputeComparison', () => {
     expect(document.querySelector('[data-decision-unchanged]')).toHaveAttribute('data-decision-unchanged', 'false');
   });
 });
+
+describe('the case card of a product issue', () => {
+  it("opens the anomaly with the case's return, so a catalogue task can name it (Elena)", async () => {
+    renderApp('/returns/RET-000105');
+    const link = await waitFor(() => {
+      const found = document.querySelector('[data-open-in-products]');
+      expect(found).not.toBeNull();
+      return found as HTMLAnchorElement;
+    });
+    expect(link.getAttribute('href')).toMatch(/^\/products\/[^?]+\?return=RET-000105$/);
+  });
+});

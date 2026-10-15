@@ -17,3 +17,5 @@ demo-cache/
 .coverage
 /serving/
 bench-work/
+release-logs/
+/release-logs-*.tgz

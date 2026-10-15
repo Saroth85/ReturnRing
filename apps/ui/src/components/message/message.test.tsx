@@ -2,8 +2,10 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { messageFor } from '@/api/adapters/messageSegments';
-import type { CaseCard } from '@/api/models';
-import { CompactMessage, MessagePreview } from '@/components/message';
+import type { CaseCard, GenerationInfo } from '@/api/models';
+import { CompactMessage, GenerationBadge, MessagePreview, generationLabel } from '@/components/message';
+import { LLM_NAME } from '@/copy/constants';
+import { renderWithProviders } from '@/test/render';
 import { readExample } from '@/test/examples';
 
 const marco = readExample<CaseCard>('case_card.marco.json');
@@ -68,5 +70,30 @@ describe('CompactMessage (UI15)', () => {
     expect(clause).not.toBeNull();
     expect(elena.text.endsWith(clause.querySelector('p[lang="it"]')?.textContent ?? '∅')).toBe(true);
     expect(container.textContent).not.toContain('…');
+  });
+});
+
+describe('GenerationBadge: the model from the generation record (rules 11, 13)', () => {
+  const base = marco.draft?.generation;
+  if (!base) throw new Error('case_card.marco.json has no draft');
+  const g = (over: Partial<GenerationInfo>): GenerationInfo => ({ ...base, ...over });
+
+  it('a mock text names the mock language model, never the planned model', () => {
+    const { container } = renderWithProviders(<GenerationBadge generation={g({ generation_path: 'model', llm_mode: 'mock', model: 'mock' })} />);
+    const badge = container.querySelector('[data-generation-path]') as HTMLElement;
+    expect(badge).toHaveTextContent('Mock language model (hand-written stand-in) · validated on the first call');
+    expect(badge).not.toHaveTextContent(LLM_NAME);
+  });
+
+  it('a vLLM text names the served model id, on the first or the second call', () => {
+    const served = { llm_mode: 'vllm' as const, model: 'google/gemma-4-31b-it' };
+    expect(generationLabel(g({ ...served, generation_path: 'model' }))).toBe('google/gemma-4-31b-it · validated on the first call');
+    expect(generationLabel(g({ ...served, generation_path: 'regenerated' }))).toBe('google/gemma-4-31b-it · validated on the second call');
+    // A cached package made by another model (ADR-15 section 17) is labelled with that model.
+    expect(generationLabel(g({ llm_mode: 'vllm', model: 'plan-b/other-model', generation_path: 'model' }))).toMatch(/^plan-b\/other-model · /);
+  });
+
+  it('the template names no model', () => {
+    expect(generationLabel(g({ generation_path: 'template', llm_mode: 'vllm', model: 'template' }))).toBe('Reviewed template, no model text');
   });
 });

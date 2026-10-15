@@ -52,7 +52,9 @@ describe('CaseAssistant drawer', () => {
   it('opens read-only with the three suggested questions and the step limit', async () => {
     const { dialog } = renderAssistant();
     expect(dialog).toHaveTextContent('It can read the case; it cannot change it.');
-    expect(dialog).toHaveTextContent('(Gemma 4)');
+    // On the mock adapter the answers are contract examples: no model is named (./model.ts).
+    expect(dialog.querySelector('[data-assistant-model]')).toHaveTextContent('(contract examples)');
+    expect(dialog).not.toHaveTextContent('Gemma');
     await within(dialog).findByRole('button', { name: LINK_Q });
     const suggested = within(dialog).getAllByRole('button').filter((b) => b.hasAttribute('data-suggested'));
     expect(suggested.map((b) => b.textContent)).toEqual([LINK_Q, ROSSI_Q, TERMS_Q]);

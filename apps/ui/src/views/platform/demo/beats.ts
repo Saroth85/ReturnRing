@@ -83,6 +83,25 @@ export function buildBeats(cases: Cases): Beat[] {
   return out;
 }
 
+export interface ReadOnlyLimit {
+  /** False: the beat needs a write the read-only demo refuses, so it cannot be played there. */
+  playable: boolean;
+  note: string;
+}
+
+/**
+ * What a beat can show on the read-only public demo, where the service refuses every write
+ * (PUBLIC_READ_ONLY, ADR-15 section 16): the ring checkout needs Marco approved and the dispute is
+ * a write, so neither can be played; Marco's approval and Rossi's evidence are refused, so those
+ * beats show the case only. Null for a beat that only reads.
+ */
+export function readOnlyLimit(id: BeatId): ReadOnlyLimit | null {
+  const r = PLATFORM.demo.readOnly;
+  if (id === 'shop_ring' || id === 'dispute') return { playable: false, note: r[id] };
+  if (id === 'marco' || id === 'rossi') return { playable: true, note: r[id] };
+  return null;
+}
+
 /** `?preset=marco` is the old name of the ring cart: the same beat. */
 function normalise(pathname: string, params: URLSearchParams): URLSearchParams {
   if (pathname !== '/shop' || params.get('preset') !== 'marco') return params;

@@ -8,6 +8,7 @@ import { ArrowLeft, Check } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { API_MODE } from '@/api/adapters';
+import { INSPECTION_NOTE_MAX_LENGTH } from '@/api/contract.gen';
 import { useConfirmInspection, useCreateInspection } from '@/api/mutations';
 import { useCase, useReadyz } from '@/api/queries';
 import { usePersona } from '@/app/persona';
@@ -265,14 +266,20 @@ function InspectionFlow({ returnId }: { returnId: string }) {
               <label htmlFor={noteId} className="text-caption text-ink-2">
                 {t.confirm.note}
               </label>
+              {/* The schema's limit (InspectionConfirmRequest.note maxLength), so no note earns a 422. */}
               <textarea
                 id={noteId}
                 value={note}
+                maxLength={INSPECTION_NOTE_MAX_LENGTH}
                 onChange={(e) => setNote(e.target.value)}
                 disabled={!confirmGate.allowed || !inspection}
                 rows={2}
+                aria-describedby={`${noteId}-count`}
                 className="w-full max-w-xl rounded-control border border-border-strong bg-surface px-3 py-2 text-body disabled:opacity-60"
               />
+              <span id={`${noteId}-count`} className="text-caption text-ink-3" data-constant data-note-count>
+                {t.confirm.noteCount(note.length, INSPECTION_NOTE_MAX_LENGTH)}
+              </span>
             </div>
             <div className="flex flex-wrap items-center gap-3">
               <Button variant="primary" className="min-h-12 px-5" disabled={!canConfirm} onClick={doConfirm} data-confirm-inspection>

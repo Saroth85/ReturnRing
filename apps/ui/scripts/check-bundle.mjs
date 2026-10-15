@@ -18,8 +18,19 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-/** Strings only the mock adapter, the mock middleware and the example builder print. */
-export const MARKERS = ['build_api_examples', 'returnring-mock', 'mock: no example file', 'x-mock-example'];
+/**
+ * Strings only the mock adapter, the mock middleware, the example builder and the mock scenario
+ * store (src/api/scenario.ts, dead code unless __MOCK_SCENARIOS__) print.
+ */
+export const MARKERS = [
+  'build_api_examples',
+  'returnring-mock',
+  'mock: no example file',
+  'x-mock-example',
+  'X-Mock-Scenario',
+  'returnring.mockScenario',
+  'unknown mock scenario',
+];
 
 /** Modules that must never reach a production bundle (matched against source map `sources`). */
 export const FORBIDDEN_MODULES = [

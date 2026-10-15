@@ -2,7 +2,7 @@
 // data or from named constants (docs/ui-design.md 10.2). Plurals are chosen in ./format.ts.
 import { LEGAL_MINIMUM_WINDOW_DAYS, type OVERRIDE_CATEGORIES } from '@/api/contract.gen';
 import type { AuditAction, DecisionState, QueueQuery, RevisionTrigger } from '@/api/models';
-import { HISTORY_MONTHS, REVIEW_HORIZON_DAYS } from '@/copy/constants';
+import { HISTORY_MONTHS, REVIEW_HORIZON_DAYS, SOON_AFTER_DELIVERY_DAYS } from '@/copy/constants';
 
 type OverrideCategory = (typeof OVERRIDE_CATEGORIES)[number];
 
@@ -16,7 +16,9 @@ export const OPERATOR = {
     queue: 'Returns queue',
     case: 'Case card',
     record: 'Decision record',
-    compare: 'Same indicator, different action',
+    compare: 'Compare cases',
+    /** The compare page when the two returns share the band's signal (pitch beat 1). */
+    compareSame: 'Same signal, different action',
     outbox: 'Simulated outbox',
   },
   reasons: {
@@ -461,7 +463,8 @@ export const OPERATOR = {
     gateNoReview: 'no review date from the engine yet: load the case again before approving',
     gateKeeps: 'This order keeps its terms.',
     couponPause: 'Coupon pause',
-    forAccounts: (n: number, cluster: string) => `for ${n} linked accounts of ${cluster}`,
+    forAccountsBefore: 'for',
+    forAccountsAfter: 'linked accounts of',
     rule: 'rule',
     reversible: 'reversible',
     approvingConfirms: 'approving confirms it',
@@ -503,6 +506,8 @@ export const OPERATOR = {
     escAgain: 'Press Esc again to discard what you typed.',
     actingAs: (who: string, role: string) => `You: ${who} (${role}). Your id is recorded in the audit log.`,
     nothingSaved: 'Nothing was saved.',
+    composedMessage:
+      'The service writes the message for the decision you confirm, in this language, with that decision\'s own terms, dates and legal clause. It is not the draft of the proposal; you find it in the outbox once confirmed.',
     reason: 'Reason',
     reasonHint: 'One sentence a colleague would understand',
     reasonTooShort: 'Write at least a few words.',
@@ -533,8 +538,10 @@ export const OPERATOR = {
       whenShown: 'When it is shown: at checkout, before the customer’s next purchase',
       untilWhen: 'Until when: review on',
       lapses: 'lapses unless a person renews it',
-      couponAck: (n: number, cluster: string, rule: string, app: string) =>
-        `I confirm the coupon pause for the ${n} linked accounts of ${cluster} (${rule}, ${app}). Reversible at any time.`,
+      /** Around the count of linked accounts, the cluster, the rule and the application ids. */
+      couponAckBefore: 'I confirm the coupon pause for the',
+      couponAckAfter: 'linked accounts of',
+      couponAckReversible: 'Reversible at any time.',
       couponRequired: 'Tick the coupon pause confirmation, or override instead.',
       noReviewDate: 'No review date from the engine: a restriction always has one. Load the case again before approving.',
       overrideInstead: 'Want different terms? Override instead',
@@ -693,7 +700,8 @@ export const OPERATOR = {
     supersedes: 'supersedes',
     couponPause: 'coupon pause',
     couponStates: { proposed: 'proposed', confirmed: 'confirmed', reversed: 'reversed' } as Record<string, string>,
-    couponFor: (n: number) => `for ${n} linked accounts`,
+    couponForBefore: 'for',
+    couponForAfter: 'linked accounts',
   },
   refund: {
     overdue: 'Refund overdue',
@@ -768,7 +776,9 @@ export const OPERATOR = {
     noDemoCases: 'The demo cases are not available, so there is no pitch pair to open. The service said:',
     pitchPair: 'Open the pitch pair',
     returnRate: `Return rate, ${HISTORY_MONTHS} months`,
-    sameIndicator: 'Same indicator',
+    noticeDays: 'Return notice, days after delivery',
+    sameSignal: `Same signal: both within ${SOON_AFTER_DELIVERY_DAYS} days of delivery`,
+    differentSignal: `Not the same signal: not both within ${SOON_AFTER_DELIVERY_DAYS} days of delivery`,
     lines: (returned: string, lines: string) => `${returned} of ${lines} lines`,
     topFactor: 'Top score factor (a contribution, not a cause)',
     noFactor: 'no factor recorded',
@@ -784,7 +794,8 @@ export const OPERATOR = {
     thisReturn: 'This return: refund by',
     neverRefused: 'never refused',
     openCase: 'Open case',
-    closing: 'A rule on return rate alone would treat both the same.',
+    closing: 'A rule on how soon items come back would treat both the same.',
+    closingDifferent: 'These two returns already differ on how soon they came back: compare the rows above.',
     reveal: 'Show the difference',
   },
   outbox: {

@@ -1,25 +1,40 @@
 import clsx from 'clsx';
 import { Inbox, OctagonAlert, type LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { isApiError } from '@/api/errors';
+import { isApiError, isRefusal } from '@/api/errors';
 import { FEEDBACK } from '@/copy/common';
 import { IdText } from '@/components/provenance/IdText';
 import { Button } from '@/components/ui/Button';
 
 /**
  * A failed panel (docs/ui-design.md 5.8, 10.1): code, message and the request id to copy, plus
- * Retry. Panel-level, so one failing panel never blanks the page.
+ * Retry. Panel-level, so one failing panel never blanks the page. A refusal (4xx) is titled as
+ * one, never as a service that did not answer, and lists each violation the service named, so the
+ * person can see what to correct.
  */
 export function ErrorState({ error, onRetry, title }: { error: unknown; onRetry?: () => void; title?: string }) {
   const api = isApiError(error) ? error : null;
   const message = api ? api.message : error instanceof Error ? error.message : String(error);
+  const refused = isRefusal(error);
   return (
     <div role="alert" data-error-state={api?.code ?? 'error'} className="rounded-card border border-danger-fg bg-danger-bg p-4 text-danger-fg">
       <p className="flex items-center gap-2 font-medium">
         <OctagonAlert aria-hidden="true" size={16} />
-        {title ?? FEEDBACK.errorTitle}
+        {title ?? (refused ? FEEDBACK.refusedTitle : FEEDBACK.errorTitle)}
       </p>
       <p className="mt-1 text-body text-ink-1">{message}</p>
+      {api && api.violations.length > 0 && (
+        <div className="mt-2 text-body text-ink-1" data-violations>
+          <p className="text-caption text-ink-2">{FEEDBACK.violationsTitle}</p>
+          <ul className="list-disc pl-5">
+            {api.violations.map((v, i) => (
+              <li key={`${v.code}-${i}`} data-violation={v.code}>
+                <span data-verbatim>{v.message}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {api && (
         <dl className="mt-2 flex flex-wrap gap-x-4 text-caption text-ink-2">
           <div className="flex gap-1">

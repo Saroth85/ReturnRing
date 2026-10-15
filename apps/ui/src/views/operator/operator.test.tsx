@@ -3,7 +3,9 @@
 // (COPY-LINT: no banned word, no number literal).
 import { screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
+import { LEGAL_MINIMUM_WINDOW_DAYS } from '@/api/contract.gen';
 import type { CaseCard, QueueResponse } from '@/api/models';
+import { HISTORY_MONTHS, REVIEW_HORIZON_DAYS, SOON_AFTER_DELIVERY_DAYS } from '@/copy/constants';
 import { findBannedTerms, UI_COPY_BANNED } from '@/copy/bannedTerms';
 import { readExample } from '@/test/examples';
 import { renderWithProviders } from '@/test/render';
@@ -191,8 +193,11 @@ describe('operator copy (COPY-LINT)', () => {
     };
     collect(OPERATOR);
     expect(findBannedTerms(strings.join('\n'), UI_COPY_BANNED)).toEqual([]);
-    // Digits come only from named constants (HISTORY_MONTHS, LEGAL_MINIMUM_WINDOW_DAYS, REVIEW_HORIZON_DAYS).
-    const literal = strings.filter((s) => /\d/.test(s.replace(/\b(12|14|90)\b/g, '')));
+    // Digits come only from named constants (HISTORY_MONTHS, LEGAL_MINIMUM_WINDOW_DAYS,
+    // REVIEW_HORIZON_DAYS, SOON_AFTER_DELIVERY_DAYS).
+    const named = [HISTORY_MONTHS, LEGAL_MINIMUM_WINDOW_DAYS, REVIEW_HORIZON_DAYS, SOON_AFTER_DELIVERY_DAYS];
+    const constants = new RegExp(`\\b(${named.join('|')})\\b`, 'g');
+    const literal = strings.filter((s) => /\d/.test(s.replace(constants, '')));
     expect(literal).toEqual([]);
   });
 });

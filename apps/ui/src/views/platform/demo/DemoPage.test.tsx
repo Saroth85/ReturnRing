@@ -3,7 +3,7 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api } from '@/api/client';
-import type { DemoCasesResponse } from '@/api/models';
+import type { DemoCasesResponse, ReadyzResponse } from '@/api/models';
 import { setScenario } from '@/api/scenario';
 import { personaStore, setPersona } from '@/app/persona';
 import { readExample } from '@/test/examples';
@@ -128,5 +128,52 @@ describe('/demo (US-903)', () => {
     });
     expect(dispute.getAttribute('data-dispute-changes')).toBe('yes');
     expect(dispute.textContent).toContain('decided again');
+  });
+
+  it('says "no cluster" when one account is left, never "1 linked accounts", and pluralises a cluster that stays', async () => {
+    // demo_cases.json: 3 linked accounts, 1 left after the dispute.
+    await open();
+    const cluster = await waitFor(() => {
+      const el = document.querySelector('[data-beat-id="dispute"] [data-dispute-cluster]');
+      expect(el).not.toBeNull();
+      return el as HTMLElement;
+    });
+    expect(cluster.textContent).toContain('3 linked accounts → no cluster');
+    expect(cluster.textContent).not.toMatch(/→ 1 linked/);
+  });
+
+  it('a cluster that stays a cluster after the dispute: before → after linked accounts', async () => {
+    vi.spyOn(api, 'demoCases').mockResolvedValue({ ...cases, dispute: { ...cases.dispute!, cluster_size_before: 4, cluster_size_after: 3 } });
+    await open();
+    const cluster = await waitFor(() => {
+      const el = document.querySelector('[data-beat-id="dispute"] [data-dispute-cluster]');
+      expect(el).not.toBeNull();
+      return el as HTMLElement;
+    });
+    expect(cluster.textContent).toContain('4 → 3 linked accounts');
+  });
+
+  it('on the read-only public demo, never asks for an approval the service refuses: ring checkout and dispute are not playable', async () => {
+    const readyz = readExample<ReadyzResponse>('readyz_response.live.json');
+    vi.spyOn(api, 'readyz').mockResolvedValue({ ...readyz, public_read_only: true, clock: { ...readyz.clock, frozen: true } });
+    await open();
+    const beat = (id: string) =>
+      waitFor(() => {
+        const el = document.querySelector(`[data-beat-id="${id}"]`);
+        expect(el).not.toBeNull();
+        return el as HTMLElement;
+      });
+    const ring = await beat('shop_ring');
+    await waitFor(() => expect(ring.getAttribute('data-playable')).toBe('no'));
+    expect(ring.querySelector('[data-read-only-beat="not-playable"]')).toHaveTextContent('Marco cannot be approved here');
+    await waitFor(() => expect(ring.querySelector('[data-after-marco]')?.getAttribute('data-after-marco')).toBe('proposed'));
+    expect(ring.textContent).not.toContain('Approve Marco first');
+    expect(ring.textContent).toContain('the read-only demo cannot approve him');
+    const dispute = await beat('dispute');
+    expect(dispute.getAttribute('data-playable')).toBe('no');
+    expect(dispute.querySelector('[data-read-only-beat="not-playable"]')).toHaveTextContent('Disputing a link');
+    expect((await beat('marco')).querySelector('[data-read-only-beat="limited"]')).toHaveTextContent('The approval is refused here');
+    expect((await beat('shop_giulia')).getAttribute('data-playable')).toBe('yes');
+    expect(findBannedWording(document.body).errors).toEqual([]);
   });
 });

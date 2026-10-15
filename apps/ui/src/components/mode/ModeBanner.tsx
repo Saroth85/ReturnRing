@@ -52,7 +52,7 @@ export function ModeBanner() {
         ))}
         <ClockSegment />
         {view.kind === 'live-cpu' && <span aria-hidden="true" className="hatch-cached ml-auto h-4 w-16 rounded-chip" />}
-        {view.isMock && <ScenarioSwitcher />}
+        {__MOCK_SCENARIOS__ && view.isMock && <ScenarioSwitcher />}
       </div>
       {view.degraded.length > 0 && (
         <div className="flex flex-wrap items-center gap-x-2 border-t border-attn-border bg-attn-bg px-4 py-1 text-caption text-attn-fg">

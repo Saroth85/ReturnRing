@@ -18,3 +18,10 @@ export const LLM_RETRY_SECONDS = 10;
 export const SYNTHETIC_SEED = 42;
 /** The window of the order history and the return rate (spec 8.4 and 8.5: 12 months). */
 export const HISTORY_MONTHS = 12;
+/**
+ * A return notice at most this many days after delivery counts as "soon after delivery" on the
+ * compare band (pitch beat 1, spec 16: both customers send items back a few days after
+ * delivery). A presentation threshold of this UI, not a rule of the engine: the band says the two
+ * returns share the signal only when both values are within it.
+ */
+export const SOON_AFTER_DELIVERY_DAYS = 7;

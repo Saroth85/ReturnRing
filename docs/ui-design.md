@@ -433,8 +433,10 @@ until measured.
 - **Contract version**: `/readyz` reports `contract_version`; when its major or minor differs from the version
   the UI types were generated from (`CONTRACT_VERSION`), the banner gets an attention line "Contract mismatch"
   and the `/demo` preflight turns red. The `/demo` preflight is also red on the mock adapter.
-- **`LlmStatusPill`**: from the `vllm` check: "LLM ready" · "LLM off · templates and cache in use" (cached,
-  neutral) · "LLM unavailable · templates in use" (danger outline). It never blocks decisions.
+- **`LlmStatusPill`**: from the `vllm` check, `llm_mode` and `mode`: "LLM ready" · "LLM: mock stand-in (no
+  model)" (live with `llm_mode` mock: every draft is written live by the mock model) · "LLM off · precomputed
+  texts and templates in use" (cached, hatched) · "LLM unavailable · templates in use" (danger outline) ·
+  "LLM: contract example" (mock adapter). It never blocks decisions.
 
 ### 5.3 Decision components (`src/components/decision/`, `src/domain/`)
 
@@ -527,10 +529,14 @@ renders three layers that never mix:
   preview shows the stored text plain with an attention note "Message layers could not be verified;
   showing the text as stored", and logs the request id.
 
-**`GenerationBadge`** (`GenerationInfo`): `llm` "Gemma 4 · validated first try" · `llm_regenerated`
-"Gemma 4 · validated on retry" (validator codes in a disclosure) · `template` "Reviewed template (validator
-fallback or model unavailable)", plus `served_from` ("Precomputed on MI300X" when cached), `llm_mode`
-("Mock text (hand-written stand-in)" when mock), model and latency.
+**`GenerationBadge`** (`GenerationInfo`): the model that wrote the text, from the generation record and never
+a fixed name (rules 11, 13): `generation.model` as served (for example `google/gemma-4-31b-it`), or "Mock
+language model (hand-written stand-in)" when `llm_mode` is `mock`; then `model` "· validated on the first
+call" · `regenerated` "· validated on the second call" · `template` "Reviewed template, no model text" (no
+model named); then the fallback reason, the model calls, and `served_from` cached as `/readyz` `label` gives
+it. The audit diff's path row uses the same label from `GenerationAuditState.model` and `llm_mode`; the
+assistant's header names the model from `/readyz` (`llm_mode` mock: "mock language model"; live on vLLM:
+"Gemma 4 on vLLM"; nothing in cached mode, where the assistant is not served).
 
 **`ExplanationList`** (`draft.explanation`, `path`): statements grouped Observed → Score contribution → To
 verify, each with `StatementLabelChip`, the text in `GeneratedText`, and a **`FactCitation`** line
@@ -907,7 +913,10 @@ instead of the form. Decisions are **never optimistic**: the UI waits for the `D
   understand").
 - If the chosen levers are restrictive: the gate block, "Review date: set by the server, 90 days after the
   decision (assumption)", and the `Ctrl+Enter` attention confirm. After success, the actual `review_at` shows.
-- Message: send language only; `message.text` stays null.
+- Message: send language only (`sentence_ids` null). No preview of the draft: the draft was written for the
+  proposal, while an override sends a message the service composes for the levers chosen, with their own terms,
+  dates and clause (rule 10). The sheet says so; the sent message is in the outbox once confirmed. Only the
+  approve sheet previews the draft, because an approval sends it.
 - Request: `decision_request.override.json` → `decision_result.override.json` (Martina, levers `[]`,
   `customer_context`).
 - **422 `legal_guard`**: `LegalGuardViolations` above the editor, each `code` and `message` plus a plain line
@@ -919,7 +928,9 @@ instead of the form. Decisions are **never optimistic**: the UI waits for the `D
 #### 6.3.5 `RejectSheet` and `ReviewSheet`
 
 - **Reject**: fixed copy "Reject the proposal. No lever changes, this order's terms stay, and the return
-  itself is never refused: the withdrawal right is intact." Category and reason required; `Ctrl+Enter`.
+  itself is never refused: the withdrawal right is intact." Category and reason required; `Ctrl+Enter`. Send
+  language only, no preview of the proposal's draft (as for the override: the service composes the message for
+  the rejection, with the standard terms and no restriction clause).
   `decision_request.reject.json` → `decision_result.reject.json` (Andrea).
 - **Review (lift or renew, US-607)**: the restriction (levers, approver, approved at, review date, state from
   the API) and two choices:
@@ -978,10 +989,11 @@ instead of the form. Decisions are **never optimistic**: the UI waits for the `D
 ### 6.5 Compare `/compare?a=RET-000101&b=RET-000102` (pitch beat 1)
 
 ```
-Same return rate, different action
+Same signal, different action          (days and rates as on the live store after a reset)
 ┌ Giulia Conti · C-GIULIA ──────────────────────┐   ┌ Marco Bianchi · C-MARCO-1 ────────────────────┐
 │ RET-000101 · Dress · Size issue               │   │ RET-000102 · Coat · Changed mind              │
-╞═ Return rate, 12 months  54.5% (6 of 11 lines) ◆ ══ SAME INDICATOR ══ 54.5% (6 of 11 lines) ◆ ═════╡
+╞═ Return notice, days after delivery  4 days ◆ ══ SAME SIGNAL: BOTH WITHIN 7 DAYS ══ 3 days ◆ ═════╡
+│ Return rate, 12 months 25.0% (4 of 16 lines) ◆ │   │ Return rate, 12 months 85.7% (6 of 7 lines) ◆ │
 │ Top score factor (contribution, not cause)     │   │ Each of the 7 linked accounts used a welcome… │
 │ Linked accounts: none                          │   │ Cluster of 7 accounts, created within 9 days  │
 │ Risk score 0.12 ◆ ─●───|────── threshold 0.60  │   │ Risk score 0.87 ◆ ───────|───●── thr. 0.60    │
@@ -993,10 +1005,19 @@ Same return rate, different action
 │ This return: refund by 11 Oct 2026, never      │   │ This return: refund by 12 Oct 2026, never     │
 │ refused                        [Open case →]   │   │ refused                       [Open case →]   │
 └────────────────────────────────────────────────┘   └───────────────────────────────────────────────┘
-A rule on return rate alone would treat both the same.
+A rule on how soon items come back would treat both the same.
 ```
 
-- Data: two cards. The band uses `orders.return_rate`, `orders.returned_lines`, `orders.lines`. Other rows:
+- The band is the signal the two customers share in the pitch (spec 16): both send the item back a
+  few days after delivery. It shows `request.days_since_delivery` of each return (with
+  `delivered_on` and `notice_on`) under the card's provenance. The middle label is computed: "Same
+  signal: both within 7 days of delivery" only when both are within `SOON_AFTER_DELIVERY_DAYS`
+  (7, a presentation threshold of this UI, `src/copy/constants.ts`), otherwise "Not the same
+  signal"; the page title "Same signal, different action" and the closing sentence follow the same
+  test. The 12-month return rate is never the band: on the live store it differs (Giulia 25.0%,
+  4 of 16 lines; Marco 85.7%, 6 of 7), so it is the first of the rows that differ. The contract
+  examples happen to give both customers 54.5% (6 of 11): the page never relies on that.
+- Rows: `orders.return_rate` with `orders.returned_lines` and `orders.lines`,
   `risk.top_factors[0].phrase`, `linked_accounts.cluster_size` and `features.creation_spread_days`, risk and
   value with thresholds, `QuadrantBadge`, `decision.lever_ids` as a compact `LeverList` with
   `requires_approval` and `in_force`, `refund_due_by`.
@@ -1022,7 +1043,9 @@ A 640 px right drawer over the card, from `VersionChain`, audit entries or a dee
 - List: subject, customer, language, status "Sent (simulated)", clause kind, created by, created at;
   `?return_id=` filter.
 - Detail: `MessagePreview` built from `connective_text`, `fields` and `body`, with links to the decision and
-  the generation.
+  the generation. Under it, `RefundStated`: the refund the message states (`OutboxMessage.refund`, a Metric
+  since 1.7.0) as a `Figure` with its origin, period and nature ("Refund stated in the message: €29.03
+  [SYNTHETIC]"); nothing when the message states no refund. The inspection result shows the same line.
 
 ---
 
@@ -1057,7 +1080,7 @@ customer or order (graph edge or node, link row, order row).
 │ C-MARCO-1 and C-MARCO-3 are linked by a payment card, a device and a delivery address…   │
 │ Evidence consulted                     │ Evidence missing                                │
 │ [CL-000417] [C-MARCO-1~C-MARCO-3] …    │ …                                               │
-│ Gemma 4 · validated first try · mock · live                                             │
+│ Mock language model (hand-written stand-in) · validated on the first call · 1 model call │
 │ Read-only: 5 tools, at most 5 steps. Answers cannot change the decision.                │
 └──────────────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1179,7 +1202,9 @@ History: assumptions-v1 (system) · …   [Compare versions]
 
 ### 8.3 Weekly KPIs `/kpi?week=2026-09-21` (US-603)
 
-Week picker (`week_start`). Each tile carries a `ProvenanceFooter`.
+Week picker (`week_start`). Each tile carries a `ProvenanceFooter`. "Next week" stops at the current week of
+the service clock (`/readyz` `clock`), since the API refuses a week that has not started (422); a refused week
+reached by URL shows the refusal with its violations, no Retry, and a link to the current week.
 
 - **Net benefit, simulated**: hero `Figure` (+€140.83) with `AssumptionLabel` `kpi/2026-09-21` and the
   components in a disclosure. **Realised**: "Not observed yet: realised benefit needs observed outcomes"
@@ -1210,7 +1235,9 @@ Week picker (`week_start`). Each tile carries a `ProvenanceFooter`.
   (Open · Task opened · Resolved), linked returns, sparkline. Header: "Flagged when z > 3 with at least 20
   sales in the week (project thresholds)" from `thresholds`.
 - **Detail**: observed vs expected summary; `WeeklyTrendChart` (returns as bars, expected as a dashed line,
-  both counts on one axis; anomaly week labelled "z = 6.86") and a separate small return-rate chart; linked
+  both counts on one axis; anomaly week labelled "z = 6.86") and a separate small return-rate chart (the
+  week labels are thinned to what the plot width holds, about one per 52 px: the live series has 53 weeks;
+  the flagged week always keeps its label, the last week when it fits); linked
   returns with "These returns stay regular; defect returns follow the guarantee path"; **`CatalogTaskForm`**
   (kind: description, size guide, batch check; note; optional return id) → POST (201).
 - **Tasks tab**: `TaskStatusStepper` (Open → In progress → Done or Cancelled) via PATCH (status, note,
@@ -1336,8 +1363,9 @@ Tablet first, 48 px targets, a stepper:
 ### 9.4 System and benchmarks `/system` (US-901, US-902, US-905)
 
 ```
-┌ AMD Instinct MI300X · every model on one GPU ─────────────────────────────── ● Live · ready ──────┐
-│ ArchitectureStrip: [vLLM · Gemma 4 31B] [XGBoost] [GraphSAGE] ← GPU │ api · ui · db ← CPU          │
+┌ Designed for one AMD Instinct MI300X: every model on one GPU ────────────── ● Live · ready ──────┐
+│ ArchitectureStrip: [vLLM · Gemma 4 31B] [XGBoost] [GraphSAGE] ← GPU (target) │ api · ui · db ← CPU  │
+│ This service: live on the CPU, language model: mock: hand-written stand-ins     (from /readyz)      │
 │ ┌ B1 XGBoost training · ASOS ── Illustrative, not measured ▨ ┐ ┌ B2 GraphSAGE · ASOS ── Pending ┐ │
 │ │ CPU    ███████████████████  (hatched, ink-3)              │ │ Not run yet. A benchmark of the  │ │
 │ │ MI300X ██                                                 │ │ ASOS task, not evidence on       │ │
@@ -1352,6 +1380,11 @@ Tablet first, 48 px targets, a stepper:
 └────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
+- The hero and the `ArchitectureStrip` describe the target architecture ("Designed for one AMD Instinct
+  MI300X", "on the GPU (target)"); the line under them follows `/readyz` and says what answers now: "This
+  service: live on the CPU, language model: mock: hand-written stand-ins", "This service: cached demo, GPU off
+  · <readyz.label>" (or "no label" when there is none), or contract examples on the mock adapter. Only
+  `readyz.label` says where cached outputs were made (ADR-15 sections 16, 17).
 - Tabs on narrow screens: Readiness · Benchmarks · Telemetry.
 - **`ModeCard` and `ComponentChecks`** (`/readyz`): mode, `llm_mode`, device, `label`, contract, rules,
   assumptions and model versions; each check ok / disabled / error with `detail`. `--ok` appears only here.
@@ -1382,6 +1415,13 @@ Tablet first, 48 px targets, a stepper:
   (`VITE_CACHED_ORIGIN`), and per beat "Open in a new tab" so the tabs can be pre-opened in order.
 - **`DemoRail`** (shell slot): beat numbers, the current one highlighted, elapsed timer, `Alt+←`/`Alt+→`.
   `Shift+C` reloads the same route on the cached origin (failover; the striped banner makes it honest).
+- **Read-only public demo** (`/readyz` `public_read_only`): the page never asks for a write the service
+  refuses. The ring checkout after Marco and the dispute are marked "Not playable on the read-only demo" with
+  the reason (Marco cannot be approved there, so the checkout shows the standard terms; a dispute is a write);
+  Marco's and Rossi's beats say what they can still show (the proposal and its gate; the links without the
+  before and after). The rail strikes the beats that cannot be played.
+- **Dispute detail**: "Cluster CL-…: 2 → 1" is never printed: one account left is "2 linked accounts → no
+  cluster", as the recompute comparison says; a cluster that stays reads "4 → 3 linked accounts".
 
 ### 9.6 About the data `/about` (US-906)
 
@@ -1408,13 +1448,13 @@ violations, request_id}`.
 | 409 `stale_decision` | decision, evidence, dispute, regenerate | `StaleDecisionPanel` (6.4), typed reason kept |
 | 409 `conflict` | already decided, levers differ, lift on a non-restriction, task or coupon state, assumptions not current, checkout confirm | Inline message + reload; assumptions get `AssumptionDiff` |
 | 422 `legal_guard` | override refused | `LegalGuardViolations` in the sheet, "Nothing was saved" |
-| 422 `invalid_request` | bad body | Field messages from `violations` |
+| 422 `invalid_request` | bad body | Field messages from `violations`; a panel `ErrorState` is titled "The service refused the request." (any 4xx, never "did not answer") and lists each violation verbatim. The forms keep to the schema limits up front (a catalogue step note is empty or at least 3 characters; the inspection note at most 300, with a counter) |
 | 429 `rate_limited` | agent, checkout evaluation | Input disabled for `Retry-After` seconds (whole seconds, ADR-15 section 16), with copy |
 | 404 `not_found` on `/api/demo/cases` | no demo reset yet | Every page: "No demo reset yet", the API's message verbatim, `python -m apps.api.reset` |
 | 404 on `/api/kpi`, `/api/fairness` | offline report not in the snapshot | Empty state with the API's message, no retry |
 | 503 `llm_unavailable` | regenerate, agent | `LlmUnavailableNotice` inline; pill turns to "LLM unavailable" |
 | Template fallback | `generation_path: template` | `GenerationBadge` "Reviewed template"; no error styling |
-| Mock or cached text | `llm_mode: mock`, `served_from: cached` | `GenerationBadge` "Mock text (hand-written stand-in)" or `/readyz` `label` as served ("Precomputed on AMD MI300X" or the rehearsal label), never a fixed GPU name |
+| Mock or cached text | `llm_mode: mock`, `served_from: cached` | `GenerationBadge` "Mock language model (hand-written stand-in) · validated on the first call" or `/readyz` `label` as served ("Precomputed on AMD MI300X" or the rehearsal label), never a fixed GPU name |
 | Draft pending | `draft_status: pending` | Skeleton + "Draft being prepared in batch"; message-sending actions wait (6.2.4) |
 | Not enough evidence | `evidence.quality: insufficient` | Neutral, dashed, no risk, no quadrant |
 | Guarantee path | `path: guarantee` | `GuaranteeBanner`, no risk, restrictive levers disabled |
@@ -1580,7 +1620,7 @@ cached URL ready on a second origin; the demo reset (US-903) run after each rehe
 
 | Time | Beat | Route | Clicks | What the audience sees | API (example) | E2E-PITCH asserts |
 | --- | --- | --- | --- | --- | --- | --- |
-| 0:00–0:25 | ① Same indicator | `/compare?a=RET-000101&b=RET-000102` | `→` reveals the rows below the band | Giulia and Marco with the same 12-month return rate, 54.5% (6 of 11 lines), then the rows that diverge: factor, linked accounts, risk, value, quadrant, engine decision, "refund by …, never refused" | 2 × GET case (`case_card.giulia.json`, `case_card.marco.json`) | "54.5%" twice; "Same indicator" |
+| 0:00–0:25 | ① Same signal | `/compare?a=RET-000101&b=RET-000102` | `→` reveals the rows below the band | Giulia and Marco both send the item back a few days after delivery (live: 4 and 3 days), the band says "Same signal"; then the rows that diverge: the 12-month return rate (live: 25.0% against 85.7%), factor, linked accounts, risk, value, quadrant, engine decision, "refund by …, never refused" | 2 × GET case (`case_card.giulia.json`, `case_card.marco.json`) | the band's days equal the cards' `days_since_delivery`; "Same signal"; the rates only in their row |
 | 0:25–1:05 | ② Marco | `/returns/RET-000102` | 1) "Card" identifier chip; 2) the edge C-MARCO-1~C-MARCO-3; 3) "Approve restriction…"; 4) tick the coupon pause acknowledgement; 5) Approve (`Ctrl+Enter`) | Graph of CL-000417 (7 accounts, 21 links) with the card links lit; link popover (card, device, address; first shared; weight after decay); coupon sequence over 9 days; favourable and unfavourable side by side; this order vs future orders; then "Approved by sara", review 27 Dec 2026, message queued in Italian with its layers | `case_card.marco.json`; POST decision `decision_request.marco_approve.json` → `decision_result.marco_approved.json` | "Approved by sara"; "27 Dec 2026"; the restrictive button ignores a bare `Enter` |
 | 1:05–1:35 | ③ Rossi | `/returns/RET-000103`, then `/returns/RET-000104` | 1) on RET-000104, the edge C-ROSSI-CARD-1~C-ROSSI-CARD-2; 2) "Explain with evidence…"; 3) kind "Shared payment explained" (presenter mode offers "Use demo note"); 4) Recompute | Three accounts sharing address and device, then the variant with a shared card; before and after: risk 0.34 → 0.21, quadrant Q2 → Q2, active links 3 → 2, standard terms before and after, explanation regenerated; the edge turns dotted "explained" | `case_card.rossi.json`, `case_card.rossi_card.json`; POST evidence `evidence_request.rossi_card.json` → `recompute_response.rossi_card.json` | "0.21"; "Open version 2" |
 | 1:35–2:00 | ④ Elena | `/returns/RET-000105` | (optional) "Open in Product issues" | Guarantee banner, no score, no restrictive lever; hero: V-JKT-DEF, 11 returns for defect in the week of 21 Sep vs 1.8 expected (z = 6.86, 46 sales), trend chart, catalogue task CT-000012; "The customer's return stays regular" | `case_card.elena.json`; optional `product_anomalies.json`, `catalog_tasks.json` | "Guarantee path"; no `RiskPanel` |

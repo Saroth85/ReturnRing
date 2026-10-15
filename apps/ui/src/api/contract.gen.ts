@@ -233,6 +233,15 @@ export const AGENT_QUESTION_MAX_LENGTH = 500 as const;
 /** From PhotoUpload.data_base64 maxLength. */
 export const PHOTO_BASE64_MAX_LENGTH = 7000000 as const;
 
+/** From DecisionRequest.override_reason maxLength. */
+export const REASON_MAX_LENGTH = 1000 as const;
+
+/** From CatalogTaskUpdate.note maxLength. */
+export const TASK_NOTE_MAX_LENGTH = 1000 as const;
+
+/** From InspectionConfirmRequest.note maxLength. */
+export const INSPECTION_NOTE_MAX_LENGTH = 300 as const;
+
 /** From contracts/vocab.py HUMAN_ONLY_ACTIONS. */
 export const HUMAN_ONLY_ACTIONS = [
   "assumptions_updated",

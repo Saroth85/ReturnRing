@@ -8,7 +8,7 @@ import { metaStore, resetModesSeen } from '@/api/meta';
 import type { ReadyzResponse } from '@/api/models';
 import { createQueryClient, queryKeys } from '@/api/queries';
 import { setScenario } from '@/api/scenario';
-import { describeMode, ModeBanner, ModeCornerTag } from '@/components/mode';
+import { describeMode, llmPillState, ModeBanner, ModeCornerTag } from '@/components/mode';
 import { readExample } from '@/test/examples';
 import { renderWithProviders } from '@/test/render';
 
@@ -131,5 +131,31 @@ describe('ContractVersionNotice (UI1)', () => {
     renderWithReadyz({ ...live, contract_version: CONTRACT_VERSION });
     await screen.findByRole('region', { name: 'Service mode' });
     expect(document.querySelector('[data-contract-mismatch]')).toBeNull();
+  });
+});
+
+describe('llmPillState: what the language model is doing, from /readyz', () => {
+  const mockLive: ReadyzResponse = {
+    ...live,
+    llm_mode: 'mock',
+    device: 'cpu',
+    checks: live.checks.map((c) => (c.component === 'vllm' ? { ...c, status: 'disabled', detail: 'LLM_MODE=mock: the deterministic mock model' } : c)),
+  };
+
+  it('live with the mock model: a mock stand-in writes every draft, never "off"', () => {
+    expect(llmPillState(mockLive, false, 'live')).toBe('mock');
+  });
+
+  it('cached: precomputed texts and templates', () => {
+    expect(llmPillState(cached, false, 'live')).toBe('cached');
+  });
+
+  it('live on vLLM: ready, or unavailable after a 503', () => {
+    expect(llmPillState(live, false, 'live')).toBe('ready');
+    expect(llmPillState(live, true, 'live')).toBe('unavailable');
+  });
+
+  it('the mock adapter: a contract example', () => {
+    expect(llmPillState(live, false, 'mock')).toBe('contract');
   });
 });

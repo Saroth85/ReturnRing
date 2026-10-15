@@ -31,6 +31,7 @@ export const MANAGER = {
   },
   loading: 'Loading',
   failed: 'the service did not answer',
+  refused: 'the service refused the request',
   reportUnavailable: 'Offline report not in the snapshot: these figures need the offline evaluation report, which this serving snapshot does not hold.',
   close: 'Close',
   asOf: 'as of',
@@ -43,7 +44,7 @@ export const MANAGER = {
     demoCases: 'Demo cases',
     demoCasesHint: 'Annotate the golden cases of the demo reset (never accuracy)',
     demoCustomers: {
-      giulia: { name: 'Giulia', note: 'Giulia: same return rate as Marco, no linked accounts' },
+      giulia: { name: 'Giulia', note: 'Giulia: paired with Marco in the pitch (both returned soon after delivery), no linked accounts' },
       elena: {
         name: 'Elena',
         note: 'Elena: her open return follows the guarantee path and is not scored; this is her position as a customer',
@@ -167,6 +168,8 @@ export const MANAGER = {
     intro: 'The week of decisions at a glance. Each tile says where its numbers come from.',
     previous: 'Previous week',
     next: 'Next week',
+    nextNotStarted: (week: string) => `The week of ${week} has not started on the service clock.`,
+    currentWeek: 'Open the current week',
     week: 'Week',
     netBenefit: 'Net benefit, simulated',
     components: 'Components',
@@ -285,6 +288,7 @@ export const MANAGER = {
     move: { in_progress: 'Start', done: 'Mark done', cancelled: 'Cancel task' } satisfies Record<'in_progress' | 'done' | 'cancelled', string>,
     updateAction: 'update catalogue tasks',
     moveNote: 'Note for this step (optional)',
+    moveNoteShort: (min: number) => `A note has at least ${min} characters; leave it empty to move without one.`,
     updated: (id: string, status: string) => `Task ${id}: ${status}.`,
     openedBy: 'Opened by',
     updatedAt: 'Updated',

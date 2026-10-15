@@ -71,8 +71,11 @@ async function send<K extends EndpointKey>(key: K, init: CallInit<K>): Promise<R
     Accept: init.accept === 'stream' ? 'text/event-stream' : init.accept === 'text' ? 'text/csv' : 'application/json',
   };
   if (init.body !== undefined) headers['Content-Type'] = 'application/json';
-  const scenario = scenarioStore.get();
-  if (scenario !== 'default') headers['X-Mock-Scenario'] = scenario;
+  // Only a mock reads the scenario; the production bundle has no such code (check-bundle.mjs).
+  if (__MOCK_SCENARIOS__) {
+    const scenario = scenarioStore.get();
+    if (scenario !== 'default') headers['X-Mock-Scenario'] = scenario;
+  }
 
   let response: Response;
   try {

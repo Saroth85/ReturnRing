@@ -22,7 +22,10 @@ RETURNRING_API_URL=mock npm run dev:live   # live adapter against the examples s
   ship: `draft_pending`, `agent_error`, `contract_mismatch` and `refund_deadline_passed` (the
   service's clock past the refund deadlines: overdue flags in the queue, the overdue banner, late
   acts without a message; `src/api/adapters/fixtures.ts`). A 429 carries `Retry-After`;
-  `read_only` refuses every write but the agent and the checkout evaluation.
+  `read_only` refuses every write but the agent and the checkout evaluation. Scenarios exist only
+  where a mock answers (the mock adapter, or `RETURNRING_API_URL=mock`): the production bundle
+  never reads `?scenario=` nor sends `X-Mock-Scenario` (`__MOCK_SCENARIOS__`, checked by
+  `scripts/check-bundle.mjs`).
 - `?theme=light|dark`, `?present=1` (presenter mode). The persona is chosen under "Acting as".
 
 ## What the shell takes from the service

@@ -17,6 +17,7 @@ import { AssistantPanel } from '../AssistantPanel';
 import { CaseAssistant } from '../CaseAssistant';
 import { citationHref, citationLabel } from '../citations';
 import { AGENT } from '../copy';
+import { useAssistantModel } from '../model';
 import { useAgentStream } from '../useAgentStream';
 
 const STORIES = ['US-701', 'US-702'];
@@ -43,6 +44,7 @@ export default function AgentHarness() {
 function Harness({ returnId }: { returnId: string }) {
   const persona = usePersona();
   const conversation = useAgentStream(returnId, persona.id);
+  const modelName = useAssistantModel();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [focusLog, setFocusLog] = useState<EntityRef[]>([]);
   const onRefSelect = useCallback((entity: EntityRef) => {
@@ -79,9 +81,11 @@ function Harness({ returnId }: { returnId: string }) {
             <h2 id="agent-harness-panel-title" className="text-title text-ink-1">
               <Search aria-hidden="true" size={16} className="mr-2 inline-block align-[-2px] text-ink-2" />
               {AGENT.title(returnId)}{' '}
-              <span className="font-normal text-ink-3" data-constant>
-                {AGENT.modelName}
-              </span>
+              {modelName && (
+                <span className="font-normal text-ink-3" data-constant data-assistant-model>
+                  {modelName}
+                </span>
+              )}
             </h2>
             <p className="text-body text-ink-2">{AGENT.readOnly}</p>
           </div>

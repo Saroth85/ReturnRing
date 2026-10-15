@@ -37,6 +37,7 @@ export function resultNotice(result: DecisionResult): ActionNotice {
           applicationId: application.application_id,
           state: application.state,
           accounts: application.affected_customer_ids.length,
+          accountsProvenance: d.inputs.provenance,
           reviewAt: application.review_at,
           inForce: application.in_force,
         }

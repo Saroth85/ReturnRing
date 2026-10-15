@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { Link, useInRouterContext } from 'react-router';
 import type { AuditEntry, Metric } from '@/api/models';
 import { QuadrantBadge } from '@/components/decision';
+import { generationLabel } from '@/components/message/generation';
 import { DateText, Figure } from '@/components/provenance';
 import { MESSAGE } from '@/copy/common';
 import { isDecisionState, isGenerationState, type DecisionAuditState, type GenerationAuditState } from './audit';
@@ -156,9 +157,10 @@ function generationRows(b: GenerationAuditState | null, a: GenerationAuditState)
     {
       key: 'path',
       label: D.path,
-      before: text(b ? g[b.generation_path] : null),
-      after: text(g[a.generation_path]),
-      changed: b?.generation_path !== a.generation_path,
+      // The model from the entry's own record (model, llm_mode), never a fixed name (rules 11, 13).
+      before: text(b ? generationLabel(b) : null),
+      after: text(generationLabel(a)),
+      changed: !b || generationLabel(b) !== generationLabel(a),
     },
     {
       key: 'fallback',

@@ -61,7 +61,9 @@ export const MODE = {
   titleMock: '[Mock]',
   llmReady: 'LLM ready',
   llmContract: 'LLM: contract example',
-  llmOff: 'LLM off · templates and cache in use',
+  llmMock: 'LLM: mock stand-in (no model)',
+  llmCached: 'LLM off · precomputed texts and templates in use',
+  llmOff: 'LLM off · templates in use',
   llmUnavailable: 'LLM unavailable · templates in use',
   bannerLabel: 'Service mode',
   contractMismatchTitle: 'Contract mismatch',
@@ -77,6 +79,8 @@ export const MODE = {
 
 export const FEEDBACK = {
   errorTitle: 'The service did not answer.',
+  refusedTitle: 'The service refused the request.',
+  violationsTitle: 'What to correct',
   retry: 'Retry',
   requestId: 'Request id',
   code: 'Code',
@@ -100,6 +104,8 @@ export const FEEDBACK = {
 };
 
 export const MESSAGE = {
+  /** The refund a sent message states, read with its provenance (OutboxMessage.refund). */
+  refundStated: 'Refund stated in the message:',
   fieldLabels: { terms: 'TERMS', amount: 'AMOUNT', deadline: 'DEADLINE', deduction: 'DEDUCTION' } satisfies Record<
     TemplateFieldName,
     string
@@ -128,12 +134,13 @@ export const MESSAGE = {
   /** No message in the language asked for: the draft holds only the others. */
   noTextInLang: (lang: string) => `No message in ${lang} in this draft.`,
   generation: {
-    model: `${LLM_NAME} · validated on the first call`,
-    regenerated: `${LLM_NAME} · validated on the second call`,
+    // The model is the generation record's (generation.model, or the mock model): never a fixed name.
+    firstCall: (model: string) => `${model} · validated on the first call`,
+    secondCall: (model: string) => `${model} · validated on the second call`,
     template: 'Reviewed template, no model text',
+    mockModel: 'Mock language model (hand-written stand-in)',
     // Where precomputed outputs were made is the claim of readyz.label alone (ADR-15 section 17).
     cached: 'Precomputed (cached demo)',
-    mock: 'Mock text (hand-written stand-in)',
     fallback: {
       decision_echo: 'the model output restated a different decision',
       invalid_twice: 'the model output failed the validator twice',

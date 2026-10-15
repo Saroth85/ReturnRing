@@ -15,7 +15,7 @@ import { HAS_RENEW } from '@/api/models';
 import type { DecisionResult, DecisionView, Lever } from '@/api/models';
 import { usePersona } from '@/app/persona';
 import { InlineNotice } from '@/components/feedback';
-import { LEVER_COPY, LeverList, RestrictionBadge, TERMS_COPY, TermsDiff, leverLabel } from '@/components/decision';
+import { LEVER_COPY, LeverList, LinkedAccountsCount, RestrictionBadge, TERMS_COPY, TermsDiff, leverLabel } from '@/components/decision';
 import { MessagePreview } from '@/components/message';
 import { DateText, IdText } from '@/components/provenance';
 import { Kbd } from '@/components/ui';
@@ -75,13 +75,24 @@ function useLate(shown: DecisionView): boolean {
   return lateProposal(shown, clock.today);
 }
 
-function MessageChoice({ late = false }: { late?: boolean }) {
+/**
+ * The message language, and what the customer will read. Only an approval sends the draft written
+ * for the proposal, so only the approve sheet previews it (rule 10). A rejection or an override
+ * sends a message the service composes for the decision acted on, with its own terms, dates and
+ * clause: the sheet says so and previews nothing; the sent message is in the outbox afterwards.
+ */
+function MessageChoice({ late = false, sends }: { late?: boolean; sends: 'draft' | 'composed' }) {
   const { card, sendLang, setSendLang } = useCaseUi();
-  const message = messageFor(card.draft, sendLang);
+  const message = sends === 'draft' ? messageFor(card.draft, sendLang) : null;
   if (late) return <NoMessageLate />;
   return (
     <div className="flex flex-col gap-2">
       <LangChoice value={sendLang} onChange={setSendLang} />
+      {sends === 'composed' && (
+        <p className="text-caption text-ink-2" data-message-composed>
+          {OPERATOR.sheets.composedMessage}
+        </p>
+      )}
       {message && (
         <details>
           <summary className="cursor-pointer text-caption text-accent">{OPERATOR.railCopy.preview}</summary>
@@ -153,7 +164,7 @@ export function ApproveRestrictionSheet({ open, onOpenChange, onDone, onReload, 
             future={d.future_terms}
             levers={d.levers}
             onlyChanges
-            clusterSize={rule?.affected_customer_ids.length}
+            cluster={rule ? { size: rule.affected_customer_ids.length, provenance: d.inputs.provenance } : undefined}
             snapshotId={card.order_terms.terms_snapshot_id}
           />
         </section>
@@ -193,8 +204,15 @@ export function ApproveRestrictionSheet({ open, onOpenChange, onDone, onReload, 
           <div className="flex flex-col gap-2 rounded-control border-2 border-attn-border p-3" data-coupon-ack>
             <label className="flex items-start gap-2 text-body">
               <input type="checkbox" className="mt-1" checked={ack} onChange={(e) => setAck(e.target.checked)} data-coupon-ack-box />
-              <span data-constant>
-                {t.couponAck(rule.affected_customer_ids.length, rule.cluster_id, rule.rule_version, rule.application_id)}
+              <span className="inline-flex flex-wrap items-baseline gap-x-1">
+                <LinkedAccountsCount
+                  count={rule.affected_customer_ids.length}
+                  provenance={d.inputs.provenance}
+                  before={t.couponAckBefore}
+                  after={t.couponAckAfter}
+                />
+                <IdText id={rule.cluster_id} /> (<IdText id={rule.rule_version} />, <IdText id={rule.application_id} />).{' '}
+                {t.couponAckReversible}
               </span>
             </label>
             <details>
@@ -207,7 +225,7 @@ export function ApproveRestrictionSheet({ open, onOpenChange, onDone, onReload, 
             </details>
           </div>
         )}
-        <MessageChoice />
+        <MessageChoice sends="draft" />
         <ActingAs />
         <button
           type="button"
@@ -445,7 +463,7 @@ export function OverrideSheet({
         )}
         <CategorySelect value={category} onChange={setCategory} showError={tried} />
         <ReasonField value={reason} onChange={setReason} showError={tried} />
-        <MessageChoice late={late} />
+        <MessageChoice late={late} sends="composed" />
         <ActingAs />
       </div>
     </Sheet>
@@ -504,7 +522,7 @@ export function RejectSheet({ open, onOpenChange, onDone, onReload, changes, sho
         <p className="text-body text-ink-1">{r.body}</p>
         <CategorySelect value={category} onChange={setCategory} showError={tried} />
         <ReasonField value={reason} onChange={setReason} showError={tried} />
-        <MessageChoice late={late} />
+        <MessageChoice late={late} sends="composed" />
         <ActingAs />
         {action.error ? <ActionError error={action.error} onLoadNew={onReload} onShowCurrent={onReload} changes={changes} /> : null}
         {action.mismatch && <InlineNotice tone="attention">{action.mismatch}</InlineNotice>}

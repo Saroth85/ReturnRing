@@ -86,6 +86,7 @@ export const INSPECTION = {
   },
   confirm: {
     note: 'Note for the record (optional)',
+    noteCount: (used: number, max: number) => `${used}/${max} characters`,
     button: 'Confirm the observations',
     sending: 'Confirming',
     needAnswers: 'Answer every checklist item first.',

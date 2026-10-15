@@ -10,9 +10,8 @@ export function leverLabel(lever: Pick<Lever, 'id' | 'value'>): string {
   return LEVER_COPY.label[lever.id][lever.value ? 'true' : 'false'];
 }
 
-/** A term value in a TermsDiff cell: "14 days", "paid by the customer", "paused for 7 linked accounts". */
-export function termValue(lever: LeverId, value: number | boolean, clusterSize?: number): string {
+/** A term value in a TermsDiff cell: "14 days", "paid by the customer", "paused" (the count is data: TermsDiff). */
+export function termValue(lever: LeverId, value: number | boolean): string {
   if (lever === 'return_window_days') return TERMS_COPY.days(Number(value));
-  if (lever === 'cluster_coupons_disabled' && value === true && clusterSize) return TERMS_COPY.pausedFor(clusterSize);
   return TERMS_COPY.value[lever][value ? 'true' : 'false'];
 }

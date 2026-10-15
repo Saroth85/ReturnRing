@@ -37,6 +37,25 @@ async function open(page: Page, path: string, expectedStatuses: number[] = []): 
   return errors;
 }
 
+/** Every week label of each trend chart clears its neighbours (the live series has 53 weeks). */
+async function expectWeekLabelsApart(page: Page): Promise<void> {
+  const charts = page.locator('[data-trend-chart] svg.recharts-surface');
+  await expect(charts.first()).toBeVisible();
+  await expect(charts.first().locator('[data-week-tick]').first()).toBeVisible();
+  // Retried: after a viewport change the charts measure their new width and draw again.
+  await expect(async () => {
+    for (const chart of await charts.all()) {
+      const boxes = await chart.locator('[data-week-tick]').evaluateAll((nodes) =>
+        nodes.map((n) => n.getBoundingClientRect()).map((r) => ({ left: r.left, right: r.right })).sort((a, b) => a.left - b.left),
+      );
+      expect(boxes.length, 'week labels drawn').toBeGreaterThan(1);
+      for (let i = 1; i < boxes.length; i += 1) {
+        expect(boxes[i]!.left, `week label ${i} clears the one before`).toBeGreaterThanOrEqual(boxes[i - 1]!.right);
+      }
+    }
+  }).toPass({ timeout: 15_000 });
+}
+
 /** Confirm a non-restrictive proposal from the rail's popover, with the message it sends. */
 async function confirmProposal(page: Page, clause: 'withdrawal' | 'guarantee' | null): Promise<void> {
   await page.locator('[data-action-bar] [data-action="confirm"]').click();
@@ -75,6 +94,25 @@ test('demo cases: the beats open the live ids of the reset, Marco still proposed
       'data-dispute-changes',
       cases.dispute.changes_decision ? 'yes' : 'no',
     );
+  }
+  await expectClean(page, errors);
+});
+
+test('compare (pitch beat 1): the band holds the live notice days, the return rates are rows that differ', async ({ page }) => {
+  const giulia = await caseCard(id('giulia'));
+  const marco = await caseCard(id('marco'));
+  const errors = await open(page, '/compare');
+  const band = page.locator('[data-compare-band]');
+  await expect(band.locator('[data-compare-days]')).toHaveCount(2);
+  await expect(band.locator('[data-compare-days]').first()).toHaveAttribute('data-compare-days', String(giulia.request.days_since_delivery));
+  await expect(band.locator('[data-compare-days]').nth(1)).toHaveAttribute('data-compare-days', String(marco.request.days_since_delivery));
+  // Never "same indicator" over two different return rates: the rates sit in their own row.
+  await expect(band.locator('[data-compare-rate]')).toHaveCount(0);
+  const rates = page.locator('[data-compare-row^="Return rate"] [data-compare-rate]');
+  await expect(rates).toHaveCount(2);
+  for (const [i, card] of [giulia, marco].entries()) {
+    const { returned_lines: returned, lines } = card.orders;
+    await expect(rates.nth(i)).toContainText(`${returned.value} of ${lines.value} lines`);
   }
   await expectClean(page, errors);
 });
@@ -207,6 +245,11 @@ test('Elena: the guarantee path, no score and no refund deadline; her catalogue 
   await settle(page);
   await page.locator('[data-open-in-products]').click();
   await expect(page).toHaveURL(new RegExp(`\\?return=${id('elena')}$`));
+  // The live series holds about a year of weeks: the axis labels are thinned so none overlap.
+  await expectWeekLabelsApart(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expectWeekLabelsApart(page);
+  await page.setViewportSize({ width: 1440, height: 900 });
   await switchPersona(page, 'luca');
   const form = page.locator('[data-catalog-task-form]');
   await expect(form.locator('[data-task-returns]')).toHaveValue(id('elena'));

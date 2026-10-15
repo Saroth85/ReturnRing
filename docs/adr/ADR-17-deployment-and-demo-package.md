@@ -99,6 +99,25 @@ admin's credentials; an anonymous approval reaches the API and gets 403 when rea
 proxy otherwise. Nature: real timings of runs on the synthetic store; the cached drafts of the
 rehearsal come from the fake server, not from Gemma.
 
+## Verification with Docker (15 Oct 2026, Windows)
+
+The first run with a real Docker daemon, on the team laptop (Windows, Docker 29.4.2, Compose
+v5.1.3, host Python 3.13, commit `ad2ceb8`; no WSL and no GNU make, so the `make` targets were run
+as the `docker compose` commands they expand to, from PowerShell). The judge's path (V8, DEP-01):
+`demo-data` built the image and the snapshot, `dev-up` started postgres, the reset (623 open
+returns decided, none failed, 51 s with the drafts), the API (healthy), the UI and the proxy on
+http://localhost:8080; the demo walk passed its twelve steps (first queue page p50 0.538 s, max
+0.602 s against the 2 s target; checkout evaluation 0.063 s; the link dispute's recompute was the
+slowest call at 9.4 s). The cached rehearsal (`demo-export ALLOW_EMPTY_CACHE=1`, `demo-import`,
+`demo-local`): the package verified, with 0 drafts and `rehearsal: true`; `/readyz` answered
+`cached`, read-only, `status: degraded` with `demo_cache: unavailable` (no precomputed output:
+every draft is the template, as an empty rehearsal package implies), `label: null`, the demo clock
+frozen at the snapshot instant; `demo-reset` then the read-only walk passed its twelve steps. The
+Python suite in a `python:3.12` Linux container: 5865 passed, 20 skipped, 1 failed only because
+`git` was absent from the container (`tests/test_bench.py`, 45 passed once installed); ruff clean;
+mypy clean with `--platform linux` (seven Windows-only findings without it, not seen in CI).
+Nature: real timings of one run on the synthetic store, Windows laptop, 15 Oct 2026.
+
 ## Amendments after the review (14 Oct 2026)
 
 The review of the deployment, the README and the public demo (docs/review-backlog.md) changed:

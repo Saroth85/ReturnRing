@@ -287,10 +287,10 @@ def test_a_sample_keeps_the_error_of_a_failed_call(tmp_path: Path) -> None:
 
 def test_the_sampler_writes_samples_and_a_window_summarises_them(tmp_path: Path) -> None:
     out = tmp_path / "samples.jsonl"
-    start = time.time()
+    start = time.time() - 0.001  # samples are rounded to the millisecond
     with amdsmi.Sampler(out, fake_amd_smi(tmp_path), interval_s=0.05):
         time.sleep(1.5)  # each sample runs a subprocess: slow on a busy machine
-    end = time.time()
+    end = time.time() + 0.001
     with out.open("a") as handle:
         handle.write('{"t": 1, "gpus": [')  # a line cut by a kill
     samples = amdsmi.read_samples(out)

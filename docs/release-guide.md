@@ -31,8 +31,26 @@ Tre regole che valgono per tutto:
 
 ## 1. Stasera (giovedì 15): il portatile con Docker
 
-Serve: Docker con Compose v2, GNU make, circa 8 GB di RAM liberi, Python 3.12 con
-`pip install -r requirements/dev.txt` (per `make demo-walk`), una rete che raggiunge Docker Hub.
+Serve: Docker con Compose v2, GNU make, circa 8 GB di RAM liberi, Python 3.12 (per
+`make demo-walk`), una rete che raggiunge Docker Hub. Su Windows tutto gira dentro WSL2 (Ubuntu)
+con l'integrazione WSL di Docker Desktop.
+
+### 1.0 Gli script
+
+I passi 1.1 e 1.2 sono automatizzati in `scripts/release/`: ogni script scrive l'output di ogni
+comando in `release-logs/` e alla fine impacchetta tutto in `release-logs-<data>.tgz`, il file da
+mandare a Claude qualunque sia l'esito.
+
+```bash
+git clone https://github.com/Saroth85/ReturnRing.git && cd ReturnRing
+bash scripts/release/01-check-prereqs.sh        # cosa manca sul portatile (non installa nulla)
+bash scripts/release/02-laptop-docker-check.sh  # 1.1: demo-data, dev-up, reset, demo-walk
+bash scripts/release/03-cached-rehearsal.sh     # 1.2: pacchetto di prova, demo-local, demo-walk
+bash scripts/release/05-collect.sh              # solo se serve: raccoglie stato e log
+```
+
+`04-demo-server.sh` è per il server della demo pubblica (sezione 2). Gli script sono idempotenti:
+rilanciati, ripartono dal `.env` e dai dati già presenti.
 
 ### 1.1 Il percorso del giudice (V8, DEP-01): circa 30-40 minuti
 
@@ -103,27 +121,21 @@ Ubuntu 24.04 con Docker e Compose v2 e make, un firewall con 22, 80 e 443 in ing
 SSH del portatile. Nessun dominio: il nome è `<ip-con-trattini>.sslip.io`, per esempio
 `203-0-113-10.sslip.io` per 203.0.113.10; Caddy prende il certificato da solo.
 
-Sul portatile, l'hash della password di admin (bcrypt costo 10, con l'immagine di Caddy):
+Lo script `scripts/release/04-demo-server.sh` fa tutto da solo sul server, come root: installa
+Docker, clona il repo, scrive `.env` (nome sslip.io dall'IP, password PostgreSQL casuale, hash
+della password di admin a costo 10), aspetta il pacchetto, poi `make demo-import demo-up` e i
+controlli HTTPS. Sul server:
 
 ```bash
-make admin-password          # chiede la password, stampa $2a$10$...
+curl -fsSL https://raw.githubusercontent.com/Saroth85/ReturnRing/main/scripts/release/04-demo-server.sh -o 04-demo-server.sh
+bash 04-demo-server.sh            # chiede la password di admin; oppure ADMIN_PASSWORD='...' bash 04-demo-server.sh
 ```
 
-Sul server:
-
-```bash
-git clone https://github.com/Saroth85/ReturnRing.git && cd ReturnRing
-cp .env.example .env
-# in .env: POSTGRES_PASSWORD e la stessa password dentro DATABASE_URL;
-#          PUBLIC_HOST=<ip-con-trattini>.sslip.io
-#          ADMIN_PASSWORD_HASH='$2a$10$...'   (tra apici singoli, senza spazi)
-```
-
-Dal portatile: `scp demo-cache.tar.gz root@<ip>:ReturnRing/`. Sul server:
-
-```bash
-make demo-import demo-up
-```
+Quando si ferma su "waiting", dal portatile: `scp demo-cache.tar.gz root@<ip>:ReturnRing/` (il
+pacchetto di prova di 1.2; sabato quello della MI300X). A mano, gli stessi passi sono:
+`cp .env.example .env`, in `.env` `POSTGRES_PASSWORD` (anche dentro `DATABASE_URL`),
+`PUBLIC_HOST=<ip-con-trattini>.sslip.io`, `ADMIN_PASSWORD_HASH='$2a$10$...'` tra apici singoli
+(`make admin-password` sul portatile lo stampa), poi `make demo-import demo-up`.
 
 Atteso, da un browser o da un terminale fuori dal server (anche dal telefono, rete mobile):
 

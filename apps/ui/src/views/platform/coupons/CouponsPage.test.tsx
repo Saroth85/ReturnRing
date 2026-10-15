@@ -1,11 +1,17 @@
 // Coupon rules on the contract examples (US-402, US-607; docs/ui-design.md 9.3).
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
+import { setScenario } from '@/api/scenario';
 import { setPersona } from '@/app/persona';
 import { renderApp } from '@/test/render';
 import { findBannedWording, findUnprovenancedNumbers } from '@/test/scan';
 
-afterEach(() => act(() => setPersona('sara')));
+afterEach(() =>
+  act(() => {
+    setPersona('sara');
+    setScenario('default');
+  }),
+);
 
 async function open() {
   renderApp('/coupons');
@@ -42,5 +48,18 @@ describe('/coupons (US-402)', () => {
     expect(document.querySelector('[data-current-rule]')?.getAttribute('data-current-rule')).toBe('coupon-rule-v2');
     const history = document.querySelector('[data-rule-history]') as HTMLElement;
     expect(within(history).getAllByRole('row')).toHaveLength(3);
+  });
+
+  it('offers no write on the read-only public demo, even to the manager, and says why', async () => {
+    act(() => {
+      setPersona('luca');
+      setScenario('read_only');
+    });
+    await open();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Approve as the new version' })).toBeDisabled());
+    expect(screen.getByRole('textbox', { name: 'Rule text' })).toBeDisabled();
+    expect(document.querySelector('[data-role-reason]')?.textContent).toBe('Read-only public demo');
+    expect(document.querySelector('[data-reversal-read-only]')).not.toBeNull();
+    expect(screen.queryByRole('button', { name: /^Reverse/ })).toBeNull();
   });
 });

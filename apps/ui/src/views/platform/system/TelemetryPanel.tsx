@@ -1,7 +1,9 @@
 // Telemetry (US-905, docs/ui-design.md 9.4): GPU utilisation, memory and power from amd-smi, the
 // language model's requests, latency and tokens per second, and the API latency. Small multiples,
 // one unit each (no dual axis); polled every interval_s while the tab is visible. In cached mode
-// the GPU is off: the note says so and no number is shown, never a zero.
+// the GPU is off: the note says so and no number is shown, never a zero; a live service with no
+// GPU sample (a CPU run) shows its note the same way. Sample times are wall time: GPU samples keep
+// the real clock, not the demo clock of /readyz (ADR-15 section 15).
 import { Lock } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { isApiError } from '@/api/errors';
@@ -191,12 +193,13 @@ export function TelemetryPanel() {
         data && (
           <span className="flex flex-wrap items-center gap-x-1 text-caption text-ink-3">
             {s.every} <span data-constant>{formatValue(data.interval_s, 'seconds')}</span> · {s.sampledAt}{' '}
-            <DateText value={data.sampled_at} />
+            <DateText value={data.sampled_at} /> <span data-wall-time>({s.wallTime})</span>
           </span>
         )
       }
     >
       <p className="text-body text-ink-2">{s.telemetryIntro}</p>
+      <p className="text-caption text-ink-3">{s.wallClock}</p>
       {telemetry.isPending && <LoadingBlock rows={4} />}
       {protectedError && (
         <p className="flex items-center gap-2 rounded-control border border-border bg-surface-2 px-3 py-2 text-body" data-telemetry-protected>
@@ -206,12 +209,21 @@ export function TelemetryPanel() {
       )}
       {telemetry.isError && !protectedError && !data && <ErrorState error={telemetry.error} onRetry={() => void telemetry.refetch()} />}
       {data && !data.gpu && !data.llm && data.note ? (
-        <div className="hatch-cached flex flex-col gap-1 rounded-control px-3 py-2" data-telemetry-cached>
-          <p className="font-medium">{s.cachedTitle}</p>
-          <p className="text-body" data-verbatim>
-            {data.note}
-          </p>
-        </div>
+        data.mode === 'cached' ? (
+          <div className="hatch-cached flex flex-col gap-1 rounded-control px-3 py-2" data-telemetry-cached>
+            <p className="font-medium">{s.cachedTitle}</p>
+            <p className="text-body" data-verbatim>
+              {data.note}
+            </p>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-1 rounded-control border border-border bg-surface-2 px-3 py-2" data-telemetry-no-sample>
+            <p className="font-medium">{s.noSampleTitle}</p>
+            <p className="text-body" data-verbatim>
+              {data.note}
+            </p>
+          </div>
+        )
       ) : (
         data && <LiveTelemetry data={data} />
       )}

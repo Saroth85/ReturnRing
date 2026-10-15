@@ -1,6 +1,7 @@
 // System and benchmarks strings (US-901, US-902, US-905; docs/ui-design.md 9.4, spec 12
 // "Benchmark AMD"). English; numbers come from data or named constants.
 import { GPU_NAME, GPU_SHORT_NAME, LLM_NAME } from '@/copy/constants';
+import type { ClockKind } from '@/api/models';
 import type { Phase } from './benchmarks';
 import type { ReadinessTone } from './readiness';
 
@@ -32,6 +33,7 @@ export const SYSTEM = {
   devices: { gpu: 'GPU', cpu: 'CPU' } as Record<string, string>,
   label: 'Label',
   noLabel: 'none (live)',
+  noLabelCached: 'none: no precomputed output, the drafts use the template',
   header: 'Response header',
   headerAgreement: {
     agrees: 'agrees with /readyz',
@@ -40,6 +42,19 @@ export const SYSTEM = {
   },
   lastRequest: 'last request id',
   dataSource: 'UI data source',
+  clock: 'Service clock',
+  clockKind: {
+    demo: 'demo clock',
+    system: 'system clock (wall time)',
+    fixed: 'fixed clock',
+  } satisfies Record<ClockKind, string>,
+  clockFrozen: 'frozen at the snapshot instant: it does not move',
+  clockRunning: 'running',
+  clockStill: 'still',
+  clockNow: 'now',
+  clockSnapshot: 'snapshot',
+  clockStarted: 'reset at',
+  wallTime: 'wall time',
   dataSources: { mock: 'contract examples (mock adapter)', live: 'the API on this origin' },
   checks: 'Component checks',
   components: {
@@ -97,6 +112,7 @@ export const SYSTEM = {
   every: 'every',
   seconds: 's',
   sampledAt: 'sampled at',
+  wallClock: 'Times here are wall time: GPU samples keep the real clock, not the demo clock of the service.',
   gpuUtil: 'GPU utilisation',
   memory: 'GPU memory',
   memoryOf: 'of',
@@ -110,12 +126,13 @@ export const SYSTEM = {
   tokens: 'Tokens per second',
   api: 'API latency p95',
   history: 'View the samples as a table',
-  time: 'Time (UTC)',
+  time: 'Time (UTC, wall time)',
   utilisation: 'Utilisation',
   memoryUsed: 'Memory used',
   illustrative: 'Illustrative, not measured: placeholder values of the contract examples.',
   cachedTitle: 'No live numbers in cached mode',
-  protected: 'Telemetry is protected: sign in at /admin/.',
+  noSampleTitle: 'No GPU sample to show',
+  protected: 'Telemetry is protected by the proxy: GET /api/telemetry asks for the admin credentials (basic auth). Sign in when the browser asks, then reload.',
   noGpu: 'No GPU sample in this answer.',
   // GPU dock
   dock: {

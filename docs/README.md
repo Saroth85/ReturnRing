@@ -34,5 +34,8 @@
   and the follow-up after a change (US-208, US-606 data side).
 - `risk-model.md` — the abuse-risk model per customer and per return request (US-204): feature sets
   and ablation, split, calibration and thresholds, explanations, batch scoring, FAIR-02 and FAIR-03.
-- `review-backlog.md` — open findings of the last review round, the starting list of the next
-  session (including the UI migration to API contract 1.5.0).
+- `review-backlog.md` — open findings of the last review round (three minors after the UI
+  migration to the live API contract).
+- `release-guide.md` — the release guide for the ACT III submission (in Italian, for the team):
+  the laptop Docker check, the public cached demo server, the MI300X session, the video, the
+  lablab fields, what to send back after each step.

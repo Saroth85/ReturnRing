@@ -150,7 +150,8 @@ di admin e l'hash no.
 ## 3. Venerdì 16: la sessione sulla MI300X
 
 Il runbook è `infra/spikes/README.md`: "Steps" 1-15 (gli spike), "The GPU session" 1-19
-(benchmark e GraphSAGE) e "The demo export" 1-8 (bozze di Gemma, pacchetto, stack live). Qui solo
+(benchmark e GraphSAGE) e "The demo export" 1-8 (bozze di Gemma, pacchetto, stack live); la sua
+versione dettagliata in italiano, passo per passo, è `docs/amd-runbook.md`. Qui solo
 l'ordine, i tempi, i punti di controllo e cosa mandare. La fatturazione parte alla creazione del
 droplet e si ferma alla distruzione: tutto in una sessione, in `tmux`.
 
@@ -168,6 +169,102 @@ droplet e si ferma alla distruzione: tutto in una sessione, in `tmux`.
    firewall con 22 (e 80, 443 per `make gpu-up`), la chiave SSH del portatile. Segnarsi l'ora di
    creazione.
 
+### 3.1-bis Lo script 06: la sessione MI300X guidata
+
+`scripts/release/06-gpu-session.sh` esegue sul droplet i target `make` del runbook
+`infra/spikes/README.md` nell'ordine documentato, un checkpoint per target, con il log, il tempo di
+ogni target e la ripresa dal punto in cui si è fermato. Non sostituisce il runbook: lo segue alla
+lettera (gli stessi `make`, `make -n <target>` li stampa) e aggiunge i controlli, i tempi e il
+piano B al momento giusto. Si lancia come root, dalla radice del repo, dentro `tmux`:
+
+```bash
+tmux new -s gpu                                   # riattacca con: tmux attach -t gpu
+bash scripts/release/06-gpu-session.sh <fase> [--from <target>] [--only <target>] \
+                                       [--skip <t1,t2,...>] [--force] [--dry-run]
+```
+
+| Fase | Target, nell'ordine del runbook | Passi del runbook | Tempo stimato (droplet) |
+| --- | --- | --- | --- |
+| `spikes` | `spike-preflight spike-prep spike-weights spike-gpu-check spike-g2 spike-g2-load spike-g3 spike-weights-wait spike-g2-cpu spike-g3-cpu spike-vllm spike-wait spike-g7 spike-g1 spike-g1-bench spike-g5 spike-g6 spike-g4` | "Steps" 3-13 | circa 90 min, circa 3 USD (stima del runbook: download, estrazione delle immagini e compilazione di vLLM su ROCm non sono misurati) |
+| `bench` | `spike-down bench-build gnn-image gnn-test-gpu bench-b1 bench-b2 embeddings-gpu bench-vllm bench-b4 bench-b3 bench-merge` | "The GPU session" 3-14 | 2-4 h (stima di questa guida, 3.2; l'unico tempo misurato è la baseline CPU di B2: 92 min su 4 vCPU condivise, mentre il droplet ne ha 20) |
+| `export` | `spike-vllm spike-wait batch-generate demo-export` | "The demo export" 3-5 | 30-60 min (stima di questa guida, 3.2: 623 bozze, 32 chiamate in parallelo) |
+| `live` | `gpu-up gpu-reset https-check` | "The demo export" 8, poi `/readyz` via HTTPS su `PUBLIC_HOST` | 15 min (stima di 3.2); `gpu-up` fa già un reset con le bozze di Gemma, `gpu-reset` ne fa un altro: `--skip gpu-reset` se il primo basta |
+| `down` | `spike-down disk-usage`, poi il promemoria | "Steps" 14 | 5 min più lo snapshot (stima del runbook) |
+| `all` | `spikes`, `bench`, `export` in quest'ordine | | |
+
+Il valore di `BENCH_RUN` si crea una volta sola e resta in `release-logs/gpu/BENCH_RUN`: un
+rilancio lo riusa, quindi le parti già scritte in `artifacts/bench/$BENCH_RUN` restano (runbook).
+`BENCH_ARGS` passa com'è (`BENCH_ARGS="--b2-samples 1"` salta le taglie 25% e 50% di B2);
+`DEMO_GPU` vale `AMD Instinct MI300X (AMD Developer Cloud)` se non lo si cambia; `IMAGE` è la foto
+per SPK-G5 (`artifacts/spikes/garment.jpg`); `ENV_FILE` è `.env`.
+
+**Checkpoint e ripresa.** Ogni target che esce 0 scrive `release-logs/gpu/<fase>/<target>.done`;
+il suo output è in `release-logs/gpu/<fase>/<target>.log`. Un rilancio salta i target fatti, quindi
+dopo un errore basta rilanciare la stessa fase: riparte dal target fallito. `--from <target>` parte
+da lì (quelli prima non girano, fatti o no; quelli dopo già fatti restano saltati), `--only` esegue
+un solo target qualunque sia il suo marker, `--force` ignora i marker, `--skip a,b` segna i target
+come saltati dall'operatore (è il modo di applicare un piano B e andare avanti: il marker
+`.skipped` resta e il rilancio li salta ancora).
+
+**Tempi e costo.** `release-logs/gpu/times.tsv` ha inizio, fine e secondi di ogni target e di ogni
+lancio. Alla fine di ogni fase lo script stampa la somma dei tempi dei target e la stima a
+1,99 USD/h: è un limite inferiore, perché la fatturazione corre dalla creazione alla distruzione
+del droplet, spento o no. Con `DROPLET_CREATED=<ora UTC di creazione>` (per esempio
+`2026-10-16T08:00:00Z`) su un lancio qualunque, ogni fase stampa anche l'età del droplet e il
+costo che implica.
+
+**Controlli prima di ogni fase** (dice esattamente cosa manca e si ferma): root, `tmux`, `make`,
+`python3`, `curl`, Docker con Compose v2, `/dev/kfd`; `.env` con le variabili che
+`infra/compose.gpu.yml` esige (`VLLM_IMAGE`, `DGL_IMAGE`, `ROCM_BASE_IMAGE` con digest,
+`AMD_PYPI_INDEX_URL`, `GEMMA_MODEL`, `GEMMA_REVISION`, `VLLM_API_KEY` non `change-me`); nessun token
+GitHub sul disco (avviso). Per fase: `spikes` avvisa se manca la foto (e si ferma prima di
+`spike-g5`) e si ferma se il container Quick Start `rocm` è acceso (stampa il comando per fermarlo:
+non lo ferma da solo); `bench` esige `data/raw/asos_*.parquet`, `data/store`, `data/features`,
+`data/ood` copiati dal portatile, avvisa se c'è `data/truth` (regola 12), controlla che vLLM sia
+spento prima di `gnn-test-gpu`, `bench-b1`, `bench-b2`, `embeddings-gpu` (come la guardia
+`VLLM_DOWN` del Makefile) e acceso prima di `bench-b4` e `bench-b3`; `export` esige
+`serving/manifest.json`, `python3` 3.8 o più, vLLM acceso per `batch-generate`, una
+`serving/llm_cache` non vuota prima di `demo-export`, e avvisa se manca
+`bench/results/latest-gpu.json` (il pacchetto non avrebbe il benchmark MI300X); `live` esige
+`PUBLIC_HOST` e `ADMIN_PASSWORD_HASH` in `.env`. I controlli che non ha senso rifare (i digest, lo
+spazio su disco, il driver) restano a `spike-preflight`.
+
+**A un errore** lo script si ferma, stampa il piano B del runbook per quel target (per esempio
+per `spike-g1`: sotto i 15 token/s il modello 26B-A4B con `GEMMA_MODEL` e `GEMMA_REVISION`; per
+`gnn-image`: GraphSAGE come upgrade e `--skip gnn-image,gnn-test-gpu,bench-b2,embeddings-gpu`),
+impacchetta i log in `release-logs-<data>.tgz` ed esce 1. `spike-g6` ha già il ripiego del
+runbook: se `auto` fallisce prova `G6_MODE=named` da solo. Ogni fallimento resta scritto com'è
+in `times.tsv` e nei log (regola 13).
+
+**Cosa non fa mai**: snapshot, distruzione del droplet, `docker system prune`, rimozione di volumi
+(`spike-down` tiene `hf-cache` con i pesi). La fase `down` ferma i container, registra `df -h /` e
+`docker system df` e stampa il promemoria: copia dei file sul portatile, `shutdown -h now`,
+snapshot e distruzione a mano, ora di creazione e distruzione da scrivere in
+`docs/spike-results.md`.
+
+**Prova a secco.** `--dry-run` stampa `make -n` di ogni target invece di eseguirlo, sotto
+`release-logs/gpu-dry-run/` (i marker veri non si toccano), e salta con una nota i controlli che
+richiedono Docker o la GPU. Il 15 ottobre, in una sandbox senza daemon Docker né GPU, le cinque
+fasi e `all` sono passate a secco con un `.env` di prova; la sequenza, i marker, `--from`, `--only`,
+`--skip`, `--force`, lo stop con piano B e il pacchetto dei log sono stati provati anche in modo
+reale contro un `docker` finto, che non misura nulla: i tempi veri si vedranno venerdì.
+
+Sequenza consigliata venerdì, dal droplet (con `serving/` e i dati già copiati, 3.1 e runbook):
+
+```bash
+tmux new -s gpu
+DROPLET_CREATED=<ora UTC di creazione> bash scripts/release/06-gpu-session.sh spikes
+bash scripts/release/06-gpu-session.sh bench          # BENCH_ARGS="--b2-samples 1" se il tempo è poco
+bash scripts/release/06-gpu-session.sh export
+bash scripts/release/06-gpu-session.sh live           # poi la camminata dal portatile via tunnel SSH (runbook AMD, 11.3)
+bash scripts/release/06-gpu-session.sh down           # poi snapshot e distruzione dal pannello
+```
+
+Da mandare a Claude: ogni `release-logs-<data>.tgz` (contiene `release-logs/gpu/` con `times.tsv`,
+i log, e i JSON piccoli di `artifacts/spikes/`, `artifacts/bench/$BENCH_RUN/`, `bench/results/`,
+`artifacts/eval/gnn/`, `demo-cache/MANIFEST.json`), oltre ai file di 3.3. Mai il `.env`: nel
+pacchetto c'è solo `env-redacted.txt`, con i segreti sostituiti.
+
 ### 3.2 Sul droplet, in ordine
 
 | Blocco | Passi del runbook | Tempo stimato | Punto di controllo |
@@ -179,7 +276,7 @@ droplet e si ferma alla distruzione: tutto in una sessione, in `tmux`.
 | vLLM | Steps 9-13 (`spike-vllm`, `spike-wait`, `spike-g7`, `spike-g1`, `spike-g1-bench`, `spike-g5`, `spike-g6`, `spike-g4`) | 20-35 min | `spike-g1`: `pass=True`, JSON valido; **token/s misurati: decidere D-12 qui**; G5 checklist dalla foto; G6 chiamata di strumento; `SPK-G4: pass` |
 | Benchmark e GraphSAGE | "The GPU session" 3-14 (`spike-down`, `BENCH_RUN`, `bench-build`, `gnn-image`, `gnn-test-gpu`, `bench-b1`, `bench-b2`, `embeddings-gpu`, `bench-vllm`, `bench-b4`, `bench-b3`, `bench-merge`) | 2-4 h (B2 è il più lungo: la baseline CPU ha preso 92 min su 4 vCPU; sul droplet ci sono 20) | ogni parte `measured`; `failed` 0 in B3; `bench/results/latest-gpu.json` scritto |
 | Bozze e pacchetto | "The demo export" 2-5 (`rsync` di `serving/` dal portatile, `spike-vllm spike-wait`, `make batch-generate`, `make demo-export DEMO_GPU="AMD Instinct MI300X (AMD Developer Cloud)"`) | 30-60 min (623 bozze, 32 chiamate in parallelo) | `batch-generate` esce 0; `demo-cache/MANIFEST.json` con `"rehearsal": false` e il modello di ogni bozza |
-| Stack live | "The demo export" 8 (`make gpu-up`) e `make demo-walk API_URL=https://<PUBLIC_HOST>` dal portatile | 15 min | 12 passi `ok` con le bozze di Gemma; è la prova di sabato |
+| Stack live | "The demo export" 8 (`make gpu-up`), poi dal portatile un tunnel SSH verso la 8000 del droplet (`ssh -L 8000:127.0.0.1:8000 root@<droplet-ip>`) e `make demo-walk API_URL=http://127.0.0.1:8000` (il proxy chiede basic auth sulle scritture e la camminata non la manda: runbook AMD, 11.3) | 15 min | 12 passi `ok` con le bozze di Gemma; è la prova di sabato |
 | Chiusura | Step 14 (`make spike-down`, copia, `shutdown -h now`, snapshot, distruzione) | 5 min + snapshot | il droplet non esiste più; lo snapshot sì |
 
 Se `B2` o `gnn-image` falliscono su DGL e numpy 2, il piano B della spec 13 è GraphSAGE come

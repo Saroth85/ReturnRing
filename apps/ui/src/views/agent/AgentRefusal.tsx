@@ -1,6 +1,7 @@
 // A refusal (docs/ui-design.md 7): a neutral card, never an error colour. A request to change
-// something (write_request) points to the decision panel, where a person decides (rule 1, rule 5).
-// The assistant's own words follow verbatim as generated text.
+// something (write_request) points to the decision panel, where a person decides (rule 1, rule 5);
+// code refuses it before any model call (fallback_reason write_request, no model call: ADR-15
+// section 15), and the card says so. The assistant's own words follow verbatim as generated text.
 import { Eye } from 'lucide-react';
 import { useId, type MouseEvent } from 'react';
 import { Link } from 'react-router';
@@ -39,6 +40,11 @@ export function AgentRefusal({ refusal, generation, returnId, onRefSelect, onDis
       <p className="text-body text-ink-2" data-constant>
         {copy.body}
       </p>
+      {generation?.fallback_reason === 'write_request' && (
+        <p className="inline-flex self-start rounded-chip border border-border px-1.5 text-caption text-ink-2" data-refused-by-code>
+          {AGENT.refusal.byCode}
+        </p>
+      )}
       <div className="flex flex-col gap-1">
         <p className="text-micro uppercase text-ink-3">{AGENT.refusal.replied}</p>
         <div className="text-body text-ink-1">

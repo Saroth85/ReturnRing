@@ -1,5 +1,5 @@
 // Strings of the records components (docs/ui-design.md 5.7, 8.7). English, no number literals.
-import type { AuditEntry, CouponRuleApplication } from '@/api/models';
+import type { AuditEntry, CouponRuleApplication, DecisionAuditState, GenerationAuditState } from '@/api/models';
 
 type AuditAction = AuditEntry['action'];
 type EntityType = AuditEntry['entity_type'];
@@ -62,7 +62,27 @@ export const RECORDS = {
     riskSame: 'same as before',
     riskScored: 'scored',
     riskNotScored: 'not scored',
-    riskNote: 'The scored values and their provenance are in the decision record.',
+    riskNote: 'Each risk score carries its own provenance; the decision record has every input given to the engine.',
+    generationNote: 'How the text was produced: the model output stays apart from the decision and cannot change it.',
+    generation: 'Generation',
+    kind: 'Kind',
+    kinds: {
+      case_draft: 'Case draft',
+      regenerate: 'Regenerated draft',
+      agent_answer: 'Agent answer',
+      inspection_checklist: 'Inspection checklist',
+    } satisfies Record<GenerationAuditState['kind'], string>,
+    decision: 'Decision',
+    path: 'Path',
+    fallback: 'Fallback reason',
+    modelCalls: 'Model calls',
+    validatorCodes: 'Validator codes',
+    noCodes: 'none',
+    llmMode: 'Language model',
+    llmModes: { vllm: 'vLLM', mock: 'Mock model (hand-written stand-in)' } satisfies Record<GenerationAuditState['llm_mode'], string>,
+    servedFrom: 'Served',
+    served: { live: 'Live', cached: 'Precomputed (cached demo)' } satisfies Record<GenerationAuditState['served_from'], string>,
+    model: 'Model',
     levers: 'Terms (levers)',
     noLevers: 'No change to terms',
     approval: 'Needs approval',
@@ -76,7 +96,10 @@ export const RECORDS = {
     numberHidden: 'number recorded; shown with its provenance in the linked record',
     empty: 'nothing recorded',
   },
-  state: { proposed: 'Proposed', approved: 'Approved', overridden: 'Overridden', rejected: 'Rejected' } as Record<string, string>,
+  state: { proposed: 'Proposed', approved: 'Approved', overridden: 'Overridden', rejected: 'Rejected' } satisfies Record<
+    DecisionAuditState['state'],
+    string
+  >,
   category: {
     evidence_disagreement: 'Evidence disagreement',
     customer_context: 'Customer context',

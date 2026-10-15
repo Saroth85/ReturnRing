@@ -12,6 +12,8 @@ export interface SheetRequest {
   linkId?: string;
   /** Levers an override starts from (an alternative's "Use these terms instead…"). */
   prefill?: Lever[];
+  /** The choice a review sheet starts on (the Renew button opens it on renew). */
+  review?: 'lift' | 'renew';
   /**
    * The decision on screen when the sheet opened: every request body is built from it, never from
    * a newer card that arrived meanwhile (docs/ui-design.md 6.3 and 6.4, UI38). Set by openSheet.

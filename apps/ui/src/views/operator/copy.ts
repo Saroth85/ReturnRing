@@ -1,8 +1,10 @@
 // Operator area strings (docs/ui-design.md 6). English; no number literals: numbers come from
 // data or from named constants (docs/ui-design.md 10.2). Plurals are chosen in ./format.ts.
-import { LEGAL_MINIMUM_WINDOW_DAYS } from '@/api/contract.gen';
-import type { QueueQuery, RevisionTrigger } from '@/api/models';
+import { LEGAL_MINIMUM_WINDOW_DAYS, type OVERRIDE_CATEGORIES } from '@/api/contract.gen';
+import type { AuditAction, DecisionState, QueueQuery, RevisionTrigger } from '@/api/models';
 import { HISTORY_MONTHS, REVIEW_HORIZON_DAYS } from '@/copy/constants';
+
+type OverrideCategory = (typeof OVERRIDE_CATEGORIES)[number];
 
 export const OPERATOR = {
   nav: {
@@ -60,7 +62,7 @@ export const OPERATOR = {
     any: 'Any',
     quadrantNone: 'none',
     quadrantNoneLong: 'No quadrant (guarantee path or not enough evidence)',
-    states: { proposed: 'Proposed', approved: 'Approved', overridden: 'Overridden', rejected: 'Rejected' } as Record<string, string>,
+    states: { proposed: 'Proposed', approved: 'Approved', overridden: 'Overridden', rejected: 'Rejected' } satisfies Record<DecisionState, string>,
     paths: { withdrawal: 'Withdrawal', guarantee: 'Guarantee' } as Record<string, string>,
     evidenceValues: { sufficient: 'Sufficient', insufficient: 'Not enough' } as Record<string, string>,
     clearFilters: 'Clear filters',
@@ -73,8 +75,12 @@ export const OPERATOR = {
       risk: 'Risk',
       value: 'Value',
       netBenefit: 'Net benefit',
+      refundDue: 'Refund due by',
       flags: 'Flags',
     },
+    /** A guarantee case states no refund deadline (rule 4): the cell says so, never a date. */
+    noRefundDeadline: 'none on the guarantee path',
+    refundOverdue: 'Refund overdue',
     caption: 'Returns of this view, by expected net benefit unless sorted otherwise. Open a row to see the case.',
     notScored: 'not scored',
     notScoredHint: 'No risk score: guarantee path or not enough evidence',
@@ -365,12 +371,14 @@ export const OPERATOR = {
     regenerate: 'Regenerate…',
     regenerateTitle: 'Regenerate the draft',
     languages: 'Languages',
-    tone: 'Tone',
-    tones: { neutral: 'Neutral', warm: 'Warm', formal: 'Formal' } as Record<string, string>,
     regenerateSubmit: 'Generate and validate',
     regenerating: 'Generating and validating…',
     noFreeText: 'No free-text instruction: wording changes go through the reviewed phrasebook and the validator.',
     pickLanguage: 'Choose at least one language.',
+    cachedUnavailable: 'Unavailable in the cached demo: the language model is off, so no new draft can be generated.',
+    factsCover: 'the facts the explanation cites, built by code from the engine inputs',
+    factsDated: 'Facts dated with the customer snapshot of',
+    riskDated: 'the risk score with the day it was scored,',
     messageTitle: 'Customer message',
     willBeSent: 'will be sent',
     both: 'Both',
@@ -406,7 +414,12 @@ export const OPERATOR = {
       inspection_confirmed: 'Inspection confirmed',
       catalog_task_opened: 'Catalogue task opened',
       catalog_task_updated: 'Catalogue task updated',
-    } as Record<string, string>,
+      checkout_terms_shown: 'Terms shown at checkout',
+      checkout_confirmed: 'Order confirmed with terms',
+      coupon_rule_approved: 'Coupon rule approved',
+      coupon_rule_application_reversed: 'Coupon pause reversed',
+      assumptions_updated: 'Simulator assumptions updated',
+    } satisfies Record<AuditAction, string>,
     system: 'System',
     allAudit: 'Open the audit log',
   },
@@ -502,7 +515,7 @@ export const OPERATOR = {
       policy_exception: 'Policy exception',
       periodic_review: 'Periodic review',
       other: 'Other',
-    } as Record<string, string>,
+    } satisfies Record<OverrideCategory, string>,
     messageLanguage: 'Message language',
     langs: { it: 'Italiano', en: 'English' } as Record<string, string>,
     confirmKey: 'Ctrl+Enter',
@@ -536,6 +549,7 @@ export const OPERATOR = {
       windowHint: `${LEGAL_MINIMUM_WINDOW_DAYS} days is the legal minimum`,
       days: 'days',
       notOnGuarantee: 'Not allowed on the guarantee path: no restrictive term applies there',
+      grantOnly: 'Holds for orders already placed too, so it can only be granted, never withdrawn',
       insufficientLocked: 'Not enough evidence: standard terms only',
       insufficientRule: 'Standard terms when the evidence is not enough',
       restrictive: 'restrictive',
@@ -556,6 +570,9 @@ export const OPERATOR = {
         GUARANTEE_RESTRICTED: "Guarantee-path returns can't receive restrictive terms.",
       } as Record<string, string>,
       noChange: 'These are the terms of the proposal: approve it instead.',
+      lateLocked: 'After the refund deadline only the standard terms can be set: other terms would need a message with a past date.',
+      lateNoChange: 'The proposal already has the standard terms: reject it instead.',
+      submitStandard: 'Set the standard terms',
     },
     reject: {
       title: 'Reject the proposal',
@@ -571,10 +588,13 @@ export const OPERATOR = {
       lift: 'Lift: back to standard terms',
       liftBody: (next: string) => `Creates version ${next} with the standard terms; the earlier version stays in the log.`,
       renew: 'Renew',
-      renewBody: 'Keeps the terms; the next review date is set by the server.',
+      renewBody:
+        'The engine decides the case again on the latest scores; the restriction is renewed only if that proposal is still a restriction, with a new review date set by the server.',
+      renewFrom: 'Renewal opens on the review date,',
+      renewNoReason: 'A renewal needs no reason or category: your id is recorded as the approver.',
+      noMessage: 'Neither a lift nor a renewal sends a message: the customer sees the terms at checkout, before the next purchase.',
       submitLift: 'Lift restriction',
       submitRenew: 'Renew restriction',
-      choose: 'Choose lift or renew.',
     },
     evidence: {
       title: 'Add favourable evidence',
@@ -617,9 +637,11 @@ export const OPERATOR = {
       nothing: 'The card loaded again shows the same version.',
     },
     conflict: {
-      title: 'Already decided, or the terms differ from the proposal',
+      title: 'The service refused this act in the current state of the case',
+      reloaded: 'The case was loaded again: the card shows its current state.',
       showCurrent: 'Show current',
     },
+    readOnly: 'Read-only public demo: the service refuses every change to a case.',
     invalid: 'The request was refused',
     forbiddenAction: 'act on this case',
     mismatch: (got: string, want: string) =>
@@ -650,6 +672,8 @@ export const OPERATOR = {
     auditEntries: 'Audit entries',
     alsoRecomputed: 'Also recomputed',
     footer: 'Both versions stay in the audit log. Only the new version can be acted on.',
+    unchanged: 'Decision unchanged: the same quadrant and the same terms. The rows marked changed show what moved.',
+    changedDecision: 'The decision changed: see the rows marked changed.',
     open: (version: number) => `Open version ${version}`,
   },
   result: {
@@ -657,12 +681,35 @@ export const OPERATOR = {
     overridden: 'Overridden by',
     rejected: 'Rejected by',
     lifted: 'Lifted by',
+    renewed: 'Renewed by',
     messageQueued: 'message queued (simulated)',
     auditEntry: 'audit entry',
     dismiss: 'Dismiss',
     evidenceAdded: 'Evidence added by',
     disputed: 'Link disputed by',
     regenerated: 'Draft regenerated',
+    noMessageReview: 'no message: the customer sees the terms at checkout',
+    noMessageLate: 'no message sent: the refund deadline had passed, so the case stays refund overdue',
+    supersedes: 'supersedes',
+    couponPause: 'coupon pause',
+    couponStates: { proposed: 'proposed', confirmed: 'confirmed', reversed: 'reversed' } as Record<string, string>,
+    couponFor: (n: number) => `for ${n} linked accounts`,
+  },
+  refund: {
+    overdue: 'Refund overdue',
+    dueBy: 'It was due by',
+    serviceDay: 'the service clock is at',
+    owed: 'The refund is owed all the same.',
+    proposedRule:
+      'No message may state a past date: approving, or setting terms other than the standard ones, is refused. Rejecting the proposal or setting the standard terms goes on without a message, and the case stays refund overdue.',
+    actedLate:
+      'This case was decided after its refund deadline, so no message was sent: the merchant states the refund outside ReturnRing. It stays refund overdue in the queue.',
+    primaryReason:
+      'The refund deadline has passed: the message would state a past date, so the service refuses this act. Reject the proposal, or set the standard terms (no message is sent).',
+    primaryReasonRejectOnly:
+      'The refund deadline has passed: the message would state a past date, so the service refuses this act. The proposal already has the standard terms: reject it (no message is sent).',
+    noMessage:
+      'No message will be sent: the refund deadline has passed. The case stays refund overdue; the merchant states the refund outside ReturnRing.',
   },
   record: {
     title: 'Decision record',
@@ -699,6 +746,8 @@ export const OPERATOR = {
     no: 'no',
     reviewAt: 'Review date',
     refundBy: 'Refund due by',
+    snapshotOn: 'Customer snapshot',
+    scoredOn: 'Risk scored on',
     state: 'State',
     approver: 'Approver',
     at: 'At',
@@ -715,7 +764,8 @@ export const OPERATOR = {
     none: '—',
   },
   compare: {
-    pickTwo: 'Choose two returns with ?a= and ?b=, for example the pitch pair.',
+    pickTwo: 'Choose two returns with ?a= and ?b=, for example the pitch pair of the demo cases.',
+    noDemoCases: 'The demo cases are not available, so there is no pitch pair to open. The service said:',
     pitchPair: 'Open the pitch pair',
     returnRate: `Return rate, ${HISTORY_MONTHS} months`,
     sameIndicator: 'Same indicator',

@@ -1,12 +1,14 @@
 // Compare /compare?a=RET-000101&b=RET-000102 (pitch beat 1, US-302, US-906; docs/ui-design.md
 // 6.5): two customers with the same 12-month return rate, then the rows where they differ: the top
 // contribution to the score, the linked accounts, risk, value, position and the engine's terms.
-// In presenter mode the rows below the band appear on → (step 2).
+// In presenter mode the rows below the band appear on → (step 2). Without ?a and ?b the pair is
+// the demo's Giulia and Marco, by their live ids (GET /api/demo/cases, ADR-15 section 15).
 import { ArrowRight } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import type { CaseCard } from '@/api/models';
-import { useCase } from '@/api/queries';
+import { isApiError } from '@/api/errors';
+import { useCase, useDemoCases } from '@/api/queries';
 import { usePresent } from '@/app/display';
 import { useHotkeys } from '@/app/hotkeys';
 import { LeverList, OutcomeBadge } from '@/components/decision';
@@ -14,6 +16,7 @@ import { ErrorState, LoadingBlock } from '@/components/feedback';
 import { DateText, Figure, IdText, ProvenanceFooter, ProvenanceScope } from '@/components/provenance';
 import { Button } from '@/components/ui';
 import { DECISION } from '@/copy/common';
+import { caseOf } from '@/domain/demoCases';
 import { OPERATOR } from '../copy';
 import { reasonLabel } from '../format';
 import { ScoreTrack } from '../case/sections/RiskSection';
@@ -196,23 +199,50 @@ function Columns({ a, b }: { a: Side; b: Side }) {
   );
 }
 
+/** The pitch pair of the demo cases, Giulia and Marco, or null when the store does not hold both. */
+function usePitchPair(): { a: string; b: string } | null {
+  const cases = useDemoCases();
+  const a = caseOf(cases.data, 'giulia')?.return_id;
+  const b = caseOf(cases.data, 'marco')?.return_id;
+  return a && b ? { a, b } : null;
+}
+
 export default function ComparePage() {
   const [params] = useSearchParams();
-  const a = params.get('a') ?? undefined;
-  const b = params.get('b') ?? undefined;
+  const cases = useDemoCases();
+  const pitch = usePitchPair();
+  const asked = { a: params.get('a'), b: params.get('b') };
+  const a = asked.a ?? (asked.b ? undefined : pitch?.a);
+  const b = asked.b ?? (asked.a ? undefined : pitch?.b);
   const left = useCase(a);
   const right = useCase(b);
   const t = OPERATOR.compare;
+  const waiting = !a && !b && cases.isPending;
   return (
     <div className="mx-auto flex max-w-content flex-col gap-4" data-page="compare">
       <h1 className="text-page">{OPERATOR.titles.compare}</h1>
-      {!a || !b ? (
-        <p className="text-body">
-          {t.pickTwo}{' '}
-          <Link to="/compare?a=RET-000101&b=RET-000102" className="text-accent underline underline-offset-2">
-            {t.pitchPair}
-          </Link>
-        </p>
+      {waiting ? (
+        <LoadingBlock rows={4} />
+      ) : !a || !b ? (
+        <div className="flex flex-col gap-1 text-body" data-compare-pick>
+          <p>
+            {t.pickTwo}{' '}
+            {pitch && (
+              <Link
+                to={`/compare?a=${encodeURIComponent(pitch.a)}&b=${encodeURIComponent(pitch.b)}`}
+                className="text-accent underline underline-offset-2"
+              >
+                {t.pitchPair}
+              </Link>
+            )}
+          </p>
+          {cases.isError && (
+            <p className="text-caption text-ink-2">
+              {t.noDemoCases}{' '}
+              <span data-verbatim>{isApiError(cases.error) ? cases.error.message : String(cases.error)}</span>
+            </p>
+          )}
+        </div>
       ) : (
         <>
           {left.isError && <ErrorState error={left.error} title={OPERATOR.case.notFound(a)} onRetry={() => void left.refetch()} />}

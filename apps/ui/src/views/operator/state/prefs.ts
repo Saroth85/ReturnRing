@@ -43,6 +43,12 @@ export interface ActionNotice {
   text: string;
   messageId: string | null;
   auditEntryIds: number[];
+  /** Why the act sent no message: a lift or a renewal, or an act after the refund deadline. */
+  noMessage?: string | null;
+  /** The version a lift or a renewal superseded (DecisionResult.superseded). */
+  supersededId?: string | null;
+  /** The cluster coupon pause the act confirmed or reversed (DecisionResult.coupon_application). */
+  coupon?: { applicationId: string; state: string; accounts: number; reviewAt: string; inForce: boolean } | null;
 }
 export const noticeStore = createStore<ActionNotice | null>(null);
 export const useActionNotice = () => useStore(noticeStore);

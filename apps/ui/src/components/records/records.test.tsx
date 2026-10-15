@@ -119,7 +119,7 @@ describe('ActorBadge', () => {
 });
 
 describe('AuditDiff', () => {
-  it('marks what a lift changed, without printing an unprovenanced risk', () => {
+  it('marks what a lift changed, the risk as a Figure with its own provenance', () => {
     const lift = entry('restriction_lifted');
     const { container } = renderWithProviders(<AuditDiff before={lift.before} after={lift.after} recordHref={entityHref(lift)} />);
     const changed = Array.from(container.querySelectorAll('[data-changed]')).map((r) => r.getAttribute('data-diff-row'));
@@ -128,6 +128,8 @@ describe('AuditDiff', () => {
     expect(changed).not.toContain('risk');
     expect(screen.getByText('Refund within the legal terms')).toBeInTheDocument();
     expect(screen.getByText('same as before')).toBeInTheDocument();
+    const risk = container.querySelector('[data-diff-row="risk"]') as HTMLElement;
+    expect(risk.querySelectorAll('[data-figure][data-unit="probability"]')).toHaveLength(2);
     expect(findUnprovenancedNumbers(container)).toEqual([]);
   });
 
@@ -143,9 +145,21 @@ describe('AuditDiff', () => {
     expect(screen.getByText('DV-RULE-1')).toBeInTheDocument();
     expect(container.querySelector('[data-figure][data-unit="eur"]')).not.toBeNull();
     expect(findUnprovenancedNumbers(container)).toEqual([]);
-    const generation = entry('draft_generated');
-    renderWithProviders(<AuditDiff before={generation.before} after={generation.after} />);
-    expect(screen.getAllByText(RECORDS.diff.numberHidden).length).toBeGreaterThan(0);
+  });
+
+  it('shows a generated text as its GenerationAuditState: path, fallback reason, model calls, validator codes', () => {
+    const generation = audit.items.find((e) => e.action === 'draft_generated' && e.entity_id === 'GEN-000109-1')!;
+    const { container } = renderWithProviders(<AuditDiff before={generation.before} after={generation.after} />);
+    expect(container.querySelector('[data-audit-diff="generation"]')).not.toBeNull();
+    const row = (key: string) => (container.querySelector(`[data-diff-row="${key}"]`) as HTMLElement).textContent;
+    expect(row('kind')).toContain(RECORDS.diff.kinds.case_draft);
+    expect(row('path')).toContain('Reviewed template, no model text');
+    expect(row('fallback')).toContain('the model output restated a different decision');
+    expect(row('model_calls')).toContain('1 model call');
+    expect(row('validator_codes')).toContain('DECISION_ECHO, TERMS_TOPIC');
+    expect(row('served_from')).toContain('Live');
+    expect(screen.queryByText(RECORDS.diff.numberHidden)).toBeNull();
+    expect(findUnprovenancedNumbers(container)).toEqual([]);
   });
 });
 

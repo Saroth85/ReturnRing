@@ -1,11 +1,13 @@
-// SuggestedQuestions (US-702, docs/ui-design.md 7): the three questions that always work, as the
-// contract examples ask them. In cached mode they are the only questions enabled (O-15). On a
-// phone they fold behind a disclosure once a question was asked, so the answer keeps the room.
+// SuggestedQuestions (US-702, docs/ui-design.md 7): the questions that always work, worded as the
+// contract examples ask them, the link question built from the case's own links (questions.ts).
+// In the cached demo they are disabled with the rest (the agent answers 503). On a phone they fold
+// behind a disclosure once a question was asked, so the answer keeps the room.
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useId } from 'react';
 import { AGENT } from './copy';
 
 interface SuggestedQuestionsProps {
+  questions: readonly string[];
   onAsk(question: string): void;
   disabled?: boolean;
   /** Folded behind a disclosure button (phones). */
@@ -14,7 +16,7 @@ interface SuggestedQuestionsProps {
   onToggle?(): void;
 }
 
-export function SuggestedQuestions({ onAsk, disabled = false, collapsible = false, expanded = true, onToggle }: SuggestedQuestionsProps) {
+export function SuggestedQuestions({ questions, onAsk, disabled = false, collapsible = false, expanded = true, onToggle }: SuggestedQuestionsProps) {
   const titleId = useId();
   const listId = useId();
   const open = !collapsible || expanded;
@@ -39,7 +41,7 @@ export function SuggestedQuestions({ onAsk, disabled = false, collapsible = fals
       )}
       {open && (
         <ul id={listId} aria-labelledby={titleId} className="flex flex-col gap-1.5">
-          {AGENT.suggested.map((question) => (
+          {questions.map((question) => (
             <li key={question}>
               <button
                 type="button"

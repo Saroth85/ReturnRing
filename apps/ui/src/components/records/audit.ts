@@ -12,6 +12,19 @@ export const HUMAN_ONLY_ACTIONS: ReadonlySet<AuditAction> = new Set<AuditAction>
 /** Actions whose entry carries a reason (contracts/vocab.py). */
 export const REASON_REQUIRED_ACTIONS: ReadonlySet<AuditAction> = new Set<AuditAction>(Contract.REASON_REQUIRED_ACTIONS);
 
+/** The entries about a generated text carry a typed GenerationAuditState (contract 1.2.0). */
+export type GenerationAuditState = Extract<NonNullable<AuditEntry['after']>, { generation_id: string; generation_path: string }>;
+
+export function isGenerationState(value: AuditEntry['before']): value is GenerationAuditState {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    typeof (value as Record<string, unknown>).generation_id === 'string' &&
+    typeof (value as Record<string, unknown>).generation_path === 'string' &&
+    Array.isArray((value as Record<string, unknown>).validator_codes)
+  );
+}
+
 /** The entries about a decision version carry a typed DecisionAuditState (ADR-15). */
 export function isDecisionState(value: AuditEntry['before']): value is DecisionAuditState {
   return (

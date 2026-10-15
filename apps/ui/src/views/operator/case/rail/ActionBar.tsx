@@ -1,15 +1,20 @@
 // The action bar of the decision rail (docs/ui-design.md 6.2.4, 6.3.1): actions by decision state,
 // disabled with the reason, never hidden. A non-restrictive confirmation is two keystrokes (A,
 // Enter) in a popover; a restriction opens a sheet where only an explicit confirm commits it.
+// On the service's clock: past the refund deadline a proposal can only be rejected or set to the
+// standard terms (ADR-15 section 19), and a restriction is renewed only from its review date.
 import * as Popover from '@radix-ui/react-popover';
 import { useRef } from 'react';
 import { draftSources, messageFor } from '@/api/adapters/messageSegments';
+import { useDemoClock } from '@/api/clock';
 import type { DecisionView } from '@/api/models';
 import { usePersona } from '@/app/persona';
 import { Button, Kbd } from '@/components/ui';
 import type { ActionPlan, SecondaryAction } from '@/domain/decision';
 import { OPERATOR } from '../../copy';
 import { roleWord } from '../../format';
+import { DateText } from '@/components/provenance';
+import { lateProposal } from '../../state/refund';
 import { useCaseUi } from '../context';
 import { ActionError } from '../sheets/ActionError';
 import { StaleDecisionPanel } from '../sheets/common';
@@ -48,8 +53,21 @@ export function ActionBar({
   const contentRef = useRef<HTMLDivElement>(null);
   const a = OPERATOR.actions;
   const s = OPERATOR.sheets;
+  const clock = useDemoClock();
+  const late = lateProposal(card.decision, clock.today);
+  // After the refund deadline an override can only set the standard terms: nothing to set when the
+  // proposal has them already.
+  const overrideClosed = late && card.decision.proposed_levers.length === 0;
   const blocked = !gates.decide.allowed || draftPending;
-  const reason = !gates.decide.allowed ? gates.decideNote : draftPending ? a.draftPendingReason : null;
+  const lateReason = overrideClosed ? OPERATOR.refund.primaryReasonRejectOnly : OPERATOR.refund.primaryReason;
+  const reason = !gates.decide.allowed ? gates.decideNote : draftPending ? a.draftPendingReason : late ? lateReason : null;
+  // A renewal is refused before the review date (409, US-607); with no clock yet, `in_force` says
+  // whether the date has passed.
+  const reviewAt = card.decision.review_at;
+  const renewOpen = reviewAt !== null && (clock.today !== null ? clock.today >= reviewAt : !card.decision.in_force);
+  const renewWaits = reviewAt !== null && !renewOpen;
+  const secondaryOff = (action: SecondaryAction): boolean =>
+    blocked || (action === 'renew' && !renewOpen) || (action === 'override' && overrideClosed);
   const message = messageFor(card.draft, sendLang) ?? draftSources(card.draft)[0] ?? null;
 
   if (plan.readOnly) {
@@ -75,7 +93,7 @@ export function ActionBar({
     >
       <div className="flex flex-wrap gap-2">
         {plan.primary === 'approve_restriction' && (
-          <Button variant="primary" disabled={blocked} onClick={() => openSheet({ kind: 'approve' })} data-action="approve-restriction">
+          <Button variant="primary" disabled={blocked || late} onClick={() => openSheet({ kind: 'approve' })} data-action="approve-restriction">
             {a.approveRestriction} <Kbd>A</Kbd>
           </Button>
         )}
@@ -87,7 +105,7 @@ export function ActionBar({
         {(plan.primary === 'confirm' || plan.primary === 'confirm_guarantee') && (
           <Popover.Root open={confirmOpen} onOpenChange={onConfirmOpenChange}>
             <Popover.Trigger asChild>
-              <Button variant="primary" disabled={blocked} data-action="confirm">
+              <Button variant="primary" disabled={blocked || late} data-action="confirm">
                 {plan.primary === 'confirm' ? a.confirm : a.confirmGuarantee} <Kbd>A</Kbd>
               </Button>
             </Popover.Trigger>
@@ -117,6 +135,7 @@ export function ActionBar({
                 <p className="text-caption text-ink-3">
                   {OPERATOR.railCopy.actingAs} {persona.id} ({roleWord(persona.role)})
                 </p>
+                {late && <p className="text-caption text-attn-fg">{OPERATOR.refund.primaryReason}</p>}
                 {confirmStale && <StaleDecisionPanel shown={confirmStale} onReload={onReload} />}
                 {confirmError ? <ActionError error={confirmError} onLoadNew={onReload} onShowCurrent={onReload} /> : null}
                 {confirmMismatch && <InlineNotice tone="attention">{confirmMismatch}</InlineNotice>}
@@ -126,7 +145,7 @@ export function ActionBar({
                       {s.cancel} <Kbd>Esc</Kbd>
                     </Button>
                   </Popover.Close>
-                  <Button variant="primary" disabled={confirming || blocked || confirmStale !== null} onClick={onConfirm} data-confirm-send>
+                  <Button variant="primary" disabled={confirming || blocked || late || confirmStale !== null} onClick={onConfirm} data-confirm-send>
                     {s.confirmSend} <Kbd>Enter</Kbd>
                   </Button>
                 </div>
@@ -135,7 +154,12 @@ export function ActionBar({
           </Popover.Root>
         )}
         {plan.secondary.map((action) => (
-          <Button key={action} disabled={blocked} onClick={() => openSheet({ kind: secondarySheet[action] })} data-action={action}>
+          <Button
+            key={action}
+            disabled={secondaryOff(action)}
+            onClick={() => openSheet({ kind: secondarySheet[action], ...(action === 'renew' ? { review: 'renew' as const } : {}) })}
+            data-action={action}
+          >
             {secondaryLabel[action]} {SECONDARY_KEY[action] && <Kbd>{SECONDARY_KEY[action]}</Kbd>}
           </Button>
         ))}
@@ -145,6 +169,12 @@ export function ActionBar({
           {reason}
         </p>
       )}
+      {!blocked && plan.secondary.includes('renew') && renewWaits && reviewAt && (
+        <p className="text-caption text-ink-3" data-renew-reason>
+          {OPERATOR.sheets.review.renewFrom} <DateText value={reviewAt} />
+        </p>
+      )}
+
       <p className="text-caption text-ink-3">
         {OPERATOR.railCopy.actingAs} {persona.id} · {roleWord(persona.role)}
       </p>

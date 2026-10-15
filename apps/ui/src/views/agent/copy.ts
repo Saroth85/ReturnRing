@@ -48,12 +48,16 @@ export const AGENT = {
   } as Record<string, string>,
 
   suggestedTitle: 'Suggested questions',
-  /** The three questions of US-702, as the contract examples ask them (agent_ask_request.*.json). */
-  suggested: [
-    'Which evidence supports the link between C-MARCO-1 and C-MARCO-3?',
-    'What makes this case different from the Rossi family?',
-    'Which terms applied when the order was placed?',
-  ],
+  /**
+   * The three questions of US-702, worded as the contract examples ask them
+   * (agent_ask_request.*.json). The link question names a link of the case's own linked accounts
+   * (questions.ts), so it exists only for a case with linked accounts.
+   */
+  suggested: {
+    link: (a: string, b: string) => `Which evidence supports the link between ${a} and ${b}?`,
+    rossi: 'What makes this case different from the Rossi family?',
+    terms: 'Which terms applied when the order was placed?',
+  },
 
   composer: {
     label: 'Your question about this case',
@@ -64,8 +68,10 @@ export const AGENT = {
     // Contract 1.5.0: in the cached demo the agent answers 503 (no model runs). Where precomputed
     // outputs were made is readyz.label's claim, never this copy's (ADR-15 section 17).
     cached: 'The case assistant needs the live model, which is off in the cached demo.',
-    rateLimited: 'Too many questions in a short time. Try again in a few seconds.',
-    coolingDown: 'New questions resume in a few seconds.',
+    cachedTitle: 'Unavailable in the cached demo',
+    rateLimited: 'Too many questions in a short time.',
+    retryAfter: (seconds: number) => `The service asks to wait ${seconds} s before the next question.`,
+    coolingDown: (seconds: number) => `New questions resume in ${seconds} s.`,
   },
 
   turn: {
@@ -92,6 +98,8 @@ export const AGENT = {
 
   refusal: {
     write_request: { title: 'The assistant only reads the case.', body: 'Approvals and changes are made on the case card.' },
+    /** GenerationInfo.fallback_reason write_request (ADR-15 section 15): code refused it, no model ran. */
+    byCode: 'Refused by code before any model call',
     out_of_scope: {
       title: 'This question is outside this case.',
       body: 'The assistant answers questions about this return from its read-only tools: case, orders, linked accounts, score factors and policy text.',
@@ -157,6 +165,7 @@ export const AGENT = {
   harnessIntro: 'Dev only: the case assistant without the case card, over the streamed answer of POST /api/agent/ask.',
   harness: {
     returnLabel: 'Return',
+    pickReturn: 'Name a return with ?return= : the demo cases, which give the Marco case, are not available.',
     openCase: 'Open the case card',
     openDrawer: 'Open the drawer as on the case card',
     drawerTitle: 'Drawer',

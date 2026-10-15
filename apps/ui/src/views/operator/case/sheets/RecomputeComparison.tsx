@@ -1,6 +1,8 @@
 // Before and after a recompute (US-310, docs/ui-design.md 6.3.7): the two versions side by side,
 // changed rows marked in words and with an arrow (never colour alone), the new decision, the
 // regenerated draft, the audit entries and the other cases recomputed. Enter opens the new version.
+// Evidence or a dispute often changes the cluster and the risk but not the decision (ADR-15
+// section 18): with the same quadrant and the same levers it says "decision unchanged".
 import * as Dialog from '@radix-ui/react-dialog';
 import { ArrowRight, X } from 'lucide-react';
 import { useRef } from 'react';
@@ -74,6 +76,7 @@ export function RecomputeComparison({ recompute, alsoRecomputed, versions, onOpe
   const r = OPERATOR.recompute;
   const { before, after } = recompute;
   const changed = changedSnapshotRows(before, after);
+  const decisionChanged = changed.has('quadrant') || changed.has('lever_ids');
   const contentRef = useRef<HTMLDivElement>(null);
   return (
     <Dialog.Root open onOpenChange={(open) => !open && onOpenVersion()}>
@@ -146,6 +149,9 @@ export function RecomputeComparison({ recompute, alsoRecomputed, versions, onOpe
               </table>
               <ProvenanceFooter />
             </ProvenanceScope>
+            <p className="mt-3 text-body font-medium" data-decision-unchanged={decisionChanged ? 'false' : 'true'}>
+              {decisionChanged ? r.changedDecision : r.unchanged}
+            </p>
             <div className="mt-3 flex flex-col gap-2 text-body">
               <p className="flex flex-wrap items-center gap-2">
                 <span className="text-ink-3">{r.newState}:</span>

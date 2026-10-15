@@ -1,15 +1,19 @@
 // useAgentStream over the mock adapter: the events of a question land in its turn, a new question
 // aborts the previous stream, another return starts an empty history, and a 429 disables new
-// questions for RATE_LIMIT_COOLDOWN_SECONDS (docs/ui-design.md 7, 10.1).
+// questions for the seconds of its Retry-After header, or RATE_LIMIT_COOLDOWN_SECONDS without one
+// (docs/ui-design.md 7, 10.1; ADR-15 section 16).
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api } from '@/api/client';
+import { ApiError } from '@/api/errors';
 import type { AgentEvent } from '@/api/models';
 import { setScenario } from '@/api/scenario';
 import { readExample } from '@/test/examples';
 import { AGENT } from './copy';
 import { RATE_LIMIT_COOLDOWN_SECONDS } from './limits';
 import { useAgentStream } from './useAgentStream';
+
+const LINK_Q = AGENT.suggested.link('C-MARCO-1', 'C-MARCO-3');
 
 afterEach(() => {
   setScenario('default');
@@ -19,10 +23,10 @@ afterEach(() => {
 describe('useAgentStream', () => {
   it('collects the contract stream of a question, in order', async () => {
     const { result } = renderHook(() => useAgentStream('RET-000102', 'sara'));
-    await act(() => result.current.ask(AGENT.suggested[0] as string));
+    await act(() => result.current.ask(LINK_Q));
     expect(result.current.status).toBe('done');
     expect(result.current.turns[0]?.events).toEqual(readExample<AgentEvent[]>('agent_stream.marco_link.json'));
-    expect(result.current.turns[0]).toMatchObject({ askedBy: 'sara', question: AGENT.suggested[0] });
+    expect(result.current.turns[0]).toMatchObject({ askedBy: 'sara', question: LINK_Q });
   });
 
   it('sends the acting user, the return and English', async () => {
@@ -64,20 +68,40 @@ describe('useAgentStream', () => {
 
   it('another return shows an empty history', async () => {
     const { result, rerender } = renderHook(({ id }) => useAgentStream(id, 'sara'), { initialProps: { id: 'RET-000102' } });
-    await act(() => result.current.ask(AGENT.suggested[1] as string));
+    await act(() => result.current.ask(AGENT.suggested.rossi));
     expect(result.current.turns).toHaveLength(1);
     rerender({ id: 'RET-000103' });
     expect(result.current.turns).toEqual([]);
     expect(result.current.status).toBe('idle');
   });
 
-  it('a 429 disables new questions for the cooldown, then lets them through', async () => {
+  it('a 429 disables new questions for its Retry-After seconds, counted down, then lets them through', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     setScenario('rate_limited');
     const { result } = renderHook(() => useAgentStream('RET-000102', 'sara'));
     await act(() => result.current.ask('Anything?'));
     expect(result.current.status).toBe('error');
+    // The mock's 429 carries Retry-After: 60 ("try again in a minute").
     expect(result.current.coolingDown).toBe(true);
+    expect(result.current.cooldownSeconds).toBe(60);
+    act(() => vi.advanceTimersByTime(1000));
+    expect(result.current.cooldownSeconds).toBe(59);
+    act(() => vi.advanceTimersByTime(58_999));
+    expect(result.current.coolingDown).toBe(true);
+    act(() => vi.advanceTimersByTime(1));
+    expect(result.current.coolingDown).toBe(false);
+    expect(result.current.cooldownSeconds).toBeNull();
+  });
+
+  it('a 429 without Retry-After waits RATE_LIMIT_COOLDOWN_SECONDS', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    vi.spyOn(api, 'askAgent').mockImplementation(async function* () {
+      yield* [];
+      throw new ApiError({ status: 429, code: 'rate_limited', message: 'Too many questions' });
+    });
+    const { result } = renderHook(() => useAgentStream('RET-000102', 'sara'));
+    await act(() => result.current.ask('Anything?'));
+    expect(result.current.cooldownSeconds).toBe(RATE_LIMIT_COOLDOWN_SECONDS);
     act(() => vi.advanceTimersByTime(RATE_LIMIT_COOLDOWN_SECONDS * 1000 - 1));
     expect(result.current.coolingDown).toBe(true);
     act(() => vi.advanceTimersByTime(1));

@@ -1,0 +1,4 @@
+# The public single-service demo uses the CPU API plus SQLite persistence.
+-r base.txt
+# Existing project dependency and pin from requirements/dev.txt (MIT).
+aiosqlite==0.22.1

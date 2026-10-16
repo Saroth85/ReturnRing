@@ -78,6 +78,9 @@ describe('/demo (US-903)', () => {
     await waitFor(() => expect(document.querySelectorAll('[data-beat]')).toHaveLength(10));
     const ids = Array.from(document.querySelectorAll('[data-beat-id]')).map((b) => b.getAttribute('data-beat-id'));
     expect(ids).toEqual(['same_indicator', 'marco', 'rossi', 'elena', 'net_benefit', 'amd', 'shop_ring', 'shop_giulia', 'dispute', 'insufficient']);
+    const amd = document.querySelector('[data-beat-id="amd"]');
+    expect(amd).toHaveTextContent('Gemma via AMD Token Factory and separate AMD GPU training; this demo uses synthetic data.');
+    expect(amd).not.toHaveTextContent('benchmark');
     expect(document.querySelectorAll('[data-off-path] [data-beat]')).toHaveLength(4);
     const marco = cases.cases.find((c) => c.key === 'marco')!;
     expect(document.querySelector('[data-beat-id="marco"]')?.textContent).toContain(`/returns/${marco.return_id}`);

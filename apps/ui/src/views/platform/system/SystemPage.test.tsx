@@ -24,6 +24,7 @@ async function loaded() {
 
 it('omits the retired CPU against MI300X comparison from the product', async () => {
   await loaded();
+  expect(screen.getByRole('heading', { level: 1, name: 'System' })).toBeInTheDocument();
   expect(document.querySelector('#benchmarks')).toBeNull();
   expect(document.querySelector('[data-speedups]')).toBeNull();
 });

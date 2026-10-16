@@ -21,6 +21,12 @@ quota backoff. Keep `DEVICE=cpu` when the API runs on a CPU: the remote GPU is m
 Use synthetic demo inputs only. Photo inspections go to manual review because this endpoint is
 text-only. Existing local-vLLM and mock modes remain available.
 
+For an online CPU demo with live AMD inference, follow
+[the Token Factory deployment guide](docs/tokenfactory-deploy.md): `make tf-up` adds HTTPS and
+read-only public access; `make tf-up-local` rehearses the same app on localhost.
+The [Railway demo guide](docs/railway-demo.md) packages the API and UI as one CPU service, with
+a small synthetic snapshot, server-side secrets and a database restored on every restart.
+
 `python -m scripts.check_tokenfactory` exercises the real HTTP regeneration route on a small
 generated store, checks the contract and unchanged decisions, and writes an integration report.
 It asks for the API key with a hidden prompt; it never writes the key to a file.

@@ -66,7 +66,7 @@ test('the cached scenario shows the banner, the corner tag and the [Cached] titl
   await expect(banner).toContainText('Precomputed on AMD MI300X');
   await expect(page.locator('[data-mode-corner]')).toContainText('Cached demo');
   await expect(page).toHaveTitle(/^\[Cached\] \[Mock\] ReturnRing · Returns queue$/);
-  await page.getByRole('link', { name: 'System and benchmarks' }).first().click();
+  await page.getByRole('link', { name: 'System', exact: true }).first().click();
   await expect(banner).toContainText('Precomputed on AMD MI300X');
   await expect(page).toHaveTitle(/^\[Cached\]/);
   if (SCREENSHOT_DIR) await page.screenshot({ path: path.join(SCREENSHOT_DIR, 'system-cached.png'), fullPage: true });

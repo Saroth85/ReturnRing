@@ -11,7 +11,7 @@ export const PLATFORM = {
     coupons: 'Coupon rules',
     shop: 'Simulated checkout',
     demo: 'Demo path',
-    system: 'System and benchmarks',
+    system: 'System',
     about: 'About the data',
   },
   titles: {
@@ -19,7 +19,7 @@ export const PLATFORM = {
     inspection: 'Warehouse inspection',
     inspectionDetail: 'Inspect a return',
     coupons: 'Coupon rules',
-    system: 'System and benchmarks',
+    system: 'System',
     demo: 'Demo path',
     about: 'About the data',
   },
@@ -77,10 +77,11 @@ export const PLATFORM = {
         label: (ui: string) => `The API serves contract ${ui}, the one this UI was built for`,
         fix: 'Regenerate the UI types from the API contract (npm run gen:types) and rebuild, or run the matching API.',
       },
-      readiness: { label: 'The API is ready in the expected mode', fixLive: 'Start the GPU profile and wait for /readyz, or switch the expected mode.', fixCached: 'Open the cached URL, or switch the expected mode.' },
+      readiness: { label: 'The API is ready in the expected mode', fixLive: 'Start the live service with its configured model endpoint and wait for /readyz, or switch the expected mode.', fixCached: 'Open the cached URL, or switch the expected mode.' },
       components: {
-        live: 'vLLM and telemetry answer, or are off on purpose (mock language model, CPU run)',
+        live: 'Model readiness (shared AMD, local or mock); GPU telemetry is optional on CPU',
         cached: 'The demo cache answers',
+        names: { vllm: 'model endpoint', telemetry: 'GPU telemetry', demo_cache: 'demo cache' },
         fix: 'Check the named components on the system page.',
       },
       cases: {
@@ -163,7 +164,7 @@ export const PLATFORM = {
       },
       amd: {
         label: 'AMD',
-        say: `What each model contributes on the ${GPU_SHORT_NAME}, with each benchmark's own status (measured, pending or illustrative); real return data, synthetic linked accounts; we are looking for a pilot merchant.`,
+        say: 'Gemma via AMD Token Factory and separate AMD GPU training; this demo uses synthetic data.',
       },
       shop_ring: {
         label: 'Checkout after Marco',

@@ -266,6 +266,52 @@ Appena il pannello mostra il droplet nella lista dei Droplets con il suo indiriz
 Da mandare a Claude: l'ora di creazione, l'IP (serve per `PUBLIC_HOST` nel README) e la taglia e
 l'immagine scelte (riga "Droplet image and size" di `docs/spike-results.md`).
 
+### 2.2 Alternativa: una VM Hot Aisle (quando il Developer Cloud non sblocca il limite GPU)
+
+Scelta il 16 ottobre 2026, con la richiesta di limite GPU ad AMD ancora senza risposta. Fonti:
+`https://hotaisle.xyz/quick-start`, `https://hotaisle.xyz/pricing`, il blog
+`https://hotaisle.xyz/blog/opencode-vllm-hotaisle` (letti il 16 ottobre). Il regolamento ACT III
+ammette "other approved AMD powered infrastructure": l'hardware è una MI300X, il pitch dice
+"AMD Instinct MI300X" e il pacchetto della demo registra la GPU vera.
+
+| Voce | Hot Aisle | Fonte |
+| --- | --- | --- |
+| Accesso | terminale di amministrazione nel browser su `https://admin.hotaisle.app`, o `ssh admin.hotaisle.app`; email e codice di verifica | quick start |
+| Account | nel terminale: creare il team, aggiungere crediti con la carta, "provision compute in under 60 seconds"; nessuna approvazione documentata | quick start, pricing |
+| Prezzo | 2,99 USD per GPU/ora, fatturati **al minuto**; consigliati 100 USD di crediti | pricing |
+| VM | "Small": 1x MI300X (192 GB HBM3), 8 o 13 vCPU, 224 GB di RAM, 12 TB NVMe | pricing |
+| Immagine | la VM "already comes with a recent ROCm setup, and Docker or Podman is ready to go": versioni di Ubuntu e ROCm da leggere al primo accesso | quick start |
+| Utente | nel blog il login è `hotaisle@<ip>`: non root; i nostri script vogliono root, quindi `sudo -i` dopo il login (da verificare) | blog |
+| Chiave SSH | il terminale genera una chiave di sessione da scaricare (`id_hotaisle_ed25519` e `.pub`): dalla pagina del saldo, Esc, il proprio nome, Invio; `ssh -i ~/.ssh/id_hotaisle_ed25519 hotaisle@<ip>` | quick start |
+| API token | stesso menù del proprio nome (serve solo per l'API `https://admin.hotaisle.app/api/docs/` o il CLI `hotaisle`) | quick start, hotaisle-cli |
+| Snapshot | non documentati: la VM o resta accesa (si paga) o si distrugge e si ricrea, riscaricando i 62,6 GB di pesi | — |
+| Porte pubbliche | non documentate; non servono: la demo pubblica resta sul server CPU (guida al rilascio, sezione 2) e la camminata e il video passano dal tunnel SSH (11.3) | — |
+
+Che cosa cambia rispetto al droplet, sezione per sezione:
+
+- **Sezione 3 (accesso)**: `ssh -i ~/.ssh/id_hotaisle_ed25519 hotaisle@<ip>` poi `sudo -i`; i tre controlli prima
+  di tutto: `docker --version && docker compose version && ls -l /dev/kfd && (rocm-smi --showproductname || amd-smi static | head -30); nproc; free -g | head -2; df -h /`.
+  Se `docker compose` manca: `apt-get update && apt-get install -y docker-compose-v2 make git`;
+  se c'è solo Podman: `apt-get install -y docker.io docker-compose-v2`. Nessun container Quick
+  Start `rocm` da fermare. Da mandare a Claude: l'output dei controlli.
+- **Sezione 1.5 (firewall)**: non c'è il Cloud Firewall di DigitalOcean; `ufw` sulla VM non ferma
+  le porte pubblicate da Docker. Le porte 80 e 443 del proxy restano eventualmente esposte
+  durante `make gpu-up`: tenere `make gpu-up` acceso solo per la registrazione, poi `make gpu-down`.
+- **Sezioni 7 e 9 (tempi)**: 8-13 vCPU invece di 20: le baseline CPU di G2, G3 e B2 sono più
+  lente; `BENCH_ARGS="--b2-samples 1"` dall'inizio.
+- **Sezione 13 (chiusura)**: senza snapshot, a fine giornata si sceglie: VM accesa da venerdì a
+  domenica (circa 53 ore, circa 160 USD, stima) oppure distruzione la sera e nuova VM la mattina
+  dopo (riscaricare i pesi: circa 20 min, non misurato; totale 16-19 ore, 50-60 USD, stima). La
+  seconda, salvo che il download risulti lento. Prima di distruggere: copia dei file della
+  sezione 12 e di `demo-cache.tar.gz`; il `.env` si ricrea dal portatile (3.3).
+- **Sezione 14 (costi)**: ore x 2,99 USD invece di 1,99; la carta è addebitata subito dai
+  crediti prepagati; i crediti AMD non si usano.
+- **Lo script `06-gpu-session.sh`**: invariato; va lanciato da root (`sudo -i`), con
+  `DROPLET_CREATED=<ora UTC di creazione della VM>`.
+
+Da mandare a Claude alla creazione: IP, ora di creazione, l'output dei tre controlli, la versione
+di Ubuntu e di ROCm (`cat /etc/os-release | head -2; cat /opt/rocm/.info/version 2>/dev/null`).
+
 ## 3. Primo accesso e configurazione (Steps 2-3, circa 5 min)
 
 ### 3.1 SSH e tmux

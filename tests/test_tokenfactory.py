@@ -151,6 +151,10 @@ def test_an_http_date_retry_header_is_the_seconds_until_then() -> None:
     assert 85 <= delay <= 91
     past = datetime.now(UTC) - timedelta(seconds=90)
     assert RateLimited(format_datetime(past, usegmt=True)).delay_s == 0
+    # "-0000": no zone given (RFC 5322); read as UTC, as the provider means it
+    unzoned = format_datetime(when.replace(tzinfo=None))
+    assert unzoned.endswith("-0000")
+    assert 85 <= RateLimited(unzoned).delay_s <= 91
 
 
 def test_a_long_provider_window_fails_fast_and_is_kept(

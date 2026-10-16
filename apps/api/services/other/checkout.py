@@ -486,13 +486,15 @@ async def confirm(
     shown = _cart_json(body.lines, None)["lines"]
     if row["cart"]["lines"] != shown:
         raise conflict(f"the cart differs from the cart evaluated in {sid}: evaluate it again")
+    # The order counter serializes confirmations. Read redeemed coupons after acquiring its
+    # lock: another snapshot may have spent the same coupon while this request waited.
+    number = await next_number(
+        conn, ORDER_PREFIX.rstrip("-"), terms_snapshots, terms_snapshots.c.order_id.is_not(None)
+    )
     problem = await _still_in_force(conn, serving, row, at)
     if problem is not None:
         raise conflict(problem)
     applied = await _coupon_applies(conn, serving, row, body.coupon_code)
-    number = await next_number(
-        conn, ORDER_PREFIX.rstrip("-"), terms_snapshots, terms_snapshots.c.order_id.is_not(None)
-    )
     order_id = f"{ORDER_PREFIX}{number:06d}"
     cart = {**row["cart"], "coupon_code": body.coupon_code, "coupon_applied": applied}
     result = await conn.execute(

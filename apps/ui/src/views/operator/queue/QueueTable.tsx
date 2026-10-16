@@ -192,11 +192,12 @@ interface QueueTableProps {
   tab: QueueTab;
   selected: number;
   onSelect(index: number): void;
+  onOpen(returnId: string): void;
   onPrefetch(returnId: string): void;
   newIds: ReadonlySet<string>;
 }
 
-export function QueueTable({ page, tab, selected, onSelect, onPrefetch, newIds }: QueueTableProps) {
+export function QueueTable({ page, tab, selected, onSelect, onOpen, onPrefetch, newIds }: QueueTableProps) {
   const navigate = useNavigate();
   const hover = useRef<ReturnType<typeof setTimeout> | null>(null);
   const c = OPERATOR.queue.columns;
@@ -256,6 +257,7 @@ export function QueueTable({ page, tab, selected, onSelect, onPrefetch, newIds }
               onClick={(event) => {
                 if ((event.target as HTMLElement).closest('a,button,input,select')) return;
                 onSelect(index);
+                onOpen(item.return_id);
                 void navigate(href(item));
               }}
               onPointerEnter={() => {
@@ -275,6 +277,7 @@ export function QueueTable({ page, tab, selected, onSelect, onPrefetch, newIds }
                     data-id
                     data-row-link={index}
                     onFocus={() => onSelect(index)}
+                    onClick={() => onOpen(item.return_id)}
                     className="font-mono text-dense font-medium whitespace-nowrap text-accent underline-offset-2 hover:underline"
                   >
                     {item.return_id}

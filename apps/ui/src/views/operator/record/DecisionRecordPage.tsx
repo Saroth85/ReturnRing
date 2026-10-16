@@ -7,13 +7,13 @@ import { Link, useNavigate, useParams } from 'react-router';
 import type { DecisionRecord, Terms } from '@/api/models';
 import { useDecisionRecord } from '@/api/queries';
 import { ApproverLine, LeverList, leverLabel, RestrictionBadge, StateBadge } from '@/components/decision';
+import { AssumptionLabel } from '@/components/economics';
 import { ErrorState, InlineNotice, LoadingBlock } from '@/components/feedback';
 import { proposalNeedsApproval } from '@/domain/decision';
 import { DateText, Figure, IdText, PlainNumber, ProvenanceFooter, ProvenanceScope } from '@/components/provenance';
 import { OPERATOR } from '../copy';
 import { reasonLabel } from '../format';
 import CasePage from '../case/CasePage';
-import { AssumptionLabelText } from '../case/sections/AlternativesSection';
 import { Sheet } from '../ui/Sheet';
 
 function TermsLine({ terms }: { terms: Terms }) {
@@ -138,7 +138,7 @@ function RecordBody({ record, returnId }: { record: DecisionRecord; returnId: st
               <span className="font-medium">{OPERATOR.alternatives.kinds[alt.kind] ?? alt.kind}</span>
               <Figure metric={alt.net_benefit.total} label={OPERATOR.alternatives.netBenefit} signed />
               <span className="text-caption text-ink-3">
-                <AssumptionLabelText label={alt.net_benefit.assumptions.version} basedOn={alt.net_benefit.assumptions.based_on} />
+                <AssumptionLabel label={alt.net_benefit.assumptions.version} basedOn={alt.net_benefit.assumptions.based_on} />
               </span>
             </li>
           ))}

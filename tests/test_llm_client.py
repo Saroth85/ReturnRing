@@ -175,6 +175,17 @@ def test_usage_is_optional(server: FakeServer) -> None:
 
 
 @pytest.mark.parametrize(
+    ("raw", "expected"),
+    [(True, None), (False, None), (-1, None), (1.5, None), (0, 0), (12, 12)],
+)
+def test_usage_keeps_only_non_negative_integer_token_counts(
+    server: FakeServer, raw: Any, expected: int | None
+) -> None:
+    server.reply(chat_response(usage={"completion_tokens": raw}))
+    assert client(server.url).complete(CASE).completion_tokens == expected
+
+
+@pytest.mark.parametrize(
     "reply",
     [
         (500, b'{"error": "boom"}'),
@@ -317,6 +328,23 @@ def test_a_refused_url_is_named_by_its_part_never_echoed(url: str, part: str) ->
     message = str(caught.value)
     assert part in message
     assert "hunter2" not in message and "203.0.113" not in message and "admin" not in message
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://localhost:hunter2/v1",
+        "http://localhost:0/v1",
+        "http://localhost:65536/v1",
+        "http://localhost:-1/v1",
+        "http://[hunter2]/v1",
+        "http://hunter2／localhost/v1",
+    ],
+)
+def test_invalid_authority_is_refused_without_echoing_configuration(url: str) -> None:
+    with pytest.raises(ValueError, match="VLLM_BASE_URL") as caught:
+        check_local_url(url)
+    assert "hunter2" not in str(caught.value)
 
 
 def test_api_key_is_required_and_never_shown() -> None:

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import shutil
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import numpy as np
@@ -19,18 +19,22 @@ import pyarrow.parquet as pq
 import pytest
 
 from apps.api.serving import Serving, ServingError
-from contracts.io import read_table
+from contracts.io import ContractError, Provenance, read_table, write_table
 from contracts.parquet import SCHEMAS
 from ml.reference.model import TrainConfig, fit, observed_frame
 from ml.reference.persist import load_line_model, save_line_model
 from ml.risk.run import metrics_path
 from pipeline.features.lines import line_frame
 from pipeline.features.snapshot import load_snapshot
+from pipeline.graph.build import build_graph, graph_provenance, write_graph
+from pipeline.graph.snapshot import load_snapshot as load_graph_snapshot
 from pipeline.serving.evaluation import REPORT_FILE, REPORT_FORMAT, evaluation_document
 from pipeline.serving.export import (
+    GRAPH_TABLES,
     SERVED_TABLES,
     TRUTH_COLUMNS,
     TruthError,
+    _graph_at,
     check_columns,
     check_source,
     export,
@@ -41,6 +45,7 @@ from policy.engine import quadrant_for
 from policy.types import CaseScores
 from policy.types import Path as ReturnPath
 from tests.api_harness import SEED
+from tests.graph_fixtures import MiniStore, day
 
 
 def _truth_ids(data: Path) -> set[str]:
@@ -143,6 +148,43 @@ def test_the_graph_is_served_at_every_snapshot_a_request_score_read(serving_dir:
     assert contexts <= set(links["as_of"])
 
 
+@pytest.fixture
+def graph_store(tmp_path: Path) -> Path:
+    store = MiniStore()
+    for customer in ("A", "B"):
+        store.account(customer, day(0), card="shared-card", device="shared-device")
+    root = store.write(tmp_path / "data")
+    snapshot = load_graph_snapshot(root, day(10))
+    result = build_graph(snapshot)
+    write_graph(result, root, graph_provenance(snapshot, result.params))
+    return root
+
+
+@pytest.mark.parametrize("name", GRAPH_TABLES)
+def test_the_export_refuses_graph_tables_from_another_store(graph_store: Path, name: str) -> None:
+    table, provenance = read_table(name, graph_store)
+    other = Provenance(
+        "Another store", provenance.period_start, provenance.period_end, provenance.nature
+    )
+    stale = other.derive(provenance.origin, provenance.period_start, provenance.period_end)
+    write_table(name, table, graph_store, stale)
+    with pytest.raises(ContractError, match=name):
+        _graph_at(graph_store, [day(10)], lambda _message: None)
+
+
+@pytest.mark.parametrize("missing", [None, *GRAPH_TABLES, "both"])
+def test_the_export_keeps_valid_graphs_and_rebuilds_missing_tables(
+    graph_store: Path, missing: str | None
+) -> None:
+    expected = {name: read_table(name, graph_store)[0] for name in GRAPH_TABLES}
+    for name in GRAPH_TABLES:
+        if missing in (name, "both"):
+            (graph_store / f"{name}.parquet").unlink()
+    found = _graph_at(graph_store, [day(10)], lambda _message: None)
+    for name in GRAPH_TABLES:
+        assert found[name].equals(expected[name], check_metadata=False)
+
+
 def test_the_export_is_deterministic(serving_data: Path, serving_dir: Path, tmp_path: Path) -> None:
     """NFR-10: the same data root gives the same files (the manifest hashes them all)."""
     again = tmp_path / "again"
@@ -187,6 +229,72 @@ def test_an_export_without_the_offline_evaluation_has_no_report(
 def test_the_export_refuses_to_write_into_the_data_root(serving_data: Path) -> None:
     with pytest.raises(ValueError):
         export(serving_data, serving_data / "artifacts", serving_data)
+
+
+@pytest.mark.parametrize("source_name", ["data", "artifacts"])
+@pytest.mark.parametrize("relation", ["same", "ancestor", "descendant", "normalized"])
+def test_the_export_refuses_source_overlap_before_mutating_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, source_name: str, relation: str
+) -> None:
+    data, artifacts = tmp_path / "data", tmp_path / "artifacts"
+    source = data if source_name == "data" else artifacts
+    out = {
+        "same": source,
+        "ancestor": source.parent,
+        "descendant": source / "risk",
+        "normalized": source / ".." / source.name,
+    }[relation]
+
+    def refuse_mutation(*_args: object, **_kwargs: object) -> None:
+        pytest.fail("the export tried to modify files before checking source overlap")
+
+    monkeypatch.setattr(Path, "mkdir", refuse_mutation)
+    monkeypatch.setattr(shutil, "rmtree", refuse_mutation)
+    with pytest.raises(ValueError, match="overlap|folder of its own"):
+        export(data, artifacts, out, as_of=datetime(2025, 10, 1, tzinfo=UTC))
+
+
+def test_the_export_refuses_an_output_symlink_to_a_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+    out = tmp_path / "serving"
+    try:
+        out.symlink_to(artifacts, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"directory symlinks are unavailable: {exc}")
+
+    def refuse_mutation(*_args: object, **_kwargs: object) -> None:
+        pytest.fail("the export tried to modify the source through an output symlink")
+
+    monkeypatch.setattr(Path, "mkdir", refuse_mutation)
+    monkeypatch.setattr(shutil, "rmtree", refuse_mutation)
+    with pytest.raises(ValueError, match="overlap"):
+        export(tmp_path / "data", artifacts, out, as_of=datetime(2025, 10, 1, tzinfo=UTC))
+
+
+@pytest.mark.parametrize("artifacts_name", ["artifacts", "data/artifacts"])
+def test_the_export_allows_a_separate_output_with_a_shared_path_prefix(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, artifacts_name: str
+) -> None:
+    out = tmp_path / "data-serving"
+
+    class DestinationReached(Exception):
+        pass
+
+    def stop_at_destination(path: Path, **_kwargs: object) -> None:
+        assert path == out
+        raise DestinationReached
+
+    monkeypatch.setattr(Path, "mkdir", stop_at_destination)
+    with pytest.raises(DestinationReached):
+        export(
+            tmp_path / "data",
+            tmp_path / artifacts_name,
+            out,
+            as_of=datetime(2025, 10, 1, tzinfo=UTC),
+        )
 
 
 def test_the_checkout_model_round_trips(serving_data: Path, tmp_path: Path) -> None:

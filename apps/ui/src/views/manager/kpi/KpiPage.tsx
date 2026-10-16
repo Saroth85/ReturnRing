@@ -161,7 +161,7 @@ function Kpi({ data, week }: { data: KpiResponse; week: string }) {
               </dd>
             </div>
           </dl>
-          <Link to="/queue?evidence_quality=insufficient" className="text-dense text-accent underline underline-offset-2">
+          <Link to="/queue?tab=insufficient" className="text-dense text-accent underline underline-offset-2">
             {K.abstentionLink}
           </Link>
         </Tile>

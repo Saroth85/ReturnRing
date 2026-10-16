@@ -4,7 +4,7 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api } from '@/api/client';
 import { ApiError } from '@/api/errors';
-import type { CatalogTask, DemoCasesResponse, ReadyzResponse } from '@/api/models';
+import type { CatalogTask, DemoCasesResponse, QueueResponse, ReadyzResponse } from '@/api/models';
 import { setScenario } from '@/api/scenario';
 import { setPersona } from '@/app/persona';
 import { readExample } from '@/test/examples';
@@ -192,6 +192,18 @@ describe('/simulator (US-602, ADR-04)', () => {
 });
 
 describe('/kpi (US-603)', () => {
+  it('opens the insufficient-evidence queue from the abstention tile', async () => {
+    const list = vi.spyOn(api, 'listReturns');
+    const { router } = renderApp('/kpi?week=2026-09-21');
+    const link = await screen.findByRole('link', { name: 'Open them in the queue' });
+    fireEvent.click(link);
+    await waitFor(() => expect(router.state.location.search).toBe('?tab=insufficient'));
+    await waitFor(() => expect(list).toHaveBeenCalledWith(
+      expect.objectContaining({ evidence_quality: 'insufficient' }),
+      expect.anything(),
+    ));
+  });
+
   it('shows the simulated net benefit, realised not observed, decisions, time, abstentions and false positives', async () => {
     renderApp('/kpi?week=2026-09-21');
     await loaded();
@@ -383,6 +395,55 @@ describe('/products (US-208, US-606)', () => {
 });
 
 describe('/reviews (US-607)', () => {
+  it('uses the first page when a shared URL exceeds the API page bound', async () => {
+    const list = vi.spyOn(api, 'listReturns');
+    renderApp('/reviews?page=100001');
+    await loaded();
+    expect(list).toHaveBeenCalledWith(expect.objectContaining({ review_due: true, page: 1 }), expect.anything());
+  });
+
+  it('allows returning from a page emptied by review actions', async () => {
+    const example = readExample<QueueResponse>('queue_response.review_due.json');
+    vi.spyOn(api, 'listReturns').mockImplementation(async (query) => ({
+      ...example,
+      items: query?.page === 2 ? [] : example.items,
+      page: query?.page ?? 1,
+      page_size: 25,
+      total: 25,
+    }));
+    const { router } = renderApp('/reviews?page=2');
+    await screen.findByText('No restrictions on this page. Go back to an earlier page.');
+    expect(screen.queryByText('No restriction is due for review.')).not.toBeInTheDocument();
+    const pager = screen.getByRole('navigation', { name: 'Restrictions due for review pages' });
+    await waitFor(() => expect(within(pager).getByRole('button', { name: 'Previous page' })).toBeEnabled());
+    fireEvent.click(within(pager).getByRole('button', { name: 'Previous page' }));
+    await waitFor(() => expect(router.state.location.search).toBe(''));
+    await waitFor(() => expect(document.querySelectorAll('[data-review-row]')).toHaveLength(example.items.length));
+  });
+
+  it('reaches restrictions beyond the first API page and returns to the first page', async () => {
+    const example = readExample<QueueResponse>('queue_response.review_due.json');
+    const items = Array.from({ length: 26 }, (_, i) => ({ ...example.items[0]!, return_id: `RET-REVIEW-${i + 1}` }));
+    const list = vi.spyOn(api, 'listReturns').mockImplementation(async (query) => {
+      const page = query?.page ?? 1;
+      const pageSize = query?.page_size ?? 25;
+      return { ...example, items: items.slice((page - 1) * pageSize, page * pageSize), page, page_size: pageSize, total: items.length };
+    });
+    const { router } = renderApp('/reviews');
+    const pager = await screen.findByRole('navigation', { name: 'Restrictions due for review pages' });
+    await waitFor(() => expect(within(pager).getByRole('button', { name: 'Next page' })).toBeEnabled());
+    expect(document.querySelectorAll('[data-review-row]')).toHaveLength(25);
+    expect(within(pager).getByRole('button', { name: 'Previous page' })).toBeDisabled();
+    fireEvent.click(within(pager).getByRole('button', { name: 'Next page' }));
+    await waitFor(() => expect(document.querySelector('[data-review-row="RET-REVIEW-26"]')).not.toBeNull());
+    expect(router.state.location.search).toBe('?page=2');
+    expect(list).toHaveBeenCalledWith(expect.objectContaining({ review_due: true, page: 2 }), expect.anything());
+    expect(within(pager).getByRole('button', { name: 'Next page' })).toBeDisabled();
+    fireEvent.click(within(pager).getByRole('button', { name: 'Previous page' }));
+    await waitFor(() => expect(router.state.location.search).toBe(''));
+    await waitFor(() => expect(document.querySelectorAll('[data-review-row]')).toHaveLength(25));
+  });
+
   it('lists the lapsed restriction from the server field, with its approver and the review link', async () => {
     renderApp('/reviews');
     await loaded();

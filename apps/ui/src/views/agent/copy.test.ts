@@ -3,6 +3,7 @@
 // C-MARCO-1 in the contract questions are ids, not numbers), and the limits match the contract.
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { AGENT_TOOLS } from '@/api/contract.gen';
 import { findBannedTerms, UI_COPY_BANNED } from '@/copy/bannedTerms';
@@ -28,7 +29,7 @@ describe('agent copy', () => {
   });
 
   it('has no number literal in its string literals', () => {
-    const source = readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname), 'copy.ts'), 'utf8');
+    const source = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'copy.ts'), 'utf8');
     const literals = [...source.matchAll(/(['`])((?:\\.|(?!\1).)*)\1/g)].map((m) => (m[2] ?? '').replace(/\$\{[^}]*\}/g, ''));
     const withDigits = literals.filter((text) => /\d/.test(text.replace(ID_TOKEN, '')));
     expect(withDigits).toEqual([]);

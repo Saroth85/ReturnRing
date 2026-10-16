@@ -94,6 +94,17 @@ def test_a_training_set_needs_both_classes() -> None:
         fit_xgboost("A1", A1.features, train, np.zeros(200), train, np.zeros(200), T)
 
 
+def test_gpu_training_refuses_silent_cpu_fallback(
+    trained: tuple[RiskModel, pd.DataFrame, np.ndarray, pd.DataFrame, np.ndarray],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    model, train, y_train, val, y_val = trained
+    # Model a build that accepted device=cuda but silently returned a CPU booster.
+    monkeypatch.setattr("ml.risk.model.xgb.train", lambda *a, **kw: model.booster)
+    with pytest.raises(RuntimeError, match="GPU not used"):
+        fit_xgboost("A1", A1.features, train, y_train, val, y_val, T, TrainConfig(device="cuda"))
+
+
 def test_forbidden_or_value_features_are_refused_before_training() -> None:
     train, y = table(200, 4)
     train["value_eur"] = 1.0

@@ -196,7 +196,7 @@ def main(argv: Sequence[str] | None = None, *, llm_client: LlmClient | None = No
         return 2
     log(f"serving snapshot {settings.serving_dir} at {serving.as_of.isoformat()}")
     generator = None if args.no_drafts else Generator(settings, llm_client)
-    if generator is not None and settings.llm_mode == "vllm" and not settings.cached:
+    if generator is not None and settings.llm_mode != "mock" and not settings.cached:
         generator.client()
         if generator.client_error is not None:
             log(f"WARNING: vLLM is not configured, every draft uses the template: "
@@ -213,7 +213,7 @@ def main(argv: Sequence[str] | None = None, *, llm_client: LlmClient | None = No
     summary = asyncio.run(run())
     print(json.dumps(summary, indent=2, sort_keys=True))
     missing = unavailable_drafts(summary)
-    fell_back = missing if settings.llm_mode == "vllm" and not settings.cached else 0
+    fell_back = missing if settings.llm_mode != "mock" and not settings.cached else 0
     if fell_back:
         log(f"WARNING: vLLM was unavailable for {fell_back} drafts: they use the template")
     elif missing and settings.cached:

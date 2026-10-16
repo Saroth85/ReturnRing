@@ -12,6 +12,11 @@ session there is no `latest.json`, and every benchmark is pending. Reports:
 `docs/results/benchmarks-cpu.md` (a development machine, no GPU) and
 `docs/results/benchmarks-mi300x.md` (the droplet, written after the GPU session).
 
+> Delivery scope, 16 October 2026: CPU versus MI300X comparisons are retired from the submission
+> and the System screen (ADR-18). This document preserves the historical research protocol.
+> Current training runs use `python -m scripts.train_amd`; Token Factory is evaluated as a shared
+> inference service. Never pass it to the old live B3 path, which labels hardware as MI300X.
+
 ## What each benchmark measures
 
 | ID | Measures | On what | How |

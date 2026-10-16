@@ -30,6 +30,7 @@ import xgboost as xgb
 
 from contracts.files import atomic_write
 from ml.propensity.calibration import IsotonicCalibrator
+from ml.propensity.train import Device, check_device, effective_device
 from ml.risk.features import check_feature_names, matrix
 from ml.risk.metrics import PRECISION_TARGET, threshold_for_precision
 from ml.risk.rules import RuleBaseline
@@ -54,6 +55,7 @@ class TrainConfig:
     early_stopping_rounds: int = 5
     nthread: int = 1
     precision_target: float = PRECISION_TARGET
+    device: Device = "cpu"
 
 
 def _write_json(path: Path, data: dict[str, Any]) -> None:
@@ -249,7 +251,8 @@ def fit_xgboost(
     yt, yv = _labels(y_train), _labels(y_val)
     if yt.min(initial=1) == yt.max(initial=0) or yv.sum() == 0:
         raise ValueError(f"{name}: training needs both classes and validation positives")
-    params = {**XGB_PARAMS, "seed": cfg.seed, "nthread": cfg.nthread}
+    check_device(cfg.device, cfg.device)
+    params = {**XGB_PARAMS, "seed": cfg.seed, "nthread": cfg.nthread, "device": cfg.device}
     dtrain = xgb.DMatrix(matrix(train, feats), label=yt, feature_names=list(feats), nthread=1)
     dval = xgb.DMatrix(matrix(validation, feats), label=yv, feature_names=list(feats), nthread=1)
     booster = xgb.train(
@@ -260,6 +263,7 @@ def fit_xgboost(
         early_stopping_rounds=cfg.early_stopping_rounds,
         verbose_eval=False,
     )
+    check_device(cfg.device, effective_device(booster))
     model = RiskModel(
         name=name,
         features=feats,

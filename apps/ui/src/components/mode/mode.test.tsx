@@ -18,6 +18,13 @@ const noHeaders = { lastMode: null, modesSeen: { live: 0, cached: 0 } };
 const base = { readyzFailed: false, meta: noHeaders, isMock: false, readOnly: false };
 
 describe('describeMode: the rows of docs/ui-design.md 5.2', () => {
+  it('identifies shared AMD inference without claiming a dedicated MI300X', () => {
+    const view = describeMode({ ...base, readyz: { ...live, llm_mode: 'tokenfactory', device: 'cpu' } });
+    expect(view.kind).toBe('live');
+    expect(view.detail).toContain('AMD Token Factory');
+    expect(view.detail).toContain('shared inference');
+    expect(view.detail).not.toContain('MI300X');
+  });
   it('live on the GPU', () => {
     const view = describeMode({ ...base, readyz: live });
     expect(view.kind).toBe('live');

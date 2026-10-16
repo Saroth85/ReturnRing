@@ -1,0 +1,31 @@
+# Live shared AMD inference on a CPU host (ADR-18), using the five dev-profile services only.
+# Add compose.public.yml on a public server; do not add compose.demo.yml or compose.gpu.yml.
+# The reset seeds mock drafts without spending the team's API quota. Their stored provenance
+# stays mock; the running API's case assistant uses Token Factory for new questions.
+services:
+  api:
+    environment:
+      DEVICE: cpu
+      LLM_MODE: tokenfactory
+      DEMO_MODE: live
+      RADEON_API_KEY: ${RADEON_API_KEY:?set RADEON_API_KEY for the live AMD API}
+      LLM_CONCURRENCY: "1"
+      VLLM_TIMEOUT_S: "90"
+      PUBLIC_READ_ONLY: ${PUBLIC_READ_ONLY:-true}
+
+  reset:
+    environment:
+      DEVICE: cpu
+      LLM_MODE: mock
+      DEMO_MODE: live
+      RADEON_API_KEY: ""
+      PUBLIC_READ_ONLY: ${PUBLIC_READ_ONLY:-true}
+
+  ui:
+    build:
+      args:
+        VITE_READ_ONLY: ${PUBLIC_READ_ONLY:-true}
+
+  proxy:
+    environment:
+      PUBLIC_READ_ONLY: ${PUBLIC_READ_ONLY:-true}

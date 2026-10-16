@@ -148,7 +148,12 @@ def render() -> dict[str, str]:
     files = {f"{name}.schema.json": _dump(schema_for(name)) for name in API_MODELS}
     files["endpoints.json"] = _dump(endpoints_document())
     assert JSON == "application/json"
-    files["openapi.json"] = _dump(contract_app().openapi())
+    openapi = contract_app().openapi()
+    # Python 3.13 renamed HTTP 422; do not inherit a version-specific reason phrase.
+    for operations in openapi["paths"].values():
+        for operation in operations.values():
+            operation["responses"]["422"]["description"] = "Unprocessable Content"
+    files["openapi.json"] = _dump(openapi)
     return files
 
 

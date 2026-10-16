@@ -3,13 +3,15 @@
 ## What we are building
 An e-commerce return decision assistant for EU fashion merchants (AMD Developer Hackathon ACT III, Track 3).
 Statistical models estimate return probability, abuse risk, customer value and product anomalies; a rules
-engine chooses admissible actions; a simulator estimates net benefit; Gemma 4 on vLLM (AMD MI300X) explains
+engine chooses admissible actions; a simulator estimates net benefit; Gemma 4 through AMD Token Factory
+or local vLLM explains
 and drafts messages; a human approves restrictive actions. Full spec: docs/spec.md (source of truth).
 
 ## Non-negotiable rules
 1. The LLM never decides or predicts. Scores come from ml/; actions come from policy/engine.py. Output that
    changes the decision is rejected by llm/validator.py.
-2. No external model or API calls at runtime. Only the local vLLM endpoint.
+2. Model calls use either the local vLLM endpoint or the explicitly selected AMD Token Factory
+   endpoint (ADR-18, LLM_MODE=tokenfactory). Token Factory receives synthetic demo cases only.
 3. Never deny the 14-day right of withdrawal; refunds within 14 days. Restrictive levers apply only to future
    orders and are shown at checkout (terms snapshot). Enforced by policy/legal_guard.py, 100% test coverage.
 4. Defect or non-conformity returns go to the guarantee path before scoring. No restrictive lever applies.
@@ -37,7 +39,7 @@ apps/api FastAPI · apps/ui React · infra/ compose, Caddy · tests/ · docs/ sp
 make dev-up · make test · make test-gpu · make pipeline · make bench · make demo-export · make lint
 
 ## Environment flags
-DEVICE=cpu|gpu · LLM_MODE=mock|vllm · DEMO_MODE=live|cached · SEED=42
+DEVICE=cpu|gpu · LLM_MODE=mock|vllm|tokenfactory · DEMO_MODE=live|cached · SEED=42
 
 ## How to work in a session
 - Read this file, the spec section for your story and contracts/ before writing code.

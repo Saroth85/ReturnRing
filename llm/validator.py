@@ -326,6 +326,10 @@ def _check_statement(
         errors.append(_issue(Code.UNKNOWN_FACT, where, ", ".join(unknown)))
     if statement.label == "SCORE" and not cited:
         errors.append(_issue(Code.MISSING_FACT, where, "a SCORE statement cites a fact"))
+    if statement.label == "SCORE" and (
+        expected.path != "withdrawal" or expected.evidence_quality != "sufficient"
+    ):
+        errors.append(_issue(Code.LABEL_MISMATCH, where, "this case is not scored; no SCORE label"))
     if statement.label == "OBSERVED" and any(f.metric in SCORE_METRICS for f in cited):
         errors.append(_issue(Code.LABEL_MISMATCH, where, "a model score is not an observation"))
     # Case, cluster and quadrant ids are read as a space, metric names as a label word (round 5,

@@ -23,7 +23,7 @@ export const PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
 
 /** One model on one GPU (spec 9, architecture): what runs on the MI300X and what on the CPU. */
 export const ARCHITECTURE = {
-  gpu: ['vLLM · Gemma 4 31B-it', 'XGBoost (AMD build)', 'GraphSAGE'],
+  gpu: ['Gemma 4 · AMD Token Factory or local vLLM', 'Offline XGBoost (AMD build)', 'Offline GraphSAGE'],
   cpu: ['API', 'UI', 'PostgreSQL'],
 } as const;
 

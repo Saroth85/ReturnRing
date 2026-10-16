@@ -185,4 +185,9 @@ describe('stepsUsedMetric (the tool-call count through the provenance component)
     expect(stepsUsedMetric(cached, 'live').provenance.origin).toMatch(/, precomputed$/);
     expect(stepsUsedMetric(cached, 'live').provenance.origin).not.toContain('MI300X');
   });
+  it('names AMD Token Factory for shared inference', () => {
+    const shared = { ...done(), generation: { ...done().generation, llm_mode: 'tokenfactory' as const, model: 'Gemma-4-31B-IT' } };
+    expect(stepsUsedMetric(shared, 'live').provenance.origin).toContain('via AMD Token Factory');
+    expect(stepsUsedMetric(shared, 'live').provenance.origin).not.toContain('vLLM');
+  });
 });

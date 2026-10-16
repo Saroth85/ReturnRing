@@ -130,7 +130,7 @@ export function preflightChecks({ expected, adapter, readyz, cases, marco, rossi
       expected === 'live' ? C.components.live : C.components.cached,
       readyz,
       notReady.length === 0,
-      r ? components.map((c) => `${c} ${r.checks.find((k) => k.component === c)?.status ?? PLATFORM.demo.unreachable}`).join(' · ') : null,
+      r ? components.map((c) => `${C.components.names[c]} ${r.checks.find((k) => k.component === c)?.status ?? PLATFORM.demo.unreachable}`).join(' · ') : null,
       C.components.fix,
     ),
     check(

@@ -1,13 +1,8 @@
-"""Clients for Gemma: a deterministic mock (LLM_MODE=mock) and the local vLLM (LLM_MODE=vllm).
+"""Gemma clients: deterministic mock, allow-listed local vLLM, or AMD Token Factory.
 
-Rule 2: the only model endpoint is the local vLLM. VllmClient accepts only the compose service
-name "vllm", "localhost" or an IP address in a loopback or private IPv4 network (an allow-list,
-with IPv4-mapped IPv6 addresses unwrapped first); it never uses proxies and never follows
-redirects. The guided-JSON schema is narrowed per case: customer_message.sentence_ids may only
-hold the phrasebook ids allowed for the decision; decision_echo stays open, so a misunderstood
-decision is still caught by the validator.
-Standard library only (urllib): no new runtime dependency. No retries inside the client:
-llm/generate.py decides what happens after a failure.
+Local vLLM uses strict guided JSON. Token Factory uses JSON-object output with the same
+case schema in the prompt, local validation, pacing and bounded 429 backoff (ADR-18).
+Both transports disable proxies and redirects. No runtime dependency beyond the stdlib.
 """
 
 from __future__ import annotations
@@ -17,6 +12,8 @@ import http.client
 import ipaddress
 import json
 import os
+import random
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -48,6 +45,18 @@ MAX_RESPONSE_BYTES = 1_000_000
 
 class LlmUnavailable(RuntimeError):
     """The model could not answer: connection, timeout, HTTP error or malformed response."""
+
+
+class RateLimited(LlmUnavailable):
+    """A provider rejected the request; never work around its shared quota."""
+
+    def __init__(self, retry_after: str | None) -> None:
+        super().__init__("model endpoint answered HTTP 429")
+        try:
+            seconds = float(retry_after or "60")
+        except ValueError:
+            seconds = 60.0
+        self.delay_s = seconds if 0 <= seconds <= 120 else 60.0
 
 
 @dataclass(frozen=True)
@@ -103,12 +112,15 @@ def output_schema() -> dict[str, Any]:
 def case_output_schema(case: Mapping[str, Any], schema: Mapping[str, Any]) -> dict[str, Any]:
     """The output schema for one case: the sentence id enum narrowed to the phrasebook ids
     allowed for its decision, and the number of ids to its extras (two in Q3 and Q4);
-    everything else, decision_echo included, unchanged."""
+    SCORE labels excluded for unscored cases; decision_echo stays open for validation."""
     narrowed: dict[str, Any] = copy.deepcopy(dict(schema))
     ids = narrowed["properties"]["customer_message"]["properties"]["sentence_ids"]
     ctx = context_of_case(case)
     ids["items"]["enum"] = [s.id for s in allowed_sentences(ctx)]
     ids["maxItems"] = MIN_SENTENCES + max_extras(ctx)
+    if case.get("path") != "withdrawal" or case.get("evidence_quality") != "sufficient":
+        labels = narrowed["properties"]["operator_explanation"]["items"]["properties"]["label"]
+        labels["enum"] = ["OBSERVED", "HYPOTHESIS"]
     return narrowed
 
 
@@ -193,6 +205,8 @@ class VllmClient:
             with self._opener.open(request, timeout=self.config.timeout_s) as response:
                 raw = response.read(MAX_RESPONSE_BYTES + 1)
         except urllib.error.HTTPError as exc:
+            if exc.code == 429:
+                raise RateLimited(exc.headers.get("Retry-After")) from None
             raise LlmUnavailable(f"vLLM answered HTTP {exc.code}") from None
         except (OSError, http.client.HTTPException) as exc:  # URLError, timeouts, resets
             raise LlmUnavailable(f"vLLM unreachable: {type(exc).__name__}") from None
@@ -261,14 +275,88 @@ class VllmClient:
         return self._message(data)
 
 
+TOKENFACTORY_BASE_URL = "https://developer.amd.com.cn/radeon/api/v1"
+TOKENFACTORY_MODEL = "Gemma-4-31B-IT"
+
+
+class TokenFactoryClient(VllmClient):
+    """AMD shared Gemma inference, with JSON-object output and local validation (ADR-18).
+
+    The destination is fixed: the local endpoint allow-list remains unchanged. Calls on this
+    client are serialised and paced below the observed team RPM cap. Only 429 is retried,
+    respecting Retry-After with jitter. All consumers share this one client in the API process.
+    """
+
+    def __init__(self, api_key: str, *, timeout_s: float = 90.0) -> None:
+        if not api_key or "\n" in api_key or "\r" in api_key:
+            raise ValueError("RADEON_API_KEY is required (a single-line token)")
+        self.config = VllmConfig(TOKENFACTORY_BASE_URL, api_key, TOKENFACTORY_MODEL, timeout_s)
+        self.endpoint = TOKENFACTORY_BASE_URL + "/chat/completions"
+        self._schema = output_schema()
+        self._opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect())
+        self._lock = threading.Lock()
+        self._next_request = 0.0
+
+    def _post(self, body: Mapping[str, Any]) -> tuple[dict[str, Any], float]:
+        adapted = copy.deepcopy(dict(body))
+        messages = adapted["messages"]
+        # Shared Gemma is text-only. Never send a merchant photo to an unsupported model.
+        if any(not isinstance(m.get("content"), (str, type(None))) for m in messages):
+            raise LlmUnavailable("Token Factory Gemma does not support inspection photos")
+        response_format = adapted.get("response_format", {})
+        if response_format.get("type") == "json_schema":
+            schema = response_format["json_schema"]["schema"]
+            messages[0]["content"] += "\nRequired JSON schema:\n" + json.dumps(schema)
+            messages[0]["content"] += (
+                "\nUse at most three operator_explanation statements. "
+                "Write no numbers or fact identifiers in statement text: the application "
+                "shows exact values beside the cited facts. Put identifiers only in fact_ids."
+            )
+            adapted["response_format"] = {"type": "json_object"}
+        adapted["reasoning_effort"] = "low"
+        started = time.perf_counter()
+        with self._lock:
+            for attempt in range(3):
+                time.sleep(max(0.0, self._next_request - time.monotonic()))
+                self._next_request = time.monotonic() + 3.1
+                try:
+                    data, _ = super()._post(adapted)
+                    return data, time.perf_counter() - started
+                except RateLimited as exc:
+                    if attempt == 2:
+                        raise
+                    time.sleep(exc.delay_s + random.uniform(0.1, 0.4))
+        raise AssertionError("unreachable")  # pragma: no cover
+
+    def probe(self) -> str | None:
+        """Check authentication and catalog membership without generating text."""
+        request = urllib.request.Request(
+            TOKENFACTORY_BASE_URL + "/models",
+            headers={"Authorization": f"Bearer {self.config.api_key}"},
+        )
+        try:
+            with self._opener.open(request, timeout=10) as response:
+                listed = json.loads(response.read(MAX_RESPONSE_BYTES))
+            models = listed.get("data", []) if isinstance(listed, dict) else []
+            if not isinstance(models, list) or not any(
+                isinstance(m, dict) and m.get("id") == self.config.model for m in models
+            ):
+                return "Token Factory Gemma is not in the current catalog"
+        except (OSError, ValueError, http.client.HTTPException) as exc:
+            return f"Token Factory unavailable: {type(exc).__name__}"
+        return None
+
+
 def client_from_env(env: Mapping[str, str] | None = None) -> MockClient | VllmClient:
     """The client for LLM_MODE (default mock); vllm needs VLLM_BASE_URL and VLLM_API_KEY."""
     values = os.environ if env is None else env
     mode = values.get("LLM_MODE", "mock")
     if mode == "mock":
         return MockClient()
+    if mode == "tokenfactory":
+        return TokenFactoryClient(values.get("RADEON_API_KEY", ""))
     if mode != "vllm":
-        raise ValueError(f"LLM_MODE must be mock or vllm, got {mode!r}")
+        raise ValueError(f"LLM_MODE must be mock, vllm or tokenfactory, got {mode!r}")
     return VllmClient(
         VllmConfig(
             base_url=values.get("VLLM_BASE_URL", ""),

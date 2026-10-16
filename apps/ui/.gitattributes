@@ -1,0 +1,2 @@
+# Preserve executable module shebangs when checking out on Windows.
+*.mjs text eol=lf

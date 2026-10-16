@@ -221,7 +221,7 @@ export interface GenerationInfo {
   generation_id: string;
   generation_path: 'model' | 'regenerated' | 'template';
   fallback_reason: ('decision_echo' | 'invalid_twice' | 'unavailable' | 'write_request') | null;
-  llm_mode: 'vllm' | 'mock';
+  llm_mode: 'vllm' | 'mock' | 'tokenfactory';
   served_from: 'live' | 'cached';
   model: string;
   model_calls: number;
@@ -437,7 +437,7 @@ export interface GenerationAuditState {
     | 'SENTENCE_ID'
     | 'WRONG_LANGUAGE'
   )[];
-  llm_mode: 'vllm' | 'mock';
+  llm_mode: 'vllm' | 'mock' | 'tokenfactory';
   served_from: 'live' | 'cached';
   model: string;
 }
@@ -2333,7 +2333,7 @@ export interface QueueItem {
 export interface ReadyzResponse {
   status: 'ready' | 'degraded' | 'not_ready';
   mode: 'live' | 'cached';
-  llm_mode: 'vllm' | 'mock';
+  llm_mode: 'vllm' | 'mock' | 'tokenfactory';
   device: 'cpu' | 'gpu';
   label: ('Precomputed on AMD MI300X' | 'Precomputed in a rehearsal, not verified on AMD MI300X') | null;
   /**

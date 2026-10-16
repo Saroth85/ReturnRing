@@ -79,7 +79,7 @@ export const RECORDS = {
     validatorCodes: 'Validator codes',
     noCodes: 'none',
     llmMode: 'Language model',
-    llmModes: { vllm: 'vLLM', mock: 'Mock model (hand-written stand-in)' } satisfies Record<GenerationAuditState['llm_mode'], string>,
+    llmModes: { vllm: 'vLLM', tokenfactory: 'AMD Token Factory', mock: 'Mock model (hand-written stand-in)' } satisfies Record<GenerationAuditState['llm_mode'], string>,
     servedFrom: 'Served',
     served: { live: 'Live', cached: 'Precomputed (cached demo)' } satisfies Record<GenerationAuditState['served_from'], string>,
     model: 'Model',

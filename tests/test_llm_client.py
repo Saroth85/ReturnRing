@@ -153,9 +153,14 @@ def test_the_guided_schema_allows_only_the_sentences_of_the_case(name: str) -> N
     assert enum["enum"] == [s.id for s in allowed_sentences(context_of_case(case))]
     assert set(enum["enum"]) < set(SENTENCE_IDS)
     assert narrowed["properties"]["decision_echo"] == full["properties"]["decision_echo"]
-    assert (
-        narrowed["properties"]["operator_explanation"] == full["properties"]["operator_explanation"]
-    )
+    if name in ("guarantee", "insufficient"):
+        labels = narrowed["properties"]["operator_explanation"]["items"]["properties"]["label"]
+        assert labels["enum"] == ["OBSERVED", "HYPOTHESIS"]
+    else:
+        assert (
+            narrowed["properties"]["operator_explanation"]
+            == full["properties"]["operator_explanation"]
+        )
     full_enum = full["properties"]["customer_message"]["properties"]["sentence_ids"]["items"]
     assert full_enum["enum"] == list(SENTENCE_IDS)  # the shared schema is not changed
 

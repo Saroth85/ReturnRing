@@ -252,7 +252,7 @@ llm_generations = Table(
     Column("return_id", Id, ForeignKey("return_requests.return_id")),
     Column("decision_id", Id),  # no foreign key: decisions point here (no cycle)
     Column("model", String(128), nullable=False),
-    Column("llm_mode", String(8), nullable=False),
+    Column("llm_mode", String(16), nullable=False),
     Column("served_from", String(8), nullable=False),
     Column("generation_path", String(16), nullable=False),  # llm.generate: model, regenerated...
     Column("fallback_reason", String(16)),  # why the template was used, if it was

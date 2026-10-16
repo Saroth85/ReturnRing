@@ -1,7 +1,7 @@
 // Agent area strings (docs/ui-design.md 7, 10.2). English; no number literals: the step limit and
 // the tool list come from the contract, product names from src/copy/constants.ts.
 import { AGENT_MAX_STEPS, AGENT_TOOLS } from '@/api/contract.gen';
-import type { EntityRef } from '@/api/models';
+import type { EntityRef, GenerationInfo } from '@/api/models';
 import { LLM_NAME } from '@/copy/constants';
 
 type Tool = (typeof AGENT_TOOLS)[number];
@@ -10,6 +10,7 @@ export const AGENT = {
   /** The drawer title; the model, as /readyz names it (./model.ts), follows in its own span. */
   title: (returnId: string) => `Ask about ${returnId} · read-only assistant`,
   model: {
+    tokenfactory: `(${LLM_NAME} via AMD Token Factory)`,
     vllm: `(${LLM_NAME} on vLLM)`,
     mock: '(mock language model: hand-written stand-ins)',
     contract: '(contract examples)',
@@ -143,8 +144,8 @@ export const AGENT = {
     originExample: (generationId: string) => `Contract example: steps_used of agent stream ${generationId}`,
     originMockModel: (generationId: string) =>
       `Mock language model (hand-written stand-in): steps_used of agent stream ${generationId}`,
-    originLive: (generationId: string, model: string, cached: boolean) =>
-      `${model} on vLLM: steps_used of agent stream ${generationId}${cached ? ', precomputed' : ''}`,
+    originLive: (generationId: string, model: string, cached: boolean, mode: GenerationInfo['llm_mode'] = 'vllm') =>
+      `${model}${mode === 'tokenfactory' ? ' via AMD Token Factory' : ' on vLLM'}: steps_used of agent stream ${generationId}${cached ? ', precomputed' : ''}`,
   },
 
   refs: {

@@ -42,6 +42,7 @@ x-api-env: &api-env
   DATABASE_URL: ${DATABASE_URL}
   DEVICE: ${DEVICE:-cpu}
   LLM_MODE: ${LLM_MODE:-mock}
+  RADEON_API_KEY: ${RADEON_API_KEY:-}
   DEMO_MODE: ${DEMO_MODE:-live}
   SEED: ${SEED:-42}
   SERVING_DIR: /app/serving

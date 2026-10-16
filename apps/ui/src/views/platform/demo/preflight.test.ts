@@ -98,7 +98,7 @@ describe('preflightChecks (docs/ui-design.md 9.5)', () => {
     expect(stateOf({ ...green, readyz: ok(cached) })).toMatchObject({ readiness: 'fail' });
     const checks = preflightChecks({ ...green, expected: 'cached', readyz: ok(cached) });
     expect(checks.find((c) => c.id === 'readiness')?.state).toBe('pass');
-    expect(checks.find((c) => c.id === 'components')?.found).toContain('demo_cache');
+    expect(checks.find((c) => c.id === 'components')?.found).toContain('demo cache');
   });
 
   it('accepts vLLM off on the mock language model and telemetry off on a CPU, nothing else off', () => {

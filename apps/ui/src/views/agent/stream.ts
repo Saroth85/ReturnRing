@@ -203,7 +203,7 @@ export function stepsUsedMetric(done: DoneView, apiMode: 'mock' | 'live'): Metri
   else if (generation.llm_mode === 'mock') origin = AGENT.steps.originMockModel(id);
   else {
     nature = 'real';
-    origin = AGENT.steps.originLive(id, generation.model, generation.served_from === 'cached');
+    origin = AGENT.steps.originLive(id, generation.model, generation.served_from === 'cached', generation.llm_mode);
   }
   return { value: done.stepsUsed, unit: 'count', provenance: { nature, origin, period_start: day, period_end: day } };
 }

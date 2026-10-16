@@ -27,8 +27,9 @@ import time
 from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
+from ml.propensity.train import Device
 from ml.risk.data import utc
 from ml.risk.model import TrainConfig
 from ml.risk.report import render
@@ -58,6 +59,7 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--train-end", type=_instant, help="train end (default: 3 months before)")
     p.add_argument("--eval-end", type=_instant, help="evaluation time (default: last snapshot)")
     p.add_argument("--seed", type=int, default=int(os.environ.get("SEED", "42")))
+    p.add_argument("--device", choices=["cpu", "cuda"], default="cpu")
     p.add_argument(
         "--embeddings",
         type=Path,
@@ -78,7 +80,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         train_end=args.train_end,
         eval_end=args.eval_end,
         split=SplitConfig(seed=args.seed),
-        train=TrainConfig(seed=args.seed),
+        train=TrainConfig(seed=args.seed, device=cast(Device, args.device)),
         embeddings=args.embeddings,
     )
     scores = None if args.no_scores else (args.scores or args.data)

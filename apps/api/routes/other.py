@@ -172,7 +172,7 @@ async def agent_ask(
         data = await agent.case_data(conn, serving, body.return_id, rt.now())
     if data is None:
         raise not_found(f"return {body.return_id}")
-    if rt.settings.llm_mode == "vllm":
+    if rt.settings.llm_mode != "mock":
         rt.generator.client()  # a configuration the client refuses is a 503, never a 500
     agent.check_available(rt.settings, rt.generator.client_error)
     answered = await agent.run(rt.settings, rt.generator.client, rt.model_call, data, body.question)

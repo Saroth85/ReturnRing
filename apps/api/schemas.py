@@ -186,7 +186,7 @@ from policy.types import CouponRuleApplication as PolicyCouponRule
 # with the day it was scored, DecisionInputs.scored_on);
 # 1.8.1: a store acted on with writes on, served read-only (ADR-15 section 21: the frozen clock
 # stands at the later of the snapshot instant and the latest act recorded, with its own note)
-API_CONTRACT_VERSION = "1.8.1"
+API_CONTRACT_VERSION = "1.9.0"
 MODE_HEADER = "X-ReturnRing-Mode"  # every response: "live" or "cached" (US-901)
 REQUEST_ID_HEADER = "X-Request-Id"  # every response; also in the audit log (NFR-12)
 RETRY_AFTER_HEADER = "Retry-After"  # on a 429 rate_limited: whole seconds to wait (1.5.1)

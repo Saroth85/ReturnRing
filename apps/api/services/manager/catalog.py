@@ -275,12 +275,14 @@ async def open_task(
             raise invalid_request(
                 f"return {body.return_id} is not of the variant {row['variant_id']} of the anomaly"
             )
+    # The shared task counter serializes creation. Check for an existing task after obtaining
+    # its lock, so a waiting PostgreSQL writer sees the preceding writer's committed task.
+    task_id = f"{TASK_PREFIX}{await allocate(conn, TASK_PREFIX.rstrip('-'), catalog_tasks):06d}"
     held = (await active_tasks(conn)).get(body.anomaly_id)
     if held is not None:
         raise conflict(
             f"{held['task_id']} is already the task of {body.anomaly_id} ({held['status']})"
         )
-    task_id = f"{TASK_PREFIX}{await allocate(conn, TASK_PREFIX.rstrip('-'), catalog_tasks):06d}"
     week: date = pd.Timestamp(row["week"]).date()
     values = {
         "task_id": task_id,

@@ -1,7 +1,7 @@
 import clsx from 'clsx';
 import { Link, useInRouterContext } from 'react-router';
 import { DateText } from '@/components/provenance';
-import { parseAssumptionLabel } from './assumptionLabel';
+import { parseAssumptionLabel } from './parseAssumptionLabel';
 import { ECONOMICS } from './copy';
 
 interface AssumptionLabelProps {

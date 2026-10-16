@@ -4,7 +4,7 @@
 // browser's clock (P9). Coupon pauses on clusters carry their own review dates and can be reversed.
 import { CalendarClock, TriangleAlert, UserCheck } from 'lucide-react';
 import { useState } from 'react';
-import { Link } from 'react-router';
+import { Link, useSearchParams } from 'react-router';
 import type { CouponRuleApplication, QueueItem } from '@/api/models';
 import { HAS_RENEW } from '@/api/models';
 import { useCase, useCouponRules, useQueue } from '@/api/queries';
@@ -12,6 +12,7 @@ import { QuadrantBadge } from '@/components/decision';
 import { EmptyState, InlineNotice, useReadOnly } from '@/components/feedback';
 import { DateText, IdText } from '@/components/provenance';
 import { CouponApplicationsTable, leverText } from '@/components/records';
+import { Button } from '@/components/ui';
 import { MANAGER } from '../copy';
 import { Card, Loadable, ManagerPage } from '../ui';
 
@@ -99,39 +100,65 @@ function DueRow({ item, readOnly }: { item: QueueItem; readOnly: boolean }) {
 }
 
 export default function ReviewsPage() {
-  const due = useQueue({ review_due: true });
+  const [params, setParams] = useSearchParams();
+  const requestedPage = Number(params.get('page'));
+  // QueueQuery bounds pages to 100,000; an invalid shared URL starts at the first page.
+  const currentPage = Number.isSafeInteger(requestedPage) && requestedPage > 0 && requestedPage <= 100_000 ? requestedPage : 1;
+  const due = useQueue({ review_due: true, page: currentPage });
   const coupons = useCouponRules();
   const [reversed, setReversed] = useState<CouponRuleApplication | null>(null);
   const readOnly = useReadOnly();
   const c = R.cols;
+  const goPage = (page: number) =>
+    setParams((previous) => {
+      const next = new URLSearchParams(previous);
+      if (page <= 1) next.delete('page');
+      else next.set('page', String(page));
+      return next;
+    });
   return (
     <ManagerPage screen="reviews" title={MANAGER.titles.reviews} intro={<p>{R.note}</p>}>
       <Card title={R.dueTitle}>
         <Loadable query={due} label="GET /api/returns?review_due=true" rows={3}>
-          {(page) =>
-            page.items.length === 0 ? (
-              <EmptyState message={R.empty} />
-            ) : (
-              <div className="relative overflow-x-auto">
-                <table className="w-full min-w-[48rem] border-collapse text-dense" data-reviews-due>
-                  <thead>
-                    <tr className="border-b border-border-strong text-left text-caption text-ink-2">
-                      {[c.ret, c.terms, c.approved, c.review, c.actions].map((h) => (
-                        <th key={h} scope="col" className="px-3 py-1.5 font-medium">
-                          {h}
-                        </th>
+          {(page) => (
+            <>
+              {page.items.length === 0 ? (
+                <EmptyState message={page.total > 0 ? R.emptyPage : R.empty} />
+              ) : (
+                <div className="relative overflow-x-auto">
+                  <table className="w-full min-w-[48rem] border-collapse text-dense" data-reviews-due>
+                    <thead>
+                      <tr className="border-b border-border-strong text-left text-caption text-ink-2">
+                        {[c.ret, c.terms, c.approved, c.review, c.actions].map((h) => (
+                          <th key={h} scope="col" className="px-3 py-1.5 font-medium">
+                            {h}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {page.items.map((item) => (
+                        <DueRow key={item.return_id} item={item} readOnly={readOnly} />
                       ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {page.items.map((item) => (
-                      <DueRow key={item.return_id} item={item} readOnly={readOnly} />
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )
-          }
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {(currentPage > 1 || page.total > page.page_size) && (
+                <nav aria-label={R.pages} className="mt-3 flex items-center gap-2 text-caption">
+                  <Button disabled={currentPage <= 1 || due.isFetching} onClick={() => goPage(currentPage - 1)}>
+                    {R.previous}
+                  </Button>
+                  <span data-constant>
+                    {page.page} / {Math.max(1, Math.ceil(page.total / page.page_size))}
+                  </span>
+                  <Button disabled={page.page * page.page_size >= page.total || due.isFetching} onClick={() => goPage(currentPage + 1)}>
+                    {R.next}
+                  </Button>
+                </nav>
+              )}
+            </>
+          )}
         </Loadable>
       </Card>
       <Card title={R.couponsTitle}>

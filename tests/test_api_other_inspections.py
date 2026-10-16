@@ -118,7 +118,7 @@ def _vllm(post: Any) -> VllmVision:
     return VllmVision(client, post=post)
 
 
-def _answer(content: str, tokens: int = 40) -> dict[str, Any]:
+def _answer(content: str, tokens: Any = 40) -> dict[str, Any]:
     return {"choices": [{"message": {"content": content}}], "usage": {"completion_tokens": tokens}}
 
 
@@ -142,6 +142,41 @@ def test_vllm_vision_sends_the_photo_with_guided_json() -> None:
     assert body["response_format"]["json_schema"]["schema"] == CHECKLIST_SCHEMA
     image = body["messages"][1]["content"][1]["image_url"]["url"]
     assert image.startswith("data:image/jpeg;base64,")
+
+
+@pytest.mark.parametrize(
+    ("counts", "expected"),
+    [
+        ([True], None),
+        ([False], None),
+        ([-1], None),
+        ([1.5], None),
+        ([None], None),
+        ([0], 0),
+        ([12], 12),
+        ([3, 5], 8),
+        ([3, -1], 3),
+        ([-1, 5], 5),
+        ([0, 0], 0),
+    ],
+)
+def test_vision_counts_only_valid_completion_tokens_across_attempts(
+    counts: list[Any], expected: int | None
+) -> None:
+    good = json.dumps({"items": [
+        {"item": "tag_attached", "suggestion": "yes", "confidence": 0.9, "note": None},
+        {"item": "visible_damage", "suggestion": "no", "confidence": 0.8, "note": None},
+        {"item": "photo_quality", "suggestion": "yes", "confidence": 0.9, "note": None},
+    ]})  # fmt: skip
+    answers = iter(
+        _answer(good if i == len(counts) - 1 else "not JSON", tokens)
+        for i, tokens in enumerate(counts)
+    )
+    result = _vllm(lambda _: (next(answers), 0.1)).checklist(
+        Photo(b"\xff\xd8\xff", "image/jpeg"), "RET-1"
+    )
+    assert result.path == ("model" if len(counts) == 1 else "regenerated")
+    assert result.completion_tokens == expected
 
 
 def test_vllm_vision_asks_once_more_then_falls_back() -> None:
@@ -252,14 +287,20 @@ def test_cached_mode_answers_with_the_template_and_stops(api: Api) -> None:
         assert body["state"] == "manual_review" and body["proposal"] is None
 
 
-def test_vllm_mode_goes_through_the_client(api: Api, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(
+    ("tokens", "expected"),
+    [(40, 40), (-1, None), (True, None), (False, None), (1.5, None), (0, 0), (None, None)],
+)
+def test_vllm_mode_goes_through_the_client(
+    api: Api, monkeypatch: pytest.MonkeyPatch, tokens: Any, expected: int | None
+) -> None:
     good = json.dumps({"items": [
         {"item": "tag_attached", "suggestion": "yes", "confidence": 0.9, "note": None},
         {"item": "visible_damage", "suggestion": "yes", "confidence": 0.85, "note": "Torn seam"},
         {"item": "photo_quality", "suggestion": "yes", "confidence": 0.95, "note": None},
     ]})  # fmt: skip
     client = VllmClient(VllmConfig(base_url="http://localhost:8001", api_key="test-key"))
-    monkeypatch.setattr(client, "_post", lambda body: (_answer(good), 0.2))
+    monkeypatch.setattr(client, "_post", lambda body: (_answer(good, tokens), 0.2))
     settings = settings_for(
         api.settings.serving_dir, api.database, llm_mode="vllm",
         vllm_base_url="http://localhost:8001", vllm_api_key="test-key",
@@ -269,6 +310,14 @@ def test_vllm_mode_goes_through_the_client(api: Api, monkeypatch: pytest.MonkeyP
         body = _created(live, return_id, "clean")
         assert body["generation"]["llm_mode"] == "vllm" and body["proposal"] is not None
         assert body["provenance"]["nature"] == "real"
+        stored_tokens = live.run(
+            lambda conn, generation_id=body["generation"]["generation_id"]: conn.scalar(
+                select(llm_generations.c.completion_tokens).where(
+                    llm_generations.c.generation_id == generation_id
+                )
+            )
+        )
+        assert stored_tokens == expected
 
 
 # ---- POST /api/inspections/{inspection_id}/confirm -----------------------------------------------

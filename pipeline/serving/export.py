@@ -42,7 +42,7 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
 
-from contracts.io import Provenance, read_table, write_table
+from contracts.io import Provenance, read_table, require_derived, write_table
 from contracts.parquet import CONTRACT_VERSION, SCHEMAS, TS
 from ml.reference.model import TrainConfig, fit, observed_frame
 from ml.reference.persist import save_line_model
@@ -153,11 +153,18 @@ def _context_instants(requests: pa.Table) -> list[datetime]:
 
 def _graph_at(data: Path, instants: Sequence[datetime], log: Log) -> dict[str, pa.Table]:
     """features/links and features/clusters at each instant: the data root's rows when it holds
-    the instant, otherwise built by pipeline.graph from the store known then."""
+    the instant, otherwise built by pipeline.graph from the store known then. Existing files
+    must be derived from this store; exporting must not restamp a stale graph as current."""
+    _, store = read_table("store/identifiers", data)
     existing: dict[str, pa.Table] = {}
     for name in GRAPH_TABLES:
         path = data / f"{name}.parquet"
-        existing[name] = read_table(name, data)[0] if path.exists() else SCHEMAS[name].empty_table()
+        if path.exists():
+            table, provenance = read_table(name, data)
+            require_derived(provenance, store, name, "store/identifiers")
+            existing[name] = table
+        else:
+            existing[name] = SCHEMAS[name].empty_table()
     parts: dict[str, list[pa.Table]] = {name: [] for name in GRAPH_TABLES}
     for instant in instants:
         stamp = pa.scalar(instant, type=TS)
@@ -217,8 +224,17 @@ def export(
     """Write the serving snapshot of `data` (and the models of `artifacts`) under `out`."""
     say = log or (lambda _message: None)
     data, artifacts = check_source(data), check_source(artifacts)
-    if out.resolve() == data.resolve() or "truth" in out.resolve().parts:
+    destination = out.resolve()
+    if "truth" in destination.parts:
         raise ValueError(f"{out}: the snapshot goes to a folder of its own, never into data/")
+    # Cleanup replaces the snapshot's subdirectories, including models/: never let it erase
+    # an input tree, or write an exported table back into either source tree.
+    for name, source in (("data", data), ("artifacts", artifacts)):
+        resolved = source.resolve()
+        if destination.is_relative_to(resolved) or resolved.is_relative_to(destination):
+            raise ValueError(
+                f"{out}: the snapshot output must not overlap the {name} root {source}"
+            )
     moment = utc(as_of) if as_of is not None else scores_as_of(data)
     out.mkdir(parents=True, exist_ok=True)
     for sub in SUBDIRS:  # a fresh export; llm_cache/ stays (it is keyed by the llm_case)

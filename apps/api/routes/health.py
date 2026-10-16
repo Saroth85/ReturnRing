@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 import urllib.error
 import urllib.request
 from dataclasses import fields
@@ -159,7 +160,7 @@ async def readiness(rt: Runtime) -> s.ReadyzResponse:
     elif settings.llm_mode == "tokenfactory":
         client = rt.generator.client()
         problem = (
-            await asyncio.to_thread(client.probe)
+            await provider_problem(rt, client)
             if isinstance(client, TokenFactoryClient)
             else rt.generator.client_error or "Token Factory client unavailable"
         )
@@ -215,6 +216,29 @@ async def readiness(rt: Runtime) -> s.ReadyzResponse:
         clock=clock_view(rt),
         public_read_only=settings.public_read_only,
     )
+
+
+PROBE_TTL_S: Final = 60.0
+
+
+async def provider_problem(rt: Runtime, client: TokenFactoryClient) -> str | None:
+    """The Token Factory probe of /readyz, at most once per PROBE_TTL_S and one at a time:
+    /readyz is public and every open tab polls it, and each probe is an authenticated call on
+    the team's shared key (PR 15 review). A failed probe is kept for the same time."""
+    cached = rt.provider_probe
+    if cached is not None and time.monotonic() - cached[0] < PROBE_TTL_S:
+        return cached[1]
+
+    def probe_once() -> str | None:
+        with rt.provider_probe_lock:  # the callers that missed together wait for one probe
+            again = rt.provider_probe
+            if again is not None and time.monotonic() - again[0] < PROBE_TTL_S:
+                return again[1]
+            problem = client.probe()
+            rt.provider_probe = (time.monotonic(), problem)
+            return problem
+
+    return await asyncio.to_thread(probe_once)
 
 
 @router.get(

@@ -27,6 +27,7 @@ import re
 import shutil
 from collections.abc import Iterator
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -408,16 +409,47 @@ def test_the_limiter_forgets_idle_clients() -> None:
     assert limiter.retry_after("client-0") is None and limiter.retry_after("client-0") == 4.0
 
 
-def _request(forwarded: str | None, peer: str = "10.0.0.2") -> Request:
+def _request(forwarded: str | None, peer: str = "10.0.0.2", hops: int | None = None) -> Request:
     headers = [(b"x-forwarded-for", forwarded.encode())] if forwarded is not None else []
-    return Request({"type": "http", "headers": headers, "client": (peer, 5000)})
+    scope: dict[str, Any] = {"type": "http", "headers": headers, "client": (peer, 5000)}
+    if hops is not None:
+        runtime = SimpleNamespace(settings=SimpleNamespace(trusted_proxy_hops=hops))
+        scope["app"] = SimpleNamespace(state=SimpleNamespace(runtime=runtime))
+    return Request(scope)
+
+
+@pytest.mark.parametrize(
+    ("forwarded", "hops", "key"),
+    [
+        ("198.51.100.1, 203.0.113.10", 1, "203.0.113.10"),  # a forged first entry is ignored
+        ("198.51.100.1, 203.0.113.10, 10.0.0.9", 2, "203.0.113.10"),  # CDN, then Caddy
+        ("203.0.113.10", 2, "10.0.0.2"),  # fewer entries than proxies: the peer
+        ("198.51.100.1, 203.0.113.10", 0, "10.0.0.2"),  # no trusted proxy: the header is noise
+        (None, 1, "10.0.0.2"),
+    ],
+)
+def test_the_client_is_the_address_the_nearest_trusted_proxy_saw(
+    forwarded: str | None, hops: int, key: str
+) -> None:
+    """X-Forwarded-For entries before the one the trusted proxy wrote come from the client and
+    can be anything: keying on the first entry let one visitor be a new client per request."""
+    assert client_key(_request(forwarded, "10.0.0.2", hops)) == key
+
+
+def test_a_rotating_forwarded_header_is_still_one_client(public_api: Api) -> None:
+    """The reviewed bypass of PR 15: a new forged X-Forwarded-For on every request from the same
+    client, behind a proxy that appends what it saw, keeps one budget."""
+    public_api.app.state.public_rate_limiter = RateLimiter(limit=1, window_s=60)
+    assert _ask(public_api, "198.51.100.1, 203.0.113.10").status_code == 200
+    for n in range(2, 6):
+        _retry_after(_ask(public_api, f"198.51.100.{n}, 203.0.113.10"))
 
 
 @pytest.mark.parametrize(
     ("forwarded", "peer", "key"),
     [
         ("203.0.113.10", "10.0.0.2", "203.0.113.10"),
-        ("203.0.113.10, 10.0.0.9", "10.0.0.2", "203.0.113.10"),  # the first hop, as before
+        ("203.0.113.10, 10.0.0.9", "10.0.0.2", "10.0.0.9"),  # the entry the proxy wrote
         (None, "10.0.0.2", "10.0.0.2"),
         ("2001:db8:1:2:aaaa::1", "10.0.0.2", "2001:db8:1:2::/64"),
         ("2001:db8:1:2:bbbb:cccc:dddd:eeee", "10.0.0.2", "2001:db8:1:2::/64"),

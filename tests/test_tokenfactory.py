@@ -5,12 +5,15 @@ from __future__ import annotations
 import io
 import json
 import urllib.error
+from datetime import UTC, datetime, timedelta
+from email.utils import format_datetime
 from typing import Any
 
 import pytest
 
 from apps.api.settings import Settings
 from llm.client import (
+    MAX_QUOTA_WAIT_S,
     TOKENFACTORY_BASE_URL,
     TOKENFACTORY_MODEL,
     LlmUnavailable,
@@ -126,10 +129,75 @@ def test_rate_limit_exhaustion_is_bounded(
 
 
 @pytest.mark.parametrize(
-    "header, delay", [(None, 60), ("bad", 60), ("-1", 60), ("200", 60), ("0", 0)]
+    "header, delay",
+    [
+        (None, 60),
+        ("bad", 60),
+        ("-1", 60),
+        ("nan", 60),
+        ("inf", 60),
+        ("200", 200),  # the provider's window, never cut short (a retry inside it is refused)
+        ("7200", 3600),  # at most an hour
+        ("0", 0),
+    ],
 )
 def test_bad_retry_header_has_a_bounded_default(header: str | None, delay: int) -> None:
     assert RateLimited(header).delay_s == delay
+
+
+def test_an_http_date_retry_header_is_the_seconds_until_then() -> None:
+    when = datetime.now(UTC) + timedelta(seconds=90)
+    delay = RateLimited(format_datetime(when, usegmt=True)).delay_s
+    assert 85 <= delay <= 91
+    past = datetime.now(UTC) - timedelta(seconds=90)
+    assert RateLimited(format_datetime(past, usegmt=True)).delay_s == 0
+    # "-0000": no zone given (RFC 5322); read as UTC, as the provider means it
+    unzoned = format_datetime(when.replace(tzinfo=None))
+    assert unzoned.endswith("-0000")
+    assert 85 <= RateLimited(unzoned).delay_s <= 91
+
+
+def test_a_long_provider_window_fails_fast_and_is_kept(
+    server: FakeServer,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A 429 whose window is longer than MAX_QUOTA_WAIT_S is not waited out while holding the
+    client's lock (every other call would queue behind it for minutes); the next call inside the
+    window is refused without a request, so the shared quota is never hit again too early."""
+    server.reply({}, status=429, headers={"Retry-After": "300"})
+    client = TokenFactoryClient("test-only")
+    client.endpoint = server.url + "/v1/chat/completions"
+    waits: list[float] = []
+    monkeypatch.setattr("llm.client.time.sleep", waits.append)
+    with pytest.raises(RateLimited):
+        client.complete(make("Q1").case)
+    assert len(server.requests) == 1
+    with pytest.raises(RateLimited) as refused:
+        client.complete(make("Q1").case)
+    assert len(server.requests) == 1  # nothing sent inside the provider's window
+    assert refused.value.delay_s > MAX_QUOTA_WAIT_S
+    assert all(wait <= MAX_QUOTA_WAIT_S for wait in waits)
+
+
+def test_the_next_call_respects_the_last_backoff(
+    server: FakeServer,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """After a 429 every later call starts no earlier than its Retry-After, not 3.1 s later."""
+    for _ in range(3):
+        server.reply({}, status=429, headers={"Retry-After": "20"})
+    client = TokenFactoryClient("test-only")
+    client.endpoint = server.url + "/v1/chat/completions"
+    now = [1000.0]
+    monkeypatch.setattr("llm.client.time.monotonic", lambda: now[0])
+    monkeypatch.setattr("llm.client.time.sleep", lambda s: now.__setitem__(0, now[0] + s))
+    with pytest.raises(RateLimited):
+        client.complete(make("Q1").case)
+    sent_at = [now[0]]
+    server.reply(chat_response(json.dumps(output_from_case(make("Q1").case))))
+    client.complete(make("Q1").case)
+    assert len(server.requests) == 4
+    assert now[0] - sent_at[0] >= 20  # the new call waited for the provider's window
 
 
 @pytest.mark.parametrize(

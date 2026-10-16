@@ -93,7 +93,7 @@ export function scanBundle({ dist, examplesDir = null, srcDir = null }) {
   const texts = [];
   for (const file of files(dist)) {
     if (!TEXT.test(file)) continue;
-    const rel = path.relative(dist, file);
+    const rel = path.relative(dist, file).split(path.sep).join('/');
     const text = readFileSync(file, 'utf8');
     texts.push(text);
     if (file.endsWith('.map')) {

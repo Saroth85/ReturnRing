@@ -11,6 +11,7 @@ import { AGENT } from './copy';
 export function assistantModel(readyz: Pick<ReadyzResponse, 'mode' | 'llm_mode'> | undefined, apiMode: 'mock' | 'live'): string | null {
   if (apiMode === 'mock') return AGENT.model.contract;
   if (!readyz || readyz.mode === 'cached') return null;
+  if (readyz.llm_mode === 'tokenfactory') return AGENT.model.tokenfactory;
   return readyz.llm_mode === 'mock' ? AGENT.model.mock : AGENT.model.vllm;
 }
 

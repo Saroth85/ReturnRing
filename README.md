@@ -3,12 +3,41 @@
 ReturnRing helps a fashion e-commerce choose and explain the best action on every return, within
 EU consumer law. Statistical models estimate return probability, abuse risk, customer value and
 product anomalies; a rules engine picks the admissible actions; a simulator estimates their net
-benefit under explicit assumptions; Gemma 4, served with vLLM on an AMD Instinct MI300X, explains
+benefit under explicit assumptions; Gemma 4 through AMD Token Factory or local vLLM explains
 each decision and drafts the customer message. A person approves every restrictive action.
 
 Built for the AMD Developer Hackathon ACT III (lablab.ai), Track 3 "Reinvent Commerce". The full
 specification is [docs/spec.md](docs/spec.md) (in Italian); the decisions are in
 [docs/adr/](docs/adr/README.md).
+
+The current delivery plan is [ADR-18](docs/adr/ADR-18-amd-api-and-training.md): integrate Gemma
+through AMD Token Factory and train XGBoost and GraphSAGE on an AMD GPU. CPU versus MI300X
+benchmarks are retired from the submission and the System screen; older sections below preserve
+the original self-hosted deployment recipe and historical experiments, not completed GPU claims.
+
+For live AMD inference, set `LLM_MODE=tokenfactory`, `RADEON_API_KEY` and `DEMO_MODE=live` in the
+server environment. The adapter uses the `Gemma-4-31B-IT` catalog ID, one in-flight call and shared
+quota backoff. Keep `DEVICE=cpu` when the API runs on a CPU: the remote GPU is managed by AMD.
+Use synthetic demo inputs only. Photo inspections go to manual review because this endpoint is
+text-only. Existing local-vLLM and mock modes remain available.
+
+`python -m scripts.check_tokenfactory` exercises the real HTTP regeneration route on a small
+generated store, checks the contract and unchanged decisions, and writes an integration report.
+It asks for the API key with a hidden prompt; it never writes the key to a file.
+
+Offline training runs independently of inference, on the GPU notebook:
+
+```bash
+python -m scripts.train_amd risk --data data/gpu-synthetic --nature synthetic
+python -m scripts.train_amd graphsage-embed --data data/gpu-synthetic --nature synthetic
+# With the original verified ASOS tables available:
+python -m scripts.train_amd propensity --data data --nature real
+python -m scripts.train_amd graphsage-asos --data data --nature real
+```
+
+Each command requires its AMD-compatible Python environment, refuses CPU fallback and writes a
+new directory under `artifacts/amd-training/`. Quality metrics and training duration are retained;
+no CPU/GPU speedup is calculated. These commands are recipes, not evidence that a run completed.
 
 > **How to read the numbers.** Every figure in this README names its origin, its period and its
 > nature: *real* (measured on real data or real hardware), *synthetic* (measured on the generated

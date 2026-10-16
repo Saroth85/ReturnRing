@@ -32,13 +32,13 @@ from pathlib import Path
 from typing import Literal, cast
 
 from contracts.vocab import LlmMode, ServedFrom
-from llm.client import DEFAULT_MODEL
+from llm.client import DEFAULT_MODEL, TOKENFACTORY_MODEL
 
 Device = Literal["cpu", "gpu"]
 
 _ALLOWED = {
     "DEVICE": ("cpu", "gpu"),
-    "LLM_MODE": ("mock", "vllm"),
+    "LLM_MODE": ("mock", "vllm", "tokenfactory"),
     "DEMO_MODE": ("live", "cached"),
 }
 _SWITCHES = {"on": True, "true": True, "1": True, "off": False, "false": False, "0": False}
@@ -79,8 +79,15 @@ class Settings:
     public_read_only: bool = False
     llm_concurrency: int = DEFAULT_LLM_CONCURRENCY
     vllm_timeout_s: float = DEFAULT_VLLM_TIMEOUT_S
+    radeon_api_key: str | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
+        if self.llm_mode == "tokenfactory":
+            object.__setattr__(self, "gemma_model", TOKENFACTORY_MODEL)
+        if self.llm_mode == "tokenfactory" and self.cached:
+            raise ValueError(
+                "Token Factory uses DEMO_MODE=live; the old cache has local provenance"
+            )
         if not 1 <= self.llm_concurrency <= 256:
             raise ValueError(f"LLM_CONCURRENCY must be 1 to 256, got {self.llm_concurrency}")
         if not 0 < self.vllm_timeout_s <= 600:
@@ -103,11 +110,22 @@ class Settings:
             serving_dir=Path(source.get("SERVING_DIR", "serving")),
             vllm_base_url=source.get("VLLM_BASE_URL") or None,
             vllm_api_key=source.get("VLLM_API_KEY") or None,
-            gemma_model=source.get("GEMMA_MODEL") or DEFAULT_MODEL,
+            gemma_model=(
+                TOKENFACTORY_MODEL
+                if values["LLM_MODE"] == "tokenfactory"
+                else source.get("GEMMA_MODEL") or DEFAULT_MODEL
+            ),
+            radeon_api_key=source.get("RADEON_API_KEY") or None,
             demo_clock=_switch(source, "DEMO_CLOCK", True),
             public_read_only=_switch(source, "PUBLIC_READ_ONLY", False),
-            llm_concurrency=int(source.get("LLM_CONCURRENCY") or DEFAULT_LLM_CONCURRENCY),
-            vllm_timeout_s=float(source.get("VLLM_TIMEOUT_S") or DEFAULT_VLLM_TIMEOUT_S),
+            llm_concurrency=int(
+                source.get("LLM_CONCURRENCY")
+                or (1 if values["LLM_MODE"] == "tokenfactory" else DEFAULT_LLM_CONCURRENCY)
+            ),
+            vllm_timeout_s=float(
+                source.get("VLLM_TIMEOUT_S")
+                or (90 if values["LLM_MODE"] == "tokenfactory" else DEFAULT_VLLM_TIMEOUT_S)
+            ),
         )
 
     @property

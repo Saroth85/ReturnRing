@@ -36,7 +36,7 @@ from apps.api.runtime import SERVING_UNAVAILABLE, Runtime, runtime
 from apps.api.services.demo_package import CacheOrigin, cache_origin
 from apps.api.services.other.telemetry import CACHED_NOTE, component_check
 from apps.api.services.seeds import ASSUMPTIONS_V1, current_assumptions
-from llm.client import _NoRedirect, check_local_url
+from llm.client import TokenFactoryClient, _NoRedirect, check_local_url
 from policy.types import Decision
 
 router = APIRouter()
@@ -156,6 +156,24 @@ async def readiness(rt: Runtime) -> s.ReadyzResponse:
         checks.append(_check("vllm", "disabled", "GPU off in cached mode"))
     elif settings.llm_mode == "mock":
         checks.append(_check("vllm", "disabled", "LLM_MODE=mock: the deterministic mock model"))
+    elif settings.llm_mode == "tokenfactory":
+        client = rt.generator.client()
+        problem = (
+            await asyncio.to_thread(client.probe)
+            if isinstance(client, TokenFactoryClient)
+            else rt.generator.client_error or "Token Factory client unavailable"
+        )
+        checks.append(
+            _check(
+                "vllm",
+                "unavailable" if problem else "ok",
+                problem
+                or (
+                    "AMD Token Factory: shared Gemma inference; "
+                    "GPU model and utilisation not exposed"
+                ),
+            )
+        )
     else:
         problem = await asyncio.to_thread(
             probe_vllm, settings.vllm_base_url, settings.vllm_api_key, settings.gemma_model

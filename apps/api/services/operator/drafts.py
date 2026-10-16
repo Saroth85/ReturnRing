@@ -53,7 +53,7 @@ async def regenerate(
         graph = await view_for(conn, serving, case.row)
     if rt.settings.cached:
         raise llm_unavailable(CACHED_OFF)
-    if rt.settings.llm_mode == "vllm":
+    if rt.settings.llm_mode != "mock":
         generator.client()
         if generator.client_error is not None:
             raise llm_unavailable(f"{VLLM_DOWN} (the local vLLM is not configured)")
@@ -72,7 +72,7 @@ async def regenerate(
     )
     outcome = await rt.model_call(generator.generate, inputs, created_at=now, kind="regenerate")
     info = outcome.info
-    if rt.settings.llm_mode == "vllm" and info.fallback_reason == "unavailable":
+    if rt.settings.llm_mode != "mock" and info.fallback_reason == "unavailable":
         raise llm_unavailable(VLLM_DOWN)
     async with rt.transaction() as conn:
         await return_of(conn, return_id, lock=True)

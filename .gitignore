@@ -19,3 +19,5 @@ demo-cache/
 bench-work/
 release-logs/
 /release-logs-*.tgz
+.venv-*/
+/cloudflared

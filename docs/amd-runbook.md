@@ -266,6 +266,67 @@ Appena il pannello mostra il droplet nella lista dei Droplets con il suo indiriz
 Da mandare a Claude: l'ora di creazione, l'IP (serve per `PUBLIC_HOST` nel README) e la taglia e
 l'immagine scelte (riga "Droplet image and size" di `docs/spike-results.md`).
 
+### 2.2 Alternativa: una VM Hot Aisle (quando il Developer Cloud non sblocca il limite GPU)
+
+Scelta il 16 ottobre 2026, con la richiesta di limite GPU ad AMD ancora senza risposta. Fonti:
+`https://hotaisle.xyz/quick-start`, `https://hotaisle.xyz/pricing`, il blog
+`https://hotaisle.xyz/blog/opencode-vllm-hotaisle` (letti il 16 ottobre). Il regolamento ACT III
+ammette "other approved AMD powered infrastructure": l'hardware è una MI300X, il pitch dice
+"AMD Instinct MI300X" e il pacchetto della demo registra la GPU vera.
+
+| Voce | Hot Aisle | Fonte |
+| --- | --- | --- |
+| Accesso | terminale di amministrazione nel browser su `https://admin.hotaisle.app`, o `ssh admin.hotaisle.app`; email e codice di verifica | quick start |
+| Account | nel terminale: creare il team, aggiungere crediti con la carta, "provision compute in under 60 seconds"; nessuna approvazione documentata | quick start, pricing |
+| Prezzo | 2,99 USD per GPU/ora, fatturati **al minuto**; consigliati 100 USD di crediti | pricing |
+| VM | "Small": 1x MI300X (192 GB HBM3), 8 o 13 vCPU, 224 GB di RAM, 12 TB NVMe | pricing |
+| Immagine | la VM "already comes with a recent ROCm setup, and Docker or Podman is ready to go": versioni di Ubuntu e ROCm da leggere al primo accesso | quick start |
+| Utente | nel blog il login è `hotaisle@<ip>`: non root; i nostri script vogliono root, quindi `sudo -i` dopo il login (da verificare) | blog |
+| Chiave SSH | il terminale genera una chiave di sessione da scaricare (`id_hotaisle_ed25519` e `.pub`): dalla pagina del saldo, Esc, il proprio nome, Invio; `ssh -i ~/.ssh/id_hotaisle_ed25519 hotaisle@<ip>` | quick start |
+| API token | stesso menù del proprio nome (serve solo per l'API `https://admin.hotaisle.app/api/docs/` o il CLI `hotaisle`) | quick start, hotaisle-cli |
+| Snapshot | non documentati: la VM o resta accesa (si paga) o si distrugge e si ricrea, riscaricando i 62,6 GB di pesi | — |
+| Porte pubbliche | non documentate; non servono: la demo pubblica resta sul server CPU (guida al rilascio, sezione 2) e la camminata e il video passano dal tunnel SSH (11.3) | — |
+
+Che cosa cambia rispetto al droplet, sezione per sezione:
+
+- **Sezione 3 (accesso)**: `ssh -i ~/.ssh/id_hotaisle_ed25519 hotaisle@<ip>` poi `sudo -i`; i tre controlli prima
+  di tutto: `docker --version && docker compose version && ls -l /dev/kfd && (rocm-smi --showproductname || amd-smi static | head -30); nproc; free -g | head -2; df -h /`.
+  Poi gli strumenti che `06-gpu-session.sh` pretende (`tmux`, `make`, `rsync`, `git`, `curl`, `tar`,
+  `python3`): `apt-get update -q && apt-get install -y --no-install-recommends tmux make rsync git curl`
+  (gli altri due sono già in Ubuntu). Se `docker compose` manca: `apt-get install -y docker-compose-v2`;
+  se c'è solo Podman: `apt-get install -y docker.io docker-compose-v2`. Nessun container Quick
+  Start `rocm` da fermare. Da mandare a Claude: l'output dei controlli.
+- **Sezione 1.5 (firewall)**: non c'è il Cloud Firewall di DigitalOcean; `ufw` sulla VM non ferma
+  le porte pubblicate da Docker. Le porte 80 e 443 del proxy restano eventualmente esposte
+  durante `make gpu-up`: tenere `make gpu-up` acceso solo per la registrazione, poi `make gpu-down`.
+- **Sezioni 7 e 9 (tempi)**: 8-13 vCPU invece di 20: le baseline CPU di G2, G3 e B2 sono più
+  lente; `BENCH_ARGS="--b2-samples 1"` dall'inizio.
+- **Sezione 13 (chiusura)**: senza snapshot, a fine giornata si sceglie: VM accesa da venerdì a
+  domenica (circa 53 ore, circa 160 USD, stima) oppure distruzione la sera e nuova VM la mattina
+  dopo (riscaricare i pesi: circa 20 min, non misurato; totale 16-19 ore, 50-60 USD, stima). La
+  seconda, salvo che il download risulti lento. Prima di distruggere: copia dei file della
+  sezione 12 e di `demo-cache.tar.gz`; il `.env` si ricrea dal portatile (3.3).
+- **Sezione 14 (costi)**: ore x 2,99 USD invece di 1,99; la carta è addebitata subito dai
+  crediti prepagati; i crediti AMD non si usano.
+- **Lo script `06-gpu-session.sh`**: invariato; va lanciato da root (`sudo -i`), con
+  `DROPLET_CREATED=<ora UTC di creazione della VM>` e, nella fase `export`,
+  `DEMO_GPU="AMD Instinct MI300X (Hot Aisle)"` (il valore predefinito nomina il Developer Cloud;
+  il pacchetto registra la piattaforma vera, regola 11).
+- **Sezione 11 (stack live)**: se le porte 80 e 443 della VM non sono raggiungibili da fuori
+  (`https-check` fallisce con "did not answer within 240 s"), `make gpu-down`, poi
+  `make gpu-up-local`: lo stesso stack senza il file del proxy pubblico, in HTTP semplice su
+  `127.0.0.1:8080` e l'API su `127.0.0.1:8000`, senza password. Dal portatile
+  `ssh -i ~/.ssh/id_hotaisle_ed25519 -L 8080:127.0.0.1:8080 -L 8000:127.0.0.1:8000 hotaisle@<ip>`
+  e il browser su `http://localhost:8080`: il video e le prove passano dal tunnel, come la
+  camminata (11.3). La demo pubblica resta sul server CPU.
+
+Da mandare a Claude alla creazione: IP, ora di creazione, l'output dei tre controlli, la versione
+di Ubuntu e di ROCm (`cat /etc/os-release | head -2; cat /opt/rocm/.info/version 2>/dev/null`).
+
+Se la VM non avesse Docker, o per i notebook di AMD AI Notebooks (JupyterLab, nessun daemon): la
+stessa sessione con il Python dell'host è `docs/amd-host-runbook.md`, guidata da
+`scripts/release/07-host-session.sh` (guida al rilascio, 3.1-ter).
+
 ## 3. Primo accesso e configurazione (Steps 2-3, circa 5 min)
 
 ### 3.1 SSH e tmux

@@ -135,7 +135,8 @@
     "llm_mode": {
       "enum": [
         "vllm",
-        "mock"
+        "mock",
+        "tokenfactory"
       ],
       "title": "Llm Mode",
       "type": "string"

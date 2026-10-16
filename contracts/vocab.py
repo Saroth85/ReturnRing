@@ -86,7 +86,7 @@ ValidatorCode = Literal[
     "WRONG_LANGUAGE",
 ]
 VALIDATOR_CODES: tuple[ValidatorCode, ...] = get_args(ValidatorCode)
-LlmMode = Literal["vllm", "mock"]
+LlmMode = Literal["vllm", "mock", "tokenfactory"]
 LLM_MODES: tuple[LlmMode, ...] = get_args(LlmMode)
 ServedFrom = Literal["live", "cached"]  # DEMO_MODE: cached = precomputed on the MI300X
 SERVED_FROM: tuple[ServedFrom, ...] = get_args(ServedFrom)

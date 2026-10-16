@@ -34,7 +34,8 @@ import hashlib
 import json
 import re
 import time
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any, Final, Literal, cast
@@ -46,7 +47,15 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from apps.api import schemas as s
 from apps.api.errors import llm_unavailable, rate_limited
-from apps.api.ratelimit import AGENT_RATE_LIMIT, AGENT_RATE_WINDOW_S, RateLimiter
+from apps.api.ratelimit import (
+    AGENT_RATE_LIMIT,
+    AGENT_RATE_WINDOW_S,
+    PUBLIC_AGENT_BUSY_RETRY_S,
+    PUBLIC_AGENT_IN_FLIGHT,
+    PUBLIC_AGENT_LIMIT,
+    PUBLIC_AGENT_WINDOW_S,
+    RateLimiter,
+)
 from apps.api.services import decisions as store
 from apps.api.services.cases import record_of
 from apps.api.services.generation import POLICY_TEXT
@@ -311,7 +320,7 @@ class Run:
     fallback_reason: FallbackReason | None
     model_calls: int
     validator_codes: list[ValidatorCode]
-    llm_mode: Literal["mock", "vllm"]
+    llm_mode: Literal["mock", "vllm", "tokenfactory"]
     model: str
     latency_ms: int | None
 
@@ -355,7 +364,7 @@ def answer_codes(
     return codes or ["SCHEMA"]
 
 
-def refusal_run(answer: AgentAnswer, llm_mode: Literal["mock", "vllm"]) -> Run:
+def refusal_run(answer: AgentAnswer, llm_mode: Literal["mock", "vllm", "tokenfactory"]) -> Run:
     """A refusal written by code (llm.agent.is_write_request) before any model call."""
     return Run(answer, [], "template", "write_request", 0, [], llm_mode, TEMPLATE_MODEL, None)
 
@@ -603,7 +612,7 @@ def check_available(settings: Settings, client_error: str | None) -> None:
             "the agent needs the model: the GPU is off in cached mode (US-901); the case card "
             "shows the precomputed explanation"
         )
-    if settings.llm_mode == "vllm" and client_error is not None:
+    if settings.llm_mode != "mock" and client_error is not None:
         raise llm_unavailable(f"the local vLLM is not configured: {client_error}")
 
 
@@ -623,7 +632,18 @@ async def run(
         raise llm_unavailable("the configured model client has no chat (tool calling)")
     chat = cast(ChatClient, client)
     try:
-        return await call(run_vllm, chat, settings.gemma_model, data, question)
+        result = await call(run_vllm, chat, settings.gemma_model, data, question)
+        return Run(
+            result.answer,
+            result.calls,
+            result.path,
+            result.fallback_reason,
+            result.model_calls,
+            result.validator_codes,
+            settings.llm_mode,
+            result.model,
+            result.latency_ms,
+        )
     except LlmUnavailable as exc:
         raise llm_unavailable(f"the local vLLM did not answer: {exc}") from None
 
@@ -688,6 +708,43 @@ async def save(
         )
     )
     return events
+
+
+def check_public_budget(app: FastAPI) -> None:
+    """429 rate_limited past PUBLIC_AGENT_LIMIT questions of every visitor together: on the
+    public demo with a real model behind it, per-client budgets alone let a few clients spend
+    the shared quota of the team (PR 15 review). Counted only for a question that is admitted."""
+    found = getattr(app.state, "public_agent_limiter", None)
+    limiter = (
+        found
+        if isinstance(found, RateLimiter)
+        else RateLimiter(PUBLIC_AGENT_LIMIT, PUBLIC_AGENT_WINDOW_S)
+    )
+    app.state.public_agent_limiter = limiter
+    wait = limiter.retry_after("all")
+    if wait is not None:
+        raise rate_limited(
+            f"at most {PUBLIC_AGENT_LIMIT} questions to the agent of the public demo every "
+            f"{PUBLIC_AGENT_WINDOW_S:.0f} s, for every visitor together",
+            wait,
+        )
+
+
+@contextmanager
+def public_slot(app: FastAPI) -> Iterator[None]:
+    """One of PUBLIC_AGENT_IN_FLIGHT places for a question being answered on the public demo;
+    with every place taken, 429 rate_limited at once instead of an unbounded queue in front of
+    the model. The check and the count run without an await between them (one event loop)."""
+    busy = int(getattr(app.state, "agent_in_flight", 0))
+    if busy >= PUBLIC_AGENT_IN_FLIGHT:
+        raise rate_limited(
+            "the agent of the public demo is answering other visitors", PUBLIC_AGENT_BUSY_RETRY_S
+        )
+    app.state.agent_in_flight = busy + 1
+    try:
+        yield
+    finally:
+        app.state.agent_in_flight = int(getattr(app.state, "agent_in_flight", 1)) - 1
 
 
 def check_rate(app: FastAPI, person: str, client: str | None = None) -> None:

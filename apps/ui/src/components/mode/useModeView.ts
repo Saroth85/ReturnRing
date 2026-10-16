@@ -56,6 +56,7 @@ export function describeMode({ readyz: r, readyzFailed, meta, isMock, readOnly }
       : { ...base, kind: 'checking', title: MODE.checking, detail: null };
   }
   if (r.llm_mode === 'mock') return { ...base, kind: 'live-cpu', title: MODE.liveCpuTitle, detail: MODE.liveCpu };
+  if (r.llm_mode === 'tokenfactory') return { ...base, kind: 'live', title: MODE.liveTitle, detail: MODE.tokenfactory };
   return { ...base, kind: 'live', title: MODE.liveTitle, detail: r.device === 'gpu' ? MODE.liveGpu : r.device };
 }
 

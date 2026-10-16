@@ -667,6 +667,7 @@ def test_makefile_targets_use_overrides_and_existing_scripts() -> None:
 # ---- The product stack: reset, api, ui, proxy, telemetry, MI300X batch, cached demo ----------
 
 API_ENV = {
+    "RADEON_API_KEY",
     "DATABASE_URL",
     "DEVICE",
     "LLM_MODE",

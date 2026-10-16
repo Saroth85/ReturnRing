@@ -19,6 +19,7 @@ Every endpoint of the group that has no route above add_stubs() is a 501 stub.
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from typing import Annotated
 
 from fastapi import APIRouter, Body, Request
@@ -172,10 +173,18 @@ async def agent_ask(
         data = await agent.case_data(conn, serving, body.return_id, rt.now())
     if data is None:
         raise not_found(f"return {body.return_id}")
-    if rt.settings.llm_mode == "vllm":
+    if rt.settings.llm_mode != "mock":
         rt.generator.client()  # a configuration the client refuses is a 503, never a 500
     agent.check_available(rt.settings, rt.generator.client_error)
-    answered = await agent.run(rt.settings, rt.generator.client, rt.model_call, data, body.question)
+    # The public demo with a real model: a bounded queue, then one budget for every visitor
+    # (the shared model quota is the team's, PR 15 review); the mock spends nothing.
+    shared = public and rt.settings.llm_mode != "mock"
+    with agent.public_slot(request.app) if shared else nullcontext():
+        if shared:
+            agent.check_public_budget(request.app)
+        answered = await agent.run(
+            rt.settings, rt.generator.client, rt.model_call, data, body.question
+        )
     async with rt.transaction() as conn:
         events = await agent.save(conn, body, data, answered, rt.now())
     frames = [s.sse_frame(e) for e in events.root]

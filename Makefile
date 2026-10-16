@@ -1,5 +1,6 @@
 .PHONY: dev-up dev-down dev-logs demo-data reset demo-walk gpu-up gpu-down gpu-reset batch-generate serving-check \
 	demo-export demo-import demo-verify demo-up demo-local demo-reset demo-down admin-password \
+	tf-up tf-up-local tf-down tf-logs \
 	test test-gpu test-asos lint licenses asos asos-verify \
 	generate generate-ood graph features anomalies risk score results propensity serving pipeline bench \
 	gnn-asos embeddings gnn-results gnn-test gnn-image gnn-asos-gpu gnn-asos-cpu-container \
@@ -24,6 +25,8 @@ COMPOSE = docker compose -f infra/docker-compose.yml --env-file $(ENV_FILE)
 # gpu and demo use override files so the laptop .env (DEVICE=cpu, LLM_MODE=mock) cannot leak in.
 GPU = docker compose -f infra/docker-compose.yml -f infra/compose.gpu.yml --env-file $(ENV_FILE) --profile gpu
 DEMO = docker compose -f infra/docker-compose.yml -f infra/compose.demo.yml --env-file $(ENV_FILE) --profile demo
+# CPU host, live shared AMD inference; the reset uses labelled mock drafts (ADR-18).
+TF = docker compose -f infra/docker-compose.yml -f infra/compose.tokenfactory.yml --env-file $(ENV_FILE) --profile dev
 # A server reachable from the Internet adds HTTPS on PUBLIC_HOST and basic auth (spec 11).
 PUBLIC = -f infra/compose.public.yml
 SPIKE = docker compose -f infra/docker-compose.yml -f infra/compose.gpu.yml -f infra/compose.spike.yml --env-file $(ENV_FILE) --profile gpu
@@ -137,6 +140,22 @@ demo-reset:
 
 demo-down:
 	$(DEMO) down --remove-orphans
+
+# Live Token Factory demo: a prepared serving/ snapshot, no GPU or cached-demo override.
+# Explicit service names keep offline jobs and GPU services out of deployment.
+# The one-shot reset recreates the demo database; this is a disposable synthetic demo only.
+tf-up: $(ENV_FILE) serving-check
+	$(TF) $(PUBLIC) up -d --build postgres reset api ui proxy
+
+tf-up-local: $(ENV_FILE) serving-check
+	$(TF) up -d --build postgres reset api ui proxy
+	@echo "ReturnRing live AMD demo: http://localhost:8080"
+
+tf-down:
+	$(TF) down --remove-orphans
+
+tf-logs:
+	$(TF) logs --tail 100 -f postgres reset api ui proxy
 
 # The bcrypt hash for ADMIN_PASSWORD_HASH (basic auth of the user admin on a public server);
 # prompts twice. Cost 10 (about 70 ms per check with Caddy 2.11.7 on 4 shared vCPUs, 14 Oct

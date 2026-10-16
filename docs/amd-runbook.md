@@ -291,7 +291,9 @@ Che cosa cambia rispetto al droplet, sezione per sezione:
 
 - **Sezione 3 (accesso)**: `ssh -i ~/.ssh/id_hotaisle_ed25519 hotaisle@<ip>` poi `sudo -i`; i tre controlli prima
   di tutto: `docker --version && docker compose version && ls -l /dev/kfd && (rocm-smi --showproductname || amd-smi static | head -30); nproc; free -g | head -2; df -h /`.
-  Se `docker compose` manca: `apt-get update && apt-get install -y docker-compose-v2 make git`;
+  Poi gli strumenti che `06-gpu-session.sh` pretende (`tmux`, `make`, `rsync`, `git`, `curl`, `tar`,
+  `python3`): `apt-get update -q && apt-get install -y --no-install-recommends tmux make rsync git curl`
+  (gli altri due sono già in Ubuntu). Se `docker compose` manca: `apt-get install -y docker-compose-v2`;
   se c'è solo Podman: `apt-get install -y docker.io docker-compose-v2`. Nessun container Quick
   Start `rocm` da fermare. Da mandare a Claude: l'output dei controlli.
 - **Sezione 1.5 (firewall)**: non c'è il Cloud Firewall di DigitalOcean; `ufw` sulla VM non ferma

@@ -8,9 +8,11 @@ Both transports disable proxies and redirects. No runtime dependency beyond the 
 from __future__ import annotations
 
 import copy
+import email.utils
 import http.client
 import ipaddress
 import json
+import math
 import os
 import random
 import threading
@@ -19,6 +21,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
 from urllib.parse import urlsplit
@@ -47,16 +50,40 @@ class LlmUnavailable(RuntimeError):
     """The model could not answer: connection, timeout, HTTP error or malformed response."""
 
 
+MAX_RETRY_AFTER_S = 3600.0
+# The longest a Token Factory call waits for the shared quota while holding the client's lock;
+# past it the call fails at once (the caller's reviewed fallback answers) instead of making every
+# other call queue behind it for minutes.
+MAX_QUOTA_WAIT_S = 30.0
+
+
+def retry_after_seconds(value: str | None) -> float:
+    """Retry-After as seconds: a number or an HTTP-date (RFC 9110); 60 when missing or
+    unreadable, at most an hour. The provider's window is kept whole: a retry inside it is
+    refused anyway and spends the shared quota of the team."""
+    if not value:
+        return 60.0
+    try:
+        seconds = float(value)
+    except ValueError:
+        try:
+            when = email.utils.parsedate_to_datetime(value)
+        except (TypeError, ValueError, IndexError):
+            return 60.0
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=UTC)
+        seconds = max(0.0, (when - datetime.now(UTC)).total_seconds())
+    if not math.isfinite(seconds) or seconds < 0:
+        return 60.0
+    return min(seconds, MAX_RETRY_AFTER_S)
+
+
 class RateLimited(LlmUnavailable):
     """A provider rejected the request; never work around its shared quota."""
 
     def __init__(self, retry_after: str | None) -> None:
         super().__init__("model endpoint answered HTTP 429")
-        try:
-            seconds = float(retry_after or "60")
-        except ValueError:
-            seconds = 60.0
-        self.delay_s = seconds if 0 <= seconds <= 120 else 60.0
+        self.delay_s = retry_after_seconds(retry_after)
 
 
 @dataclass(frozen=True)
@@ -317,15 +344,23 @@ class TokenFactoryClient(VllmClient):
         started = time.perf_counter()
         with self._lock:
             for attempt in range(3):
-                time.sleep(max(0.0, self._next_request - time.monotonic()))
+                wait = self._next_request - time.monotonic()
+                if wait > MAX_QUOTA_WAIT_S:
+                    # Inside the provider's window: refuse now, send nothing, free the lock.
+                    raise RateLimited(str(math.ceil(wait)))
+                time.sleep(max(0.0, wait))
                 self._next_request = time.monotonic() + 3.1
                 try:
                     data, _ = super()._post(adapted)
                     return data, time.perf_counter() - started
                 except RateLimited as exc:
+                    # Every later call, not only this retry, starts after the provider's window.
+                    self._next_request = max(
+                        self._next_request,
+                        time.monotonic() + exc.delay_s + random.uniform(0.1, 0.4),
+                    )
                     if attempt == 2:
                         raise
-                    time.sleep(exc.delay_s + random.uniform(0.1, 0.4))
         raise AssertionError("unreachable")  # pragma: no cover
 
     def probe(self) -> str | None:

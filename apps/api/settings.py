@@ -80,6 +80,9 @@ class Settings:
     llm_concurrency: int = DEFAULT_LLM_CONCURRENCY
     vllm_timeout_s: float = DEFAULT_VLLM_TIMEOUT_S
     radeon_api_key: str | None = field(default=None, repr=False)
+    # The proxies in front of the API that write X-Forwarded-For: Caddy in the Compose
+    # deployment, the platform's edge on Railway (1); 0 when uvicorn faces clients directly.
+    trusted_proxy_hops: int = 1
 
     def __post_init__(self) -> None:
         if self.llm_mode == "tokenfactory":
@@ -90,6 +93,8 @@ class Settings:
             )
         if not 1 <= self.llm_concurrency <= 256:
             raise ValueError(f"LLM_CONCURRENCY must be 1 to 256, got {self.llm_concurrency}")
+        if not 0 <= self.trusted_proxy_hops <= 5:
+            raise ValueError(f"TRUSTED_PROXY_HOPS must be 0 to 5, got {self.trusted_proxy_hops}")
         if not 0 < self.vllm_timeout_s <= 600:
             raise ValueError(f"VLLM_TIMEOUT_S must be in (0, 600], got {self.vllm_timeout_s}")
 
@@ -126,6 +131,7 @@ class Settings:
                 source.get("VLLM_TIMEOUT_S")
                 or (90 if values["LLM_MODE"] == "tokenfactory" else DEFAULT_VLLM_TIMEOUT_S)
             ),
+            trusted_proxy_hops=int(source.get("TRUSTED_PROXY_HOPS") or 1),
         )
 
     @property

@@ -265,6 +265,41 @@ i log, e i JSON piccoli di `artifacts/spikes/`, `artifacts/bench/$BENCH_RUN/`, `
 `artifacts/eval/gnn/`, `demo-cache/MANIFEST.json`), oltre ai file di 3.3. Mai il `.env`: nel
 pacchetto c'è solo `env-redacted.txt`, con i segreti sostituiti.
 
+### 3.1-ter Lo script 07: la stessa sessione su un host AMD senza Docker (riserva)
+
+Se la macchina AMD non ha Docker (AMD AI Notebooks, cioè JupyterLab con una GPU ROCm e un
+terminale; o una VM senza daemon), la sessione si fa con `scripts/release/07-host-session.sh`, che
+esegue con il Python dell'host quello che `06-gpu-session.sh` fa con i target `make`: vLLM dal
+pacchetto installato sull'host (o da pip), gli spike in puro Python (G3 e B2 saltati: hanno bisogno
+dell'immagine `rocm/dgl`; GraphSAGE resta addestrato su CPU), `amd_xgboost` dall'indice AMD in un
+venv a parte (G2, B1; piano B registrato se non si installa), l'API con `uvicorn` sull'host e la UI
+sul portatile attraverso un tunnel. Il runbook dettagliato è `docs/amd-host-runbook.md` (sezione
+0.5 per la corrispondenza fase-sezione, sezione 13 per la prova in sandbox del 16 ottobre).
+
+```bash
+cp .env.example .env
+sed -i "s/^VLLM_API_KEY=.*/VLLM_API_KEY=$(openssl rand -hex 24)/" .env
+HOST_PROVIDER="AMD AI Notebooks" HOST_CREATED=<ora UTC> bash scripts/release/07-host-session.sh <fase>
+```
+
+| Fase | Target | Tempo stimato |
+| --- | --- | --- |
+| `probe` | i fatti della macchina (GPU, ROCm, python, vllm, rete, disco); non fallisce mai | 1 min |
+| `env` | `.venv` con `requirements/dev.txt`; dove sta vllm; `.venv-bench` con `amd_xgboost` | 5-15 min |
+| `vllm` | pesi, template della chat, `vllm serve` in background, `/health`, prima richiesta | download + 5-15 min |
+| `spikes` | G2, G7, G1, G1-bench, G5, G6, G4 | 25-35 min |
+| `bench` | B1, B4, B3 e il merge con `python -m bench run --device gpu` (B2 saltato) | 1-2 h |
+| `export` | reset, bozze via vLLM, pacchetto con la GPU rilevata, tarball e sha256 | 30-60 min |
+| `live` | uvicorn su 127.0.0.1:8000, `/readyz`, telemetria, camminata, istruzioni dei tunnel | 10-20 min |
+| `down` | ferma ciò che ha avviato, `df`, promemoria | 5 min |
+| `all` | `probe env vllm spikes bench export` | la somma |
+
+Checkpoint, ripresa, `--from`/`--only`/`--skip`/`--force`/`--dry-run`, piano B a ogni errore e il
+pacchetto `release-logs-<data>.tgz` (segreti oscurati) come in 06; i marker sono sotto
+`release-logs/host/`. Il pacchetto porta l'etichetta MI300X solo se il probe dice MI300X
+(`HOST_PROVIDER` obbligatorio); su un'altra GPU AMD l'etichetta è quella della prova (regola 13). Su
+una VM Hot Aisle con Docker si usa invece `docs/amd-runbook.md` con la sezione 2.2.
+
 ### 3.2 Sul droplet, in ordine
 
 | Blocco | Passi del runbook | Tempo stimato | Punto di controllo |

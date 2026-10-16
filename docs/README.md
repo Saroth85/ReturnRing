@@ -43,3 +43,9 @@
   of `release-guide.md` for the AMD part): droplet creation, `.env`, preflight, the spikes, the
   GPU session, the drafts and the demo package, the live stack, snapshot and destruction, times,
   costs, problems and remedies, the values still to provide.
+- `amd-host-runbook.md` — the no-Docker companion of `amd-runbook.md` (in Italian): the same
+  session on an AMD host with only Python, pip, a ROCm GPU and a terminal (AMD AI Notebooks or a
+  Hot Aisle MI300X VM): recognising the machine, the two Python environments, vLLM with Gemma 4
+  from the installed package, the spikes without Docker (G3 and B2 skipped), the drafts and the
+  demo package, benchmarks B1, B4 and B3, the live stack through a tunnel for the video, costs,
+  problems and remedies, checklist, values to provide.

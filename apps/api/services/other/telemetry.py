@@ -318,7 +318,7 @@ async def llm_stats(conn: AsyncConnection, at: datetime) -> s.LlmStats | None:
     rows = (
         await conn.execute(
             select(llm_generations.c.latency_ms, llm_generations.c.completion_tokens).where(
-                (llm_generations.c.llm_mode == "vllm")
+                (llm_generations.c.llm_mode.in_(("vllm", "tokenfactory")))
                 & (llm_generations.c.served_from == "live")
                 & (llm_generations.c.model_calls > 0)
                 & llm_generations.c.latency_ms.is_not(None)
@@ -333,7 +333,7 @@ async def llm_stats(conn: AsyncConnection, at: datetime) -> s.LlmStats | None:
         return None
     day = at.date()
     prov = provenance(
-        f"llm_generations of the last {LLM_WINDOW_S} s: vLLM calls of the API, measured latency "
+        f"llm_generations of the last {LLM_WINDOW_S} s: model calls of the API, end-to-end latency "
         "and completion tokens",
         (at - timedelta(seconds=LLM_WINDOW_S)).date(),
         day,
@@ -396,7 +396,7 @@ async def telemetry(
     history = [g for g in (_gpu_sample(r) for r in rows) if g is not None]
     latest = history[-1] if history else None
     live = latest is not None and sampled - latest.sampled_at <= timedelta(seconds=STALE_S)
-    llm = await llm_stats(conn, at) if settings.llm_mode == "vllm" else None
+    llm = await llm_stats(conn, at) if settings.llm_mode != "mock" else None
     if live and latest is not None:
         device = next(
             str(r["device"]) for r in reversed(rows) if r["sampled_at"] == latest.sampled_at

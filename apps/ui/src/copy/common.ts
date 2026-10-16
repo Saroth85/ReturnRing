@@ -41,6 +41,7 @@ export const PROVENANCE = {
 
 export const MODE = {
   liveTitle: 'LIVE',
+  tokenfactory: 'Gemma 4 via AMD Token Factory · shared inference',
   liveGpu: `${GPU_NAME} · ${LLM_NAME} on vLLM`,
   liveCpuTitle: 'LIVE (CPU)',
   liveCpu: 'mock language model: drafts are hand-written stand-ins',

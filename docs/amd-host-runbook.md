@@ -1,5 +1,10 @@
 # Runbook AMD senza Docker: la sessione su un host AMD con solo Python, pip, una GPU ROCm e un terminale
 
+> Current delivery scope (16 October 2026): ADR-18 supersedes the local-only inference and
+> CPU/MI300X comparison requirements below. See docs/amd-training-session-2026-10-16.md for
+> the completed Token Factory integration check and GPU training on synthetic data.
+
+
 Scritto il 16 ottobre 2026 come compagno senza Docker di `docs/amd-runbook.md` (il runbook del
 droplet MI300X di AMD Developer Cloud, che resta la fonte per ogni passo che qui non cambia). In
 italiano perché è un documento operativo per il team; comandi, nomi di file, variabili e righe

@@ -1,5 +1,10 @@
 # ReturnRing — Specifiche e analisi di progetto
 
+> Current delivery scope (16 October 2026): ADR-18 supersedes the local-only inference and
+> CPU/MI300X comparison requirements below. See docs/amd-training-session-2026-10-16.md for
+> the completed Token Factory integration check and GPU training on synthetic data.
+
+
 Oct 11, 2026 · @saroth
 
 ## 1. Sintesi esecutiva

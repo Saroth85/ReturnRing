@@ -33,6 +33,7 @@ import sys
 import time
 from collections import Counter
 from collections.abc import Awaitable, Callable, Sequence
+from dataclasses import replace
 from datetime import datetime
 from typing import Any, Final
 
@@ -177,6 +178,15 @@ def unavailable_drafts(summary: dict[str, Any]) -> int:
     return int(summary.get("generation", {}).get("template/unavailable", 0))
 
 
+def draft_settings(settings: Settings) -> Settings:
+    """The settings the reset drafts with: a reset drafts every open return, which on the
+    shared Token Factory key is hundreds of calls from a second process (PR 15 review), so it
+    drafts with the mock there; any other mode, vLLM on the local GPU included, as configured."""
+    if settings.llm_mode == "tokenfactory":
+        return replace(settings, llm_mode="mock")
+    return settings
+
+
 def main(argv: Sequence[str] | None = None, *, llm_client: LlmClient | None = None) -> int:
     args = parser().parse_args(argv)
     settings = Settings.from_env()
@@ -195,8 +205,12 @@ def main(argv: Sequence[str] | None = None, *, llm_client: LlmClient | None = No
         print(f"remedy: {REMEDY}", file=sys.stderr)
         return 2
     log(f"serving snapshot {settings.serving_dir} at {serving.as_of.isoformat()}")
-    generator = None if args.no_drafts else Generator(settings, llm_client)
-    if generator is not None and settings.llm_mode == "vllm" and not settings.cached:
+    drafting = draft_settings(settings)
+    if drafting is not settings:
+        log("LLM_MODE=tokenfactory: the reset drafts with the mock model (the shared quota of "
+            "the team is for the API), and records them as the mock's")  # fmt: skip
+    generator = None if args.no_drafts else Generator(drafting, llm_client)
+    if generator is not None and settings.llm_mode != "mock" and not settings.cached:
         generator.client()
         if generator.client_error is not None:
             log(f"WARNING: vLLM is not configured, every draft uses the template: "
@@ -213,7 +227,7 @@ def main(argv: Sequence[str] | None = None, *, llm_client: LlmClient | None = No
     summary = asyncio.run(run())
     print(json.dumps(summary, indent=2, sort_keys=True))
     missing = unavailable_drafts(summary)
-    fell_back = missing if settings.llm_mode == "vllm" and not settings.cached else 0
+    fell_back = missing if settings.llm_mode != "mock" and not settings.cached else 0
     if fell_back:
         log(f"WARNING: vLLM was unavailable for {fell_back} drafts: they use the template")
     elif missing and settings.cached:

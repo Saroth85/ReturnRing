@@ -1,0 +1,176 @@
+{
+  "date": "2026-10-16",
+  "base_commit": "789af50579a1ee4a8bedb7abb2e8f7dc702fa058",
+  "data_nature": "synthetic",
+  "dataset": {
+    "store_customers": 20000,
+    "seed": 42,
+    "asos_download": "not run successfully: OSF HTTP 503"
+  },
+  "gpu": "AMD Instinct MI300X VF",
+  "cpu_gpu_comparison": false,
+  "xgboost": {
+    "version": "2.1.3",
+    "use_hip": true,
+    "source_revision": "ee5234f2c19a202888e1988ef9929672e56b5184",
+    "binary_sha256": "bc4ee417ab4340a79fb1ce4ef300c40562116798a2e5a7b85c201ac54ca19c39",
+    "exit_code": 0,
+    "job_seconds": 42.199,
+    "model_set": [
+      "A1",
+      "A2",
+      "A3",
+      "A4"
+    ],
+    "customer_A3_heldout": {
+      "auprc": 0.9808612735135481,
+      "brier": 0.004219145919220656,
+      "ece": 0.002454069734252796,
+      "flagged": 294,
+      "fpr": 0.006099686301847334,
+      "fpr_high_value": 0.0011614401858304297,
+      "high_value_false_positives": 2,
+      "high_value_negatives": 1722,
+      "n": 6009,
+      "positives": 271,
+      "precision": 0.8809523809523809,
+      "precision_at": {
+        "100": 1.0,
+        "50": 1.0
+      },
+      "recall": 0.955719557195572,
+      "threshold": 0.25
+    },
+    "golden_checks": {
+      "C-ELENA's open return on the guarantee path, not scored": true,
+      "C-GIULIA in Q1": true,
+      "F-ROSSI and F-ROSSI-CARD never in Q3 or Q4, at every month end": true,
+      "R-MARCO accounts high risk": true
+    },
+    "cpu_model_load": "A3 loaded successfully with xgboost-cpu 3.2.0"
+  },
+  "graphsage": {
+    "task": "self-supervised customer-identifier link prediction and embeddings; not ASOS return classification",
+    "environment": {
+      "backend": "torch",
+      "cpu": "INTEL(R) XEON(R) PLATINUM 8568Y+",
+      "cpu_count": 160,
+      "deterministic_algorithms": true,
+      "device": "cuda:0",
+      "gpu_arch": "gfx942:sramecc+:xnack-",
+      "gpu_name": "AMD Instinct MI300X VF",
+      "gpu_total_gb": 205.8,
+      "gpu_visible": true,
+      "python": "3.12.11",
+      "torch": "2.8.0+rocm6.4",
+      "torch_hip": "6.4.43482-0f2d60242",
+      "torch_threads": 160
+    },
+    "training": {
+      "auc_note": "how well the embeddings tell a held-out (account, value) use from a random value of the same kind: the self-supervised task, not abuse detection",
+      "best_epoch": 300,
+      "best_validation_loss": 0.247632,
+      "device_used_gb_at_end": 1.344,
+      "epoch_seconds_median": 0.0207,
+      "epochs_run": 300,
+      "load_average_after": 3.66,
+      "load_average_before": 3.68,
+      "loss_first_last": [
+        {
+          "train_loss": 8.845523834228516,
+          "valid_loss": 3.7974815368652344
+        },
+        {
+          "train_loss": 0.3820675313472748,
+          "valid_loss": 0.2476315051317215
+        }
+      ],
+      "negatives": "one random value of the same identifier kind per scored use",
+      "parameters": 1696,
+      "peak_allocated_gb": 0.186,
+      "peak_reserved_gb": 0.279,
+      "train_seconds": 8.414,
+      "uses": 124784,
+      "uses_scored_per_epoch": 22461,
+      "uses_validation": 12478,
+      "validation_auc_at_best": 0.948373
+    },
+    "output_rows": 77703,
+    "output_instants": [
+      "2026-07-01T00:00:00+00:00",
+      "2026-08-01T00:00:00+00:00",
+      "2026-09-01T00:00:00+00:00",
+      "2026-10-01T00:00:00+00:00"
+    ]
+  },
+  "tokenfactory": {
+    "purpose": "HTTP integration rehearsal, not model accuracy",
+    "cases": [
+      {
+        "case": "giulia",
+        "http_status": 200,
+        "round_trip_seconds": 5.895,
+        "generation": {
+          "generation_id": "GEN-0003008-2",
+          "generation_path": "model",
+          "fallback_reason": null,
+          "llm_mode": "tokenfactory",
+          "served_from": "live",
+          "model": "Gemma-4-31B-IT",
+          "model_calls": 1,
+          "validator_codes": [],
+          "created_at": "2026-10-02T09:00:00Z",
+          "latency_ms": 5852
+        },
+        "decision_unchanged": true
+      },
+      {
+        "case": "marco",
+        "http_status": 200,
+        "round_trip_seconds": 15.729,
+        "generation": {
+          "generation_id": "GEN-0003020-2",
+          "generation_path": "regenerated",
+          "fallback_reason": null,
+          "llm_mode": "tokenfactory",
+          "served_from": "live",
+          "model": "Gemma-4-31B-IT",
+          "model_calls": 2,
+          "validator_codes": [
+            "SCHEMA"
+          ],
+          "created_at": "2026-10-02T09:00:00Z",
+          "latency_ms": 15682
+        },
+        "decision_unchanged": true
+      },
+      {
+        "case": "elena",
+        "http_status": 200,
+        "round_trip_seconds": 33.191,
+        "generation": {
+          "generation_id": "GEN-0003011-2",
+          "generation_path": "regenerated",
+          "fallback_reason": null,
+          "llm_mode": "tokenfactory",
+          "served_from": "live",
+          "model": "Gemma-4-31B-IT",
+          "model_calls": 2,
+          "validator_codes": [
+            "SCHEMA"
+          ],
+          "created_at": "2026-10-02T09:00:00Z",
+          "latency_ms": 33142
+        },
+        "decision_unchanged": true
+      }
+    ],
+    "note": "One HTTP integration rehearsal; not latency percentiles or an accuracy evaluation."
+  },
+  "archive": {
+    "filename": "returnring-gpu-results.zip",
+    "sha256": "d80daa01f806b3226946cbd34cf8d351b0d895c3c9f8c7879ff44eb61e747d89",
+    "bytes": 8094729,
+    "crc_verified": true
+  }
+}

@@ -3,7 +3,7 @@
   "info": {
     "title": "ReturnRing API",
     "description": "Contract of the ReturnRing API (ADR-15). Every response carries the headers X-ReturnRing-Mode (live or cached) and X-Request-Id.",
-    "version": "1.8.1"
+    "version": "1.9.0"
   },
   "paths": {
     "/healthz": {
@@ -26,7 +26,7 @@
             }
           },
           "422": {
-            "description": "Unprocessable Entity",
+            "description": "Unprocessable Content",
             "content": {
               "application/json": {
                 "schema": {
@@ -58,7 +58,7 @@
             }
           },
           "422": {
-            "description": "Unprocessable Entity",
+            "description": "Unprocessable Content",
             "content": {
               "application/json": {
                 "schema": {
@@ -277,7 +277,7 @@
                 }
               }
             },
-            "description": "Unprocessable Entity"
+            "description": "Unprocessable Content"
           }
         }
       }
@@ -330,7 +330,7 @@
                 }
               }
             },
-            "description": "Unprocessable Entity"
+            "description": "Unprocessable Content"
           }
         }
       }
@@ -413,7 +413,7 @@
                 }
               }
             },
-            "description": "Unprocessable Entity"
+            "description": "Unprocessable Content"
           }
         }
       }
@@ -466,7 +466,7 @@
                 }
               }
             },
-            "description": "Unprocessable Entity"
+            "description": "Unprocessable Content"
           }
         }
       }
@@ -559,7 +559,7 @@
                 }
               }
             },
-            "description": "Unprocessable Entity"
+            "description": "Unprocessable Content"
           }
         }
       }
@@ -642,7 +642,7 @@
                 }
               }
             },
-            "description": "Unprocessable Entity"
+            "description": "Unprocessable Content"
           }
         }
       }
@@ -725,7 +725,7 @@
                 }
               }
             },
-            "description": "Unprocessable Entity"
+            "description": "Unprocessable Content"
           }
         }
       }
@@ -789,7 +789,7 @@
             }
           },
           "422": {
-            "description": "Unprocessable Entity",
+            "description": "Unprocessable Content",
             "content": {
               "application/json": {
                 "schema": {
@@ -861,7 +861,7 @@
             }
           },
           "422": {
-            "description": "Unprocessable Entity",
+            "description": "Unprocessable Content",
             "content": {
               "application/json": {
                 "schema": {
@@ -923,7 +923,7 @@
             }
           },
           "422": {
-            "description": "Unprocessable Entity",
+            "description": "Unprocessable Content",
             "content": {
               "application/json": {
                 "schema": {
@@ -1013,7 +1013,7 @@
                 }
               }
             },
-            "description": "Unprocessable Entity"
+            "description": "Unprocessable Content"
           }
         }
       }
@@ -1038,7 +1038,7 @@
             }
           },
           "422": {
-            "description": "Unprocessable Entity",
+            "description": "Unprocessable Content",
             "content": {
               "application/json": {
                 "schema": {
@@ -1070,7 +1070,7 @@
             }
           },
           "422": {
-            "description": "Unprocessable Entity",
+            "description": "Unprocessable Content",
             "content": {
               "application/json": {
                 "schema": {
@@ -1130,7 +1130,7 @@
             }
           },
           "422": {
-            "description": "Unprocessable Entity",
+            "description": "Unprocessable Content",
             "content": {
               "application/json": {
                 "schema": {
@@ -1198,7 +1198,7 @@
                 }
               }
             },
-            "description": "Unprocessable Entity"
+            "description": "Unprocessable Content"
           }
         }
       }
@@ -1233,7 +1233,7 @@
             }
           },
           "422": {
-            "description": "Unprocessable Entity",
+            "description": "Unprocessable Content",
             "content": {
               "application/json": {
                 "schema": {
@@ -1477,7 +1477,7 @@
                 }
               }
             },
-            "description": "Unprocessable Entity"
+            "description": "Unprocessable Content"
           }
         }
       }
@@ -1554,7 +1554,7 @@
                 }
               }
             },
-            "description": "Unprocessable Entity"
+            "description": "Unprocessable Content"
           }
         }
       }
@@ -1631,7 +1631,7 @@
                 }
               }
             },
-            "description": "Unprocessable Entity"
+            "description": "Unprocessable Content"
           }
         }
       }
@@ -1656,7 +1656,7 @@
             }
           },
           "422": {
-            "description": "Unprocessable Entity",
+            "description": "Unprocessable Content",
             "content": {
               "application/json": {
                 "schema": {
@@ -1726,7 +1726,7 @@
             }
           },
           "422": {
-            "description": "Unprocessable Entity",
+            "description": "Unprocessable Content",
             "content": {
               "application/json": {
                 "schema": {
@@ -1816,7 +1816,7 @@
                 }
               }
             },
-            "description": "Unprocessable Entity"
+            "description": "Unprocessable Content"
           }
         }
       }
@@ -1841,7 +1841,7 @@
             }
           },
           "422": {
-            "description": "Unprocessable Entity",
+            "description": "Unprocessable Content",
             "content": {
               "application/json": {
                 "schema": {
@@ -1891,7 +1891,7 @@
             }
           },
           "422": {
-            "description": "Unprocessable Entity",
+            "description": "Unprocessable Content",
             "content": {
               "application/json": {
                 "schema": {
@@ -1981,7 +1981,7 @@
                 }
               }
             },
-            "description": "Unprocessable Entity"
+            "description": "Unprocessable Content"
           }
         }
       }
@@ -2068,7 +2068,7 @@
             }
           },
           "422": {
-            "description": "Unprocessable Entity",
+            "description": "Unprocessable Content",
             "content": {
               "application/json": {
                 "schema": {
@@ -2100,7 +2100,7 @@
             }
           },
           "422": {
-            "description": "Unprocessable Entity",
+            "description": "Unprocessable Content",
             "content": {
               "application/json": {
                 "schema": {
@@ -2132,7 +2132,7 @@
             }
           },
           "422": {
-            "description": "Unprocessable Entity",
+            "description": "Unprocessable Content",
             "content": {
               "application/json": {
                 "schema": {
@@ -2174,7 +2174,7 @@
             }
           },
           "422": {
-            "description": "Unprocessable Entity",
+            "description": "Unprocessable Content",
             "content": {
               "application/json": {
                 "schema": {
@@ -8306,7 +8306,8 @@
             "type": "string",
             "enum": [
               "vllm",
-              "mock"
+              "mock",
+              "tokenfactory"
             ],
             "title": "Llm Mode"
           },
@@ -8381,7 +8382,8 @@
             "type": "string",
             "enum": [
               "vllm",
-              "mock"
+              "mock",
+              "tokenfactory"
             ],
             "title": "Llm Mode"
           },
@@ -10675,7 +10677,8 @@
             "type": "string",
             "enum": [
               "vllm",
-              "mock"
+              "mock",
+              "tokenfactory"
             ],
             "title": "Llm Mode"
           },

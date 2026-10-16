@@ -37,6 +37,7 @@ import copy
 import hashlib
 import json
 import logging
+import threading
 import time
 from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
@@ -55,7 +56,15 @@ from apps.api.settings import Settings
 from contracts.sql import decisions, llm_generations
 from contracts.vocab import LLM_MODES, AuditAction, GenerationKind, Lang
 from llm.case import ClusterSummary, ScoreFactor, build_case, factor_entity
-from llm.client import Completion, LlmClient, LlmUnavailable, MockClient, VllmClient, VllmConfig
+from llm.client import (
+    Completion,
+    LlmClient,
+    LlmUnavailable,
+    MockClient,
+    TokenFactoryClient,
+    VllmClient,
+    VllmConfig,
+)
 from llm.decision import ExpectedDecision, serialize_decision
 from llm.generate import Generation, GenerationBlocked, generate
 from llm.prompts import SYSTEM_PROMPT
@@ -228,6 +237,7 @@ class Generator:
         self.settings = settings
         self._client = client
         self._vllm: VllmClient | None = None
+        self._client_lock = threading.Lock()
         self.client_error: str | None = None  # why the vLLM client cannot be built, if it cannot
         self.cache_dir = settings.serving_dir / "llm_cache"
 
@@ -237,15 +247,26 @@ class Generator:
         configuration the client refuses gives an unavailable client: the template answers."""
         if self._client is not None:
             return self._client
-        if self.settings.llm_mode == "vllm":
+        with self._client_lock:
+            return self._configured_client()
+
+    def _configured_client(self) -> LlmClient:
+        if self.settings.llm_mode != "mock":
             if self._vllm is None:
                 try:
-                    self._vllm = VllmClient(
-                        VllmConfig(
-                            base_url=self.settings.vllm_base_url or "",
-                            api_key=self.settings.vllm_api_key or "",
-                            model=self.settings.gemma_model,
+                    self._vllm = (
+                        TokenFactoryClient(
+                            self.settings.radeon_api_key or "",
                             timeout_s=self.settings.vllm_timeout_s,
+                        )
+                        if self.settings.llm_mode == "tokenfactory"
+                        else VllmClient(
+                            VllmConfig(
+                                base_url=self.settings.vllm_base_url or "",
+                                api_key=self.settings.vllm_api_key or "",
+                                model=self.settings.gemma_model,
+                                timeout_s=self.settings.vllm_timeout_s,
+                            )
                         )
                     )
                 except ValueError as exc:
@@ -260,7 +281,7 @@ class Generator:
     def model_name(self) -> str:
         if self._client is not None and not isinstance(self._client, VllmClient):
             return MOCK_MODEL
-        return self.settings.gemma_model if self.settings.llm_mode == "vllm" else MOCK_MODEL
+        return self.settings.gemma_model if self.settings.llm_mode != "mock" else MOCK_MODEL
 
     def generate(
         self,
@@ -334,7 +355,7 @@ class Generator:
         recorder = _Recording(client)
         started = time.perf_counter()
         result = generate(item.case, item.expected, recorder)
-        measured = self.settings.llm_mode == "vllm" and result.model_calls > 0
+        measured = self.settings.llm_mode != "mock" and result.model_calls > 0
         latency = round((time.perf_counter() - started) * 1000) if measured else None
         tokens = [c.completion_tokens for c in recorder.completions if c.completion_tokens]
         info = s.GenerationInfo.from_generation(

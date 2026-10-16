@@ -186,7 +186,7 @@ class VisionResult:
     model_calls: int
     validator_codes: list[ValidatorCode]
     model: str
-    llm_mode: Literal["mock", "vllm"]
+    llm_mode: Literal["mock", "vllm", "tokenfactory"]
     latency_ms: int | None = None
     completion_tokens: int | None = None
     answers: list[Any] = field(default_factory=list)
@@ -248,7 +248,7 @@ class MockVision:
 
 def template_result(
     reason: FallbackReason,
-    llm_mode: Literal["mock", "vllm"],
+    llm_mode: Literal["mock", "vllm", "tokenfactory"],
     model: str,
     calls: int = 0,
     codes: Sequence[ValidatorCode] = (),
@@ -388,6 +388,8 @@ def vision_model(settings: Settings, client: object) -> VisionModel | None:
         return None
     if settings.llm_mode == "mock":
         return MockVision()
+    if settings.llm_mode == "tokenfactory":
+        return None  # shared Gemma is text-only: every observation needs manual review
     return VllmVision(client) if isinstance(client, VllmClient) else None
 
 
@@ -585,7 +587,7 @@ def checklist(
     """The checklist of the photo (a blocking model call in vllm mode: run it on the model-call
     pool, with no transaction open), or the template when no model can answer."""
     if vision is None:
-        model = settings.gemma_model if settings.served_llm_mode == "vllm" else MOCK_MODEL
+        model = settings.gemma_model if settings.served_llm_mode != "mock" else MOCK_MODEL
         return template_result("unavailable", settings.served_llm_mode, model)
     return vision.checklist(photo, return_id)
 

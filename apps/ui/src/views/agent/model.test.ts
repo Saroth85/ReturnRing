@@ -5,6 +5,9 @@ import { AGENT } from './copy';
 import { assistantModel } from './model';
 
 describe('assistantModel', () => {
+  it('identifies the AMD shared provider', () => {
+    expect(assistantModel({ mode: 'live', llm_mode: 'tokenfactory' }, 'live')).toBe(AGENT.model.tokenfactory);
+  });
   it('names the mock language model when the service runs it', () => {
     expect(assistantModel({ mode: 'live', llm_mode: 'mock' }, 'live')).toBe(AGENT.model.mock);
     expect(AGENT.model.mock).not.toContain(LLM_NAME);

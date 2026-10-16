@@ -1,13 +1,13 @@
 // System and benchmarks strings (US-901, US-902, US-905; docs/ui-design.md 9.4, spec 12
 // "Benchmark AMD"). English; numbers come from data or named constants.
-import { GPU_NAME, GPU_SHORT_NAME, LLM_NAME } from '@/copy/constants';
+import { GPU_SHORT_NAME, LLM_NAME } from '@/copy/constants';
 import type { ClockKind } from '@/api/models';
 import type { Phase } from './benchmarks';
 import type { ReadinessTone } from './readiness';
 
 export const SYSTEM = {
   // The target architecture (spec 8.10); what answers now is `thisService`, from /readyz.
-  hero: `Designed for one ${GPU_NAME}: every model on one GPU`,
+  hero: 'AMD-powered inference and offline model training',
   thisService: {
     live: (device: string, llm: string) => `This service: live on the ${device}, language model: ${llm}`,
     cached: (label: string) => `This service: cached demo, GPU off · ${label}`,
@@ -17,7 +17,7 @@ export const SYSTEM = {
   stories: 'US-901 · US-902 · US-905',
   onPage: 'On this page',
   sections: { readiness: 'Service mode and readiness', benchmarks: 'AMD benchmarks', telemetry: 'Telemetry' },
-  arch: { gpu: 'on the GPU (target)', cpu: 'on the CPU' },
+  arch: { gpu: 'AMD services and offline training', cpu: 'application services' },
   status: {
     ready: 'ready',
     degraded: 'degraded',
@@ -35,7 +35,7 @@ export const SYSTEM = {
   readiness: 'Readiness',
   mode: 'Mode',
   llmMode: 'Language model',
-  llmModes: { vllm: `${LLM_NAME} on vLLM`, mock: 'mock: hand-written stand-ins' } as Record<string, string>,
+  llmModes: { vllm: `${LLM_NAME} on vLLM`, tokenfactory: `${LLM_NAME} via AMD Token Factory`, mock: 'mock: hand-written stand-ins' } as Record<string, string>,
   device: 'Device',
   devices: { gpu: 'GPU', cpu: 'CPU' } as Record<string, string>,
   label: 'Label',
@@ -69,7 +69,7 @@ export const SYSTEM = {
     database: 'Database',
     scores: 'Scores',
     models: 'Models',
-    vllm: 'vLLM',
+    vllm: 'Model endpoint',
     demo_cache: 'Demo cache',
     telemetry: 'Telemetry',
   } as Record<string, string>,

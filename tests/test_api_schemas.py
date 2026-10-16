@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import functools
+import http.client
 import json
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
@@ -84,6 +85,20 @@ def test_every_model_has_a_schema_and_an_example() -> None:
 
 def test_exported_schemas_are_fresh() -> None:
     assert export_api_schemas.check() == [], "run: python -m scripts.export_api_schemas"
+
+
+@pytest.mark.parametrize("reason", ["Unprocessable Entity", "Unprocessable Content"])
+def test_openapi_validation_description_is_independent_of_python_version(
+    monkeypatch: pytest.MonkeyPatch, reason: str
+) -> None:
+    # Python 3.13 renamed HTTP 422; the exported contract must be identical on 3.12.
+    monkeypatch.setitem(http.client.responses, 422, reason)
+    document = json.loads(export_api_schemas.render()["openapi.json"])
+    assert {
+        operation["responses"]["422"]["description"]
+        for path in document["paths"].values()
+        for operation in path.values()
+    } == {"Unprocessable Content"}
 
 
 def test_examples_are_fresh() -> None:

@@ -1,5 +1,10 @@
 # Public demo on Railway
 
+Running instance: **https://returnring-demo-production.up.railway.app/demo**.
+First deployed on 17 October 2026 (Europe/Rome), from code revision
+`5793a80b82407000b39aa2586d0942b10e0a2210`, project `ReturnRing`, service `returnring-demo`.
+The service is pinned to that revision; later documentation commits do not change it.
+
 Configure one CPU service with Dockerfile path `infra/docker/public-demo.Dockerfile`:
 the existing API and built UI share one HTTPS origin.
 Gemma runs through AMD Token Factory; no GPU service, separate database service or volume is
@@ -73,3 +78,20 @@ After a successful build and generated Railway domain, check from outside Railwa
 
 Source: [Railway cost controls](https://docs.railway.com/pricing/cost-control),
 [Railway Docker deployment](https://docs.railway.com/guides/dockerfiles).
+
+## Verified first deployment
+
+- Railway build and startup succeeded in `europe-west4`, one instance capped at 1 GB and 1 vCPU.
+- External `/readyz` was ready, live, Token Factory, CPU, contract 1.9.0, read-only.
+- All three saved Gemma golden-case drafts loaded and passed the existing case-card contract.
+- Public telemetry returned 401, regeneration 403, missing API/asset routes 404.
+- The real investigator returned HTTP 200 with an SSE answer, two read-tool steps, one Gemma
+  model call, no validator codes and `generation_path=model`. End-to-end time was 9.724 seconds
+  for this one question, not a latency benchmark.
+- The public Demo page passed its preflight in a browser; golden case cards and matrix took
+  359 ms in that browser observation, not a load-test result.
+- Railway reported about 0.308 GB memory after this check. The owner authorised a maximum
+  hosting budget of USD 20 and reported the workspace unblocked before provisioning.
+
+Archive: [versioned synthetic demo snapshot](https://github.com/Saroth85/ReturnRing/releases/tag/demo-snapshot-2026-10-17),
+SHA-256 `27ac15b448d59cf298bd75dee1b2674631347063ca1115b804f8b2ab32466373`.

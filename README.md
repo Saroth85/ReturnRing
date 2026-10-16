@@ -1,5 +1,10 @@
 # ReturnRing
 
+**[Open the live demo](https://returnring-demo-production.up.railway.app/demo)** — read-only,
+with 1,000 fictional customers and a live Gemma investigator via AMD Token Factory. Demo state
+resets on restart. This small CPU serving snapshot is separate from the recorded MI300X
+training experiment; its calibration is illustrative.
+
 ReturnRing helps a fashion e-commerce choose and explain the best action on every return, within
 EU consumer law. Statistical models estimate return probability, abuse risk, customer value and
 product anomalies; a rules engine picks the admissible actions; a simulator estimates their net

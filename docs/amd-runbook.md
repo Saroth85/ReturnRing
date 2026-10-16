@@ -323,6 +323,10 @@ Che cosa cambia rispetto al droplet, sezione per sezione:
 Da mandare a Claude alla creazione: IP, ora di creazione, l'output dei tre controlli, la versione
 di Ubuntu e di ROCm (`cat /etc/os-release | head -2; cat /opt/rocm/.info/version 2>/dev/null`).
 
+Se la VM non avesse Docker, o per i notebook di AMD AI Notebooks (JupyterLab, nessun daemon): la
+stessa sessione con il Python dell'host è `docs/amd-host-runbook.md`, guidata da
+`scripts/release/07-host-session.sh` (guida al rilascio, 3.1-ter).
+
 ## 3. Primo accesso e configurazione (Steps 2-3, circa 5 min)
 
 ### 3.1 SSH e tmux

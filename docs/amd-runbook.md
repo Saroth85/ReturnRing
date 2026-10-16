@@ -291,7 +291,9 @@ Che cosa cambia rispetto al droplet, sezione per sezione:
 
 - **Sezione 3 (accesso)**: `ssh -i ~/.ssh/id_hotaisle_ed25519 hotaisle@<ip>` poi `sudo -i`; i tre controlli prima
   di tutto: `docker --version && docker compose version && ls -l /dev/kfd && (rocm-smi --showproductname || amd-smi static | head -30); nproc; free -g | head -2; df -h /`.
-  Se `docker compose` manca: `apt-get update && apt-get install -y docker-compose-v2 make git`;
+  Poi gli strumenti che `06-gpu-session.sh` pretende (`tmux`, `make`, `rsync`, `git`, `curl`, `tar`,
+  `python3`): `apt-get update -q && apt-get install -y --no-install-recommends tmux make rsync git curl`
+  (gli altri due sono già in Ubuntu). Se `docker compose` manca: `apt-get install -y docker-compose-v2`;
   se c'è solo Podman: `apt-get install -y docker.io docker-compose-v2`. Nessun container Quick
   Start `rocm` da fermare. Da mandare a Claude: l'output dei controlli.
 - **Sezione 1.5 (firewall)**: non c'è il Cloud Firewall di DigitalOcean; `ufw` sulla VM non ferma
@@ -307,7 +309,16 @@ Che cosa cambia rispetto al droplet, sezione per sezione:
 - **Sezione 14 (costi)**: ore x 2,99 USD invece di 1,99; la carta è addebitata subito dai
   crediti prepagati; i crediti AMD non si usano.
 - **Lo script `06-gpu-session.sh`**: invariato; va lanciato da root (`sudo -i`), con
-  `DROPLET_CREATED=<ora UTC di creazione della VM>`.
+  `DROPLET_CREATED=<ora UTC di creazione della VM>` e, nella fase `export`,
+  `DEMO_GPU="AMD Instinct MI300X (Hot Aisle)"` (il valore predefinito nomina il Developer Cloud;
+  il pacchetto registra la piattaforma vera, regola 11).
+- **Sezione 11 (stack live)**: se le porte 80 e 443 della VM non sono raggiungibili da fuori
+  (`https-check` fallisce con "did not answer within 240 s"), `make gpu-down`, poi
+  `make gpu-up-local`: lo stesso stack senza il file del proxy pubblico, in HTTP semplice su
+  `127.0.0.1:8080` e l'API su `127.0.0.1:8000`, senza password. Dal portatile
+  `ssh -i ~/.ssh/id_hotaisle_ed25519 -L 8080:127.0.0.1:8080 -L 8000:127.0.0.1:8000 hotaisle@<ip>`
+  e il browser su `http://localhost:8080`: il video e le prove passano dal tunnel, come la
+  camminata (11.3). La demo pubblica resta sul server CPU.
 
 Da mandare a Claude alla creazione: IP, ora di creazione, l'output dei tre controlli, la versione
 di Ubuntu e di ROCm (`cat /etc/os-release | head -2; cat /opt/rocm/.info/version 2>/dev/null`).

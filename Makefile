@@ -81,6 +81,12 @@ serving-check:
 	@test -f serving/manifest.json || { echo "No serving snapshot in serving/: make demo-data, \
 	  or copy serving/ from the laptop (infra/spikes/README.md, The demo export)"; exit 1; }
 
+# The same stack without the public proxy file: plain HTTP on 127.0.0.1:8080 and the API on
+# 127.0.0.1:8000, no basic auth, for a VM whose 80 and 443 are not reachable from the Internet
+# (docs/amd-runbook.md, 2.2): from the laptop, ssh -L 8080:127.0.0.1:8080 -L 8000:127.0.0.1:8000.
+gpu-up-local: serving-check spike-vllm spike-wait
+	$(GPU) up -d --build
+
 # Keeps the volumes: never add -v here, hf-cache holds the 62 GB of Gemma weights.
 gpu-down:
 	$(GPU) down

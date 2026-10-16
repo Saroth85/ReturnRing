@@ -50,6 +50,33 @@ accuracy result. A GPU kernel smoke test alone is not completion of either model
 No GPU speedup is calculated. Model quality, regression, calibration and held-out evaluation
 remain part of the deliverable. Unsupported environments and failed experiments are recorded.
 
+## Amendment after the review (17 October 2026)
+
+The review of the public demo (PR 15) found three ways the shared key could be spent from
+outside, each reproduced against the real app; the API now closes them (no contract change: the
+agent's 429 `rate_limited` and its `Retry-After` already exist).
+
+- **Client identity.** The rate limits keyed a client on the first `X-Forwarded-For` entry,
+  which the visitor writes: a new value per request was a new client. `roles.client_key` takes
+  the entry the nearest trusted proxy wrote, the `TRUSTED_PROXY_HOPS`-th from the right (1 by
+  default: Caddy in Compose, the platform's edge on Railway; 0 when uvicorn faces clients
+  directly, and then the TCP peer).
+- **One budget for every visitor.** With a real model behind the public demo, the agent takes
+  at most `PUBLIC_AGENT_LIMIT` = 6 questions a minute for all visitors together and answers at
+  most `PUBLIC_AGENT_IN_FLIGHT` = 2 at once; past either, a 429 says when to retry. A question
+  takes two or three model calls (up to twelve) against about 20 requests a minute for the team
+  (a design hypothesis to tune with the measured calls). The mock spends nothing and is not
+  capped this way.
+- **Readiness.** `/readyz` is public and polled by every open tab; its Token Factory probe now
+  runs at most once a minute, one at a time (a failed probe is kept as long).
+- **Retry-After.** The provider's window is kept whole (a number or an HTTP-date, at most an
+  hour) and every later call starts after it, not only the retry; a call that would wait more
+  than 30 s holding the client's lock fails at once, so the reviewed fallback answers instead of
+  a queue of minutes. A 429 is never retried inside the provider's window.
+- **The reset** drafts with the mock in `LLM_MODE=tokenfactory` (hundreds of calls from a second
+  process otherwise), as `compose.tokenfactory.yml` already did by hand; its drafts are recorded
+  as the mock's.
+
 ## Sources
 
 - [Event technology requirement and Token Factory FAQ](https://lablab.ai/ai-hackathons/amd-developer-hackathon-act-iii).

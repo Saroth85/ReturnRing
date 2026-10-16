@@ -131,13 +131,25 @@ def network_key(host: str) -> str:
     return str(address)
 
 
+def trusted_proxy_hops(request: Request) -> int:
+    """TRUSTED_PROXY_HOPS of the app's settings (1 when the request has no app: a bare test)."""
+    app = request.scope.get("app")
+    settings = getattr(getattr(getattr(app, "state", None), "runtime", None), "settings", None)
+    return int(getattr(settings, "trusted_proxy_hops", 1))
+
+
 def client_key(request: Request) -> str:
-    """The client of a request: the first X-Forwarded-For hop the proxy sets, else the peer
-    (network_key: an IPv6 client by its /64)."""
-    forwarded = request.headers.get("x-forwarded-for", "")
-    first = forwarded.split(",")[0].strip()
-    if first:
-        return network_key(first)
+    """The client of a request, for the rate limits: the address the nearest trusted proxy saw
+    (network_key: an IPv6 client by its /64). With TRUSTED_PROXY_HOPS=n it is the n-th
+    X-Forwarded-For entry from the right: the entries before it come from the client and can be
+    anything, so keying on the first one let a visitor be a new client on every request (PR 15
+    review). With 0, or fewer entries than n, the TCP peer."""
+    hops = trusted_proxy_hops(request)
+    if hops > 0:
+        entries = [e.strip() for e in request.headers.get("x-forwarded-for", "").split(",")]
+        entries = [e for e in entries if e]
+        if len(entries) >= hops:
+            return network_key(entries[-hops])
     return network_key(request.client.host) if request.client is not None else "unknown"
 
 

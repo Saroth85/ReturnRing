@@ -23,6 +23,7 @@ Set these on the service before attaching its repository source or committing st
 | `PUBLIC_READ_ONLY` | `true` (default). |
 | `LLM_CONCURRENCY` | `1` (default). |
 | `VLLM_TIMEOUT_S` | `90` (default). |
+| `TRUSTED_PROXY_HOPS` | `1` (default): the platform's edge writes the last `X-Forwarded-For` entry, the one the rate limits key a client on; `0` only if uvicorn is reached directly (ADR-18, amendment). |
 
 The image defaults to `DEVICE=cpu`, `LLM_MODE=tokenfactory`, `DEMO_MODE=live`. Runtime downloads
 are bounded, hash checked and checked against the package file manifest before extraction.

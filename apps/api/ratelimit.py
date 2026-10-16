@@ -17,6 +17,13 @@ AGENT_RATE_LIMIT: Final = 10  # questions per person per window (a design hypoth
 AGENT_RATE_WINDOW_S: Final = 60.0
 PUBLIC_RATE_LIMIT: Final = 30  # public writes per client per window (a design hypothesis)
 PUBLIC_RATE_WINDOW_S: Final = 60.0
+# The public demo's agent with a real model behind it, for every visitor together: the shared
+# Token Factory key allows about 20 requests a minute for the whole team (ADR-18) and a question
+# takes two or three model calls (up to twelve), so 6 questions a minute leave room for the rest.
+PUBLIC_AGENT_LIMIT: Final = 6
+PUBLIC_AGENT_WINDOW_S: Final = 60.0
+PUBLIC_AGENT_IN_FLIGHT: Final = 2  # questions answered at once; the next one is a 429
+PUBLIC_AGENT_BUSY_RETRY_S: Final = 15.0
 
 
 def retry_seconds(wait: float) -> int:

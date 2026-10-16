@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import functools
 import logging
+import threading
 import time
 from collections.abc import AsyncIterator, Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -89,6 +90,9 @@ class Runtime:
     database_error: str | None = None
     _pool: ThreadPoolExecutor | None = field(default=None, repr=False)
     _clock_checked: float = field(default=float("-inf"), repr=False)
+    # The last Token Factory probe of /readyz: (time.monotonic(), problem or None).
+    provider_probe: tuple[float, str | None] | None = field(default=None, repr=False)
+    provider_probe_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     def now(self) -> datetime:
         return self.clock.now()

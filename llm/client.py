@@ -155,7 +155,14 @@ def check_local_url(base_url: str) -> str:
     """The chat completions URL of a local vLLM base URL; ValueError for any other host. The
     error names the part refused, never the URL: it reaches the public /readyz and 503 bodies,
     and a URL can hold credentials or a token."""
-    parts = urlsplit(base_url)
+    try:
+        parts = urlsplit(base_url)
+        port = parts.port  # urllib otherwise defers malformed ports until the request.
+    except ValueError:
+        # Parser errors may quote the raw authority; readiness exposes this message.
+        raise ValueError("VLLM_BASE_URL has an invalid host or port: refused") from None
+    if port == 0:
+        raise ValueError("VLLM_BASE_URL has an invalid port: refused")
     host = parts.hostname or ""
     refused = [
         name
@@ -204,6 +211,16 @@ class VllmConfig:
     model: str = DEFAULT_MODEL
     timeout_s: float = 60.0
     max_tokens: int = 1200
+
+
+def completion_token_count(data: Mapping[str, Any]) -> int | None:
+    """Optional usage metadata: a non-negative integer count, including a measured zero.
+    Malformed metadata must not prevent a valid text or vision answer from being stored.
+    """
+    usage = data.get("usage")
+    tokens = usage.get("completion_tokens") if isinstance(usage, dict) else None
+    valid = isinstance(tokens, int) and not isinstance(tokens, bool) and tokens >= 0
+    return tokens if valid else None
 
 
 class VllmClient:
@@ -276,9 +293,7 @@ class VllmClient:
         content = self._message(data).get("content")
         if not isinstance(content, str):
             raise LlmUnavailable("vLLM message has no text content")
-        usage = data.get("usage")
-        tokens = usage.get("completion_tokens") if isinstance(usage, dict) else None
-        return Completion(content, elapsed, tokens if isinstance(tokens, int) else None)
+        return Completion(content, elapsed, completion_token_count(data))
 
     def chat(
         self,

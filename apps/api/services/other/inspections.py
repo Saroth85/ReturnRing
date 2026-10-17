@@ -77,7 +77,7 @@ from contracts.vocab import (
     PhotoMediaType,
     ValidatorCode,
 )
-from llm.client import TEMPERATURE, LlmUnavailable, VllmClient
+from llm.client import TEMPERATURE, LlmUnavailable, VllmClient, completion_token_count
 from llm.text import banned_terms, foreign_characters
 from policy.legal_guard import check
 from policy.types import DiminishedValueClaim
@@ -337,7 +337,7 @@ class VllmVision:
         model = self._client.config.model
         codes: list[ValidatorCode] = []
         calls = 0
-        tokens = 0
+        tokens: int | None = None
         started = time.perf_counter()
         for _ in range(MAX_VISION_CALLS):
             try:
@@ -345,9 +345,9 @@ class VllmVision:
             except LlmUnavailable:
                 return template_result("unavailable", "vllm", model, calls, _unique(codes))
             calls += 1
-            usage = data.get("usage")
-            used = usage.get("completion_tokens") if isinstance(usage, dict) else None
-            tokens += used if isinstance(used, int) else 0
+            used = completion_token_count(data)
+            if used is not None:
+                tokens = (tokens or 0) + used
             content = _content(data)
             found: list[ValidatorCode] = ["SCHEMA"]
             items = None
@@ -363,7 +363,7 @@ class VllmVision:
                     model,
                     "vllm",
                     latency_ms=round((time.perf_counter() - started) * 1000),
-                    completion_tokens=tokens or None,
+                    completion_tokens=tokens,
                 )
             codes += found
         return template_result("invalid_twice", "vllm", model, calls, _unique(codes))

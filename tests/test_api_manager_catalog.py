@@ -17,7 +17,9 @@ from sqlalchemy import insert, select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from apps.api import schemas as s
+from apps.api.db import make_engine
 from apps.api.services.audit import entries
+from apps.api.services.manager import catalog
 from contracts.sql import catalog_tasks, decisions, outbox
 from pipeline.anomalies.catalogue import weekly_series
 from pipeline.anomalies.detect import ANOMALY_THRESHOLDS
@@ -161,6 +163,51 @@ def test_a_task_needs_a_flagged_anomaly_and_an_operator_or_manager(api: Api) -> 
     assert _create(api, anomaly_id, author="sara").status_code == 201
     again = _create(api, anomaly_id)
     assert again.status_code == 409 and again.json()["code"] == "conflict"
+
+
+def test_a_task_committed_while_waiting_for_its_id_is_not_duplicated(
+    api: Api, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Model the READ COMMITTED interleaving: the competing writer commits before the
+    waiting writer acquires the shared task counter. The business check must see that task.
+    SQLite supplies the real committed rows; this does not exercise PostgreSQL row locking.
+    """
+    anomaly = _elena_anomaly(api)
+    allocate = catalog.allocate
+    competed = False
+
+    async def after_competing_commit(conn: AsyncConnection, *args: Any) -> int:
+        nonlocal competed
+        if not competed:
+            competed = True
+            assert api.settings.database_url is not None
+            engine = make_engine(api.settings.database_url)
+            try:
+                async with engine.begin() as other:
+                    await catalog.open_task(
+                        other,
+                        api.serving,
+                        s.CatalogTaskCreate(
+                            anomaly_id=anomaly["anomaly_id"],
+                            kind="batch_check",
+                            note="Created by the competing request",
+                            author="luca",
+                        ),
+                        at=api.clock.now(),
+                        request_id=None,
+                    )
+            finally:
+                await engine.dispose()
+        return await allocate(conn, *args)
+
+    monkeypatch.setattr(catalog, "allocate", after_competing_commit)
+    response = _create(api, anomaly["anomaly_id"])
+    assert response.status_code == 409, response.text
+    assert response.json()["code"] == "conflict"
+    tasks = api.client.get("/api/catalog-tasks").json()["items"]
+    assert len(tasks) == 1
+    assert tasks[0]["task_id"] == "CT-000001"
+    assert tasks[0]["note"] == "Created by the competing request"
 
 
 def _patch(

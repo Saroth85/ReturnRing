@@ -4,13 +4,13 @@
 import { Star } from 'lucide-react';
 import type { Alternative, CaseCard } from '@/api/models';
 import { LeverList } from '@/components/decision';
-import { Figure, IdText, PlainNumber, ProvenanceFooter, ProvenanceScope } from '@/components/provenance';
+import { AssumptionLabel } from '@/components/economics';
+import { Figure, PlainNumber, ProvenanceFooter, ProvenanceScope } from '@/components/provenance';
 import { Button } from '@/components/ui';
 import { sameLevers } from '@/domain/levers';
 import { OPERATOR } from '../../copy';
 import { useCaseUi } from '../context';
 import { Section } from '../../ui/Section';
-import { parseAssumptionLabel } from './assumptions';
 
 const GUIDANCE_KINDS: ReadonlySet<Alternative['kind']> = new Set(['verification', 'size_exchange', 'product_report']);
 const EUR_INPUTS = new Set([
@@ -24,27 +24,6 @@ const EUR_INPUTS = new Set([
   'incremental_margin_eur',
 ]);
 const COUNT_INPUTS = ['logistics_returns_avoided', 'undue_discounts_avoided', 'minutes_saved'];
-
-export function AssumptionLabelText({ label, basedOn }: { label: string; basedOn: string | null }) {
-  const t = OPERATOR.alternatives;
-  const parsed = parseAssumptionLabel(label);
-  return (
-    <span className="inline-flex flex-wrap items-center gap-1" data-assumption-label={label}>
-      {parsed.kind === 'decision' ? (
-        <>
-          {t.decision} <IdText id={parsed.decisionId} /> · {t.alternative}: {t.kinds[parsed.alternative] ?? parsed.alternative}
-        </>
-      ) : (
-        <IdText id={parsed.raw} />
-      )}
-      {basedOn && (
-        <>
-          <span aria-hidden="true">·</span> {t.basedOn} <IdText id={basedOn} />
-        </>
-      )}
-    </span>
-  );
-}
 
 function NetBenefitList({ alternative }: { alternative: Alternative }) {
   const t = OPERATOR.alternatives;
@@ -130,7 +109,7 @@ function AlternativeCard({ card, alternative }: { card: CaseCard; alternative: A
         {GUIDANCE_KINDS.has(alternative.kind) && <p className="text-caption text-ink-3">{t.guidance}</p>}
         <NetBenefitList alternative={alternative} />
         <p className="text-caption text-ink-3">
-          <AssumptionLabelText label={a.version} basedOn={a.based_on} />
+          <AssumptionLabel label={a.version} basedOn={a.based_on} />
         </p>
         <p className="text-caption text-ink-3">
           {t.period}: <span data-verbatim>{a.period}</span>

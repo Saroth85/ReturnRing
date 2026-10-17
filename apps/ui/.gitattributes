@@ -1,2 +1,4 @@
 # Preserve executable module shebangs when checking out on Windows.
 *.mjs text eol=lf
+# Generated-file checks compare exact bytes on every host.
+src/api/*.gen.ts text eol=lf

@@ -58,10 +58,13 @@ export default function QueuePage() {
     setSelected(index);
     tableRef.current?.querySelector<HTMLElement>(`[data-row-link="${index}"]`)?.focus();
   };
+  const markSeen = (returnId: string) => {
+    seen.add(returnId);
+  };
   const openSelected = () => {
     const item = items[clamp(selected)];
     if (!item) return;
-    seen.add(item.return_id);
+    markSeen(item.return_id);
     void navigate(`/returns/${item.return_id}?from=${tab}`);
   };
   useHotkeys({
@@ -149,7 +152,7 @@ export default function QueuePage() {
       {!impossible && page && page.items.length > 0 && (
         <ProvenanceScope provenance={page.provenance} covers="linked-account counts and lever counts of the queue rows" className="min-w-0">
           <div ref={tableRef}>
-            <QueueTable page={page} tab={tab} selected={selected} onSelect={setSelected} onPrefetch={prefetch} newIds={newIds} />
+            <QueueTable page={page} tab={tab} selected={selected} onSelect={setSelected} onOpen={markSeen} onPrefetch={prefetch} newIds={newIds} />
           </div>
           {totalPages > 1 && (
             <nav aria-label={t.pageLabel} className="mt-2 flex items-center gap-2 text-caption">

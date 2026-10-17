@@ -16,17 +16,28 @@ import { INSPECTION } from './copy';
 export default function InspectionPage() {
   const [params, setParams] = useSearchParams();
   const q = params.get('q') ?? '';
+  const requestedPage = Number(params.get('page'));
+  // QueueQuery bounds pages to 100,000; an invalid shared URL starts at the first page.
+  const currentPage = Number.isSafeInteger(requestedPage) && requestedPage > 0 && requestedPage <= 100_000 ? requestedPage : 1;
   const searchId = useId();
   const persona = usePersona();
-  const returns = useQueue({ path: ['withdrawal'], q: q.trim() ? q.trim() : null, sort: '-requested_at' });
+  const returns = useQueue({ path: ['withdrawal'], q: q.trim() ? q.trim() : null, sort: '-requested_at', page: currentPage });
   const t = INSPECTION;
 
   const setQuery = (value: string) => {
     const next = new URLSearchParams(params);
     if (value) next.set('q', value);
     else next.delete('q');
+    next.delete('page');
     setParams(next, { replace: true });
   };
+  const goPage = (page: number) =>
+    setParams((previous) => {
+      const next = new URLSearchParams(previous);
+      if (page <= 1) next.delete('page');
+      else next.set('page', String(page));
+      return next;
+    });
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6" data-page="inspection">
@@ -95,6 +106,19 @@ export default function InspectionPage() {
             </li>
           ))}
         </ul>
+      )}
+      {returns.data && (currentPage > 1 || returns.data.total > returns.data.page_size) && (
+        <nav aria-label={t.pages} className="flex items-center gap-2 text-caption">
+          <Button disabled={currentPage <= 1 || returns.isFetching} onClick={() => goPage(currentPage - 1)}>
+            {t.previous}
+          </Button>
+          <span data-constant>
+            {returns.data.page} / {Math.max(1, Math.ceil(returns.data.total / returns.data.page_size))}
+          </span>
+          <Button disabled={returns.data.page * returns.data.page_size >= returns.data.total || returns.isFetching} onClick={() => goPage(currentPage + 1)}>
+            {t.next}
+          </Button>
+        </nav>
       )}
       <p className="text-caption text-ink-3">{t.listScope}</p>
     </div>

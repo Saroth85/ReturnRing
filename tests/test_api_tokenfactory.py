@@ -158,8 +158,8 @@ def test_the_public_agent_refuses_a_question_while_its_queue_is_full(
 
 def test_the_reset_never_drafts_on_the_shared_provider(api: Api) -> None:
     """A reset drafts every open return: on Token Factory that is hundreds of calls on the team's
-    quota from a second process, so it drafts with the mock (compose.tokenfactory.yml did the
-    same by hand); vLLM, the local GPU, keeps its drafts."""
+    quota from a second process, so it drafts with the mock (as the deleted overlay did by hand,
+    ADR-18 amendment); vLLM, the local GPU, keeps its drafts."""
     shared = replace(api.settings, llm_mode="tokenfactory", radeon_api_key=PLACEHOLDER)
     assert draft_settings(shared).llm_mode == "mock"
     local = replace(api.settings, llm_mode="vllm")

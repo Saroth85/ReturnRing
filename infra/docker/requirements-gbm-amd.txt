@@ -1,8 +1,0 @@
-# amd_xgboost for trainer-gbm (spike SPK-G2). Installed alone, from the AMD index only
-# (pip --index-url "$AMD_PYPI_INDEX_URL" --require-hashes --no-deps), never with --extra-index-url:
-# the name amd-xgboost is not registered on pypi.org, so an extra index would let anyone who
-# registers it there win the resolution (dependency confusion).
-# Wheel: https://pypi.amd.com/rocm-7.2.3/packages/amd-xgboost/amd_xgboost-3.2.0-py3-none-manylinux_2_39_x86_64.whl
-# The AMD index publishes no hash for 3.2.0; this one is sha256sum of that wheel (13 Oct 2026).
-# The ROCm 7.1.1 and 7.0.2 builds share the file name but not the hash: change both together.
-amd_xgboost==3.2.0 --hash=sha256:13c9509edba9edebc8382084ca125ad58b9c76e9b9bb6393bc5c7e4f23717e33

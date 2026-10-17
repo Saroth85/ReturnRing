@@ -3,12 +3,13 @@
 Runtime dependencies (requirements/base.txt) must be permissive. Development tools
 (requirements/dev.txt) may also be MPL-2.0 (Hypothesis): they are never distributed.
 
-The packages the GPU images add from PyPI (infra/docker/requirements-*.txt: trainer-graphsage,
-trainer-gbm, bench) follow the runtime rule, except the test tools that are also development tools
-(pytest and Hypothesis run the GPU tests inside trainer-graphsage). Their licences are read from
-this environment, where requirements/dev.txt installs every one of them; a package missing here is
-a failure, not a skip. amd_xgboost (requirements-gbm-amd.txt, Apache-2.0) comes from the AMD index
-with a pinned hash and is checked when that file changes, by hand.
+No image requirement file is left: the GPU images and their infra/docker/requirements-*.txt were
+removed on 17 Oct 2026, since no recorded run used them (the 16 Oct MI300X training ran in a
+notebook without Docker, docs/amd-training-session-2026-10-16.md). IMAGE_FILES is therefore
+empty. A file added there must be named in IMAGE_FILES (tests/test_licences.py checks it) and is
+checked by the same rule (image_failures): its packages follow the runtime rule, except the test
+tools that are also development tools; their licences are read from this environment, and a
+package missing here is a failure, not a skip.
 """
 
 from __future__ import annotations
@@ -25,7 +26,7 @@ DEV_EXTRA = ("MPL", "Mozilla Public License")
 FORBIDDEN = ("GPL",)  # also matches AGPL and LGPL
 # pip-licenses never lists itself; its licence is MIT (checked on PyPI).
 KNOWN = {"pip-licenses": "MIT"}
-IMAGE_FILES = ("requirements-gnn.txt", "requirements-gbm.txt", "requirements-bench.txt")
+IMAGE_FILES: tuple[str, ...] = ()
 
 
 def requirement_names(path: Path) -> list[str]:

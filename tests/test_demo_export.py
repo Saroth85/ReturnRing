@@ -1,9 +1,9 @@
-"""The cached demo package (scripts/demo_export.py; US-901, spec 11 step 6).
+"""The cached demo package (scripts/demo_export.py; US-901, ADR-17 decision 6).
 
 The package is built from a serving snapshot (checked against its own manifest), its llm_cache/
 of MI300X drafts and the benchmark pointers with their run files, with a manifest of every hash;
-`verify` refuses any change. The script runs on the droplet host and the demo server, where only
-the standard library is installed: an import test keeps it that way.
+`verify` refuses any change. The script runs on a host where only the standard library is
+installed (the machine that packs or serves the demo): an import test keeps it that way.
 """
 
 from __future__ import annotations
@@ -173,7 +173,7 @@ def test_build_refuses_a_snapshot_that_differs_from_its_manifest(
 
 def test_build_refuses_an_empty_cache_unless_it_is_a_rehearsal(tmp_path: Path) -> None:
     serving, bench = make_serving(tmp_path, entries=0), make_bench(tmp_path)
-    with pytest.raises(PackageError, match="make batch-generate"):
+    with pytest.raises(PackageError, match="apps.api.batch_generate"):
         build(serving, bench, tmp_path / "out", now=NOW)
     manifest = build(serving, bench, tmp_path / "out", now=NOW, allow_empty_cache=True)
     assert manifest["llm_cache"]["entries"] == 0
@@ -273,8 +273,8 @@ def test_a_batch_that_did_not_run_on_the_gpu_is_packed_only_as_a_rehearsal(
     tmp_path: Path, device: str | None
 ) -> None:
     """Second review of 14 Oct 2026: a fake vLLM server can be run under any model name, so
-    the drafts also say the device of the batch (DEVICE: gpu in the batch-generate service of
-    compose). A draft of a CPU batch, or of a batch that recorded none, is not the MI300X's."""
+    the drafts also say the device of the batch (DEVICE=gpu for a batch on the GPU). A draft of
+    a CPU batch, or of a batch that recorded none, is not the MI300X's."""
     serving, bench, out = make_serving(tmp_path), make_bench(tmp_path), tmp_path / "out"
     digest = hashlib.sha256(b"cpu").hexdigest()
     entry = _cache_entry(digest)
@@ -323,7 +323,7 @@ def test_main_passes_the_model_and_the_rehearsal_flag(
 
 
 def test_the_script_runs_on_python_3_8() -> None:
-    """The droplet host and the demo server run it with their own python3: no syntax and no
+    """A host without the project environment runs it with its own python3: no syntax and no
     standard-library name newer than Python 3.8 (datetime.UTC is 3.11)."""
     source = Path(demo_export.__file__).read_text(encoding="utf-8")
     tree = ast.parse(source, feature_version=(3, 8))

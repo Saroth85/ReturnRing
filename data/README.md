@@ -1,33 +1,29 @@
 # data/
 
-Everything here is generated or downloaded and is not committed.
+Everything in this folder is generated or downloaded and is not committed.
 
-- `raw/asos/` — the six ASOS GraphReturns pickles (CC BY 4.0), checked against the sha256
-  values pinned in `pipeline/ingest/asos_download.py` (ADR-10). `MANIFEST.json` is a log only.
-- `raw/asos_{events,customers,variants}.parquet` — the same data under the raw contracts of
-  ADR-13, written by `python -m pipeline.ingest` with provenance (nature: real).
-- `raw/asos_profile.txt` — the plain-text profile of the raw tables (US-101).
-- `store/` — synthetic store Navigli Fashion: `python -m pipeline.generator --calibration <json>
-  --out data --seed 42` or `make generate` (docs/synthetic-store.md).
-- `truth/` — ground truth of the generator. Running services (api, ui, demo) never read it; only
-  offline training and evaluation jobs do (CLAUDE.md rule 12).
-- `ood/store/` and `truth/ood/truth/` — out-of-distribution scenario (`--scenario ood`, US-105): its
-  store, and its ground truth inside `truth/` with every other ground truth. Never used in training:
-  the evaluation reads it and reports it on a separate row.
+## Main folders
 
-- `features/` and `ood/features/` — as-of tables of phase 2 (ADR-13): `links` and `clusters`
-  (`make graph`, US-203), `customer_features`, `customer_value` and `evidence_quality`
-  (`make features`, US-205/206/209), `product_anomalies` (`make anomalies`, US-208). Each file's
-  lineage (`returnring.lineage`) ends with the origin of the store it was computed from; a job
-  refuses a table built from another store.
-- `scores/` — `scores` and `request_scores` of the batch scoring (`make risk`, or `make score`
-  with the saved models), with the thresholds of every quadrant (US-204).
+- `raw/asos/` — the six ASOS GraphReturns pickles, checked against pinned SHA-256 values
+- `raw/asos_{events,customers,variants}.parquet` — raw contracts produced by `python -m pipeline.ingest`
+- `store/` — the synthetic Navigli Fashion store generated from the ASOS calibration
+- `truth/` — generator ground truth; running services never read it
+- `ood/store/` and `truth/ood/truth/` — out-of-distribution scenario and its ground truth
+- `features/` and `ood/features/` — decision-time features, graph links/clusters and anomalies
+- `scores/` — batch scores and request scores
 
-`make pipeline` writes all of the above but `raw/` from the committed real calibration, in this
-order: `generate generate-ood graph features anomalies risk`; `make asos` writes `raw/` (US-101).
-The models go to `artifacts/risk/models`; the offline evaluation outputs (metrics, graph
-evaluation, fairness) to `artifacts/eval/`, which holds counts and metrics, never a customer listed
-with its ground truth; `make results` rewrites the offline reports in `docs/results/`.
+## Typical workflow
 
-The generator calibration made from the ASOS train split holds aggregates only, so it is
-committed outside this folder: `pipeline/calibration/asos_calibration.json`.
+1. `python -m pipeline.ingest` writes raw ASOS contracts.
+2. `python -m pipeline.generator --calibration <json> --out data --seed 42` builds the synthetic store.
+3. `python -m pipeline.graph`, `python -m pipeline.features`, `python -m pipeline.anomalies`
+   and `python -m pipeline.serving` build the downstream tables and serving snapshot.
+4. `python -m ml.risk` and `python -m ml.scoring` create model artifacts and scores.
+
+`make pipeline` runs the whole chain on the host; `make results` rewrites the offline reports in
+`docs/results/`.
+
+## Important rule
+
+Running services (`api`, `ui`, `demo`) never read `data/truth/`. Only offline training and
+evaluation jobs do.

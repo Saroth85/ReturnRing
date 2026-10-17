@@ -1,9 +1,20 @@
 # Public demo on Railway
 
-Running instance: **https://returnring-demo-production.up.railway.app/demo**.
-First deployed on 17 October 2026 (Europe/Rome), from code revision
-`5793a80b82407000b39aa2586d0942b10e0a2210`, project `ReturnRing`, service `returnring-demo`.
-The service is pinned to that revision; later documentation commits do not change it.
+Running instance: **https://returnring-demo-production.up.railway.app/demo**, project
+`ReturnRing`, service `returnring-demo`, code revision `5793a80b82407000b39aa2586d0942b10e0a2210`
+(committed on 17 October 2026, 00:27 Europe/Rome). First deployed on 17 October 2026
+(Europe/Rome). Checked again from outside on 17 October 2026: `/readyz` ready, `live`,
+`tokenfactory`, `cpu`, contract 1.9.0, `public_read_only=true`; `/api/telemetry` 401 without
+credentials. The `/readyz` `clock.started_at` (2026-10-16T21:30:42Z) is the end of the reset that
+built the packaged demo database, which every start restores: it is not the deployment time.
+
+The service is pinned to that revision: later commits on `main` reach it only when it is
+redeployed. Not yet in the running instance: the ADR-18 amendment of 17 October (PR 17, from
+commit `fd3ddb5`), which gives the case assistant one budget for all visitors together (6
+questions a minute, at most 2 answered at once) and keys a client with `TRUSTED_PROXY_HOPS`; and
+the fixes of the main review (PR 16). Revision `5793a80` counts the assistant's questions per
+client and demo user (10 a minute). After a redeploy, update the revision and the dates above,
+then repeat the checks of "Deploy and verify".
 
 Configure one CPU service with Dockerfile path `infra/docker/public-demo.Dockerfile`:
 the existing API and built UI share one HTTPS origin.
@@ -23,7 +34,7 @@ Set these on the service before attaching its repository source or committing st
 | `PUBLIC_READ_ONLY` | `true` (default). |
 | `LLM_CONCURRENCY` | `1` (default). |
 | `VLLM_TIMEOUT_S` | `90` (default). |
-| `TRUSTED_PROXY_HOPS` | `1` (default): the platform's edge writes the last `X-Forwarded-For` entry, the one the rate limits key a client on; `0` only if uvicorn is reached directly (ADR-18, amendment). |
+| `TRUSTED_PROXY_HOPS` | `1` (default): the platform's edge writes the last `X-Forwarded-For` entry, the one the rate limits key a client on; `0` only if uvicorn is reached directly (ADR-18, amendment). Read from commit `fd3ddb5` on; the `5793a80` instance does not read it. |
 
 The image defaults to `DEVICE=cpu`, `LLM_MODE=tokenfactory`, `DEMO_MODE=live`. Runtime downloads
 are bounded, hash checked and checked against the package file manifest before extraction.
@@ -48,6 +59,14 @@ With an existing hash-verified synthetic serving snapshot and a matching demo da
 ```powershell
 .venv\Scripts\python.exe -m scripts.public_demo_bootstrap pack `
   --serving <snapshot-directory> --database <matching-demo.sqlite> `
+  --out artifacts/public-demo/returnring-demo-snapshot.zip
+```
+
+The same command in a POSIX shell:
+
+```bash
+python -m scripts.public_demo_bootstrap pack \
+  --serving <snapshot-directory> --database <matching-demo.sqlite> \
   --out artifacts/public-demo/returnring-demo-snapshot.zip
 ```
 

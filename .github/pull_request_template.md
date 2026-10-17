@@ -6,7 +6,7 @@ US-xxx — one line on what changed.
 
 - [ ] Tests green (`make test`), lint and types clean (`make lint`)
 - [ ] No feature uses data after the decision time; no forbidden feature
-- [ ] No number shown without origin and nature (real, synthetic, simulated)
+- [ ] No number shown without origin, period and nature (real, synthetic, simulated)
 - [ ] New dependencies checked against the licence allowlist
 - [ ] docs/spec.md updated if a decision changed
 

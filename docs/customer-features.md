@@ -96,7 +96,9 @@ keeps a low residual (spec 7).
 Training (spec 8.1): XGBoost on CPU (`xgboost-cpu`, hist), depth 4, learning rate 0.1, gamma 1,
 lambda 2, early stopping after 5 rounds on 10% of the customers, isotonic calibration on the same
 customers, probabilities kept in [0.01, 0.99]. One thread: on a shared CPU OpenMP threads stall at
-every barrier (13 Oct 2026: 0.04 s with one thread, 25 s with four for 50 rounds on 7,046 lines).
+every barrier (13 Oct 2026: 0.04 s with one thread, 25 s with four for 50 rounds on 7,046 lines,
+while other jobs held the cores; measured once on the development container's shared 4-vCPU CPU,
+a real timing on synthetic lines, `ml/reference/model.py`).
 The shrinkage pseudo-count k of the variant and product rates is chosen on the training lines from
 a fixed grid. With fewer than 1,000 lines or a single outcome the model falls back to the smoothed
 variant rate.

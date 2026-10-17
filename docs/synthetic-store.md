@@ -10,7 +10,7 @@ python -m pipeline.generator --calibration pipeline/calibration/asos_calibration
   --out data --seed 42 [--scale 1.0] [--scenario main|ood]
 make generate        # main scenario, CALIBRATION, SEED and SCALE overridable
 make generate-ood    # out-of-distribution scenario
-make pipeline        # both, then graph, features, anomalies and risk (phase 2, data/README.md)
+make pipeline        # both, then graph, features, anomalies, risk and serving (data/README.md)
 ```
 
 The command prints a JSON summary on stdout, with counts, measured return rates against the
@@ -19,9 +19,10 @@ controls against the spec 8.9 minimum (`defect_detectability`), whether sales al
 defect (`sales_gate`), and provenance. Exit code 1 means the calibration is invalid, valid but
 unusable (every product type one-size, or no sized variant listed before the period, see below), or
 the output folder cannot be written; exit code 2 means a usage error. The `pipeline` compose service
-runs the same two commands on the committed real calibration, as the owner of the checkout
-(`HOST_UID` and `HOST_GID`, which the Makefile sets from `id -u` and `id -g`), so it can write
-`data/` in a clone made as root, as on the droplet (review P5).
+(`make demo-data`) runs the whole chain of `make pipeline` on the committed real calibration, without
+rewriting `docs/results/`, as the owner of the checkout (`HOST_UID` and `HOST_GID`, which the
+Makefile sets from `id -u` and `id -g`), so it can write `data/`, `artifacts/` and `serving/` in a
+clone made as root (review P5).
 
 ## Output and rules
 
@@ -334,9 +335,11 @@ precision 0.201.
 
 - **Anomaly volume** (US-208): every defective variant reaches the spec 8.9 minimum of 20 sales in
   the first weeks of its window at scale 1.0 (see above); after those 4 weeks a variant sells at its
-  usual level, so 1,014 of the 1,392 window weeks stay under the minimum. At small scales (0.1 and
-  below) small types cannot lift a variant to 20 sales a week: defects are then drawn only from types
-  that can, and none can below about scale 0.03 (the largest type then sells under 56 lines a week).
+  usual level, so 1,014 of the 1,392 full weeks inside the windows of the 100 defective variants
+  (main store; `window_weeks` of `defect_detectability`) stay under the minimum. At small scales
+  (0.1 and below) small types cannot lift a variant to 20 sales a week: defects are then drawn only
+  from types that can, and none can below about scale 0.03 (the largest type then sells under 56
+  lines a week).
   Where few types can carry the surges, they overlap and fewer weeks reach the minimum, for the
   defects and their controls alike: at scale 0.1 OOD with the real calibration (one type), about
   60% of the surge weeks reach it.
@@ -345,8 +348,11 @@ precision 0.201.
   that sees sales volume learns that surges exist, not which surges are defects.
 - **Graph volume** (US-203): with the real calibration, addresses shared at pickup points and
   collective addresses link 115,258 account pairs, and shared IP prefixes 92,805 pairs (main). This
-  is intended, so that the d_k decay of 8.3 is exercised; the graph should prune by d_k before
-  building pairs.
+  is intended, so that the d_k decay of 8.3 is exercised. The graph prunes these hubs before
+  building pairs (docs/account-graph.md, "Hub pruning"): on the main store it writes 19,344 links
+  instead of the 216,320 pairs of the brute force, with identical clusters and every pair left out
+  below the 0.8 threshold (docs/results/account-graph.md, "Hub pruning against the brute force";
+  synthetic, as of 2026-10-01).
 - **Reasons**: the reason mix is a hypothesis, because ASOS reason codes are masked.
 - **Generated events**: no checkout sessions without an order are generated, since no contract
   holds them; no return is rejected.

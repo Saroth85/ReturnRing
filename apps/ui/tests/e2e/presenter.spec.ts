@@ -1,7 +1,8 @@
 // Presenter mode, provenance mode, focus and the pitch path behaviours of UI round 1 (docs/ui-design.md
 // 3.4, 3.5, 5.2, 10.3, 12): the layout survives provenance mode, presenter mode keeps every page
 // reachable and shows the decision rail's approval, sheets give focus back, the mode tag never
-// covers content, and the system beat opens on the benchmarks.
+// covers content, and the system beat opens on the GPU line (the B1-B4 benchmark cards were
+// retired by ADR-18).
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -117,14 +118,13 @@ test.describe('presenter mode (UI22, UI23, UI25, UI26, UI27, UI30)', () => {
     await expect(page.locator('[data-sheet-confirm="evidence"]')).toBeEnabled();
   });
 
-  test('beat 6: the system page opens on the GPU line with the first benchmarks in view', async ({ page }) => {
+  test('beat 6: the system page opens on the GPU line, above the demo rail', async ({ page }) => {
     await page.goto('/system?present=1');
-    const b1 = page.locator('[data-benchmark="B1"]');
-    await expect(b1).toBeVisible();
-    await expect(page.locator('#gpu')).toBeInViewport();
-    await expect(page.locator('[data-cost-per-decision]')).toBeInViewport();
+    const gpu = page.locator('#gpu');
+    await expect(gpu).toBeVisible();
+    await expect(gpu).toBeInViewport();
     const rail = await page.locator('[data-demo-rail]').boundingBox();
-    await expect.poll(async () => (await b1.boundingBox())?.y ?? Infinity).toBeLessThan(rail?.y ?? 0);
+    await expect.poll(async () => (await gpu.boundingBox())?.y ?? Infinity).toBeLessThan(rail?.y ?? 0);
   });
 });
 

@@ -1,8 +1,7 @@
-// System and benchmarks strings (US-901, US-902, US-905; docs/ui-design.md 9.4, spec 12
-// "Benchmark AMD"). English; numbers come from data or named constants.
-import { GPU_SHORT_NAME, LLM_NAME } from '@/copy/constants';
+// System strings (US-901, US-905; docs/ui-design.md 9.4). The B1-B4 benchmark card and its
+// strings were retired by ADR-18. English; numbers come from data or named constants.
+import { LLM_NAME } from '@/copy/constants';
 import type { ClockKind } from '@/api/models';
-import type { Phase } from './benchmarks';
 import type { ReadinessTone } from './readiness';
 
 export const SYSTEM = {
@@ -16,7 +15,7 @@ export const SYSTEM = {
   },
   stories: 'US-901 · US-902 · US-905',
   onPage: 'On this page',
-  sections: { readiness: 'Service mode and readiness', benchmarks: 'AMD benchmarks', telemetry: 'Telemetry' },
+  sections: { readiness: 'Service mode and readiness', telemetry: 'Telemetry' },
   arch: { gpu: 'AMD services and offline training', cpu: 'application services' },
   status: {
     ready: 'ready',
@@ -79,42 +78,6 @@ export const SYSTEM = {
   rules: 'rules',
   assumptions: 'assumptions',
   models: 'models',
-  // Benchmarks
-  benchmarksIntro:
-    'Same data, versions and configuration on CPU and GPU; cold start, training, scoring and generation timed apart; latency always with its concurrency, throughput with its batch size.',
-  costTitle: 'Cost per decision',
-  costIdle: 'in the declared operating scenario',
-  costFrom: 'from',
-  costNone: 'Not measured yet.',
-  benchmarkStatus: {
-    measured: 'Measured',
-    pending: 'Pending',
-    illustrative: 'Illustrative, not measured',
-  } as Record<string, string>,
-  measuredOn: 'measured',
-  notRun: 'Not run yet.',
-  watermark: 'Illustrative',
-  phase: {
-    cold_start: 'Cold start',
-    training: 'Training',
-    scoring: 'Scoring',
-    generation: 'Generation',
-    pipeline: 'Pipeline',
-    cost: 'Cost',
-  } satisfies Record<Phase, string>,
-  deviceName: { cpu: 'CPU', mi300x: GPU_SHORT_NAME } as Record<string, string>,
-  concurrency: 'concurrency',
-  batch: 'batch',
-  protocol: { paper: 'paper protocol', decision_time: 'decision-time protocol' } as Record<string, string>,
-  speedup: `times faster on ${GPU_SHORT_NAME}`,
-  details: 'Dataset, versions and configuration',
-  dataset: 'Dataset',
-  config: 'Configuration',
-  notes: 'Notes',
-  none: 'none',
-  caveat: {
-    B2: 'A benchmark of the ASOS task, not evidence on account links.',
-  } as Record<string, string>,
   // Telemetry
   telemetryIntro: 'Sampled from amd-smi and the API; refreshed while this tab is visible.',
   every: 'every',

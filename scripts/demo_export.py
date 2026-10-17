@@ -1,33 +1,34 @@
-"""The cached demo package (US-901, spec 11 step 6): make demo-export, make demo-verify.
+"""The cached demo package (US-901, ADR-17 decision 6): make demo-export, make demo-verify.
 
     python3 -m scripts.demo_export build --serving serving --bench bench/results --out demo-cache
     python3 -m scripts.demo_export verify demo-cache
 
-`build` packs what the public demo (DEMO_MODE=cached, GPU off) serves, after
-`python -m apps.api.batch_generate` ran on the MI300X:
+`build` packs what the cached demo (DEMO_MODE=cached, optional) serves, after
+`python -m apps.api.batch_generate` (LLM_MODE=vllm) wrote the drafts, if any:
 
 - serving/: the serving snapshot of ADR-16 (store, features, scores, models; synthetic data, no
-  ground truth), checked first against its own manifest.json, with llm_cache/: the drafts Gemma
-  wrote on the MI300X through vLLM, one file per llm_case;
+  ground truth), checked first against its own manifest.json, with llm_cache/: the drafts the
+  batch wrote through vLLM, one file per llm_case;
 - bench/results/: the benchmark pointers (latest*.json) and the run files they name, as
   GET /api/benchmarks reads them;
 - MANIFEST.json, written last: the sha256 and size of every file, the snapshot instant and seed,
   what the cache holds (entries by model, device, generation path and fallback reason), the
   hardware it ran on, whether it is a rehearsal, and the nature of each part (rule 11).
 
-The demo labels its drafts "Precomputed on AMD MI300X" only when the package says so (rules 11
-and 13; apps/api/services/demo_package.py): `build` therefore needs the hardware (DEMO_GPU, no
-default, naming the MI300X) and the model the drafts must come from (GEMMA_MODEL), and refuses a
-cache with drafts of another model or of a batch that did not run with DEVICE=gpu (a fake vLLM
-server can be run under any model name). A rehearsal (`--rehearsal`, or `--allow-empty-cache`: a
-fake vLLM server on a CPU, another model, no draft at all) is packed without those checks and
-recorded as one, so the demo labels it as a rehearsal, never as MI300X.
+Only CPU rehearsal packages were ever built (14 and 15 Oct 2026, ADR-17): the drafts of a fake
+vLLM server, or none. No package of drafts made on an MI300X exists. The demo labels its drafts
+"Precomputed on AMD MI300X" only when the package says so (rules 11 and 13;
+apps/api/services/demo_package.py): `build` therefore needs the hardware (DEMO_GPU, no default,
+naming the MI300X) and the model the drafts must come from (GEMMA_MODEL), and refuses a cache with
+drafts of another model or of a batch that did not run with DEVICE=gpu (a fake vLLM server can be
+run under any model name). A rehearsal (`--rehearsal`, or `--allow-empty-cache`: a fake vLLM
+server on a CPU, another model, no draft at all) is packed without those checks and recorded as
+one, so the demo labels it as a rehearsal, never as MI300X.
 
 `verify` recomputes every hash of a package, and of its serving manifest; `make demo-up` and
 `make demo-local` run it before starting. It uses the standard library of Python 3.8 or later
-only, so it runs with the python3 of the droplet host and of the demo server, where the
-project's Python environment is not installed. No container image is part of the package
-(ADR-12).
+only, so it runs with the python3 of a host where the project's Python environment is not
+installed. No container image is part of the package (ADR-12).
 
 Exit codes: 0 done, 1 the package (or the snapshot) is not what its manifest says, the cache is
 empty without --allow-empty-cache, or an MI300X package without its hardware or with drafts of
@@ -203,9 +204,8 @@ def check_mi300x(cache: Mapping[str, Any], generated_on: str | None, model: str 
     that ran with DEVICE=gpu (rules 11, 13)."""
     if not generated_on or GPU_NAME not in generated_on:
         raise PackageError(
-            f"name the GPU the batch ran on: make demo-export DEMO_GPU='AMD Instinct {GPU_NAME} "
-            f"(AMD Developer Cloud)' (got {generated_on or ''!r}); REHEARSAL=1 packs a "
-            "rehearsal, labelled as such"
+            f"name the GPU the batch ran on: make demo-export DEMO_GPU='AMD Instinct {GPU_NAME}' "
+            f"(got {generated_on or ''!r}); REHEARSAL=1 packs a rehearsal, labelled as such"
         )
     if not model:
         raise PackageError(
@@ -221,8 +221,9 @@ def check_mi300x(cache: Mapping[str, Any], generated_on: str | None, model: str 
     if off_gpu:
         raise PackageError(
             f"llm_cache/ holds drafts of a batch run with DEVICE {', '.join(off_gpu)}, not only "
-            "DEVICE=gpu (make batch-generate): not packed as the MI300X demo (REHEARSAL=1 packs a "
-            "rehearsal, labelled as such)"
+            "DEVICE=gpu (python -m apps.api.batch_generate with LLM_MODE=vllm, against a local "
+            "vLLM): not packed as the MI300X demo (REHEARSAL=1 packs a rehearsal, labelled as "
+            "such)"
         )
 
 
@@ -257,8 +258,9 @@ def build(
     cache = cache_summary(serving / LLM_CACHE)
     if cache["entries"] == 0 and not allow_empty_cache:
         raise PackageError(
-            f"{serving / LLM_CACHE} holds no draft: run `make batch-generate` on the MI300X first "
-            "(ALLOW_EMPTY_CACHE=1 packs a CPU rehearsal whose drafts are templates)"
+            f"{serving / LLM_CACHE} holds no draft: run `python -m apps.api.batch_generate` "
+            "(LLM_MODE=vllm, against a local vLLM) first, or ALLOW_EMPTY_CACHE=1 for a CPU "
+            "rehearsal whose drafts are templates"
         )
     rehearsal = rehearsal or allow_empty_cache or cache["entries"] == 0
     if not rehearsal:
@@ -342,7 +344,7 @@ def parser() -> argparse.ArgumentParser:
     b.add_argument("--bench", type=Path, default=Path("bench/results"))
     b.add_argument("--out", type=Path, default=Path("demo-cache"))
     b.add_argument("--allow-empty-cache", action="store_true", help="a CPU rehearsal")
-    b.add_argument("--generated-on", help="the hardware the batch ran on (the MI300X droplet)")
+    b.add_argument("--generated-on", help="the hardware the batch ran on (e.g. an MI300X)")
     b.add_argument("--model", help="GEMMA_MODEL: the model every draft must come from")
     b.add_argument(
         "--rehearsal", action="store_true", help="not the MI300X drafts: labelled a rehearsal"

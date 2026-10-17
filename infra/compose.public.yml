@@ -1,12 +1,13 @@
-# A server reachable from the Internet: the MI300X droplet (make gpu-up) and the public cached
-# demo (make demo-up). Used on top of the profile files:
+# Optional HTTPS on a self-hosted server reachable from the Internet (make demo-up, the cached
+# demo); never deployed publicly: the public demo runs on Railway (docs/railway-demo.md). Used on
+# top of the profile files:
 #   docker compose -f infra/docker-compose.yml -f infra/compose.demo.yml -f infra/compose.public.yml ...
 # Spec 11: HTTPS by Caddy on PUBLIC_HOST (an sslip.io name derived from the IP, no domain needed),
 # demo views public and read-only, basic auth on the telemetry data (/api/telemetry: the admin
 # page's client route /system stays public, its data does not) and on every write while
 # PUBLIC_READ_ONLY is not true, for the user admin (infra/Caddyfile). PUBLIC_HOST and
 # ADMIN_PASSWORD_HASH are required (.env.example leaves both empty). The firewall opens 22, 80
-# and 443 only; the API stays on loopback, vLLM on the internal network (NFR-11).
+# and 443 only; the API stays on loopback (NFR-11).
 services:
   proxy:
     environment:

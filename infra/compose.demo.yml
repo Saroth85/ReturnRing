@@ -1,14 +1,15 @@
-# demo profile switches (US-901): the cached demo, GPU off, results precomputed on the MI300X.
+# demo profile switches (US-901, optional): the cached demo, DEMO_MODE=cached with the mock LLM.
 #   docker compose -f infra/docker-compose.yml -f infra/compose.demo.yml --env-file .env --profile demo ...
 # make demo-local runs it on a laptop (http://localhost:8080); make demo-up adds
-# -f infra/compose.public.yml for the public server.
-# The values here win over the laptop .env: no GPU, no vLLM, cached outputs only. The API and the
-# reset read the demo package of `make demo-export` (demo-cache/: the serving snapshot with
+# -f infra/compose.public.yml for a self-hosted server (never deployed publicly).
+# The values here win over the laptop .env: no vLLM, no Token Factory, cached outputs only. The API
+# and the reset read the demo package of `make demo-export` (demo-cache/: the serving snapshot with
 # llm_cache/, the benchmark results and MANIFEST.json), never serving/ or data/ of this checkout.
+# Only CPU rehearsal packages were built (14 and 15 Oct 2026, ADR-17); no MI300X package exists.
 # Compose merges volumes by container path, so these mounts replace those of docker-compose.yml.
 # The API also reads the package's MANIFEST.json next to the snapshot, as in demo-cache/
-# (SERVING_DIR/../MANIFEST.json): /readyz shows "Precomputed on AMD MI300X" only when it says the
-# drafts were made on the MI300X by the model it names (whatever GEMMA_MODEL this server has), a
+# (SERVING_DIR/../MANIFEST.json): /readyz shows the MI300X label only when it says the drafts
+# were made on the MI300X by the model it names (whatever GEMMA_MODEL this server has), a
 # rehearsal label otherwise (rules 11 and 13).
 # Public views are read-only by default (spec 11): PUBLIC_READ_ONLY=false in .env turns writes on,
 # behind basic auth on a public server.

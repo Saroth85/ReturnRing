@@ -1,14 +1,18 @@
 # ReturnRing UI design
 
 Final design for phase 5 (`apps/ui`), designed on API contract 1.1.0 (commit `5b3c8e9`, ADR-15). The UI
-now runs on the live contract 1.8.1: the generators read `contracts/` directly (no pinned copy), and ADR-15
-sections 13 to 21 list every change since 1.1.0; where this document predates them it says so. It merges three
+now runs on the live contract 1.9.0: the generators read `contracts/` directly (no pinned copy); ADR-15
+sections 13 to 21 list every change from 1.1.0 to 1.8.1, and ADR-18 the 1.9.0 one (`llm_mode`
+`tokenfactory`, Gemma through AMD Token Factory). Where this document predates them it says so. It merges three
 proposals: operator efficiency first (P1), demo and pitch first (P2), trust and compliance first (P3).
 It takes P3's trust system as the backbone, P2's case hero, pitch path and visual highlights, and P1's
 operator loop and action friction. Section 2 lists every conflict and how it was resolved.
 
-Status: final design for review, 13 Oct 2026. Deadline Sun 18 Oct 2026. Build budget: two days, four
-engineers, one view area each (section 13).
+Status: designed on 13 Oct 2026 and built from 13 to 17 Oct 2026; deadline Sun 18 Oct 2026. The four
+view areas of section 13 were built by parallel Claude Code sessions, one per area, not by four human
+engineers: "Eng 1" to "Eng 4" in sections 13 and 14 name those areas. They were built and merged on the
+evening of 13 Oct (commits `fe1c667` to `480120d`), then reviewed and moved to the live contract until
+17 Oct. Section 13 and the appendix are the build plan written for 14 and 15 Oct 2026, kept as history.
 
 ---
 
@@ -116,8 +120,8 @@ and offers the three `DEMO_USERS`: `sara` (operator), `luca` (manager), `ahmed` 
 | `/shop?preset=giulia\|marco` | Simulated checkout | platform | POST `/api/checkout/evaluate` (`checkout_evaluate_request.{giulia,marco}.json` → `checkout_evaluate_response.*`), POST `/api/checkout/confirm` (`checkout_confirm_request.giulia.json` → `checkout_confirm_response.giulia.json`, 201) | US-401..403 | Should |
 | `/inspection`, `/inspection/:returnId` | Warehouse inspection | platform | GET `/api/returns?path=withdrawal`, POST `/api/inspections` (`inspection_create_request(.manual_review).json` → `inspection.awaiting.json` / `inspection.manual_review.json`), POST `/api/inspections/{id}/confirm` (`inspection_confirm_request.json` → `inspection_confirm_response.json`) | US-501..503 | Could |
 | `/coupons` | Coupon rule, versions, applications | platform | GET/POST `/api/coupon-rules` (`coupon_rules.json`; `coupon_rule_create.json` → `coupon_rules.after_create.json`), POST `/api/coupon-rules/applications/{id}/reverse` (`coupon_application_reverse.json` → `coupon_rule_application.reversed.json`) | US-402 | Should |
-| `/system` | Readiness, versions, benchmarks, telemetry | platform | GET `/readyz` (`readyz_response.{live,cached}.json`), GET `/api/benchmarks` (`benchmarks.json`), GET `/api/telemetry` (`telemetry.{live,cached}.json`) | US-901, US-902, US-905 | Must |
-| `/demo` | Demo path and preflight | platform | GET `/readyz`, GET `/api/returns/RET-0001{01..05}`, GET `/api/simulator/assumptions` | spec 16, US-903 | Must |
+| `/system` | Readiness, versions, telemetry (the B1-B4 benchmarks were retired by ADR-18: the page no longer calls GET `/api/benchmarks`) | platform | GET `/healthz`, GET `/readyz` (`readyz_response.{live,cached}.json`), GET `/api/telemetry` (`telemetry.{live,cached}.json`) | US-901, US-905 | Must |
+| `/demo` | Demo path and preflight | platform | GET `/readyz`, GET `/api/demo/cases` (`demo_cases.json`), the case cards it names, GET `/api/simulator/assumptions` | spec 16, US-903 | Must |
 | `/about` | About the data | platform | GET `/readyz` (versions) | US-906 | Should |
 | `/dev/agent?return=` | Agent harness (dev builds only) | agent | POST `/api/agent/ask` | US-701 | dev |
 | `*` | Not found | shell | none | | Must |
@@ -138,7 +142,7 @@ Deep-link parameters the operator area accepts (used by other areas and by `/dem
 | Work | Returns queue (badge: needs approval) · Reviews due (badge) · Inspection · Outbox | Sara, Ahmed |
 | Oversight | Portfolio matrix · Simulator · Weekly KPIs · Fairness · Product issues · Coupon rules · Audit log | Luca |
 | Demo | Compare cases · Simulated checkout · Demo path | presenter |
-| System | System and benchmarks · About the data | judges |
+| System | System · About the data | judges |
 
 - Luca's persona moves the Oversight group to the top. Ahmed's moves Inspection to the top.
 - Badge counts come from `page_size=1` queries (the response `total`):
@@ -148,7 +152,7 @@ Deep-link parameters the operator area accepts (used by other areas and by `/dem
 
 ```
 ┌ ModeBanner (sticky, 32 px, not dismissible) ───────────────────────────────────────────────────────┐
-│ LIVE · AMD Instinct MI300X · Gemma 4 on vLLM                     (cached: yellow hatch, see 5.2)  │
+│ LIVE · Gemma 4 via AMD Token Factory · shared inference           (cached: yellow hatch, see 5.2)  │
 ├ TopBar (48 px) ────────────────────────────────────────────────────────────────────────────────────┤
 │ ReturnRing · Navigli Fashion (fictional shop, synthetic data) · as of 30 Sep 2026, 18:00 UTC        │
 │                                    [LLM ready] [Provenance P] [Theme ▾] [Acting as Sara · operator ▾] │
@@ -156,7 +160,7 @@ Deep-link parameters the operator area accepts (used by other areas and by `/dem
 │         │                                                                                          │
 │         │                                                              [GpuDock, toggled with T]   │
 ├─────────┴──────────────────────────────────────────────────────────── ModeCornerTag (cached, mock) ┤
-│ DemoRail (presenter mode only): ① Same rate ② Marco ③ Rossi ④ Elena ⑤ Net benefit ⑥ AMD  01:12 ‹ › │
+│ DemoRail (presenter mode only): ① Same signal ② Marco ③ Rossi ④ Elena ⑤ Net benefit ⑥ AMD | Q&A …   │
 └────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -164,10 +168,14 @@ Deep-link parameters the operator area accepts (used by other areas and by `/dem
 - **`ProvenanceToggle` (`P`)**: provenance mode prints the nature word and the period next to every
   figure and expands every section footer. Used for the video and slide screenshots.
 - **`GpuDock` (`T`)**: a 280 × 96 floating card with GPU %, a sparkline, memory and tokens/s from
-  `/api/telemetry`, polled every `interval_s` (5 s) and paused while the tab is hidden. In cached mode it
-  shows the telemetry `note`. It is the "amd-smi in a corner" of spec 16.
+  `/api/telemetry`, polled every `interval_s` (5 s) and paused while the tab is hidden. It shows GPU
+  numbers only when an amd-smi sampler (`python -m apps.api.services.other.telemetry`) has written a
+  recent sample; no compose service or public demo runs one, so on a CPU, in Token Factory mode and in
+  cached mode it shows the telemetry `note` instead (no numbers, never zeros). It is the "amd-smi in a
+  corner" of spec 16, implemented and never run with a real GPU sample.
 - **`DemoRail`**: shown with `?present=1`, which also sets the root font to 18 px and collapses the
-  SideNav. `Alt+←`/`Alt+→` move between the six beats; each beat is a URL (section 12).
+  SideNav. `Alt+←`/`Alt+→` move between the beats built from GET `/api/demo/cases`: the six of the main
+  path, then the Q&A beats (section 12); each beat is a URL.
 - **`ToastRegion`** (`aria-live=polite`) carries confirmations only. Errors that need a decision are
   inline, never toasts.
 - **Document title**: `[Cached] ReturnRing · Queue` in cached mode, `[Mock] …` on contract examples.
@@ -420,9 +428,10 @@ until measured.
 
 | Situation | `ModeBanner` text | Style |
 | --- | --- | --- |
-| `mode: live`, `llm_mode: vllm`, `device: gpu` | **LIVE** · AMD Instinct MI300X · Gemma 4 on vLLM | `--live-bg` band, `--live-fg` text |
+| `mode: live`, `llm_mode: tokenfactory` (contract 1.9.0, ADR-18; the public demo) | **LIVE** · Gemma 4 via AMD Token Factory · shared inference | `--live-bg` band, `--live-fg` text |
+| `mode: live`, `llm_mode: vllm`, `device: gpu` (implemented, never run: no self-hosted vLLM ran on an MI300X) | **LIVE** · AMD Instinct MI300X · Gemma 4 on vLLM | `--live-bg` band, `--live-fg` text |
 | `mode: live`, `llm_mode: mock` | **LIVE (CPU)** · mock language model: drafts are hand-written stand-ins | live band with a hatched end segment |
-| `mode: cached` | **CACHED DEMO** · `{readyz.label}` ("Precomputed on AMD MI300X") · GPU off: nothing is computed live | `.hatch-cached`, `--cached-fg` |
+| `mode: cached` (implemented; rehearsed only with CPU packages, which carry the rehearsal label or none: no MI300X package was made) | **CACHED DEMO** · `{readyz.label}` ("Precomputed on AMD MI300X", or the rehearsal label) · GPU off: nothing is computed live | `.hatch-cached`, `--cached-fg` |
 | UI on the mock server | **CONTRACT EXAMPLES** · UI running on `contracts/examples/api` | cached style |
 | `status: degraded` or `not_ready` | second line in attention style listing the failing `checks` with `detail` | attention |
 | `public_read_only` (`VITE_READ_ONLY` until `/readyz` answers) | appended: "· read-only public demo" | same |
@@ -437,7 +446,9 @@ until measured.
 - **`LlmStatusPill`**: from the `vllm` check, `llm_mode` and `mode`: "LLM ready" · "LLM: mock stand-in (no
   model)" (live with `llm_mode` mock: every draft is written live by the mock model) · "LLM off · precomputed
   texts and templates in use" (cached, hatched) · "LLM unavailable · templates in use" (danger outline) ·
-  "LLM: contract example" (mock adapter). It never blocks decisions.
+  "LLM: contract example" (mock adapter). It never blocks decisions. With `llm_mode` tokenfactory the `vllm`
+  check is the API's Token Factory probe (at most once a minute, ADR-18 amendment; its detail says the GPU
+  model and utilisation are not exposed), so "LLM ready" means the shared endpoint answered.
 
 ### 5.3 Decision components (`src/components/decision/`, `src/domain/`)
 
@@ -531,13 +542,16 @@ renders three layers that never mix:
   showing the text as stored", and logs the request id.
 
 **`GenerationBadge`** (`GenerationInfo`): the model that wrote the text, from the generation record and never
-a fixed name (rules 11, 13): `generation.model` as served (for example `google/gemma-4-31b-it`), or "Mock
-language model (hand-written stand-in)" when `llm_mode` is `mock`; then `model` "· validated on the first
-call" · `regenerated` "· validated on the second call" · `template` "Reviewed template, no model text" (no
-model named); then the fallback reason, the model calls, and `served_from` cached as `/readyz` `label` gives
-it. The audit diff's path row uses the same label from `GenerationAuditState.model` and `llm_mode`; the
-assistant's header names the model from `/readyz` (`llm_mode` mock: "mock language model"; live on vLLM:
-"Gemma 4 on vLLM"; nothing in cached mode, where the assistant is not served).
+a fixed name (rules 11, 13): `generation.model` as served (for example `google/gemma-4-31b-it` on vLLM, or
+the Token Factory catalogue id `Gemma-4-31B-IT`), or "Mock language model (hand-written stand-in)" when
+`llm_mode` is `mock`; then `model` "· validated on the first call" · `regenerated` "· validated on the
+second call" · `template` "Reviewed template, no model text" (no model named); then the fallback reason,
+the model calls, and `served_from` cached as `/readyz` `label` gives it. The audit diff's path row uses the
+same label from `GenerationAuditState.model` and `llm_mode` (`tokenfactory` reads "AMD Token Factory"); the
+assistant's header names the model from `/readyz` (`llm_mode` mock: "mock language model"; tokenfactory:
+"Gemma 4 via AMD Token Factory"; vllm: "Gemma 4 on vLLM"; nothing in cached mode, where the assistant is
+not served), and the origin of its step count names the provider the same way ("… via AMD Token Factory:
+steps_used of agent stream …", `src/views/agent/copy.ts`).
 
 **`ExplanationList`** (`draft.explanation`, `path`): statements grouped Observed → Score contribution → To
 verify, each with `StatementLabelChip`, the text in `GeneratedText`, and a **`FactCitation`** line
@@ -545,10 +559,13 @@ verify, each with `StatementLabelChip`, the text in `GeneratedText`, and a **`Fa
 card provenance; after ADR-14's facts, one chip per cited fact with its own nature. Clicking an entity
 calls `onRefSelect`. A SCORE statement on the guarantee path is hidden behind an integrity notice.
 
-### 5.5 Linked accounts (`src/components/linked-accounts/`)
+### 5.5 Linked accounts (`src/views/operator/case/linked/`)
 
-`LinkedAccountsPanel` (props: `view: LinkedAccountsView; focusRef?: EntityRef; onDispute(linkId);
-onExplain(linkIds); readOnly?`) composes:
+Built inside the operator area, not as a shared component: `LinkedAccountsPanel.tsx`, `AccountGraph.tsx`
+and `parts.tsx` (`LinkTable`, `LinkDetail`, `AccountDetail`, `CouponTimeline`, `ClusterFacts`,
+`LinkActions`). `LinkedAccountsPanel` takes `{ view: LinkedAccountsView }`; the identifier filter is its
+own state, and `LinkActions` opens the case card's dispute and evidence sheets through the case context,
+disabled with the reason for a role that may not write. The panel composes:
 
 - Header: "Cluster of 7 accounts · CL-000417 (graph id) · 21 links". Fixed sub-line: "A link is a shared
   identifier, not proof of who uses the accounts. Common identifiers count less."
@@ -1069,7 +1086,7 @@ The operator area mounts it in the case card; `onRefSelect` scrolls to and pulse
 customer or order (graph edge or node, link row, order row).
 
 ```
-┌ Ask about RET-000102 · read-only assistant (Gemma 4) ─────────────────────────────── × ┐
+┌ Ask about RET-000102 · read-only assistant (Gemma 4 via AMD Token Factory) ───────── × ┐
 │ It can read the case; it cannot change it.                                              │
 │ Suggested: [Which evidence supports the link between C-MARCO-1 and C-MARCO-3?]           │
 │            [What makes this case different from the Rossi family?]                       │
@@ -1099,11 +1116,16 @@ customer or order (graph edge or node, link row, order row).
   call `onRefSelect`) and "Evidence missing" (a list). `done` shows the `GenerationBadge`.
 - **Refusal** (`write_request`): neutral card "The assistant only reads the case. Approvals and changes are
   made on the case card." with "Go to the decision panel". `out_of_scope` and `step_limit` get their own copy.
-- **Errors**: `error` event or 503 → `LlmUnavailableNotice` ("The decision is unaffected"); 429 → "Too many
-  questions in a short time. Try again in a few seconds." and input disabled for 10 s; 403 →
-  `ForbiddenRoleNotice`; warehouse sees the button disabled.
-- **Cached mode**: only the three suggested questions are enabled; free text shows "Free questions need the
-  live model; these answers were precomputed on the MI300X."
+- **Errors**: `error` event or 503 → `LlmUnavailableNotice` ("The decision is unaffected"); 429
+  `rate_limited` → "Too many questions in a short time." with the service's `Retry-After` ("The service
+  asks to wait n s before the next question.") and the input disabled until then ("New questions resume in
+  n s."; 10 s when the header is missing); 403 → `ForbiddenRoleNotice`; warehouse sees the button disabled.
+  The ADR-18 amendment gives all public-demo visitors one shared budget (6 questions a minute, 2 answered
+  at once); [railway-demo.md](railway-demo.md) says whether the running revision has it.
+- **Cached mode** (contract 1.5.0): the API answers the assistant with 503, so no question can be asked;
+  the drawer shows "Unavailable in the cached demo: The case assistant needs the live model, which is off
+  in the cached demo." (`src/views/agent/copy.ts`). The earlier plan of precomputed answers to the three
+  suggested questions was dropped (O-15).
 - Session history: earlier questions and answers of this drawer stay listed above the latest (not persisted).
 - Examples: `agent_ask_request.marco_{link,rossi,terms}.json` → `agent_stream.marco_*.json`/`.sse`;
   `agent_ask_request.write.json` → `agent_stream.write_refused.json`.
@@ -1282,7 +1304,8 @@ reached by URL shows the refusal with its violations, no Retry, and a link to th
 
 ## 9. Platform area (view 4): checkout, inspection, coupons, system, demo
 
-Stories US-401..403, US-501..503, US-901, US-902, US-905, US-906. Directory `src/views/platform/`.
+Stories US-401..403, US-501..503, US-901, US-905, US-906 (US-902, the B1-B4 benchmarks, was retired by
+ADR-18). Directory `src/views/platform/`.
 
 ### 9.1 Simulated checkout `/shop` (US-401..403)
 
@@ -1349,6 +1372,10 @@ Tablet first, 48 px targets, a stepper:
 
 - **Manual review** (`inspection.manual_review.json`): "The system stopped: photo too dark to check the tag
   and the fabric. Verify by hand." No proposal, no compensation control; observations only (open question O-22).
+  With `LLM_MODE=tokenfactory` every photo takes this path: shared Gemma is text-only, so the API runs no
+  vision model (`apps/api/services/other/inspections.py`, `vision_model`; ADR-18). Photos have been read
+  only by the mock vision (`LLM_MODE=mock` and the contract examples); vision on vLLM was never run with a
+  real model.
 - Fixed copy: "A photo cannot establish the origin or time of damage. Suggestions are candidate observations
   that you confirm."
 - Only warehouse can create or confirm; Sara and Luca see the steps read-only with the reason.
@@ -1361,61 +1388,74 @@ Tablet first, 48 px targets, a stepper:
   Copy: "The general rule is approved and versioned by the manager; each application to a cluster is a proposal
   an operator confirms. Always reversible."
 
-### 9.4 System and benchmarks `/system` (US-901, US-902, US-905)
+### 9.4 System `/system` (US-901, US-905)
 
 ```
-┌ Designed for one AMD Instinct MI300X: every model on one GPU ────────────── ● Live · ready ──────┐
-│ ArchitectureStrip: [vLLM · Gemma 4 31B] [XGBoost] [GraphSAGE] ← GPU (target) │ api · ui · db ← CPU  │
-│ This service: live on the CPU, language model: mock: hand-written stand-ins     (from /readyz)      │
-│ ┌ B1 XGBoost training · ASOS ── Illustrative, not measured ▨ ┐ ┌ B2 GraphSAGE · ASOS ── Pending ┐ │
-│ │ CPU    ███████████████████  (hatched, ink-3)              │ │ Not run yet. A benchmark of the  │ │
-│ │ MI300X ██                                                 │ │ ASOS task, not evidence on       │ │
-│ │ dataset · versions · config ▸                             │ │ account links                    │ │
-│ └───────────────────────────────────────────────────────────┘ └──────────────────────────────────┘ │
-│ ┌ B3 Gemma 4 31B on vLLM ── Illustrative, not measured ▨ ┐ ┌ B4 Nightly pipeline ── Pending ─────┐ │
-│ │ latency p50 · p95 @ concurrency · throughput @ batch ·   │ │                                    │ │
-│ │ cost per decision, idle time included                    │ │                                    │ │
-│ └──────────────────────────────────────────────────────────┘ └────────────────────────────────────┘ │
-│ Telemetry · every 5 s · GPU % ▁▃▇▆ · memory used / total · W · LLM requests · p50/p95 · tok/s · API p95 │
-│ Readiness · database ✓ scores ✓ models ✓ vllm ✓ demo_cache – telemetry ✓ · contract 1.8.1 · versions │
-└────────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌ System · US-901 · US-902 · US-905 ───────────────────────────────────────────── [Live · ready] ┐
+│ AMD-powered inference and offline model training                                    (#gpu)     │
+│ ArchitectureStrip: AMD services and offline training [Gemma 4 · AMD Token Factory or local     │
+│   vLLM] [Offline XGBoost (AMD build)] [Offline GraphSAGE] │ application services [API] [UI]    │
+│   [PostgreSQL]                                                                                 │
+│ This service: live on the CPU, language model: Gemma 4 via AMD Token Factory  (from /readyz)   │
+│ Telemetry · every 5 s · GPU % · memory used / total · W · LLM requests · p50/p95 · tok/s       │
+│ Service mode and readiness · liveness · mode · language model · device · label · header ·      │
+│   clock · component checks · versions (contract 1.9.0, rules, assumptions, models)             │
+└────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-- The hero and the `ArchitectureStrip` describe the target architecture ("Designed for one AMD Instinct
-  MI300X", "on the GPU (target)"); the line under them follows `/readyz` and says what answers now: "This
-  service: live on the CPU, language model: mock: hand-written stand-ins", "This service: cached demo, GPU off
-  · <readyz.label>" (or "no label" when there is none), or contract examples on the mock adapter. Only
-  `readyz.label` says where cached outputs were made (ADR-15 sections 16, 17).
-- Tabs on narrow screens: Readiness · Benchmarks · Telemetry.
-- **`ModeCard` and `ComponentChecks`** (`/readyz`): mode, `llm_mode`, device, `label`, contract, rules,
-  assumptions and model versions; each check ok / disabled / error with `detail`. `--ok` appears only here.
-- **`BenchmarkCard`** (B1 to B4): status badge **Measured** (with `measured_at`), **Pending** ("Not run yet")
-  or **Illustrative, not measured** (`.hatch-cached` overlay behind the chart and a diagonal "ILLUSTRATIVE"
-  watermark, bars in ink-3). Dataset, versions, config and notes in disclosures. `ResultBars` pair CPU and
-  MI300X per metric and phase, one small chart per unit; training, scoring, generation and cold start kept
-  separate. A **`SpeedupBadge`** appears only when both results are measured and share metric, phase and
-  protocol. Latency always shows its concurrency, throughput its batch size; cost reads "idle included".
-- **`TelemetryPanel`**: polls every `interval_s`, pauses when hidden; small multiples (no dual axis): GPU
-  utilisation (from `gpu_history`), memory used vs total, power; LLM requests, latency p50/p95, tokens/s; API
-  p95. In cached mode it shows the `note` ("GPU off: cached mode serves results precomputed on the AMD
-  MI300X") and **no numbers**, never zeros. A 401 from Caddy shows a "Protected" card with "Sign in at
-  /admin/" (open question O-16).
+As built in `SystemPage.tsx`:
+
+- **Hero** (`#gpu`, the panel beat 6 opens on): the line "AMD-powered inference and offline model
+  training" and the `ArchitectureStrip` (`ARCHITECTURE` in `src/views/platform/constants.ts`): "AMD
+  services and offline training" (Gemma 4 · AMD Token Factory or local vLLM; Offline XGBoost (AMD
+  build); Offline GraphSAGE) and "application services" (API, UI, PostgreSQL; the public demo on
+  Railway runs the same API on SQLite). The strip names components, not where this instance runs.
+- **Readiness line** (`serviceLine`, from `/readyz`): says what answers now. "This service: live on the
+  CPU, language model: Gemma 4 via AMD Token Factory" (the public demo), "… mock: hand-written stand-ins"
+  or "… Gemma 4 on vLLM"; "This service: cached demo, GPU off · <readyz.label>" (or the no-label text);
+  "This UI: contract examples, no service behind it" on the mock adapter. Only `readyz.label` says where
+  cached outputs were made (ADR-15 sections 16, 17).
+- **`TelemetryPanel`** (`#telemetry`): polls every `interval_s`, pauses when hidden; small multiples (no
+  dual axis): GPU utilisation (from `gpu_history`), memory used vs total, power; LLM requests, latency
+  p50/p95, tokens/s; API p95. GPU numbers appear only with an amd-smi sampler, which no deployment ran:
+  on a CPU it shows the API's note and no GPU numbers, in cached mode the `note` ("GPU off: cached mode
+  serves precomputed results") and **no numbers**, never zeros; sample times are wall time. A 401 (basic auth
+  on `/api/telemetry`: Caddy in the public compose mode, `apps/public_demo.py` on Railway) shows the
+  "Protected" card: "Sign in when the browser asks, then reload" (open question O-16).
+- **`ModeCard`** (`#readiness`, "Service mode and readiness"): liveness from GET `/healthz`; mode,
+  language model, device, `label`, the `X-ReturnRing-Mode` header against `/readyz`, the last request
+  id, the UI data source, the service clock (kind, now, snapshot, reset in wall time, frozen state and
+  note); each component check ok / disabled / unavailable with its `detail`; versions (contract, rules,
+  assumptions, every model). `--ok` appears only here. The `ReadinessPill` sits in the page header.
+- On narrow screens an "On this page" list links Telemetry and Service mode and readiness.
 - **`GpuDock`** (shell slot exported by this area): section 3.4.
+- **Retired**: the `BenchmarkCard` (B1 to B4 with Measured, Pending or Illustrative status, CPU against
+  MI300X bars, speedups and the cost per decision) was retired by ADR-18 on 16 Oct 2026, removed from
+  the page that day and deleted on 17 Oct 2026. GET `/api/benchmarks` stays in the contract; the UI
+  does not call it.
 
 ### 9.5 Demo path `/demo` and `DemoRail`
 
-- **Preflight** (green or red, each red names its fix):
+- **Preflight** (`preflight.ts`; green or red, each red names its fix):
+  - the UI talks to the API (red on the mock adapter, where every answer is a contract example);
   - `/readyz` is ready, and the mode is the one expected for this run (live for the pitch);
-  - `vllm` and `telemetry` checks ok;
-  - RET-000102 is `proposed` at version 1 ("Marco already approved: run the demo reset of US-903");
-  - RET-000104's latest decision is DEC-000104-1;
+  - the model endpoint is ready (shared AMD, local or mock); GPU telemetry may be off on a CPU;
+  - the API serves the contract this UI was built for;
+  - the golden cases of the demo reset answer (GET `/api/demo/cases`);
+  - Marco is `proposed` at the decision the reset made ("Marco was already decided: run the demo reset
+    (US-903)"), and Rossi's case is still at the reset's decision;
   - the current assumptions are `assumptions-v1`;
-  - the five golden cards and the matrix load in under 2 s.
-- **Beats**: the six deep links of section 12 in order, each with a one-line "what to say" from spec 16.
-- **Buttons**: "Start presenter mode" (adds `?present=1`, starts the timer), "Open cached URL"
-  (`VITE_CACHED_ORIGIN`), and per beat "Open in a new tab" so the tabs can be pre-opened in order.
-- **`DemoRail`** (shell slot): beat numbers, the current one highlighted, elapsed timer, `Alt+←`/`Alt+→`.
-  `Shift+C` reloads the same route on the cached origin (failover; the striped banner makes it honest).
+  - the golden case cards and the matrix load in under 2 s.
+- **Beats** (`beats.ts`): built from GET `/api/demo/cases`, never from fixed ids. Up to ten: the six of the
+  main path (same signal, Marco, Rossi, Elena, net benefit, AMD), then four one key away for the Q&A (the
+  checkout after Marco, Giulia's checkout, a wrong link, not enough evidence). A beat whose case the store
+  does not hold is left out. Each has its persona and a one-line "what to say".
+- **Buttons**: "Start presenter mode" (adds `?present=1`), "Open the cached URL" (`VITE_CACHED_ORIGIN`;
+  implemented but unused: no cached demo was deployed, so the builds set no second origin), and per beat
+  "Open in a new tab" so the tabs can be pre-opened in order.
+- **`DemoRail`** (shell slot): the beats in order, the Q&A ones after a divider, the current one marked,
+  `Alt+←`/`Alt+→`. The elapsed timer and the `Shift+C` failover to the cached origin of the design were
+  not built.
 - **Read-only public demo** (`/readyz` `public_read_only`): the page never asks for a write the service
   refuses. The ring checkout after Marco and the dispute are marked "Not playable on the read-only demo" with
   the reason (Marco cannot be approved there, so the checkout shows the standard terms; a dispute is a write);
@@ -1496,8 +1536,8 @@ violations, request_id}`.
   owed to the customer is never counted as a saving".
 - **Contract and model text is shown verbatim** (value legend, residual note, statements, agent answers). The
   COPY-LINT test covers UI-authored strings only; a Playwright check lists banned terms found in rendered API
-  text as warnings and reports them to the API and LLM owners (the insufficient-evidence statement currently
-  says "neither safe nor suspicious", open question O-20).
+  text as warnings and reports them to the API and LLM owners (the insufficient-evidence statement once
+  said "neither safe nor suspicious", open question O-20; the contract examples no longer contain it).
 - **Customer-facing surfaces** (shop view, message previews) never mention risk, score, quadrant, cluster,
   linked accounts or the model.
 - **No number literals in copy**: every number in prose is interpolated from data or from a named constant:
@@ -1530,8 +1570,10 @@ violations, request_id}`.
 
 ### 11.1 Types and generated constants
 
-- `npm run gen:api` (also `make ui-types`):
-  - `openapi-typescript contracts/json/api/openapi.json -o src/api/types.gen.ts`;
+- `npm run gen:api` (an alias of `npm run gen:types`; also `make ui-types`):
+  - `apps/ui/scripts/gen-types.mjs` writes `src/api/types.gen.ts` from the API JSON Schemas
+    (`contracts/json/api/*.schema.json`) with `json-schema-to-typescript`, merging their shared `$defs`
+    (the design named `openapi-typescript`; it was not used);
   - `scripts/gen-contract.mjs` writes `src/api/contract.gen.ts` with runtime constants read from the
     contract: enum arrays (decision actions, quadrants, states, override categories, evidence kinds, audit
     actions, lever ids and scopes) and the endpoint roles of `endpoints.json`.
@@ -1546,10 +1588,11 @@ violations, request_id}`.
 - `apiFetch` (`src/api/client.ts`): base URL `/`; JSON in and out; `X-Mock-Scenario` from the dev scenario
   switcher; stores `X-ReturnRing-Mode` and `X-Request-Id` in the mode store; maps non-2xx to
   `ApiError {status, code, message, violations, requestId}`; a 401 becomes the "Protected" state.
-- **TanStack Query** keys: `['queue', query]`, `['queueCount', tab]`, `['case', returnId]`,
-  `['decision', decisionId]`, `['audit', query]`, `['outbox', query]`, `['matrix']`, `['assumptions']`,
-  `['kpi', week]`, `['fairness']`, `['anomalies', query]`, `['tasks']`, `['couponRules']`, `['benchmarks']`,
-  `['telemetry']`, `['readyz']`.
+- **TanStack Query** keys (`queryKeys` in `src/api/queries.ts`): `['healthz']`, `['readyz']`,
+  `['queue', query]`, `['queueCount', tab, query]`, `['case', returnId]`, `['decision', decisionId]`,
+  `['audit', query]`, `['outbox', query]`, `['matrix']`, `['assumptions']`, `['kpi', week]`,
+  `['fairness']`, `['anomalies', query]`, `['tasks']`, `['couponRules']`, `['telemetry']`,
+  `['demoCases']`. (`['benchmarks']` and its hook went with the B1-B4 card, ADR-18.)
 - Freshness: queue stale 15 s, refetch every 30 s and on focus; case 60 s, 0 when a sheet opens; telemetry
   every 5 s while visible; matrix once per session, invalidated by a new assumptions version; a pending draft
   polls every 3 s for up to 60 s.
@@ -1582,6 +1625,11 @@ violations, request_id}`.
 | Routes for superseding versions | `useDecisionVersions`, `VersionChain`, the newer-version banner | `revisions` + `superseded_by` |
 | Operator statements citing code-built facts `{id, entity, metric, value, period, nature}` | `toStatementVM` → `FactCitation` chips with their own nature; digits in the text linked to facts by id | One pseudo-fact per statement with the card nature |
 | Customer message from reviewed phrasebook sentences + code-built body + template fields + fixed clause | `toMessageSegments` → `MessagePreview` (`phrase`, `body`, `field`, `clause`); `PhrasebookPicker` (Could: one opening, up to three extras, one closing, filtered by the allowed ids, body locked) | Tokenised connective text; no editor; Regenerate only |
+
+On 17 Oct 2026 (contract 1.9.0) several of these have landed: the `renew` action is in the contract
+(`DECISION_ACTIONS`, so `HAS_RENEW` is true and the review sheet, the action bar and `/reviews` offer it),
+and contract 1.5.0 brought the statements citing code-built facts and the phrasebook message
+(`sentence_ids`, `texts[]`). The `PhrasebookPicker` was not built (docs/review-backlog.md).
 
 ### 11.5 Mock server (`apps/ui/mock/returnring-mock.ts`, Vite dev middleware)
 
@@ -1617,7 +1665,9 @@ violations, request_id}`.
 ## 12. Demo click path (spec 16, the four golden cases)
 
 Prerequisites: `/demo` preflight green; light theme; `?present=1`; browser tabs pre-opened in beat order; the
-cached URL ready on a second origin; the demo reset (US-903) run after each rehearsal.
+demo reset (US-903) run after each rehearsal. (The plan also had a cached URL on a second origin as a
+failover; no cached demo was deployed.) The beats and their ids come from GET `/api/demo/cases` (9.5); the
+ids below are those of the contract examples.
 
 | Time | Beat | Route | Clicks | What the audience sees | API (example) | E2E-PITCH asserts |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -1626,26 +1676,35 @@ cached URL ready on a second origin; the demo reset (US-903) run after each rehe
 | 1:05–1:35 | ③ Rossi | `/returns/RET-000103`, then `/returns/RET-000104` | 1) on RET-000104, the edge C-ROSSI-CARD-1~C-ROSSI-CARD-2; 2) "Explain with evidence…"; 3) kind "Shared payment explained" (presenter mode offers "Use demo note"); 4) Recompute | Three accounts sharing address and device, then the variant with a shared card; before and after: risk 0.34 → 0.21, quadrant Q2 → Q2, active links 3 → 2, standard terms before and after, explanation regenerated; the edge turns dotted "explained" | `case_card.rossi.json`, `case_card.rossi_card.json`; POST evidence `evidence_request.rossi_card.json` → `recompute_response.rossi_card.json` | "0.21"; "Open version 2" |
 | 1:35–2:00 | ④ Elena | `/returns/RET-000105` | (optional) "Open in Product issues" | Guarantee banner, no score, no restrictive lever; hero: V-JKT-DEF, 11 returns for defect in the week of 21 Sep vs 1.8 expected (z = 6.86, 46 sales), trend chart, catalogue task CT-000012; "The customer's return stays regular" | `case_card.elena.json`; optional `product_anomalies.json`, `catalog_tasks.json` | "Guarantee path"; no `RiskPanel` |
 | 2:00–2:30 | ⑤ Net benefit | `/simulator` (persona Luca) | "Logistics halved", then "Both" | Waterfall +640 +300 +88 +0 −200 −120 −100 −240 = +€368, then +€48, then −€192 with "Net benefit is negative under these assumptions" | `simulator_assumptions.v1.json` | "−€192" |
-| 2:30–3:00 | ⑥ AMD | `/system` (or slide 8) | none | B1 to B4 with Measured, Pending or "Illustrative, not measured"; cost per decision with idle included; live telemetry every 5 s | `benchmarks.json`, `telemetry.live.json`, `/readyz` | "Illustrative, not measured" or "Measured" |
+| 2:30–3:00 | ⑥ AMD | `/system` (or slide 8) | none | "Gemma via AMD Token Factory and separate AMD GPU training; this demo uses synthetic data." (`src/views/platform/copy.ts`): the hero and the architecture strip, the readiness line (on the public demo: live on the CPU, Gemma 4 via AMD Token Factory), telemetry. The B1-B4 cards of the first design were retired by ADR-18 | `/readyz`, `telemetry.live.json` | `#gpu` in the first viewport, above the rail (`presenter.spec.ts`) |
 
 - About 10 clicks plus 6 beat moves. The persona follows the beat (Sara for ① to ④, Luca for ⑤ and ⑥); the
   persona chip announces the change, which reinforces "a person approves".
-- **Off the main path, one key away for Q&A** (spec 16): the agent (`I` on Marco's card, the three suggested
-  questions), the shop (`/shop?preset=giulia` and `?preset=marco`), the inspection (`/inspection/RET-000110`,
-  then RET-000111 for manual review), Chiara's dispute ("what if a link is wrong": Q3 → Q1), Lorenzo's lift
-  (`/reviews`).
-- **Video (5 minutes, spec 16)**: the same six beats, plus the outbox message in IT and EN with the layers,
-  the agent with the GPU dock showing the spike, Giulia's size advice and Marco's checkout terms with
-  "The terms shown are the terms stored", Valentina's inspection, the matrix with the golden annotations
-  (cover mode for the 16:9 cover). Provenance mode (`P`) is on for every shot with numbers. A backup recording
-  is made in cached mode; the striped banner must be visible in it.
+- **Off the main path, one key away for Q&A** (spec 16): on the rail, the checkout after Marco
+  (`/shop?preset=ring`, once Marco is approved), Giulia's checkout (`/shop?preset=giulia`), a wrong link
+  (the dispute the reset found) and not enough evidence; outside the rail, the agent (`I` on Marco's card,
+  the three suggested questions), the inspection (`/inspection/RET-000110`, then RET-000111 for manual
+  review) and Lorenzo's lift (`/reviews`).
+- **Video (the plan of 13 Oct, 5 minutes, spec 16)**: the same six beats, plus the outbox message in IT and
+  EN with the layers, the agent with the GPU dock showing the spike, Giulia's size advice and Marco's
+  checkout terms with "The terms shown are the terms stored", Valentina's inspection, the matrix with the
+  golden annotations (cover mode for the 16:9 cover). Provenance mode (`P`) is on for every shot with
+  numbers. A backup recording is made in cached mode; the striped banner must be visible in it. Two parts
+  could not happen: no GPU sample ever reached the dock, and no cached demo ran on an MI300X. The
+  delivered film is described in docs/spec.md section 16.
 - **Deterministic visuals**: seeded graph layouts with no physics, wheel zoom off, fixed chart domains per
   beat, animation ≤ 300 ms, so every rehearsal looks the same.
-- **Failover**: `Shift+C` reloads the current route on the cached origin.
+- **Failover**: the planned `Shift+C` reload on the cached origin was not built (9.5).
 
 ---
 
 ## 13. Work split: four view areas
+
+**Build plan, 14 and 15 Oct 2026: history.** This section is the plan as written on 13 Oct. The four
+areas were built by parallel Claude Code sessions ("Eng 1" to "Eng 4" name the sessions, not people) and
+merged on the evening of 13 Oct, ahead of this schedule (header). Only the boundaries of 13.3 still bind
+the code: ESLint `no-restricted-imports` enforces them (`apps/ui/eslint.config.js`). The tree of 13.1 is
+updated to the files that exist on 17 Oct 2026.
 
 ### 13.1 Directory tree and owners
 
@@ -1658,21 +1717,23 @@ apps/ui/
     main.tsx · app/ (shell, router, persona store, hotkeys, theme, SideNav)                  (Eng 2)
     api/ (types.gen.ts, contract.gen.ts, models.ts, client.ts, queries.ts, mutations.ts,
           sse.ts, adapters/)                                                                (Eng 2)
-    styles/ (tokens.css, patterns.css) · format/ · copy/common.ts + banned-terms.ts          (Eng 4)
-    domain/ (levers.ts, decision.ts, refs.ts)                                               (Eng 1)
+    styles/ (tokens.css, patterns.css) · format/ · copy/ (common.ts, constants.ts, bannedTerms.ts) (Eng 4)
+    domain/ (levers.ts, decision.ts, refs.ts, lapse.ts, demoCases.ts)                       (Eng 1)
     sim/ (netBenefit.ts, rebucket.ts)                                                       (Eng 3)
     components/
       ui/ · feedback/ · provenance/ · mode/                                                 (Eng 4)
       decision/                                                                             (Eng 1)
-      message/ · linked-accounts/                                                           (Eng 2)
+      message/                                                                              (Eng 2)
       economics/ · charts/ · records/                                                       (Eng 3)
     views/
-      operator/   queue/ case/ (header, hero, sections, rail, sheets) compare/ record/ outbox/ copy.ts index.ts   (Eng 1)
+      operator/   queue/ case/ (header, hero, sections, rail, sheets, linked/: the linked-accounts panel of 5.5)
+                  compare/ record/ outbox/ copy.ts index.ts                                 (Eng 1)
       agent/      CaseAssistant.tsx, AgentStepList, AgentAnswer, SuggestedQuestions,
                   useAgentStream.ts, dev/AgentHarness.tsx, copy.ts, index.ts                (Eng 2)
       manager/    portfolio/ simulator/ kpi/ fairness/ products/ reviews/ audit/ copy.ts index.ts            (Eng 3)
       platform/   shop/ inspection/ coupons/ system/ (incl. GpuDock) demo/ (incl. DemoRail) about/ copy.ts index.ts (Eng 4)
-  tests/e2e/      pitch.spec.ts (Eng 1 leads) · operator · manager · platform · agent specs (each owner)
+  tests/e2e/      operator · agent · manager · platform · presenter · smoke specs (mock build), live/ (the
+                  live API: smoke, walk, readonly); the pitch beats are asserted across them, no pitch.spec.ts
 ```
 
 ### 13.2 What each engineer owns
@@ -1680,7 +1741,7 @@ apps/ui/
 | Engineer | View area (exclusive directory) | Routes | Shared code owned |
 | --- | --- | --- | --- |
 | **Eng 1 · operator** | `src/views/operator/` | `/queue`, `/returns/:returnId`, `/returns/:returnId/versions/:decisionId`, `/compare`, `/outbox` | `src/domain/`, `src/components/decision/`; E2E-PITCH |
-| **Eng 2 · agent** | `src/views/agent/` | no page route (drawer); `/dev/agent` in dev builds | scaffold and config, `src/app/`, `src/api/`, `mock/`, `scripts/`, `src/components/message/`, `src/components/linked-accounts/` |
+| **Eng 2 · agent** | `src/views/agent/` | no page route (drawer); `/dev/agent` in dev builds | scaffold and config, `src/app/`, `src/api/`, `mock/`, `scripts/`, `src/components/message/`, `src/components/linked-accounts/` (built in `src/views/operator/case/linked/` instead, 5.5) |
 | **Eng 3 · manager** | `src/views/manager/` | `/portfolio`, `/simulator`, `/kpi`, `/fairness`, `/products`, `/products/:anomalyId`, `/products/tasks`, `/reviews`, `/audit` | `src/sim/`, `src/components/economics/`, `src/components/charts/`, `src/components/records/` |
 | **Eng 4 · platform** | `src/views/platform/` | `/shop`, `/inspection`, `/inspection/:returnId`, `/coupons`, `/system`, `/demo`, `/about` | `src/styles/`, `src/format/`, `src/copy/`, `src/components/ui/`, `src/components/feedback/`, `src/components/provenance/`, `src/components/mode/` |
 
@@ -1749,7 +1810,9 @@ coupon notice), then the agent drawer (the video can use the dev harness), then 
 ### 13.6 Definition of done (every area)
 
 - `npm run typecheck`, `npm run lint` (ESLint with `jsx-a11y` and the import boundaries), `npm test`
-  (Vitest) and the area's Playwright specs green; `make lint` and `make test` call them.
+  (Vitest) and the area's Playwright specs green. As built, `make ui-check` (`npm run check`) and
+  `make ui-e2e` run them, and the CI `ui` job runs all but Playwright; `make lint` and `make test` are the
+  Python checks.
 - Every screen of the area renders every relevant contract example with no console error and passes PROV-UI.
 - PR description names the story IDs and what to review.
 
@@ -1759,11 +1822,14 @@ coupon notice), then the agent drawer (the video can use the dev harness), then 
 
 ### 14.1 Dependencies (rule 15; exact versions pinned at scaffold, checked by LIC-01)
 
-| Licence | Packages |
-| --- | --- |
-| MIT | react, react-dom, react-router, @tanstack/react-query, cytoscape (core layouts only, no extensions), recharts (its d3 modules are ISC), tailwindcss, @radix-ui/react-{dialog, popover, tooltip, tabs, toggle-group, checkbox, radio-group, select, slider}, clsx, vite, @vitejs/plugin-react, openapi-typescript, vitest, @testing-library/react, eslint-plugin-jsx-a11y |
-| Apache-2.0 | typescript, @playwright/test |
-| ISC | lucide-react |
+The direct dependencies of `apps/ui/package.json` on 17 Oct 2026, with the licence each package declares
+(`npm run check:licenses` checks every installed package, transitive ones included, against rule 15):
+
+| Licence | Runtime | Development |
+| --- | --- | --- |
+| MIT | react, react-dom, react-router, @tanstack/react-query, cytoscape (core layouts only, no extensions), recharts (its d3 modules are ISC), @radix-ui/react-{checkbox, dialog, popover, radio-group, select, slider, tabs, toggle-group, tooltip}, clsx | vite, @vitejs/plugin-react, tailwindcss, @tailwindcss/vite, json-schema-to-typescript, vitest, happy-dom, @testing-library/{dom, jest-dom, react, user-event}, eslint, @eslint/js, typescript-eslint, eslint-plugin-{jsx-a11y, react-hooks, react-refresh}, globals, @types/{node, react, react-dom} |
+| Apache-2.0 | | typescript, @playwright/test |
+| ISC | lucide-react | |
 
 Excluded: axe-core (MPL-2.0), OFL webfonts, MSW (not needed with the dev middleware), Ajv (not needed), date
 libraries (`Intl` is enough). No runtime CDN request (no egress).
@@ -1772,14 +1838,14 @@ libraries (`Intl` is enough). No runtime CDN request (no egress).
 
 | Id | Owner | What it checks |
 | --- | --- | --- |
-| E2E-PITCH | Eng 1 (all contribute) | The six beats on mocks and on the API in live and cached modes; asserts the key texts of section 12; takes 1920 × 1080 screenshots for slides and the cover |
+| E2E-PITCH | Eng 1 (all contribute) | The six beats on mocks and on the API in live and cached modes; asserts the key texts of section 12; takes 1920 × 1080 screenshots for slides and the cover. As built there is no `pitch.spec.ts`: the beats are asserted in the operator, manager, platform and presenter specs on the mock build, and the live walk (`apps/ui/tests/e2e/live/walk.live.spec.ts`) plays the golden path against a running API |
 | E2E-01 decisions | Eng 1 | Giulia confirm and Marco restrictive approve (acknowledgement required, bare `Enter` ignored), both visible in the outbox |
 | E2E-02 checkout snapshot | Eng 4 | Shown terms equal stored snapshot terms |
 | E2E-03 LLM down | Eng 2 | `llm_unavailable`: the decision flow works; the only notices are in the message panel and the drawer |
 | E2E-04 Elena | Eng 1, Eng 3 | No gate, no risk; the legal-guard 422 rendered; a catalogue task created |
 | E2E-05 recompute and stale | Eng 1 | Rossi evidence, before and after, v2 loaded; `stale_decision` shows the stale panel and keeps the typed reason |
 | PROV-UI | Eng 4 | On every route and case card, every visible text node with a digit is inside `[data-figure]`, a provenance scope with a footer, an id, a date, a version, a template field, the legal clause or a `GeneratedText` region; `PlainNumber` throws outside a scope in dev |
-| MODE-UI | Eng 4 | In the `cached` scenario every route shows the banner with "Precomputed on AMD MI300X", the corner tag and the `[Cached]` title |
+| MODE-UI | Eng 4 | In the `cached` scenario every route shows the banner with "Precomputed on AMD MI300X", the corner tag and the `[Cached]` title. The label is that of the contract example `readyz_response.cached.json`: a check of how the UI shows `readyz.label`, not of a real MI300X package (none was made) |
 | COPY-LINT | Eng 4 | Banned terms (English and Italian) and number literals in copy files and JSX literals |
 | CONTRAST | Eng 4 | The table of 4.2 recomputed from `tokens.css` |
 | T-NEUTRAL | Eng 1 | `QuadrantBadge` Q1 to Q4 have identical computed styles apart from the glyph cell; none uses attention, danger or ok tokens |
@@ -1799,40 +1865,44 @@ libraries (`Intl` is enough). No runtime CDN request (no egress).
 ## 15. Open questions and contract requests
 
 For the API (phase 4) and LLM (phase 3) owners. Nothing here blocks the build: each has a stated interim
-behaviour.
+behaviour. The Status column says where each stands on 17 Oct 2026 (contract 1.9.0): answered, open (the
+interim behaviour is what ships), or moot after ADR-18.
 
-| # | Question or request | Interim behaviour |
-| --- | --- | --- |
-| O-1 | Add examples and `index.json` scenarios for 403 `forbidden_role`, 503 `llm_unavailable` (regenerate, agent), 429, 409 `conflict`, an empty queue, `draft_status: pending` with `draft: null`, and an agent `error` event | Answered in contract 1.5.0 (the scenarios above); `draft_pending` and `agent_error` stay UI fixtures |
-| O-2 | What does the API do on a decision action while `draft_status: pending`: send the reviewed template, or 409? | Message-sending actions wait for the draft |
-| O-3 | A restrictive override needs a review date but the request has none: expose the horizon (90 days, assumption) in `/readyz` or the card, and say whether it runs from the decision date or the action date | "Set by the server" before saving; the returned `review_at` after |
-| O-4 | Customer language for the default `message.lang` | Italian by default |
-| O-5 | Warehouse: which returns are physically received? A `received_at` or a queue filter | All withdrawal-path returns |
-| O-6 | Thresholds: versioned policy thresholds, and how quadrant changes feed `logistics_returns_avoided` and `undue_discounts_avoided` | Threshold sandbox shows counts only |
-| O-7 | Queue counts per saved view in one call (facets) | One `page_size=1` request per tab |
-| O-8 | "Linked accounts" counts differ: queue `linked_account_count` 6 (other accounts) vs card cluster size 7; align the example texts | UI says "6 other accounts" and "cluster of 7 accounts" |
-| O-9 | Return message segments (sentence ids, body parts, fields, clause) with the phrasebook change, or at least `legal_clause_text` | Contract 1.5.0 sends `sentence_ids` and `texts[]` (`RenderedMessage`); the UI segments each text with an integrity check |
-| O-10 | Checkout: add `terms_text {it, en}` from the contract renderers and product names and prices | Shop renders terms from the structured fields and shows variant ids |
-| O-11 | Customer-facing wording for a coupon pause (IT and EN); `coupon_block.text` is operator wording | UI copy "Welcome coupons aren't available on this account until {review_at}." |
-| O-12 | Matrix point → open return: add `return_id` to `MatrixPoint`, or confirm the `q=<customer_id>` lookup | Lookup on click |
-| O-13 | Ablation and out-of-distribution rows: an optional `GET /api/evaluation` | Slides only |
-| O-14 | Public demo writes: spec section 11 says read-only; confirm, or expose a capability flag | Answered in contract 1.5.0: `/readyz` `public_read_only`; agent ask and checkout evaluation stay open (the agent answers 503 in the cached demo); `VITE_READ_ONLY` is the fallback until `/readyz` answers |
-| O-15 | Which agent questions are cached (in `/readyz` or a small endpoint) | The three US-702 questions |
-| O-16 | Telemetry behind Caddy basic auth vs "the judge sees telemetry" (US-905): protect only `/admin/*`? | "Protected" state on 401 |
-| O-17 | `contracts/examples/llm_output.json` and `llm_case.json` use the truth-ring id `R-MARCO`; rule 12 and ADR-15 require opaque `CL-…` ids | Not shown by the UI; align the fixtures |
-| O-18 | Elena's anomaly is `task_opened` in the examples; if the video should show a task being created, the reset needs a variant with the anomaly `open` | Pitch shows the existing task |
-| O-19 | Expose the spec 8.6 lever table per quadrant with the rules version | Static, labelled summary |
-| O-20 | Wording: the insufficient-evidence statement says "neither safe nor suspicious" (a spec 16 term); suggested: "until then the standard terms apply and no judgement is made" | Shown verbatim (contract text), reported by the copy check |
-| O-21 | Example bugs: `case_card.elena.json` and `case_card.francesca.json` share order ORD-005512 and snapshot TS-005512 for different customers; `case_card.valentina.json` says "1 returned items" (plural) | None needed in the UI |
-| O-22 | On `manual_review`, can Ahmed attach a claim by hand through `/confirm`? | Observations only, no claim |
-| O-23 | Telemetry has no illustrative flag (benchmarks have `status: illustrative`); add one rather than parsing the origin | The origin text is parsed for "Illustrative" |
-| O-24 | Customer level vs return level: Elena is Q2 as a customer while her open return is on the guarantee path; confirm it is intended | Explained in the matrix tooltip |
-| O-25 | Does `renew` take a reason and a category like `lift`? | Assumed yes |
-| O-26 | Maximum photo size for `POST /api/inspections` (base64 in JSON) | Derived from the contract: 3 bytes per 4 characters of `PhotoUpload.data_base64` maxLength (5,250,000 bytes: floor(7,000,000 × 3 / 4), `PHOTO_BASE64_MAX_LENGTH` of `contract.gen.ts`) |
+| # | Question or request | Interim behaviour | Status (17 Oct 2026) |
+| --- | --- | --- | --- |
+| O-1 | Add examples and `index.json` scenarios for 403 `forbidden_role`, 503 `llm_unavailable` (regenerate, agent), 429, 409 `conflict`, an empty queue, `draft_status: pending` with `draft: null`, and an agent `error` event | Answered in contract 1.5.0 (the scenarios above); `draft_pending` and `agent_error` stay UI fixtures | Answered (contract 1.5.0) |
+| O-2 | What does the API do on a decision action while `draft_status: pending`: send the reviewed template, or 409? | Message-sending actions wait for the draft | Answered by the API: an act with no draft composes its message from the fallback phrasebook selection (`apps/api/services/operator/actions.py`); the UI still waits |
+| O-3 | A restrictive override needs a review date but the request has none: expose the horizon (90 days, assumption) in `/readyz` or the card, and say whether it runs from the decision date or the action date | "Set by the server" before saving; the returned `review_at` after | Open |
+| O-4 | Customer language for the default `message.lang` | Italian by default | Open |
+| O-5 | Warehouse: which returns are physically received? A `received_at` or a queue filter | All withdrawal-path returns | Open (no `received_at` in the contract) |
+| O-6 | Thresholds: versioned policy thresholds, and how quadrant changes feed `logistics_returns_avoided` and `undue_discounts_avoided` | Threshold sandbox shows counts only | Open |
+| O-7 | Queue counts per saved view in one call (facets) | One `page_size=1` request per tab | Open |
+| O-8 | "Linked accounts" counts differ: queue `linked_account_count` 6 (other accounts) vs card cluster size 7; align the example texts | UI says "6 other accounts" and "cluster of 7 accounts" | Open |
+| O-9 | Return message segments (sentence ids, body parts, fields, clause) with the phrasebook change, or at least `legal_clause_text` | Contract 1.5.0 sends `sentence_ids` and `texts[]` (`RenderedMessage`); the UI segments each text with an integrity check | Answered (contract 1.5.0) |
+| O-10 | Checkout: add `terms_text {it, en}` from the contract renderers and product names and prices | Shop renders terms from the structured fields and shows variant ids | Open (no `terms_text` in the contract) |
+| O-11 | Customer-facing wording for a coupon pause (IT and EN); `coupon_block.text` is operator wording | UI copy "Welcome coupons aren't available on this account until {review_at}." | Open |
+| O-12 | Matrix point → open return: add `return_id` to `MatrixPoint`, or confirm the `q=<customer_id>` lookup | Lookup on click | Open (`MatrixPoint` has no `return_id`) |
+| O-13 | Ablation and out-of-distribution rows: an optional `GET /api/evaluation` | Slides only | Open (no `/api/evaluation`) |
+| O-14 | Public demo writes: spec section 11 says read-only; confirm, or expose a capability flag | Answered in contract 1.5.0: `/readyz` `public_read_only`; agent ask and checkout evaluation stay open (the agent answers 503 in the cached demo); `VITE_READ_ONLY` is the fallback until `/readyz` answers | Answered (contract 1.5.0) |
+| O-15 | Which agent questions are cached (in `/readyz` or a small endpoint) | The three US-702 questions | Moot: the assistant answers 503 in the cached demo (contract 1.5.0), and ADR-18 delivered no cached demo |
+| O-16 | Telemetry behind Caddy basic auth vs "the judge sees telemetry" (US-905): protect only `/admin/*`? | "Protected" state on 401 | Answered (ADR-17 amendments): basic auth covers `/api/telemetry`, not the `/system` route |
+| O-17 | `contracts/examples/llm_output.json` and `llm_case.json` use the truth-ring id `R-MARCO`; rule 12 and ADR-15 require opaque `CL-…` ids | Not shown by the UI; align the fixtures | Open (`llm_case.json` and `llm_output.json` still use `R-MARCO`) |
+| O-18 | Elena's anomaly is `task_opened` in the examples; if the video should show a task being created, the reset needs a variant with the anomaly `open` | Pitch shows the existing task | Open |
+| O-19 | Expose the spec 8.6 lever table per quadrant with the rules version | Static, labelled summary | Open |
+| O-20 | Wording: the insufficient-evidence statement says "neither safe nor suspicious" (a spec 16 term); suggested: "until then the standard terms apply and no judgement is made" | Shown verbatim (contract text), reported by the copy check | Answered: the contract examples no longer contain the phrase |
+| O-21 | Example bugs: `case_card.elena.json` and `case_card.francesca.json` share order ORD-005512 and snapshot TS-005512 for different customers; `case_card.valentina.json` says "1 returned items" (plural) | None needed in the UI | Open (both examples still share ORD-005512; "1 returned items" also in the andrea and simone cards) |
+| O-22 | On `manual_review`, can Ahmed attach a claim by hand through `/confirm`? | Observations only, no claim | Open |
+| O-23 | Telemetry has no illustrative flag (benchmarks have `status: illustrative`); add one rather than parsing the origin | The origin text is parsed for "Illustrative" | Open |
+| O-24 | Customer level vs return level: Elena is Q2 as a customer while her open return is on the guarantee path; confirm it is intended | Explained in the matrix tooltip | Open |
+| O-25 | Does `renew` take a reason and a category like `lift`? | Assumed yes | Answered by the contract: `renew` takes no levers and no reason; `lift` takes a reason and a category |
+| O-26 | Maximum photo size for `POST /api/inspections` (base64 in JSON) | Derived from the contract: 3 bytes per 4 characters of `PhotoUpload.data_base64` maxLength (5,250,000 bytes: floor(7,000,000 × 3 / 4), `PHOTO_BASE64_MAX_LENGTH` of `contract.gen.ts`) | Answered (derived from the contract) |
 
 ---
 
 ## Appendix: ownership split
+
+**Build plan, 14 and 15 Oct 2026: history** (section 13). "Eng 1" to "Eng 4" are the four parallel
+Claude Code sessions; the paths and routes are those of the plan (for what was built: 5.5, 9.4, 13.1).
 
 Four view areas, disjoint directories under apps/ui/src/views/, each with one engineer who also owns specific shared directories (shared props frozen at Day 1 11:00).
 

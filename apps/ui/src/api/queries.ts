@@ -22,7 +22,6 @@ export const queryKeys = {
   anomalies: (query: AnomaliesQueryParams) => ['anomalies', query] as const,
   tasks: ['tasks'] as const,
   couponRules: ['couponRules'] as const,
-  benchmarks: ['benchmarks'] as const,
   telemetry: ['telemetry'] as const,
   demoCases: ['demoCases'] as const,
 };
@@ -125,9 +124,6 @@ export const useCatalogTasks = () =>
 
 export const useCouponRules = () =>
   useQuery({ queryKey: queryKeys.couponRules, queryFn: ({ signal }) => api.getCouponRules({ signal }) });
-
-export const useBenchmarks = () =>
-  useQuery({ queryKey: queryKeys.benchmarks, queryFn: ({ signal }) => api.getBenchmarks({ signal }) });
 
 /**
  * The golden cases of the demo with their live ids (GET /api/demo/cases). They change only with a

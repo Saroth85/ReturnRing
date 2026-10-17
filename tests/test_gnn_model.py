@@ -1,7 +1,7 @@
 """GraphSAGE layers of ml/gnn/model.py (US-202): the pure-PyTorch layers are dgl.nn.SAGEConv,
 on tiny graphs, on the CPU. Needs PyTorch (marker torch, skipped without it); the comparison with
-DGL runs where DGL is importable (the trainer-graphsage image), on the CPU and, with the gpu
-marker, on the MI300X. Every tensor here is random test data.
+DGL runs where DGL is importable (optional), on the CPU and, with the gpu marker, on an AMD GPU
+(`make test-gpu` on a ROCm host). Every tensor here is random test data.
 """
 
 from __future__ import annotations

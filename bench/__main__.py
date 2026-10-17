@@ -1,4 +1,7 @@
-"""CLI of the benchmarks (US-902). `make bench DEVICE=cpu|gpu` drives it; see docs/benchmarks.md.
+"""CLI of the benchmarks (US-902). `make bench` runs the CPU harness check; see docs/benchmarks.md.
+
+B1-B4 were retired by ADR-18 (16 Oct 2026): `--device gpu` exists in the code but never ran, and
+the GPU launchers this text mentions (`make bench-vllm`, the droplet) were removed on 17 Oct 2026.
 
     python -m bench run --device cpu|gpu [--parts B1,B2,B3,B4] [--run-id ID] [--no-merge] ...
     python -m bench first-request --run-id ID

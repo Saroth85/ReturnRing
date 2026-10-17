@@ -1,7 +1,7 @@
 [project]
 name = "returnring"
 version = "0.1.0"
-description = "Return decision assistant for EU fashion e-commerce, running on AMD Instinct MI300X"
+description = "Return decision assistant for EU fashion e-commerce (CPU service, Gemma via AMD Token Factory, models trained on an AMD Instinct MI300X)"
 requires-python = ">=3.12"
 license = "MIT"
 
@@ -25,9 +25,9 @@ ignore_missing_imports = true
 module = ["xgboost.*", "sklearn.*", "scipy.*", "networkx.*"]  # no type information shipped
 ignore_missing_imports = true
 
-# ml/gnn (US-202, A4): PyTorch and DGL are optional (infra/requirements-gnn-cpu.txt, the
-# trainer-graphsage image), so the main environment type-checks ml/gnn without them: their types
-# are Any there, and subclassing nn.Module or decorating with torch.no_grad must be allowed.
+# ml/gnn (US-202, A4): PyTorch and DGL are optional (infra/requirements-gnn-cpu.txt), so the
+# main environment type-checks ml/gnn without them: their types are Any there, and subclassing
+# nn.Module or decorating with torch.no_grad must be allowed.
 [[tool.mypy.overrides]]
 module = ["torch", "torch.*", "dgl", "dgl.*"]
 ignore_missing_imports = true
@@ -42,7 +42,7 @@ disallow_untyped_calls = false  # torch.autograd.Function.apply and Tensor.backw
 pythonpath = ["."]
 testpaths = ["tests"]
 markers = [
-    "gpu: needs the AMD MI300X droplet",
+    "gpu: needs a ROCm GPU",
     "asos: needs the real ASOS GraphReturns files in ASOS_DIR (skipped otherwise)",
     "e2e: the golden demo walk over the API (CI runs it on the tiny snapshot of the harness)",
     "torch: needs PyTorch, CPU is enough (skipped when torch is not installed; docs/graphsage.md)",

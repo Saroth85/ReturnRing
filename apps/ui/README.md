@@ -88,10 +88,10 @@ export DATABASE_URL=sqlite:////tmp/returnring.db LLM_MODE=mock DEMO_MODE=live DE
        SERVING_DIR=serving DEMO_CLOCK=on PUBLIC_READ_ONLY=off
 python -m apps.api.reset                                   # about a minute; decides every open return
 uvicorn apps.api.main:app --host 127.0.0.1 --port 8000 &
-cd apps/ui && RETURNRING_API_URL=http://127.0.0.1:8000 npm run test:e2e:live
+(cd apps/ui && RETURNRING_API_URL=http://127.0.0.1:8000 npm run test:e2e:live)
 # the read-only demo: a second API (here on the same store), then the suite again; the walk is skipped
 PUBLIC_READ_ONLY=on uvicorn apps.api.main:app --host 127.0.0.1 --port 8001 &
-RETURNRING_API_URL=http://127.0.0.1:8001 npm run test:e2e:live
+(cd apps/ui && RETURNRING_API_URL=http://127.0.0.1:8001 npm run test:e2e:live)
 ```
 
 `UI_E2E_PORT` picks the port of `vite preview` (5198 by default). The walk approves cases: reset again

@@ -1,5 +1,5 @@
-"""Guards on the compose profiles, services, images, proxy and GPU spike setup (US-001, US-003,
-US-901, US-903, US-905; spec sections 9-11, 13).
+"""Guards on the compose profiles, services, images and proxy (US-001, US-003, US-901, US-903;
+spec sections 9-11).
 
 Pure YAML and text parsing, so no Docker daemon is needed. The rendered-config tests run the real
 merge with `docker compose config` when the Compose CLI is installed (it is on GitHub's
@@ -27,14 +27,7 @@ from apps.api.settings import DEFAULT_LLM_CONCURRENCY, DEFAULT_VLLM_TIMEOUT_S, S
 
 ROOT = Path(__file__).resolve().parents[1]
 INFRA = ROOT / "infra"
-COMPOSE_FILES = [
-    "docker-compose.yml",
-    "compose.gpu.yml",
-    "compose.demo.yml",
-    "compose.public.yml",
-    "compose.spike.yml",
-]
-PINNED_IMAGES = ("VLLM_IMAGE", "DGL_IMAGE", "ROCM_BASE_IMAGE")
+COMPOSE_FILES = ["docker-compose.yml", "compose.demo.yml", "compose.public.yml"]
 DIGEST = re.compile(r"^[a-z0-9./_-]+:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}$")
 
 
@@ -80,28 +73,22 @@ def bind_mounts(service: dict[str, Any]) -> list[tuple[Path, str, bool]]:
 
 
 # Offline jobs may read the ground truth (rule 12 as rewritten in ADR-13); only the pipeline job
-# writes data/. Every other service (postgres, reset, api, ui, proxy, vllm, telemetry,
-# telemetry-sampler, batch-generate, spike-client) never sees data/truth.
-JOB_SERVICES = frozenset({"pipeline", "trainer-gbm", "trainer-gnn"})
+# writes data/. Every other service (postgres, reset, api, ui, proxy) never sees data/truth.
+JOB_SERVICES = frozenset({"pipeline"})
 DATA_WRITERS = frozenset({"pipeline"})
 # Running services of the product (spec 9): long-lived or the reset, never an offline job. None
 # mounts data/ or artifacts/ (rule 12, review F2).
-RUNNING_SERVICES = frozenset(
-    {"postgres", "reset", "api", "ui", "proxy", "vllm", "telemetry", "telemetry-sampler"}
-)
-# Offline jobs and tools: started on purpose (make targets), never by `up` of a product profile.
-OFFLINE_SERVICES = JOB_SERVICES | {"trainer-graphsage", "batch-generate", "spike-client"}
+RUNNING_SERVICES = frozenset({"postgres", "reset", "api", "ui", "proxy"})
+# Offline jobs: started on purpose (make demo-data), never by `up` of a product profile.
+OFFLINE_SERVICES = JOB_SERVICES
 # Jobs that write host folders run as the owner of the checkout (review P5).
-HOST_WRITERS = frozenset({"pipeline", "batch-generate"})
-API_IMAGE_SERVICES = ("reset", "api", "pipeline", "batch-generate", "telemetry-sampler")
+HOST_WRITERS = frozenset({"pipeline"})
+API_IMAGE_SERVICES = ("reset", "api", "pipeline")
 
 
 @pytest.mark.parametrize(
     ("override", "expected"),
-    [
-        ("compose.gpu.yml", {"DEVICE": "gpu", "LLM_MODE": "vllm"}),
-        ("compose.demo.yml", {"DEMO_MODE": "cached", "LLM_MODE": "mock", "DEVICE": "cpu"}),
-    ],
+    [("compose.demo.yml", {"DEMO_MODE": "cached", "LLM_MODE": "mock", "DEVICE": "cpu"})],
 )
 def test_profile_overrides_set_api_switches(override: str, expected: dict[str, str]) -> None:
     env = services(override)["api"]["environment"]
@@ -113,7 +100,6 @@ def test_profile_overrides_set_api_switches(override: str, expected: dict[str, s
     ("override", "expected"),
     [
         (None, ("cpu", "mock", "live", False)),
-        ("compose.gpu.yml", ("gpu", "vllm", "live", False)),
         ("compose.demo.yml", ("cpu", "mock", "cached", True)),  # spec 11: public read-only
     ],
 )
@@ -142,11 +128,6 @@ def test_api_settings_accept_override_values(
     )
 
 
-@pytest.mark.parametrize("name", COMPOSE_FILES)
-def test_vllm_has_no_published_port(name: str) -> None:
-    assert "ports" not in services(name).get("vllm", {}), "vLLM must stay internal (NFR-11)"
-
-
 def test_only_the_public_proxy_publishes_on_all_interfaces() -> None:
     """Docker-published ports bypass ufw: everything is on loopback except the proxy of a public
     server (compose.public.yml), on 80 and 443 only."""
@@ -167,11 +148,10 @@ def test_every_service_is_running_or_offline() -> None:
     for name in COMPOSE_FILES:
         for service_name in services(name):
             assert service_name in RUNNING_SERVICES | OFFLINE_SERVICES, (name, service_name)
-    for service_name in OFFLINE_SERVICES - {"spike-client"}:
+    for service_name in OFFLINE_SERVICES:
         profiles = set(services("docker-compose.yml")[service_name]["profiles"])
-        if service_name in {"pipeline", "batch-generate"}:
-            # Never started by `up` of a product profile: make demo-data, make batch-generate.
-            assert not profiles & {"dev", "gpu", "demo"}, service_name
+        # Never started by `up` of a product profile: make demo-data.
+        assert not profiles & {"dev", "demo"}, service_name
 
 
 def mount_parts(source: Path, root: Path = ROOT) -> tuple[str, ...]:
@@ -209,9 +189,8 @@ def test_no_service_mounts_truth_or_the_whole_repo() -> None:
 
 
 def test_f2_no_running_service_mounts_the_offline_evaluation_outputs() -> None:
-    """Review F2: the API reads its models from the serving snapshot and the telemetry goes
-    through a named volume, so no running service mounts artifacts/ (artifacts/eval holds the
-    offline evaluation outputs)."""
+    """Review F2: the API reads its models from the serving snapshot, so no running service
+    mounts artifacts/ (artifacts/eval holds the offline evaluation outputs)."""
     artifacts = ROOT / "artifacts"
     for name in COMPOSE_FILES:
         for service_name, service in services(name).items():
@@ -231,13 +210,6 @@ def test_running_services_never_see_data() -> None:
         for service_name in RUNNING_SERVICES:
             for source in bind_sources(services(name).get(service_name, {})):
                 assert source != data and data not in source.parents, (name, service_name)
-
-
-def test_training_jobs_read_the_data_folder_read_only() -> None:
-    compose = services("docker-compose.yml")
-    for service_name in ("trainer-gbm", "trainer-gnn"):
-        mounts = bind_mounts(compose[service_name])
-        assert ((ROOT / "data").resolve(), "/app/data", True) in mounts, service_name
 
 
 def test_pipeline_service_runs_the_generator_on_the_real_calibration() -> None:
@@ -293,8 +265,9 @@ def test_the_pipeline_job_runs_the_chain_of_make_pipeline() -> None:
 
 
 def test_the_api_image_installs_what_the_pipeline_job_and_the_api_import() -> None:
-    """The pipeline job, the reset, the batch and the sampler run in the API image, which
-    installs requirements/base.txt only."""
+    """The pipeline job, the reset and the API run in the API image, which installs
+    requirements/base.txt only; the batch and the amd-smi sampler (optional modules with no
+    compose service) need nothing more either."""
     dockerfile = (ROOT / "apps" / "api" / "Dockerfile").read_text(encoding="utf-8")
     for package in ("policy", "llm", "contracts", "pipeline", "ml", "apps"):
         assert f"COPY {package} {package}" in dockerfile, package
@@ -320,8 +293,8 @@ def test_the_api_image_installs_what_the_pipeline_job_and_the_api_import() -> No
 
 def test_p5_the_pipeline_job_writes_data_as_the_host_user() -> None:
     """Review P5: the image runs as user app (uid 1000), but data/ belongs to whoever cloned the
-    repository (root on the droplet, infra/spikes/README.md). The job runs as the host user:
-    the Makefile passes `id -u` and `id -g`, .env.example documents both, uid 1000 otherwise."""
+    repository (root, for a clone made as root). The job runs as the host user: the Makefile
+    passes `id -u` and `id -g`, .env.example documents both, uid 1000 otherwise."""
     pipeline = services("docker-compose.yml")["pipeline"]
     assert pipeline["user"] == "${HOST_UID:-1000}:${HOST_GID:-1000}"
     env = env_example()
@@ -329,8 +302,6 @@ def test_p5_the_pipeline_job_writes_data_as_the_host_user() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
     assert re.search(r"^export HOST_UID \?= \$\(shell id -u\)$", makefile, re.M)
     assert re.search(r"^export HOST_GID \?= \$\(shell id -g\)$", makefile, re.M)
-    # The MI300X batch writes serving/llm_cache/ in the same checkout, as the same user.
-    assert services("docker-compose.yml")["batch-generate"]["user"] == pipeline["user"]
     # The other services keep the image's own user.
     for service_name, service in services("docker-compose.yml").items():
         if service_name not in HOST_WRITERS:
@@ -435,44 +406,6 @@ def test_f16_make_pipeline_runs_phase_2_in_order() -> None:
         assert re.search(rf"(^|\s){re.escape(target)}(\s|$)", phony.group(1)), target
 
 
-def test_spike_scripts_are_mounted_read_only() -> None:
-    spike = services("compose.spike.yml")
-    for service_name in ("trainer-gbm", "trainer-gnn", "spike-client"):
-        assert "../infra/spikes:/app/infra/spikes:ro" in spike[service_name]["volumes"]
-    assert spike["spike-client"]["profiles"] == ["spike"]
-
-
-def test_gpu_images_pinned_by_tag_and_digest() -> None:
-    env = env_example()
-    for key in PINNED_IMAGES:
-        assert DIGEST.match(env[key]), f"{key}={env[key]!r} is not tag@sha256:digest"
-        assert ":latest@" not in env[key]
-
-
-def test_gemma_weights_pinned_to_a_revision() -> None:
-    assert re.fullmatch(r"[0-9a-f]{40}", env_example()["GEMMA_REVISION"])
-    command = services("docker-compose.yml")["vllm"]["command"]
-    assert "--revision=${GEMMA_REVISION}" in command
-    assert "--tokenizer-revision=${GEMMA_REVISION}" in command
-
-
-def test_vllm_runs_offline() -> None:
-    # Rule 2: vLLM never calls huggingface.co at runtime; only weights.sh downloads.
-    assert services("docker-compose.yml")["vllm"]["environment"]["HF_HUB_OFFLINE"] == "1"
-    assert "HF_HUB_OFFLINE=0" in (INFRA / "spikes" / "weights.sh").read_text(encoding="utf-8")
-
-
-def test_dgl_smoke_check_fails_without_a_gpu() -> None:
-    command = services("docker-compose.yml")["trainer-gnn"]["command"]
-    assert "raise SystemExit(0 if torch.cuda.is_available() else 1)" in command[-1]
-
-
-def test_vllm_keeps_weights_and_compile_cache_in_volumes() -> None:
-    vllm = services("docker-compose.yml")["vllm"]
-    assert "hf-cache:/root/.cache/huggingface" in vllm["volumes"]
-    assert "vllm-cache:/root/.cache/vllm" in vllm["volumes"]
-
-
 def compose_available() -> bool:
     if shutil.which("docker") is None:
         return False
@@ -489,61 +422,7 @@ def test_no_latest_image_tag_in_compose_files() -> None:
                 assert ":" in image.split("/")[-1] or "@sha256:" in image, (name, service_name)
 
 
-def test_amd_xgboost_comes_only_from_the_amd_index_with_a_hash() -> None:
-    dockerfile = (INFRA / "docker" / "trainer-gbm.Dockerfile").read_text(encoding="utf-8")
-    assert "--extra-index-url" not in dockerfile
-    assert '--require-hashes --index-url "$AMD_PYPI_INDEX_URL"' in dockerfile
-    amd = [
-        line
-        for line in (INFRA / "docker" / "requirements-gbm-amd.txt").read_text().splitlines()
-        if line.strip() and not line.startswith("#")
-    ]
-    assert len(amd) == 1
-    assert re.fullmatch(r"amd_xgboost==[\d.]+ --hash=sha256:[0-9a-f]{64}", amd[0])
-    assert env_example()["AMD_PYPI_INDEX_URL"].startswith("https://pypi.amd.com/")
-
-
-def test_gbm_pypi_requirements_pinned_and_without_upstream_xgboost() -> None:
-    lines = [
-        line.strip()
-        for line in (INFRA / "docker" / "requirements-gbm.txt").read_text().splitlines()
-        if line.strip() and not line.startswith("#")
-    ]
-    assert lines
-    for line in lines:
-        name, _, version = line.partition("==")
-        assert version, f"{line} is not pinned"
-        assert name.lower() not in {"xgboost", "xgboost-cpu", "amd_xgboost", "amd-xgboost"}
-
-
-def test_the_graphsage_trainer_never_sees_the_ground_truth() -> None:
-    """US-202 and A4 (ml/gnn) need the ASOS tables, the stores and their features, never the
-    ground truth: trainer-graphsage mounts data/ subfolders read-only and no ancestor of
-    data/truth, so rule 12 holds by construction (it is not one of the JOB_SERVICES)."""
-    service = services("docker-compose.yml")["trainer-graphsage"]
-    assert "trainer-graphsage" not in JOB_SERVICES
-    data, truth = ROOT / "data", ROOT / "data" / "truth"
-    mounts = bind_mounts(service)
-    for name in ("raw", "store", "features", "ood"):
-        assert ((data / name).resolve(), f"/app/data/{name}", True) in mounts, name
-    for source, _, read_only in mounts:
-        assert source != truth and truth not in source.parents and source not in truth.parents
-        if source == data or data in source.parents:
-            assert read_only, source
-    assert ((ROOT / "artifacts").resolve(), "/app/artifacts", False) in mounts
-    assert service["build"]["dockerfile"] == "infra/docker/trainer-gnn.Dockerfile"
-    assert service["build"]["args"]["DGL_IMAGE"] == "${DGL_IMAGE}"
-    gpu = services("compose.gpu.yml")["trainer-graphsage"]
-    assert gpu["build"]["args"]["DGL_IMAGE"].startswith("${DGL_IMAGE:?")
-    assert gpu["environment"]["DEVICE"] == "gpu"
-
-
-# What the pinned rocm/dgl image (DGL_IMAGE in .env.example) ships in /opt/venv, from its layer
-# metadata: torch 2.8.0 (ROCm 7.0), amd-dgl 2.4.0, scipy 1.16.2, and numpy 1.26.4, which amd-dgl
-# pins (Requires-Dist numpy==1.26.4) over the numpy 2.3.3 the PyTorch layer had. numpy and pandas
-# are therefore installed on top (the ingest and propensity code need numpy 2); torch, DGL and
-# scipy (built for numpy >= 1.25.2, < 2.6) stay as shipped.
-IMAGE_STACK = frozenset({"torch", "dgl", "scipy"})
+# Import names whose distribution on PyPI has another name.
 MODULE_DISTRIBUTION = {"sklearn": "scikit-learn", "xgboost": "xgboost-cpu"}
 
 
@@ -602,40 +481,6 @@ def third_party_imports(*modules: str) -> set[str]:
     return found
 
 
-def test_the_graphsage_image_adds_what_the_jobs_import_and_keeps_the_rocm_stack() -> None:
-    dockerfile = (INFRA / "docker" / "trainer-gnn.Dockerfile").read_text(encoding="utf-8")
-    assert "FROM ${DGL_IMAGE}" in dockerfile and "--extra-index-url" not in dockerfile
-    assert "--no-deps --index-url https://pypi.org/simple" in dockerfile
-    assert "import ml.gnn.asos, ml.gnn.embeddings" in dockerfile  # fails the build, not the run
-    assert "COPY bench bench" in dockerfile  # B2 runs here (make bench-b2)
-    assert "numpy.__version__ == '2.5.4'" in dockerfile and "SAGEConv" in dockerfile
-    pins = _pins(INFRA / "docker" / "requirements-gnn.txt")
-    assert pins and all(pins.values()), "every package is pinned"
-    assert not set(pins) & IMAGE_STACK, "the rocm/dgl image ships these, built together for ROCm"
-    assert not set(pins) & {"xgboost", "amd-xgboost"}
-    base = _pins(ROOT / "requirements" / "base.txt") | _pins(ROOT / "requirements" / "dev.txt")
-    for name in set(pins) & set(base):
-        assert pins[name] == base[name], name
-    assert pins["numpy"] == "2.5.4" and pins["pandas"] == "3.0.6"
-    # Everything the jobs, B2 and the tests of `make gnn-test-gpu` import is either shipped by
-    # the image or pinned here.
-    needed = third_party_imports(
-        "ml.gnn.__main__",
-        "ml.gnn.asos",
-        "ml.gnn.embeddings",
-        "ml.gnn.report",
-        "bench.b2_gnn",
-        "tests.conftest",
-        "tests.test_gnn_model",
-        "tests.test_gnn_jobs",
-    )
-    for module in sorted(needed - IMAGE_STACK):
-        distribution = MODULE_DISTRIBUTION.get(module, module)
-        assert distribution in pins, f"{module} is imported but not in requirements-gnn.txt"
-    cpu = (INFRA / "requirements-gnn-cpu.txt").read_text(encoding="utf-8")
-    assert "torch==2.8.0+cpu" in cpu  # the PyTorch of the rocm/dgl image, CPU build
-
-
 def test_makefile_gnn_targets() -> None:
     targets = makefile_targets()
     assert targets["gnn-asos"][1] == [
@@ -646,25 +491,23 @@ def test_makefile_gnn_targets() -> None:
     assert targets["gnn-results"][1] == [
         "python -m ml.gnn report --artifacts artifacts --doc docs/results/us-202-graphsage.md"
     ]
-    assert "--device gpu" in " ".join(targets["gnn-asos-gpu"][1])
-    assert "--device cpu" in " ".join(targets["gnn-asos-cpu-container"][1])
-    for target in ("gnn-asos-gpu", "gnn-asos-cpu-container", "embeddings-gpu"):
-        # Alone on the GPU and on the CPU, as B1 and B2 (review G10).
-        assert targets[target][1][0] == "@$(VLLM_DOWN)", target
     assert "embeddings" not in targets["pipeline"][0].split()  # make pipeline needs no torch
 
 
 def test_makefile_targets_use_overrides_and_existing_scripts() -> None:
+    """Every compose file and every script module the Makefile names exists: the GPU, spike,
+    bench and Token Factory overlays, which no recorded run used, were removed on 17 Oct 2026."""
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
-    assert re.search(r"^GPU = .*-f infra/compose\.gpu\.yml", makefile, re.M)
     assert re.search(r"^DEMO = .*-f infra/compose\.demo\.yml", makefile, re.M)
     assert re.search(r"^PUBLIC = -f infra/compose\.public\.yml$", makefile, re.M)
     assert "$$status -eq 5" in makefile, "make test-gpu must accept 'no tests collected'"
-    for script in set(re.findall(r"infra/spikes/[\w.]+\.(?:py|sh)", makefile)):
-        assert (ROOT / script).is_file(), script
+    named = set(re.findall(r"infra/[\w.-]+\.yml", makefile))
+    assert named == {f"infra/{name}" for name in COMPOSE_FILES}, named
+    for module in set(re.findall(r"python3? -m (scripts\.\w+)", makefile)):
+        assert (ROOT / module.replace(".", "/")).with_suffix(".py").is_file(), module
 
 
-# ---- The product stack: reset, api, ui, proxy, telemetry, MI300X batch, cached demo ----------
+# ---- The product stack: reset, api, ui, proxy, cached demo ------------------------------------
 
 API_ENV = {
     "RADEON_API_KEY",
@@ -705,7 +548,7 @@ def test_the_api_reads_the_serving_snapshot_and_the_benchmarks_read_only() -> No
 
 
 def test_the_api_runs_one_worker_and_waits_for_the_reset() -> None:
-    """The snapshot lives in memory (about 1.7 GB at full scale): one uvicorn worker. The API
+    """The snapshot lives in memory (about 1.6 GB at full scale): one uvicorn worker. The API
     starts after the reset has exited 0, and is healthy only once /readyz says so."""
     dockerfile = (ROOT / "apps" / "api" / "Dockerfile").read_text(encoding="utf-8")
     cmd = next(line for line in dockerfile.splitlines() if line.startswith("CMD"))
@@ -796,59 +639,18 @@ def test_api_settings_accept_the_base_environment(monkeypatch: pytest.MonkeyPatc
 
 def test_the_reset_runs_once_on_the_snapshot_before_the_api() -> None:
     """US-903: `python -m apps.api.reset` with the API's own settings, the snapshot read-only,
-    after postgres is healthy. In the gpu profile it drafts through vLLM, so it waits for it."""
+    after postgres is healthy."""
     reset = compose_service("reset")
     assert reset["command"] == ["python", "-m", "apps.api.reset"]
     assert reset["environment"] == compose_service("api")["environment"]
-    assert reset["profiles"] == ["dev", "gpu", "demo"]
+    assert reset["profiles"] == ["dev", "demo"]
     assert reset["restart"] == "no"
     assert bind_mounts(reset) == [((ROOT / "serving").resolve(), "/app/serving", True)]
     assert reset["depends_on"]["postgres"]["condition"] == "service_healthy"
-    gpu = services("compose.gpu.yml")["reset"]
-    assert gpu["environment"] == services("compose.gpu.yml")["api"]["environment"]
-    assert gpu["depends_on"]["vllm"]["condition"] == "service_healthy"
     for name in API_IMAGE_SERVICES:
         service = compose_service(name)
         assert service["build"] == {"context": "..", "dockerfile": "apps/api/Dockerfile"}, name
         assert service["image"] == "returnring-api:local", name
-
-
-def test_the_mi300x_batch_writes_only_the_llm_cache_of_the_snapshot() -> None:
-    """ADR-03, ADR-16 section 4: python -m apps.api.batch_generate through the local vLLM (rule
-    2: VLLM_BASE_URL is the internal service), GEMMA_MODEL passed (H30)."""
-    batch = compose_service("batch-generate")
-    assert batch["command"] == ["python", "-m", "apps.api.batch_generate"]
-    env = batch["environment"]
-    assert (env["LLM_MODE"], env["DEVICE"], env["DEMO_MODE"]) == ("vllm", "gpu", "live")
-    assert env["GEMMA_MODEL"] == "${GEMMA_MODEL}" and env["VLLM_BASE_URL"] == "${VLLM_BASE_URL}"
-    assert env_example()["VLLM_BASE_URL"] == "http://vllm:8001/v1"
-    assert bind_mounts(batch) == [((ROOT / "serving").resolve(), "/app/serving", False)]
-    assert batch["depends_on"] == {"vllm": {"condition": "service_healthy"}}
-    assert batch["profiles"] == ["gpu-jobs"]
-
-
-def test_the_telemetry_sampler_stores_the_amd_smi_readings() -> None:
-    """US-905: the ROCm container writes amd-smi JSON every 5 s into a named volume; the sampler
-    (API image) reads it read-only and writes telemetry_samples."""
-    writer, sampler = compose_service("telemetry"), compose_service("telemetry-sampler")
-    command = writer["command"][-1]
-    assert "amd-smi metric --json > /telemetry/amd-smi.json.tmp" in command
-    assert "mv /telemetry/amd-smi.json.tmp /telemetry/amd-smi.json" in command
-    assert "rm -f /telemetry/amd-smi.json" in command and "sleep 5" in command
-    assert writer["volumes"] == ["telemetry:/telemetry"]
-    assert sampler["volumes"] == ["telemetry:/telemetry:ro"]
-    assert sampler["command"] == [
-        "python",
-        "-m",
-        "apps.api.services.other.telemetry",
-        "--source-file",
-        "/telemetry/amd-smi.json",
-    ]
-    assert set(sampler["environment"]) == {"DATABASE_URL", "DEVICE"}
-    assert sampler["profiles"] == writer["profiles"] == ["gpu"]
-    assert sampler["depends_on"]["postgres"]["condition"] == "service_healthy"
-    assert sampler["restart"] == "unless-stopped"
-    assert "telemetry" in load("docker-compose.yml")["volumes"]
 
 
 def test_the_ui_is_built_from_apps_ui_and_served_through_the_proxy() -> None:
@@ -857,7 +659,7 @@ def test_the_ui_is_built_from_apps_ui_and_served_through_the_proxy() -> None:
     assert ui["build"]["args"] == {"VITE_READ_ONLY": "${PUBLIC_READ_ONLY:-false}"}
     demo = services("compose.demo.yml")["ui"]
     assert demo["build"]["args"] == {"VITE_READ_ONLY": "${PUBLIC_READ_ONLY:-true}"}
-    assert ui["profiles"] == ["dev", "gpu", "demo"]
+    assert ui["profiles"] == ["dev", "demo"]
 
 
 UI = ROOT / "apps" / "ui"
@@ -884,7 +686,7 @@ CADDYFILE = INFRA / "Caddyfile"
 
 def test_the_proxy_routes_the_api_and_the_ui_on_one_origin() -> None:
     proxy = compose_service("proxy")
-    assert proxy["profiles"] == ["dev", "gpu", "demo"]
+    assert proxy["profiles"] == ["dev", "demo"]
     assert "./Caddyfile:/etc/caddy/Caddyfile:ro" in proxy["volumes"]
     assert proxy["depends_on"]["api"]["condition"] == "service_healthy"
     assert proxy["depends_on"]["ui"]["condition"] == "service_started"
@@ -935,7 +737,7 @@ def test_a_public_server_puts_basic_auth_on_admin_telemetry_and_writes() -> None
 
 
 def test_cpu_images_pinned_by_tag_and_digest() -> None:
-    """postgres and caddy are pinned like the GPU images; make admin-password hashes with the
+    """postgres and caddy are pinned by tag and digest; make admin-password hashes with the
     proxy's own image."""
     for name in ("postgres", "proxy"):
         image = compose_service(name)["image"]
@@ -948,7 +750,7 @@ def test_cpu_images_pinned_by_tag_and_digest() -> None:
 
 
 def test_the_admin_password_hash_is_cheap_enough_for_a_small_public_server() -> None:
-    """A wrong password of the admin user costs one bcrypt comparison on the public droplet:
+    """A wrong password of the admin user costs one bcrypt comparison on a public server:
     the hash is made at cost 10 (about 70 ms measured with Caddy 2.11.7 on 4 shared vCPUs), not
     Caddy's default 14 (16 times that)."""
     recipe = " ".join(makefile_targets()["admin-password"][1])
@@ -963,7 +765,7 @@ ADMIN_BASIC = "Basic " + base64.b64encode(f"{ADMIN_USER}:".encode()).decode()  #
 
 def test_basic_credentials_of_another_user_get_a_401_before_bcrypt() -> None:
     """Caddy compares the password of an unknown user with its fixed bcrypt cost-14 fake hash
-    (about 1.1 s of CPU, measured): any user name would cost the public droplet that per
+    (about 1.1 s of CPU, measured): any user name would cost a public server that per
     request. Basic credentials that do not start with the admin user's get a 401 first, with
     the challenge basic_auth sends, so a wrong user name costs no hash at all. The admin user is
     fixed (its base64 prefix is in the Caddyfile); ADMIN_USER is gone from the environment."""
@@ -1016,18 +818,17 @@ def test_caddy_refuses_another_user_before_basic_auth() -> None:
 
 
 def test_the_long_running_services_restart_after_a_crash_or_a_reboot() -> None:
-    """A crash or a reboot of the public server must not take the demo down until someone logs
-    in: on the GPU server vLLM and the amd-smi writer restart too (a sampler without its writer
-    would read the file a reboot left behind). The reset stays one-shot: a daemon restart keeps
-    the database (pgdata persists) instead of resetting it, and the API reconnects lazily."""
+    """A crash or a reboot of a server must not take the demo down until someone logs in. The
+    reset stays one-shot: a daemon restart keeps the database (pgdata persists) instead of
+    resetting it, and the API reconnects lazily."""
     compose = services("docker-compose.yml")
-    for name in ("postgres", "api", "ui", "proxy", "telemetry-sampler", "telemetry", "vllm"):
+    for name in ("postgres", "api", "ui", "proxy"):
         assert compose[name]["restart"] == "unless-stopped", name
     assert set(RUNNING_SERVICES) - {"reset"} == {
         name for name, service in compose.items() if service.get("restart") == "unless-stopped"
     }
     assert compose["reset"]["restart"] == "no"
-    for name in OFFLINE_SERVICES - {"spike-client"}:
+    for name in OFFLINE_SERVICES:
         assert "restart" not in compose[name], name
 
 
@@ -1059,8 +860,6 @@ def test_the_cached_demo_serves_the_demo_package_with_the_gpu_off() -> None:
     ]
     assert bind_mounts(demo["reset"]) == [(package / "serving", "/app/serving", True)]
     assert "vllm" not in demo and "telemetry" not in demo
-    for name in ("vllm", "telemetry", "telemetry-sampler", "trainer-gbm", "trainer-gnn"):
-        assert "demo" not in compose_service(name)["profiles"], name  # GPU containers off
     assert "demo-cache/" in (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
 
 
@@ -1091,11 +890,9 @@ def test_makefile_deploy_targets() -> None:
     assert "$(MAKE) demo-data" in recipe("dev-up")
     assert "$(COMPOSE) --profile dev up -d --build" in recipe("dev-up")
     assert recipe("reset") == "$(COMPOSE) --profile dev run --rm reset"
-    assert recipe("gpu-reset") == "$(GPU) run --rm reset"
     assert recipe("demo-reset") == "$(DEMO) run --rm reset"
     assert "python -m scripts.demo_walk --base-url $(API_URL)" in recipe("demo-walk")
     assert re.search(r"^API_URL \?= http://127\.0\.0\.1:8000$", makefile, re.M)
-    assert recipe("batch-generate") == "$(GPU) run --rm batch-generate"
     export = recipe("demo-export")
     assert "python3 -m scripts.demo_export build --serving serving --bench bench/results" in export
     assert "tar -czf $(DEMO_DIR).tar.gz $(DEMO_DIR)" in export
@@ -1110,7 +907,7 @@ def test_makefile_deploy_targets() -> None:
     assert "demo-verify" in targets["demo-up"][0] and "demo-verify" in targets["demo-local"][0]
     assert "$(DEMO) $(PUBLIC) up -d --build" in recipe("demo-up")
     assert "$(DEMO) up -d --build" in recipe("demo-local")
-    assert "$(GPU) $(PUBLIC) up -d --build" in recipe("gpu-up")
+    assert recipe("dev-down") == "$(COMPOSE) --profile dev --profile demo down --remove-orphans"
     assert re.search(r"^DEMO_DIR = demo-cache$", makefile, re.M)
     phony = re.search(r"^\.PHONY:(.*)$", makefile.replace("\\\n", " "), re.M)
     assert phony is not None
@@ -1119,7 +916,6 @@ def test_makefile_deploy_targets() -> None:
         "dev-up",
         "reset",
         "demo-walk",
-        "batch-generate",
         "demo-export",
         "demo-import",
         "demo-verify",
@@ -1165,8 +961,6 @@ PUBLIC_ENV = PUBLIC_HOST_ENV + "ADMIN_PASSWORD_HASH='" + "$2a$10$" + "x" * 53 + 
     ("profile", "files", "expected"),
     [
         ("dev", [], {"DEVICE": "cpu", "LLM_MODE": "mock", "DEMO_MODE": "live"}),
-        ("gpu", ["compose.gpu.yml"], {"DEVICE": "gpu", "LLM_MODE": "vllm"}),
-        ("gpu", ["compose.gpu.yml", "compose.public.yml"], {"DEVICE": "gpu", "LLM_MODE": "vllm"}),
         ("demo", ["compose.demo.yml"], {"DEMO_MODE": "cached", "LLM_MODE": "mock"}),
         ("demo", ["compose.demo.yml", "compose.public.yml"], {"DEMO_MODE": "cached"}),
     ],
@@ -1178,10 +972,8 @@ def test_rendered_compose_config(
     for key, value in expected.items():
         assert rendered["api"]["environment"][key] == value
         assert rendered["reset"]["environment"][key] == value
-    assert "ports" not in rendered.get("vllm", {})
-    assert "pipeline" not in rendered and "batch-generate" not in rendered  # never started by up
-    assert {"postgres", "reset", "api", "ui", "proxy"} <= set(rendered)
-    assert ("telemetry-sampler" in rendered) is (profile == "gpu")
+    # The pipeline job is never started by up, and no GPU service (vllm, telemetry-sampler) is left.
+    assert set(rendered) == {"postgres", "reset", "api", "ui", "proxy"}
     for service_name, service in rendered.items():
         for volume in service.get("volumes", []):
             source = volume.get("source", "")
@@ -1212,18 +1004,14 @@ def test_rendered_compose_config(
 
 @pytest.mark.skipif(not compose_available(), reason="docker compose not installed")
 def test_rendered_jobs(tmp_path: Path) -> None:
-    """make demo-data and make batch-generate target their service; the job runs as the host
-    user (review P5)."""
+    """make demo-data targets the pipeline job, the only service of the jobs profile; the job
+    runs as the host user (review P5)."""
     rendered = render(tmp_path, "jobs", [])
     assert set(rendered) == {"pipeline"}
     assert rendered["pipeline"]["user"] in {
         f"{env_example()['HOST_UID']}:{env_example()['HOST_GID']}",
         f"{os.getuid()}:{os.getgid()}",  # make exports HOST_UID and HOST_GID
     }
-    # make batch-generate: $(GPU) (profile gpu) run --rm batch-generate
-    gpu_jobs = render(tmp_path, "gpu,gpu-jobs", ["compose.gpu.yml"])
-    assert gpu_jobs["batch-generate"]["environment"]["LLM_MODE"] == "vllm"
-    assert gpu_jobs["batch-generate"]["depends_on"]["vllm"]["condition"] == "service_healthy"
 
 
 def _public_config(tmp_path: Path, extra_env: str) -> subprocess.CompletedProcess[str]:

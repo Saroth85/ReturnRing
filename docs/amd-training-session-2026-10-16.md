@@ -3,6 +3,10 @@
 Completed on 16 October 2026. Delivery scope: [ADR-18](adr/ADR-18-amd-api-and-training.md).
 Machine-readable evidence: [session results](results/amd-session-2026-10-16.json).
 
+The AMD Developer Cloud MI300X droplet stayed blocked by an account GPU limit, with no answer
+from AMD as of 16 Oct 2026, so no self-hosted vLLM/Gemma, GPU spikes or B1-B4 ran. The training
+below ran in an AMD notebook instead (see "Notebook environment and XGBoost build").
+
 ## What ran
 
 | Workload | Actual execution | Result |
@@ -10,6 +14,10 @@ Machine-readable evidence: [session results](results/amd-session-2026-10-16.json
 | Gemma in the product | AMD Token Factory, `Gemma-4-31B-IT`, through the real HTTP regeneration route | Giulia, Marco and Elena returned HTTP 200 with validated model text and unchanged decisions. Giulia passed first call; Marco and Elena passed regeneration. |
 | XGBoost risk training | AMD Instinct MI300X VF, HIP-enabled AMD XGBoost 2.1.3 | A1, A2, A3 and the request model trained; job exited 0; all golden checks passed. A3 also loaded in the CPU serving runtime with xgboost-cpu 3.2.0. |
 | GraphSAGE training | Same MI300X VF, PyTorch 2.8.0+rocm6.4, pure-PyTorch backend | Customer-identifier encoder trained for 300 epochs; encoder and 77,703 embedding rows over four snapshot instants saved. |
+
+The results JSON's `xgboost.model_set` lists A4, but no A4 metric was recorded: the risk command
+passed no `--embeddings`, and the embeddings were written under `artifacts/gpu-session/graphsage`,
+so this report does not claim A4.
 
 The two ML jobs used the Navigli Fashion **synthetic** store, seed 42, scale 1.0 (20,000
 customers), generated from the committed ASOS aggregate calibration. They did not train on the
@@ -24,6 +32,10 @@ No out-of-distribution store was generated for this session; earlier OOD limitat
 The XGBoost job took 42.199 seconds including evaluation. The GraphSAGE report records 9.1426
 seconds for the training phase, with import, device initialisation, data loading, inference and
 writing separate. These are observations from this session, not CPU/GPU speed comparisons.
+The GraphSAGE job has two timers. The 9.1426 s is `timings.training_seconds` of the job's
+metrics file: the phase timer around `fit_encoder` (input preparation, the copy to the GPU, the
+model set-up and the epoch loop; 4 decimals). The results JSON's `graphsage.training.train_seconds`,
+8.414 s, is the epoch loop alone (3 decimals). Both come from `ml/gnn/embeddings.py`.
 
 The Gemma check used a separate small synthetic API fixture store. Its three request durations
 were 5.895, 15.729 and 33.191 seconds, including validation and any regeneration. This is an
@@ -31,6 +43,10 @@ integration rehearsal, not latency percentiles, a load test or a model-accuracy 
 The first rehearsal exposed an existing validator/API mismatch: SCORE labels on unscored cases
 were accepted by the LLM validator but rejected by the API. Regression tests reproduced it;
 the validator now regenerates those replies and the case schema excludes SCORE where forbidden.
+
+Reproduce the Gemma check from the repository root with `python -m scripts.check_tokenfactory`
+(needs `requirements/dev.txt`; the key is read from `RADEON_API_KEY` or a hidden prompt and never
+saved; the prompts carry the synthetic fixture cases only).
 
 ## Notebook environment and XGBoost build
 

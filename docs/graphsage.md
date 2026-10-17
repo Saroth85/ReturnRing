@@ -10,8 +10,11 @@ Code in `ml/gnn/`; results in `docs/results/us-202-graphsage.md`, rewritten by
 | ASOS benchmark | `python -m ml.gnn asos --raw data/raw --out artifacts` | ASOS GraphReturns, real | GraphSAGE on the customer-variant purchase graph, protocols B then A of ADR-10, side by side with XGBoost (the US-201 code path) and the paper. A benchmark of the ASOS task, never evidence about rings (spec US-202) |
 | A4 embeddings | `python -m ml.gnn embed --store data --out data --models artifacts` | the synthetic store, no truth | GraphSAGE trained by link prediction on the customer-identifier graph; `features/customer_embeddings`, read by `python -m ml.risk` for the A4 row of the ablation |
 
-Both run on the CPU and on the MI300X with the same code: `--device cpu|gpu` (default from
-`DEVICE`), `--backend auto|dgl|torch` (default: DGL when importable). On ROCm the GPU is
+Both jobs ran on the CPU with the torch backend (the runs of `docs/results/us-202-graphsage.md`).
+`embed` also ran once on an AMD Instinct MI300X VF, on 16 October 2026, with the torch backend on
+the synthetic store (below); the ASOS job never ran on a GPU. The same code takes
+`--device cpu|gpu` (default from `DEVICE`) and `--backend auto|dgl|torch` (default: DGL when
+importable; DGL is optional and no recorded run used it). On ROCm the GPU is
 `torch.device("cuda")`; a GPU run without a visible GPU exits 2, it never falls back to the CPU.
 
 ## The model
@@ -22,8 +25,9 @@ Both run on the CPU and on the MI300X with the same code: `--device cpu|gpu` (de
   initialisation order (the same seed gives the same weights), same mean and max-pool maths, zeros
   for a node without neighbours. A state dict moves from one backend to the other;
   `tests/test_gnn_model.py` compares the outputs where DGL is installed (CPU, and GPU with the gpu
-  marker). The PyTorch mean is a sparse product with the row-normalised adjacency and its
-  precomputed transpose (no atomic adds).
+  marker) and skips that comparison without DGL, as in CI, which installs none
+  (`tests/test_gnn_model.py:98-109`). The PyTorch mean is a sparse product with the
+  row-normalised adjacency and its precomputed transpose (no atomic adds).
 - **ASOS**: one SAGE layer of 16 units, aggregator mean (`--aggregator pool` for the paper's
   max-pool), dropout 0.2, Adam 0.01, the paper's 2-layer MLP head (64 units) on the two node
   representations and the event's own features; mini-batches of 131,072 events, the node
@@ -81,58 +85,44 @@ them:
       - run: mypy  # ml/gnn type-checks with the real torch types too
 ```
 
-`infra/requirements-gnn-cpu.txt` pins the CPU build of PyTorch 2.8.0, the version of the rocm/dgl
-image. PyTorch (BSD-3-Clause) and its dependencies are permissive (rule 15); it is not a runtime
-dependency of the product.
+`infra/requirements-gnn-cpu.txt` pins the CPU build of PyTorch 2.8.0, the version of
+torch 2.8.0+rocm6.4 of the MI300X session. PyTorch (BSD-3-Clause) and its dependencies are
+permissive (rule 15); it is not a runtime dependency of the product. The tests marked `gpu` need
+a ROCm PyTorch with a visible GPU (`make test-gpu` on a ROCm host); no run of them is recorded.
 
-## On the MI300X droplet
+## On the AMD GPU (16 October 2026)
 
-The order of the session, with what each command writes, is one list in
-`infra/spikes/README.md` ("The GPU session"); the GraphSAGE part of it:
+The A4 encoder was trained once on an AMD Instinct MI300X VF, in the AMD One-Click Tutorials
+notebook (one MI300X VF exposed to PyTorch; Ubuntu 22.04.5, ROCm 6.4.3, Python 3.12.11,
+torch 2.8.0+rocm6.4 from the PyTorch ROCm 6.4 index), on the synthetic store generated with
+seed 42 and scale 1.0. The command, after the store, graph and features steps of the session
+report:
 
 ```bash
-make gnn-image                 # build trainer-graphsage on top of the pulled rocm/dgl
-make gnn-test-gpu              # DGL against the PyTorch layers on CPU and GPU, the job tests
-make bench-b2 DEVICE=gpu       # B2 = the US-202 runs: us-202-asos-{cpu,gpu}.json, B2.json
-make embeddings-gpu            # A4 encoder and embeddings on the GPU, copied into data/
-# then, on the laptop, with those files copied back: make risk gnn-results
+python -m ml.gnn embed --store data/gpu-synthetic \
+  --out artifacts/gpu-session/graphsage --models artifacts/gpu-session \
+  --device gpu --backend torch --seed 42
 ```
 
-The `trainer-graphsage` service (`infra/docker/trainer-gnn.Dockerfile`) is the trainer-gnn base
-(`rocm/dgl`, pinned in `.env.example`) plus this code and the pinned packages of
-`infra/docker/requirements-gnn.txt`. The pinned image ships torch 2.8.0 (ROCm 7.0), DGL 2.4.0,
-scipy 1.16.2 and numpy 1.26.4 (amd-dgl declares `numpy==1.26.4`), and no pandas in DGL's layer;
-the ingest and the propensity code need numpy 2, so the requirements add numpy 2.5.4 and pandas
-3.0.6 (the versions of `requirements/base.txt`) with what the jobs, B2 and the GPU tests import
-(Hypothesis for `tests/conftest.py`), and leave torch, DGL and scipy as shipped. The build checks
-numpy, runs a DGL `SAGEConv` on numpy 2 and imports every module of the jobs, so a broken image
-fails the build, not the session (`tests/test_infra.py` checks that every third-party import of
-those modules is either shipped or pinned; `make licenses` checks the pinned packages). It mounts
-`data/raw`, `data/store`, `data/features` and `data/ood` read-only (never `data/truth`) and
-writes `artifacts/`.
+Results (data nature synthetic; timings measured on that GPU, one run): 300 epochs (best epoch
+300), self-supervised validation AUC 0.948373 (a held-out use against a random value of the same
+kind, not return prediction or abuse detection), 77,703 embedding rows over four snapshot
+instants (2026-07-01 to 2026-10-01). The environment recorded the torch backend, `gpu_arch`
+gfx942 and `torch_hip` 6.4.43482; the epoch loop took 8.414 s (median epoch 0.0207 s, peak
+allocated 0.186 GB). These are observations of one run, not a CPU against GPU comparison. Evidence:
+the [AMD session report](amd-training-session-2026-10-16.md) and its
+[results JSON](results/amd-session-2026-10-16.json); the encoder and the embeddings stay in the
+session archive, not in the repository, and no A4 metric was recorded from them.
 
-- `make bench-b2 DEVICE=gpu` (benchmark B2, `docs/benchmarks.md`) calls `ml.gnn.b2_timing`, which
-  runs `python -m ml.gnn asos` in a fresh process per device and data size and reads its metrics
-  file: the full-data CPU and GPU runs are the US-202 runs (both protocols, with the MLP and
-  XGBoost rows), so nothing trains twice; the 25% and 50% samples go under the bench run folder.
-  B2 reports the median epoch as the speedup basis and the F1 as US-202 states it (protocol B on
-  the decision-time population, protocol A on the full test set next to the paper's 0.792).
-- `make gnn-asos-gpu` and `make gnn-asos-cpu-container` run the same job outside the benchmark
-  (same files). Like `make embeddings-gpu` and B1 and B2, they refuse to start while vLLM is up:
-  the CPU baseline runs alone on the CPU, the GPU run alone on the GPU.
-- `make gnn-test-gpu` runs the tests marked torch or gpu in the container, where `DEVICE=gpu`:
-  the CPU job tests pass `--device cpu` and read the CPU files (a CPU rerun is exact); the
-  gpu-marked tests run the job and `b2_timing` with `--device gpu` and read the GPU files.
-- `make risk gnn-results` needs the project's Python stack and, for the A4 row, the ground truth:
-  both are on the laptop, not on the droplet host. Copy back `artifacts/eval/gnn/*.json` and the
-  two `customer_embeddings.parquet` files, then run it there (runbook steps 15, 18 and 19).
+Not run on a GPU: the ASOS job (the ASOS files could not be downloaded, OSF HTTP 503), B2
+(retired, ADR-18; `docs/benchmarks.md`), the DGL backend, any container image, and the
+gpu-marked tests.
 
-Expected in the metrics: an environment with `torch_hip` set, the dgl backend and `gpu_arch`
-gfx942; a `GpuUnavailable` exit 2 means the GPU is not visible in the container (`make
-spike-gpu-check`). The spec 11 memory budget for the ASOS graph is under 8 GB, unmeasured so far;
-each run records its peak (`peak_allocated_gb`). Every timing carries its machine (CPU model,
-threads, load average before and after), the UTC day it was measured and its nature (real,
-rule 11). `GNN_SAMPLE=0.25` runs a seeded customer sample, reported as such.
+The GPU plan of 12 Oct 2026 budgeted the ASOS graph under 8 GB of MI300X memory (spec section 11
+before the cleanup: `git show 119b4b7:docs/spec.md`); it was never measured on a GPU. Each run
+records its peak (`peak_allocated_gb`). Every timing carries its machine (CPU model, threads, load
+average before and after), the UTC day it was measured and its nature (real, rule 11).
+`GNN_SAMPLE=0.25 make gnn-asos` runs a seeded customer sample, reported as such.
 
 On a shared CPU, `--threads 1` can be faster than every core. On this project's 4-vCPU
 development machine under a load average of 15 to 25 (other jobs), one training step on the ASOS

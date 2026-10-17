@@ -543,10 +543,9 @@ def render(doc: Mapping[str, Any], command: str) -> str:
             [
                 "This run had no GPU: B1 timed the CPU only, B3 was a dry run against a local "
                 "fake server (no Gemma), B4 had no GPU sampling and a mock model in its batch "
-                "generation. The MI300X numbers come from `make bench DEVICE=gpu` on the droplet "
-                '(infra/spikes/README.md, "The GPU session"). A CPU run checks the harness on a '
-                "development machine, under the load recorded next to each time: it is not the "
-                "run GET /api/benchmarks serves (bench/results/latest.json names GPU runs only).",
+                "generation. No MI300X run was made: CPU against MI300X benchmarks were retired "
+                "by ADR-18 (16 Oct 2026). A CPU run checks the harness under the load recorded "
+                "next to each time; GET /api/benchmarks does not serve it.",
                 "",
             ]
             if doc["device"] == "cpu"

@@ -9,9 +9,9 @@ database, to look for new failures; add any failure it finds as an @example.
 
 The fixtures of the API conformance harness (api, empty_api, seeded_db, serving, serving_data,
 serving_dir) come from tests/api_harness.py, registered as a plugin wherever the API's
-dependencies are installed. The GraphSAGE image (`make gnn-test-gpu`) has PyTorch and DGL but no
-FastAPI: it imports this file and runs only the GraphSAGE tests, so the harness is not loaded
-there (tests/test_infra.py checks what the image needs).
+dependencies are installed. An environment with PyTorch but no FastAPI (for example
+`make test-gpu` on a ROCm host) imports this file and runs only the GraphSAGE tests, so the
+harness is not loaded there.
 """
 
 from __future__ import annotations

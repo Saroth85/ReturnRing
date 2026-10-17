@@ -6,7 +6,7 @@ US-902. Method and the four rules of spec 12: [docs/benchmarks.md](../benchmarks
 
 Natures (rule 11): a time measured on this hardware is real, also when the data it ran on is synthetic (B4, B3 inputs); dry-run and cost figures are simulated. Measurements vary between runs and machines; each is one run unless a median says otherwise.
 
-This run had no GPU: B1 timed the CPU only, B3 was a dry run against a local fake server (no Gemma), B4 had no GPU sampling and a mock model in its batch generation. The MI300X numbers come from `make bench DEVICE=gpu` on the droplet (infra/spikes/README.md, "The GPU session"). A CPU run checks the harness on a development machine, under the load recorded next to each time: it is not the run GET /api/benchmarks serves (bench/results/latest.json names GPU runs only).
+This run had no GPU: B1 timed the CPU only, B3 was a dry run against a local fake server (no Gemma), B4 had no GPU sampling and a mock model in its batch generation. No MI300X run was made: CPU against MI300X benchmarks were retired by ADR-18 (16 Oct 2026). A CPU run checks the harness under the load recorded next to each time; GET /api/benchmarks does not serve it.
 
 ## Hardware and software
 

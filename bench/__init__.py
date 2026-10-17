@@ -1,5 +1,11 @@
 """Benchmarks B1-B4 of docs/spec.md section 12 (US-902): how much AMD does, measured.
 
+Status: the CPU against MI300X benchmarks B1-B4 were retired by ADR-18 (16 Oct 2026); none ran
+on an MI300X. This is the historical code ADR-18 keeps. `make bench` runs the CPU harness check
+(the one committed run: bench/results/20261014T002158Z-cpu.json). `--device gpu` exists in the
+code but never ran. The GPU launchers and droplet runbooks that the comments of these modules
+mention were removed on 17 Oct 2026.
+
 - B1 (b1_xgboost): XGBoost training and scoring time on ASOS GraphReturns, protocols A and B of
   ADR-10, CPU against the MI300X, several data sizes; same data, version and parameters on both.
 - B2 (b2_gnn): GraphSAGE timings and F1 as US-202 states them, through the hook

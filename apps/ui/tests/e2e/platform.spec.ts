@@ -1,7 +1,8 @@
 // Platform area in mock mode (docs/ui-design.md 9.1, 9.2, 9.4 and 14.2: E2E-02, PROV-UI, MODE-UI
 // for these screens). Every screen renders with no console error, no number without provenance,
 // no banned wording and no horizontal page scroll; the checkout binds the shown snapshot, the
-// inspection runs from a photo to a confirmed claim, the system page shows B1..B4 and telemetry.
+// inspection runs from a photo to a confirmed claim, the system page shows readiness and telemetry
+// (the B1-B4 benchmark cards were retired by ADR-18).
 // PLATFORM_SCREENSHOT_DIR=<dir> saves each screen at 1440 × 900 and 390 × 844.
 import { mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -250,25 +251,20 @@ test.describe('warehouse inspection (US-501..503)', () => {
   });
 });
 
-test.describe('system and benchmarks (US-901, US-902, US-905)', () => {
-  test('B1..B4 with their status, the cost per decision, readiness and telemetry', async ({ page }) => {
+test.describe('system (US-901, US-905)', () => {
+  test('the AMD line, readiness and telemetry, with no CPU against MI300X comparison', async ({ page }) => {
     const errors = watchConsole(page);
     await actAs(page, 'luca');
     await page.goto('/system');
-    await expect(page.locator('[data-benchmark]')).toHaveCount(4);
-    await expect(page.locator('[data-benchmark="B1"] [data-benchmark-status]')).toHaveText('Illustrative, not measured');
-    await expect(page.locator('[data-benchmark="B2"] [data-benchmark-status]')).toHaveText('Pending');
-    await expect(page.locator('[data-cost-per-decision]')).toContainText('€0.01');
-    await expect(page.locator('[data-cost-per-decision]')).toContainText('idle included');
-    await expect(page.locator('[data-speedups]')).toHaveCount(0);
+    await expect(page.locator('#gpu [data-architecture]')).toBeVisible();
+    // B1-B4 were retired by ADR-18: no benchmark card, cost per decision or speedup.
+    await expect(page.locator('[data-benchmark], [data-cost-per-decision], [data-speedups]')).toHaveCount(0);
     // On the mock adapter every fact is labelled as the /readyz contract example (UI12).
     await expect(page.locator('[data-mode-facts]')).toContainText('ok · the mock adapter answers (no API)');
     await expect(page.locator('[data-readiness-pill]')).toHaveAttribute('data-readiness-pill', 'contract');
     await expect(page.locator('[data-header-agreement="agrees"]')).toBeVisible();
     await expect(page.locator('#telemetry [data-telemetry-illustrative]')).toBeVisible();
     await expect(page.locator('#telemetry')).toContainText('1,450 tok/s');
-    await page.locator('[data-benchmark="B3"] summary').click();
-    await expect(page.locator('[data-benchmark="B3"] [data-benchmark-details]')).toContainText('google/gemma-4-31b-it');
     await expectClean(page, errors);
     await shoot(page, 'system');
   });
@@ -292,7 +288,7 @@ test.describe('system and benchmarks (US-901, US-902, US-905)', () => {
   test('the GPU dock opens with T and shows utilisation and tokens per second', async ({ page }) => {
     const errors = watchConsole(page);
     await page.goto('/system');
-    await expect(page.locator('[data-benchmark]')).toHaveCount(4);
+    await expect(page.locator('[data-mode-facts]')).toBeVisible();
     await page.keyboard.press('t');
     const dock = page.getByRole('complementary', { name: 'GPU' });
     await expect(dock).toContainText('71%');

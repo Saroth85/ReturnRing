@@ -100,8 +100,8 @@ earlier decision times of a run. Lines and returns are each filtered on their ow
 so a line recorded late or a return known after T does not exist at T. Tests: hand-built frames
 with rows sold, recorded or returned after T (`tests/test_anomalies_detect.py`); stores written
 with and without the later rows (`tests/test_anomalies_build.py`); a brute-force count of S and h_l
-on a random store. The results file (section H) recomputes four snapshots of the real store from
-the store read at T.
+on a random store. The results file (section H) recomputes five snapshots of the generated main
+store (synthetic) from the store read at T.
 
 ## Separate from customer behaviour (spec 8.9, E2E-04)
 

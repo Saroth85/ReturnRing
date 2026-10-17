@@ -72,7 +72,9 @@ def test_the_graphsage_job_installs_cpu_pytorch() -> None:
     commands = runs(jobs()["gnn-cpu"])
     assert "pip install -r requirements/dev.txt -r infra/requirements-gnn-cpu.txt" in commands
     assert "python -m pytest -m torch -q" in commands and "mypy" in commands
-    assert (ROOT / "infra" / "requirements-gnn-cpu.txt").is_file()
+    cpu = (ROOT / "infra" / "requirements-gnn-cpu.txt").read_text(encoding="utf-8")
+    # The PyTorch of the 16 Oct MI300X session (2.8.0+rocm6.4 there), CPU build here.
+    assert "torch==2.8.0+cpu" in cpu
 
 
 def test_gitleaks_scans_the_whole_history() -> None:

@@ -119,7 +119,7 @@ def test_the_hook_is_found_and_says_why_it_cannot_run_here(
 def test_b2_unavailable_names_what_is_missing(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(b2, "_importable", lambda name: name != "torch")
     reason = b2.unavailable()
-    assert reason is not None and "PyTorch" in reason and "trainer-graphsage" in reason
+    assert reason is not None and "PyTorch" in reason and "requirements-gnn-cpu.txt" in reason
     monkeypatch.setattr(b2, "_importable", lambda name: True)
     assert b2.unavailable() is None
 

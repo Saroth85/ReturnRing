@@ -387,7 +387,7 @@ def run_b1(config: B1Config, log: Log = lambda _m: None) -> Part:
         "next to each run (details).",
     ]
     if not gpu:
-        notes.append("CPU only: the MI300X half of B1 runs on the droplet (make bench DEVICE=gpu).")
+        notes.append("CPU only: no MI300X run (retired, ADR-18).")
     return Part(
         benchmark="B1",
         status="measured",

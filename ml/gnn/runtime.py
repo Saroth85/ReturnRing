@@ -3,8 +3,8 @@
 - Device: DEVICE=cpu|gpu (or --device). On ROCm builds of PyTorch the HIP device is exposed through
   the torch.cuda API, so gpu is torch.device("cuda"); a GPU run without a visible GPU is refused
   (GpuUnavailable), never silently moved to the CPU.
-- Backend: DGL when importable (the trainer-gnn image, rocm/dgl), else the pure-PyTorch layers of
-  ml.gnn.model, the same model. --backend dgl|torch forces one.
+- Backend: DGL when importable (optional; no recorded run used it), else the pure-PyTorch layers
+  of ml.gnn.model, the same model. --backend dgl|torch forces one.
 - Seeds: Python, NumPy and torch, and torch.use_deterministic_algorithms (warn_only, so a kernel
   without a deterministic version on ROCm warns instead of failing); recorded with every result.
 - Timers: Stopwatch synchronises the GPU before reading the clock, so each phase (cold start, data

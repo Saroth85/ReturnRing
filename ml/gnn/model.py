@@ -1,7 +1,7 @@
 """GraphSAGE layers with two backends that are the same model (US-202, spec 8.1).
 
 - backend "dgl": dgl.nn.SAGEConv per relation inside dgl.nn.HeteroGraphConv (sum over relations),
-  on the trainer-gnn image (rocm/dgl, DGL 2.4 on ROCm).
+  DGL when importable (optional; no recorded run used it).
 - backend "torch": TorchSAGEConv and TorchHeteroConv below, plain PyTorch, so the CPU tests and a
   machine without DGL run the same model.
 

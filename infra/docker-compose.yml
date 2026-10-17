@@ -1,35 +1,24 @@
-# Profiles: dev (laptop, CPU + mock LLM), gpu (MI300X droplet), demo (cached results, GPU off).
-# Profile switches live in override files, so the laptop .env cannot leak into them:
-#   gpu:    -f infra/docker-compose.yml -f infra/compose.gpu.yml    (DEVICE=gpu, LLM_MODE=vllm)
-#   demo:   -f infra/docker-compose.yml -f infra/compose.demo.yml   (DEMO_MODE=cached, demo-cache/)
-#   public: add -f infra/compose.public.yml on a server reachable from the Internet (HTTPS on
-#           PUBLIC_HOST, basic auth on the telemetry data and the writes).
-#   GPU spikes add -f infra/compose.spike.yml (infra/spikes/README.md). Use the Makefile targets.
-# Images: the GPU images are pinned by tag@digest in .env.example (VLLM_IMAGE, DGL_IMAGE,
-# ROCM_BASE_IMAGE); postgres and caddy below, with the digest of their multi-arch index read from
-# Docker Hub on 14 Oct 2026.
-# Rule 12 (as rewritten in ADR-13): running services (api, reset, ui, proxy, telemetry-sampler)
-# never mount data/, data/truth/ or artifacts/; they read the serving snapshot (ADR-16), the
-# benchmark results and the database. Only offline jobs read data/: the pipeline job writes it.
+# Profiles: dev (laptop, CPU), demo (the cached demo package) and jobs (the offline pipeline job,
+# make demo-data). The LLM mode comes from .env: LLM_MODE=mock by default; optional modes are
+# tokenfactory (RADEON_API_KEY) and vllm (your own server at a local or private VLLM_BASE_URL).
+# Use the Makefile targets. Optional overlays:
+#   demo:   -f infra/docker-compose.yml -f infra/compose.demo.yml   (DEMO_MODE=cached, demo-cache/;
+#           its switches win over .env)
+#   public: add -f infra/compose.public.yml on a self-hosted server reachable from the Internet
+#           (HTTPS on PUBLIC_HOST, basic auth on the telemetry data and the writes; never deployed
+#           publicly: the public demo runs on Railway, docs/railway-demo.md).
+# Images: postgres and caddy below are pinned by tag@digest, the digest of their multi-arch index
+# read from Docker Hub on 14 Oct 2026.
+# Rule 12 (as rewritten in ADR-13): running services (api, reset, ui, proxy) never mount data/,
+# data/truth/ or artifacts/; they read the serving snapshot (ADR-16), the benchmark results and
+# the database. Only offline jobs read data/: the pipeline job writes it.
 # Start order (make dev-up): postgres healthy -> reset exits 0 -> api healthy -> ui, proxy.
-# Restarts: the long-running services (postgres, api, ui, proxy; on the GPU server vllm and the
-# amd-smi writer telemetry with its telemetry-sampler) restart unless stopped, so a crash or a
-# reboot of a public server does not take the demo down; the reset stays one-shot ("no"), so a
-# daemon restart keeps the database (pgdata) as it was.
+# Restarts: the long-running services (postgres, api, ui, proxy) restart unless stopped, so a crash
+# or a reboot does not take the demo down; the reset stays one-shot ("no"), so a daemon restart
+# keeps the database (pgdata) as it was.
 name: returnring
 
-x-gpu: &gpu
-  devices:
-    - /dev/kfd
-    - /dev/dri
-  group_add:
-    - video
-  ipc: host
-  security_opt:
-    - seccomp=unconfined
-  shm_size: 16g
-
-# One image for the API, the reset, the pipeline job, the MI300X batch and the telemetry sampler.
+# One image for the API, the reset and the pipeline job.
 x-api-image: &api-image
   image: returnring-api:local
   build:
@@ -62,7 +51,7 @@ x-api-env: &api-env
 services:
   postgres:
     image: postgres:16.15-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
-    profiles: [dev, gpu, demo]
+    profiles: [dev, demo]
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -83,7 +72,7 @@ services:
   # from the same state; `make reset` runs it again on a running stack.
   reset:
     <<: *api-image
-    profiles: [dev, gpu, demo]
+    profiles: [dev, demo]
     command: ["python", "-m", "apps.api.reset"]
     environment: *api-env
     volumes:
@@ -95,7 +84,7 @@ services:
 
   api:
     <<: *api-image
-    profiles: [dev, gpu, demo]
+    profiles: [dev, demo]
     # One uvicorn worker (apps/api/Dockerfile): the snapshot lives in memory. On the full
     # synthetic store the process held about 1.6 GB after the warm-up; the peak during the demo
     # walk varied between runs, up to about 2.2 GB; healthy 38 s after its start (resident
@@ -139,7 +128,7 @@ services:
       args:
         # The public read-only demo build disables every write control (docs/ui-design.md).
         VITE_READ_ONLY: ${PUBLIC_READ_ONLY:-false}
-    profiles: [dev, gpu, demo]
+    profiles: [dev, demo]
     # No published port: the proxy serves the UI and the API on one origin.
     restart: unless-stopped
 
@@ -148,7 +137,7 @@ services:
   # compose.public.yml sets PUBLIC_HOST (HTTPS), publishes 80 and 443 and turns basic auth on.
   proxy:
     image: caddy:2.11.7-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f
-    profiles: [dev, gpu, demo]
+    profiles: [dev, demo]
     environment:
       SITE_ADDRESS: ":80"
       ADMIN_AUTH: "off"
@@ -174,7 +163,7 @@ services:
   # data/truth: an offline job, rule 12; --no-results leaves docs/results alone), then the
   # serving snapshot the API reads (ADR-16), which holds no ground truth.
   # It runs as the owner of the checkout, not as the image's user app (uid 1000), so it can
-  # write data/ in a root-owned clone (the droplet) and leaves files the host user owns
+  # write data/ in a clone made as root and leaves files the host user owns
   # (review P5). The Makefile exports HOST_UID and HOST_GID from `id -u` and `id -g`.
   pipeline:
     <<: *api-image
@@ -204,179 +193,7 @@ services:
       - ../artifacts:/app/artifacts
       - ../serving:/app/serving
 
-  # MI300X job (make batch-generate), never started by `up`: the draft of every open return
-  # through the local vLLM, written to serving/llm_cache/ for the cached demo (ADR-03, ADR-16
-  # section 4). It writes nothing else; it runs as the owner of the checkout like the pipeline.
-  batch-generate:
-    <<: *api-image
-    profiles: [gpu-jobs]
-    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
-    command: ["python", "-m", "apps.api.batch_generate"]
-    environment:
-      <<: *api-env
-      DEVICE: gpu
-      LLM_MODE: vllm
-      DEMO_MODE: live
-    volumes:
-      - ../serving:/app/serving
-    depends_on:
-      vllm:
-        condition: service_healthy
-
-  vllm:
-    <<: *gpu
-    image: ${VLLM_IMAGE}
-    profiles: [gpu]
-    environment:
-      HF_TOKEN: ${HF_TOKEN:-}
-      # Rule 2: no call to huggingface.co at runtime; the weights are already in hf-cache at
-      # GEMMA_REVISION (infra/spikes/weights.sh downloads them with this turned off).
-      HF_HUB_OFFLINE: "1"
-    # The image ENTRYPOINT is ["vllm", "serve"]: these items are its arguments. The model is
-    # positional (--model= is deprecated). Tool-call flags and the chat template path are those of
-    # the vLLM Gemma 4 recipe for MI300X; the template path is absolute because the image WORKDIR
-    # is /app and the template ships in /app/vllm/examples. One start covers SPK-G1, G5 and G6.
-    # The recipe's --reasoning-parser=gemma4 is left out: thinking is off by default and unused,
-    # and its interplay with guided JSON is not verified.
-    command:
-      - ${GEMMA_MODEL}
-      - --revision=${GEMMA_REVISION}
-      - --tokenizer-revision=${GEMMA_REVISION}
-      - --port=8001
-      - --gpu-memory-utilization=0.55
-      - --max-model-len=16384
-      - --api-key=${VLLM_API_KEY}
-      - --enable-auto-tool-choice
-      - --tool-call-parser=gemma4
-      - --chat-template=/app/vllm/examples/tool_chat_template_gemma4.jinja
-      - '--limit-mm-per-prompt={"image": 1, "audio": 0}'
-    volumes:
-      - hf-cache:/root/.cache/huggingface
-      # torch.compile and graph-capture caches: a restart (plan B model, later sessions from the
-      # snapshot) skips the compile instead of paying it again.
-      - vllm-cache:/root/.cache/vllm
-    healthcheck:
-      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8001/health"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-      # The first start downloads about 62.6 GB of weights before the server answers.
-      start_period: 45m
-    # No published port: reachable only by the api on the internal network (NFR-11).
-    restart: unless-stopped
-
-  trainer-gbm:
-    <<: *gpu
-    build:
-      context: ..
-      dockerfile: infra/docker/trainer-gbm.Dockerfile
-      args:
-        ROCM_BASE_IMAGE: ${ROCM_BASE_IMAGE}
-        AMD_PYPI_INDEX_URL: ${AMD_PYPI_INDEX_URL}
-    profiles: [gpu]
-    environment:
-      SEED: ${SEED:-42}
-    # Job container (ADR-02): an offline training job, so it may read the synthetic labels in
-    # data/truth (rule 12, ADR-13), read-only. Running services never mount data/.
-    volumes:
-      - ../data:/app/data:ro
-      - ../artifacts:/app/artifacts
-
-  trainer-gnn:
-    <<: *gpu
-    image: ${DGL_IMAGE}
-    profiles: [gpu]
-    environment:
-      DGLBACKEND: pytorch
-      SEED: ${SEED:-42}
-    working_dir: /app
-    # Smoke check only, exit 1 without a GPU. DGL is an editable install in /src/dgl: never mount
-    # over it.
-    command:
-      - python
-      - -c
-      - "import dgl, torch; print('dgl', dgl.__version__, 'torch', torch.__version__, 'hip', torch.version.hip, 'gpu', torch.cuda.is_available()); raise SystemExit(0 if torch.cuda.is_available() else 1)"
-    # Offline training job: reads data/ (truth included, rule 12 and ADR-13) read-only.
-    volumes:
-      - ../data:/app/data:ro
-      - ../artifacts:/app/artifacts
-
-  trainer-graphsage:
-    <<: *gpu
-    # US-202 and A4 (python -m ml.gnn): the trainer-gnn base (rocm/dgl) with this code on top,
-    # built by infra/docker/trainer-gnn.Dockerfile. The spikes keep using trainer-gnn unchanged.
-    build:
-      context: ..
-      dockerfile: infra/docker/trainer-gnn.Dockerfile
-      args:
-        DGL_IMAGE: ${DGL_IMAGE}
-    profiles: [gpu]
-    environment:
-      DGLBACKEND: pytorch
-      DEVICE: ${DEVICE:-cpu}
-      SEED: ${SEED:-42}
-    # Offline job (ADR-02). It needs the ASOS tables, the stores and their features, never the
-    # ground truth: data/truth is not mounted at all (rule 12 by construction). It writes
-    # artifacts/ only; `make embeddings-gpu` copies the embeddings into data/ on the host.
-    volumes:
-      - ../data/raw:/app/data/raw:ro
-      - ../data/store:/app/data/store:ro
-      - ../data/features:/app/data/features:ro
-      - ../data/ood:/app/data/ood:ro
-      - ../artifacts:/app/artifacts
-
-  # amd-smi every 5 s (US-905, spec 9), written atomically to a named volume that only the
-  # sampler reads: no host folder, so no running service sees artifacts/ (review F2). A failed
-  # reading removes the file, so the sampler stores an error instead of a stale reading; the
-  # sampler also refuses a file older than 15 s, such as the one a reboot leaves in the volume.
-  telemetry:
-    build:
-      context: ..
-      dockerfile: infra/docker/telemetry.Dockerfile
-      args:
-        ROCM_BASE_IMAGE: ${ROCM_BASE_IMAGE}
-    <<: *gpu
-    profiles: [gpu]
-    command:
-      - sh
-      - -c
-      - >-
-        while true; do
-        if amd-smi metric --json > /telemetry/amd-smi.json.tmp;
-        then mv /telemetry/amd-smi.json.tmp /telemetry/amd-smi.json;
-        else rm -f /telemetry/amd-smi.json; fi;
-        sleep 5; done
-    volumes:
-      - telemetry:/telemetry
-    restart: unless-stopped
-
-  # Stores each amd-smi reading in telemetry_samples for GET /api/telemetry and /readyz
-  # (python -m apps.api.services.other.telemetry, ADR-15 section 13).
-  telemetry-sampler:
-    <<: *api-image
-    profiles: [gpu]
-    command:
-      - python
-      - -m
-      - apps.api.services.other.telemetry
-      - --source-file
-      - /telemetry/amd-smi.json
-    environment:
-      DATABASE_URL: ${DATABASE_URL}
-      DEVICE: gpu
-    volumes:
-      - telemetry:/telemetry:ro
-    depends_on:
-      postgres:
-        condition: service_healthy
-      telemetry:
-        condition: service_started
-    restart: unless-stopped
-
 volumes:
   pgdata:
-  hf-cache:
-  vllm-cache:
   caddy-data:
   caddy-config:
-  telemetry:

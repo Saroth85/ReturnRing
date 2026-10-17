@@ -51,9 +51,9 @@ def raw_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 def asos(raw_dir: Path, out: Path, *extra: str, device: str = "cpu") -> dict[str, Any]:
-    """The job on `device`, whatever DEVICE says: `make gnn-test-gpu` runs these tests in the
-    trainer-graphsage container, where DEVICE=gpu (review G13). The CPU tests stay on the CPU,
-    where a rerun is exact; the gpu-marked tests below ask for the GPU and read its files."""
+    """The job on `device`, whatever DEVICE says: on a ROCm host (`make test-gpu`) DEVICE=gpu
+    may be set (review G13). The CPU tests stay on the CPU, where a rerun is exact; the
+    gpu-marked tests below ask for the GPU and read its files."""
     argv = ["asos", "--raw", str(raw_dir), "--out", str(out), "--max-epochs", "3"]
     backend = "torch" if device == "cpu" else "auto"
     common = ["--backend", backend, "--seed", "42", "--threads", "1", "--device", device]
@@ -159,8 +159,8 @@ def test_a_gpu_run_without_a_gpu_exits_2(raw_dir: Path, tmp_path: Path) -> None:
 def test_the_cpu_tests_ignore_device_gpu_in_the_environment(
     raw_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Review G13: under DEVICE=gpu (the trainer-graphsage container) the CPU helpers still run
-    on the CPU and read the CPU files."""
+    """Review G13: under DEVICE=gpu (as with `make test-gpu` on a ROCm host) the CPU helpers
+    still run on the CPU and read the CPU files."""
     monkeypatch.setenv("DEVICE", "gpu")
     doc = asos(raw_dir, tmp_path, "--protocols", "B", "--no-mlp", "--no-xgboost")
     assert doc["environment"]["device"] == "cpu"

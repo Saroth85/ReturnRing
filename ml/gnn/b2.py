@@ -4,10 +4,9 @@
               controls=True, extra_args=()) -> bench.b2_gnn.GnnTiming
 
 One US-202 run per device and data size, in a fresh process (`python -m ml.gnn asos`, the command
-of `make gnn-asos-gpu` and `make gnn-asos-cpu-container`), so B2 and the US-202 report time the
-same thing once and the cold start (torch and DGL import, device context, first kernels) is a real
-cold start. The run writes <out>/eval/gnn/us-202-asos-<cpu|gpu>.json; the record of a protocol is
-projected from it:
+of `make gnn-asos`), so B2 and the US-202 report time the same thing once and the cold start
+(torch and DGL import, device context, first kernels) is a real cold start. The run writes
+<out>/eval/gnn/us-202-asos-<cpu|gpu>.json; the record of a protocol is projected from it:
 
 - the speedup basis is the median epoch time (every epoch, the first included), as the US-202
   report computes it; the whole training loop is reported too, but its length depends on when
@@ -68,9 +67,8 @@ def unavailable() -> str | None:
         return None
     what = ", ".join("PyTorch" if m == "torch" else m for m in missing)
     return (
-        f"{what} not installed here: B2 trains GraphSAGE where ml.gnn runs (the "
-        "trainer-graphsage image on the droplet, `make bench-b2 DEVICE=gpu`, or a laptop with "
-        "infra/requirements-gnn-cpu.txt)"
+        f"{what} not installed here: B2 trains GraphSAGE where ml.gnn runs (a machine with "
+        "infra/requirements-gnn-cpu.txt, or a ROCm PyTorch)"
     )
 
 

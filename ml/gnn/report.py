@@ -699,21 +699,9 @@ def _commands() -> list[str]:
         "make gnn-results             # this file",
         "```",
         "",
-        "MI300X droplet (trainer-graphsage image: rocm/dgl plus this code; DGL backend), in the "
-        "order of infra/spikes/README.md, 'The GPU session':",
-        "",
-        "```bash",
-        "make gnn-image               # build the trainer-graphsage image (pulls rocm/dgl)",
-        "make bench-b2 DEVICE=gpu     # B2: the asos job on the CPU and the MI300X, both",
-        "                             # artifacts/eval/gnn/us-202-asos-{cpu,gpu}.json",
-        "make embeddings-gpu          # encoder on the GPU, embeddings copied into data/",
-        "```",
-        "",
-        "Then on the laptop, with the metrics files and the embeddings copied back: `make risk "
-        "gnn-results` (the A4 row needs the ground truth, which stays on the laptop).",
-        "",
-        "Tests: `python -m pytest -m torch` with PyTorch installed (skipped without it); on the "
-        "droplet `make gnn-test-gpu` also compares the DGL and PyTorch layers on the GPU.",
+        "Tests: `python -m pytest -m torch` with PyTorch installed (skipped without it). AMD GPU: "
+        "the 16 Oct 2026 embed run, docs/amd-training-session-2026-10-16.md; GPU-marked tests: "
+        "`make test-gpu` on a ROCm host.",
         "",
     ]
 

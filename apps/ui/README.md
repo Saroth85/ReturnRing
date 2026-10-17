@@ -30,6 +30,7 @@ RETURNRING_API_URL=mock npm run dev:live   # live adapter against the examples s
 
 ## What the shell takes from the service
 
+- **Liveness.** `/healthz` reports that the API process is running.
 - **Read-only public demo.** `/readyz` `public_read_only` (PUBLIC_READ_ONLY of the API) gates every
   write: `useRoleGate` and `RoleGate` (`src/components/feedback`) disable each write control with
   "Read-only public demo" under it, never hide it; the agent and the checkout evaluation stay open.

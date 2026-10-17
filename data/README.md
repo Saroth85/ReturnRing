@@ -23,11 +23,25 @@ Everything here is generated or downloaded and is not committed.
 - `scores/` — `scores` and `request_scores` of the batch scoring (`make risk`, or `make score`
   with the saved models), with the thresholds of every quadrant (US-204).
 
-`make pipeline` writes all of the above but `raw/` from the committed real calibration, in this
-order: `generate generate-ood graph features anomalies risk`; `make asos` writes `raw/` (US-101).
-The models go to `artifacts/risk/models`; the offline evaluation outputs (metrics, graph
-evaluation, fairness) to `artifacts/eval/`, which holds counts and metrics, never a customer listed
-with its ground truth; `make results` rewrites the offline reports in `docs/results/`.
+`make pipeline` writes the generated tables in dependency order:
+`generate generate-ood graph features anomalies risk serving`; `make asos` writes `raw/` (US-101).
+When running individual jobs, use their required store and output arguments, then export serving
+only after risk has produced the models and scores:
+
+```bash
+python -m pipeline.graph --store data
+python -m pipeline.graph --store data/ood
+python -m pipeline.features --store data --out data
+python -m pipeline.features --store data/ood --out data/ood --source data
+python -m pipeline.anomalies --store data --out data
+python -m pipeline.anomalies --store data/ood --out data/ood
+python -m ml.risk --data data --out artifacts --scores data --results docs/results/us-204-risk.md
+python -m pipeline.serving --data data --artifacts artifacts --out serving
+```
+
+The models go to `artifacts/risk/models`; offline evaluation outputs (metrics, graph evaluation,
+fairness) go to `artifacts/eval/`, which holds counts and metrics, never a customer listed with its
+ground truth. `make results` rewrites the offline reports in `docs/results/`.
 
 The generator calibration made from the ASOS train split holds aggregates only, so it is
 committed outside this folder: `pipeline/calibration/asos_calibration.json`.

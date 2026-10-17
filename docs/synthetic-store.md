@@ -231,7 +231,7 @@ F3 and F5, which change no other row of this table. The calibration targets are 
 | Accounts with a device / card / phone / IP prefix | 100% / 100% / 88.1% / 100% | 71.1% / 75.8% / 60.1% / 81.0% |
 | Surging variants: defects + matched controls; lines switched to them | 100 + 396; 48,572 (23.6% of lines) | 100 + 400; 49,646 (24.3%) |
 | Variants that ever sell 20 in a week (spec 8.9 minimum): all, defective share | 495, 0.202 | 502, 0.199 |
-| Run time (CPU; the code at commit 472d798 took 16.8 s on the same container that day) | 16.4 s | 16.5 s |
+| Run time (CPU; the code at commit 8aaf686 took 16.8 s on the same container that day) | 16.4 s | 16.5 s |
 
 Return rate of mature lines per product type against its target (main; target = mean of the real
 type distribution, rescaled to the real overall rate; every type within the DATA-02 band of 10%):
@@ -253,7 +253,7 @@ type distribution, rescaled to the real overall rate; every type within the DATA
 ### Review findings of 13 Oct 2026: before and after
 
 Same origin and nature as above (synthetic, seed 42, scale 1.0, real calibration, main scenario).
-"Before" is the code at commit aab4d61, "after" the code at commit 472d798, measured on the same day
+"Before" is the code at commit 8dc3c45, "after" the code at commit 8aaf686, measured on the same day
 with the same seed and calibration. The defect rows changed again with the matched controls of
 round 2 (next table).
 
@@ -282,11 +282,11 @@ match the calibration, because `k_type` is fitted with the defect probabilities 
 ### Review findings of 13 Oct 2026, round 2: before and after
 
 Same origin and nature as above (synthetic, seed 42, scale 1.0, real calibration). "Before" is the
-code at commit 472d798, "after" this change (matched controls, review P1), both measured on 13 Oct
+code at commit 8aaf686, "after" this change (matched controls, review P1), both measured on 13 Oct
 2026 with the same seed and calibration. Weekly sales are counted from `store/order_lines` in
 Monday-to-Sunday weeks, from the week a variant is listed; no return and no label is read, except
 the ground truth to score the result. Three runs of the new code (two string-hash seeds) gave
-byte-identical files for both scenarios (24 files). For reference, the code at commit aab4d61 (no lift at all)
+byte-identical files for both scenarios (24 files). For reference, the code at commit 8dc3c45 (no lift at all)
 gives 14 variants that ever sell 20 in a week (7 defective) and 3 flagged by the surge rule (1
 defective).
 

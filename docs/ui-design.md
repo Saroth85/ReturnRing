@@ -1,6 +1,6 @@
 # ReturnRing UI design
 
-Final design for phase 5 (`apps/ui`), designed on API contract 1.1.0 (commit `5b3c8e9`, ADR-15). The UI
+Final design for phase 5 (`apps/ui`), designed on API contract 1.1.0 (commit `533e3a1`, ADR-15). The UI
 now runs on the live contract 1.9.0: the generators read `contracts/` directly (no pinned copy); ADR-15
 sections 13 to 21 list every change from 1.1.0 to 1.8.1, and ADR-18 the 1.9.0 one (`llm_mode`
 `tokenfactory`, Gemma through AMD Token Factory). Where this document predates them it says so. It merges three
@@ -11,7 +11,7 @@ operator loop and action friction. Section 2 lists every conflict and how it was
 Status: designed on 13 Oct 2026 and built from 13 to 17 Oct 2026; deadline Sun 18 Oct 2026. The four
 view areas of section 13 were built by parallel Claude Code sessions, one per area, not by four human
 engineers: "Eng 1" to "Eng 4" in sections 13 and 14 name those areas. They were built and merged on the
-evening of 13 Oct (commits `fe1c667` to `480120d`), then reviewed and moved to the live contract until
+evening of 13 Oct (commits `d56c44d` to `4521c90`), then reviewed and moved to the live contract until
 17 Oct. Section 13 and the appendix are the build plan written for 14 and 15 Oct 2026, kept as history.
 
 ---
@@ -22,7 +22,7 @@ evening of 13 Oct (commits `fe1c667` to `480120d`), then reviewed and moved to t
   document. If a screen here contradicts the contract, the contract wins and this document gets a fix.
 - **Read before building.**
   - Spec sections 3 and 4 (users, Navigli Fashion), 5 (E3, E4, E5, E6, E7, E9), 8.6 to 8.10, 9, 16.
-  - ADR-15 and, at `5b3c8e9`: `contracts/json/api/*.schema.json`, `openapi.json`, `endpoints.json`,
+  - ADR-15 and, at `533e3a1`: `contracts/json/api/*.schema.json`, `openapi.json`, `endpoints.json`,
     `contracts/examples/api/*.json`, `index.json`.
   - ADR-14 (facts cited by statements, customer phrasebook), `contracts/levers.py`, `llm/legal_clause.py`.
 - **Numbers in this document** come from contract examples. Their nature is synthetic or simulated, their

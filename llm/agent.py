@@ -329,7 +329,7 @@ _OBJECTS = _DETERMINERS | word_set(
 # record ("refund status", "refund rules"). Since round 4 (finding U13) this reading holds only
 # in a question: a sentence that ends with "?", or after a read verb or a question word
 # ("Tell me about the refund", "Explain refund rules"). Otherwise a write word is a cue, as at
-# 0db8c75: "Withhold the refund", "Get this approved", "Set status to Q1" are requests.
+# e9d17e2: "Withhold the refund", "Get this approved", "Set status to Q1" are requests.
 _NOUN_MARKERS = word_set(
     "the a an this that these those its their his her my your our any some no about of for on "
     "in with from at into regarding il lo la gli le l un una uno del della dello dei degli "

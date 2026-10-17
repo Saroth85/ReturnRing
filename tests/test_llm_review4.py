@@ -1,14 +1,14 @@
-"""Regression probes of the adversarial re-review of b9a7b87, round 4 (findings U1 to U19).
+"""Regression probes of the adversarial re-review of bb84177, round 4 (findings U1 to U19).
 
 Every probe quoted in the review is a parametrized test here, and each one passed the checks of
-commit b9a7b87 (or, for the agent questions of U13, was answered there). The over-blocking
-examples are must-accept tests: b9a7b87 rejected them. The file uses only interfaces that exist
-at b9a7b87 (validator codes are compared as strings), so it can be run against that commit to see
+commit bb84177 (or, for the agent questions of U13, was answered there). The over-blocking
+examples are must-accept tests: bb84177 rejected them. The file uses only interfaces that exist
+at bb84177 (validator codes are compared as strings), so it can be run against that commit to see
 every probe fail there. Tests named "guard" pass on both commits: they pin what the new checks
 must leave alone. The US-702 tests run the three questions end to end on the golden case, with
 the mock agent and with correct model answers (plain and bulleted); the bulleted ones of U17 fell
-back on b9a7b87, the others are guards. The "variants" tests try other words for the same
-probes, beyond the review; some of them were already caught on b9a7b87.
+back on bb84177, the others are guards. The "variants" tests try other words for the same
+probes, beyond the review; some of them were already caught on bb84177.
 """
 
 from __future__ import annotations
@@ -66,7 +66,7 @@ def test_u1_a_closing_parenthesis_does_not_hide_a_scale_or_unit(text: str) -> No
 
 
 def test_u1_the_failing_hypothesis_example_is_replayed() -> None:
-    """The example Hypothesis found and stored on b9a7b87."""
+    """The example Hypothesis found and stored on bb84177."""
     prop = validator_tests.test_llm03_every_number_after_the_validator_is_a_cited_fact
     inner = prop.hypothesis.inner_test  # type: ignore[attr-defined]
     inner(tokens=["risk", "(42.1)", "mil"], fact_ids=["F2"], label="OBSERVED")
@@ -483,7 +483,7 @@ def test_u9_a_unit_rate_or_comparator_anywhere_ungrounds_the_number(text: str, m
     assert_rejected(check(GOLDEN, text, (metric,)), "UNGROUNDED_NUMBER")
 
 
-# ---- U10: grounded statements that b9a7b87 over-blocked ----------------------------------------
+# ---- U10: grounded statements that bb84177 over-blocked ----------------------------------------
 
 U10_MUST_ACCEPT: list[tuple[str, str, tuple[str, ...], str]] = [
     (

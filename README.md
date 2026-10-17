@@ -352,5 +352,5 @@ XGBoost 2.1.3 (HIP) and PyTorch 2.8.0 on ROCm (training), FastAPI, React, Postgr
 stack) and SQLite (public demo).
 
 Development tools: Claude Code, the main coding assistant; GitHub Copilot, for the PR #11 test
-fix and the documentation commit 75a3a01, replaced on 17 Oct 2026; neither is called by the
+fix and the documentation commit 8ec1b6e, replaced on 17 Oct 2026; neither is called by the
 product at runtime.

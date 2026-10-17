@@ -287,9 +287,9 @@ return window is reduced to 14 days") and sent them to the template. The maintai
 
 ### 10. The fourth review: the last hardening round before the demo (amendment, round 4)
 
-The fourth round (findings U1 to U19, a re-review of b9a7b87) found one flaky test, three legal
+The fourth round (findings U1 to U19, a re-review of bb84177) found one flaky test, three legal
 wording gaps in the customer message and many paraphrases that still passed the free-text checks.
-Each probe of the review is a regression test in `tests/test_llm_review4.py` that fails on b9a7b87,
+Each probe of the review is a regression test in `tests/test_llm_review4.py` that fails on bb84177,
 and each over-blocked example is a must-accept test there.
 
 - **A deterministic suite (U1).** A closing parenthesis was a closer, so "(42.1) mil", "(42.1)
@@ -368,7 +368,7 @@ and each over-blocked example is a must-accept test there.
 - **Agent questions (U13, U14, U18, U19).** A write word is read as a noun only in a question: a
   sentence that ends with "?", or after a read word (tell, show, explain, list, what, which...;
   dimmi, mostrami, quale...) in the question. Otherwise a write word anywhere is a cue, as at
-  0db8c75: "Withhold the refund", "Get this approved", "Set status to Q1", "Reset status" are
+  e9d17e2: "Withhold the refund", "Get this approved", "Set status to Q1", "Reset status" are
   refused. A participle is an adjective only before a noun ("Show blocked accounts") and a
   question only in a "?" sentence without a request marker ("Coupons disabled?"; "Can the coupons
   be turned off?" stays a request). Italian -ate/-ite forms after a state auxiliary or a noun are
@@ -428,9 +428,9 @@ slips through can mislead a reviewer, not change a decision or a customer's righ
 
 ### 11. Precision over recall for the operator's free text: the closing round (amendment, round 5)
 
-The fifth round (findings V1 to V18, a re-review of 5d27259) closes the LLM layer. It found that
+The fifth round (findings V1 to V18, a re-review of d944069) closes the LLM layer. It found that
 round 4 had over-blocked correct output on the golden cases and had dropped some catches of
-b9a7b87. The maintainer's direction for this round: operator statements and agent answers are
+bb84177. The maintainer's direction for this round: operator statements and agent answers are
 free text read by a person who also sees the engine decision, so their checks must be high
 precision. A check that rejects realistic, correct Gemma output on the golden cases is a worse
 defect than a contrived paraphrase that slips through.
@@ -535,7 +535,7 @@ defect than a contrived paraphrase that slips through.
   also runs under `HYPOTHESIS_PROFILE=explore`.
 
 - **Round 6, the closing verification (W1 to W7).** The verifier found demo-path over-blocks
-  on b4ee1e4. Every correct statement and answer it quoted is in the corpus first, with variants
+  on b3105ff. Every correct statement and answer it quoted is in the corpus first, with variants
   written apart; the correct statements that break a prompt rule (a negated level, a number in
   words) are a corpus list of their own that must regenerate, with the words in the feedback,
   and never go to the template.

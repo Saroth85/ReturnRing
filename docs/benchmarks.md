@@ -21,7 +21,7 @@ written to measure the same work on the CPU and on an AMD Instinct MI300X. Resul
   service: never point the old live B3 path at it, which labels its hardware as the MI300X.
 - **One run on file**, a CPU harness check (below). The detailed protocol written for the MI300X
   session (B1 sizes and variants, B3 loads and cold start, B4 steps, cost scenarios) is in the
-  history of this file (`git show 119b4b7:docs/benchmarks.md`) and in the docstrings of `bench/`.
+  history of this file (`git show dac3a3a:docs/benchmarks.md`) and in the docstrings of `bench/`.
 
 ## What each benchmark measures
 
@@ -51,7 +51,7 @@ nature is simulated, and no version of it was computed from a live B3.
 Report: [`docs/results/benchmarks-cpu.md`](results/benchmarks-cpu.md); run file:
 `bench/results/20261014T002158Z-cpu.json`.
 
-- **When and where.** Created 2026-10-14T00:57:55Z from commit 9125fc2 with uncommitted changes,
+- **When and where.** Created 2026-10-14T00:57:55Z from commit e4119dc with uncommitted changes,
   on a development machine with 4 shared vCPUs (Intel Xeon @ 2.80GHz, 15.7 GiB) under a load
   average of about 11 to 14 from other jobs. No GPU.
 - **B1, measured (real).** The CPU only, on ASOS GraphReturns, protocols A and B, at 2%, 5% and
@@ -65,7 +65,7 @@ Report: [`docs/results/benchmarks-cpu.md`](results/benchmarks-cpu.md); run file:
   scenario was not computed (it needs a live B3 and B4).
 - **B4, measured (real time, synthetic data).** 517.3 s on the CPU for every step, with the mock
   model (`LLM_MODE=mock`) in the batch generation and no GPU sampling.
-- **Before the rework.** The run predates the benchmark rework of e937360 (14 Oct 2026, 03:01
+- **Before the rework.** The run predates the benchmark rework of bc6f2e8 (14 Oct 2026, 03:01
   UTC: B2 through `ml.gnn.b2_timing`, cost-v2, review fixes G1-G15), so the current defaults
   never produced a run. It shows that the harness works, not CPU performance, and is not served.
 

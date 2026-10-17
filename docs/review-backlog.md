@@ -43,8 +43,8 @@ contract: the UI runs on contract 1.9.0 from `contracts/` (no pinned copy), and
 
 ## Closed reviews
 
-- **Main review of 17 Oct 2026** (base `789af50`, merged as PR #16 in `119b4b7`, fixes in
-  `b0d0228`): nine findings fixed, three P1, five P2 and one P3. Export destinations that
+- **Main review of 17 Oct 2026** (base `31c97d1`, merged as PR #16 in `dac3a3a`, fixes in
+  `b47db27`): nine findings fixed, three P1, five P2 and one P3. Export destinations that
   overlap a source tree are refused before any change; catalogue tasks and checkout
   confirmations check after taking the existing counter lock; graph files are reused only when
   their lineage derives from the current store; a malformed local LLM authority fails at
@@ -52,4 +52,4 @@ contract: the UI runs on contract 1.9.0 from `contracts/` (no pinned copy), and
   vision; the KPI abstention link opens the insufficient-evidence tab; reviews and inspections
   page past the first 25 returns; a case opened with the mouse loses its New badge. Its open
   limits are the two verification limits above. The review note was removed on 17 Oct 2026; it stays in
-  the git history (added by `b0d0228`).
+  the git history (added by `b47db27`).

@@ -1,8 +1,8 @@
 """Regression probes of the adversarial re-review of 13 Oct (round 2, findings R1 to R8).
 
 Every probe quoted in the review is a parametrized test here. Each one passed the checks of
-commit b00d8fa and must be rejected now. The file uses only interfaces that already existed at
-b00d8fa, so it can be run against that commit to see the probes pass there. Since round 3
+commit 4f5c23c and must be rejected now. The file uses only interfaces that already existed at
+4f5c23c, so it can be run against that commit to see the probes pass there. Since round 3
 (finding T7) the validator no longer reads lever values from words: a statement about levers or
 restrictions is TERMS_TOPIC (regenerate), and only another quadrant is DECISION_ECHO; the R2
 probes are still rejected, by one code or the other.
@@ -27,7 +27,7 @@ GUARANTEE = make("guarantee")
 
 # ---- R1: the customer message is no longer free prose ---------------------------------------
 
-# The fallback texts of b00d8fa, into which the review inserted each probe.
+# The fallback texts of 4f5c23c, into which the review inserted each probe.
 OLD_MESSAGES: dict[str, dict[str, str]] = {
     "Q4_cluster": {
         "it": (
@@ -141,7 +141,7 @@ END_TO_END_IT = (
 
 
 def free_prose(built: Built, name: str, lang: str, text: str) -> dict[str, Any]:
-    """The template output with a model-written customer message in the shape of b00d8fa."""
+    """The template output with a model-written customer message in the shape of 4f5c23c."""
     out = template_output(built.case, built.expected)
     message = dict(OLD_MESSAGES[name])
     message[lang] = f"{message[lang]} {text}"
@@ -208,7 +208,7 @@ R2_UNRESTRICTED_PROBES = [
 ]
 
 
-REJECTED = {"TERMS_TOPIC", "DECISION_ECHO"}  # strings: TERMS_TOPIC is not a code at b00d8fa
+REJECTED = {"TERMS_TOPIC", "DECISION_ECHO"}  # strings: TERMS_TOPIC is not a code at 4f5c23c
 
 
 @pytest.mark.parametrize("text", R2_Q4_PROBES)

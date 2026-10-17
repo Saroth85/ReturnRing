@@ -1,4 +1,4 @@
-"""Regression probes of the closing verification of b4ee1e4, round 6 (findings W1 to W7).
+"""Regression probes of the closing verification of b3105ff, round 6 (findings W1 to W7).
 
 Every correct statement and answer the verifier quoted is in the must-accept corpus
 (tests/test_llm_corpus.py), and so are the correct statements that break a rule of the prompt

@@ -1,8 +1,8 @@
 """Regression probes of the adversarial re-review of 13 Oct, round 3 (findings T1 to T16).
 
 Every probe quoted in the review is a parametrized test here, and each one passed the checks of
-commit 0db8c75. The over-blocking examples of T8 and T16 are must-accept tests: 0db8c75 rejected
-them. The file uses only interfaces that exist at 0db8c75 (validator codes are compared as
+commit e9d17e2. The over-blocking examples of T8 and T16 are must-accept tests: e9d17e2 rejected
+them. The file uses only interfaces that exist at e9d17e2 (validator codes are compared as
 strings), so it can be run against that commit to see every test fail there.
 """
 

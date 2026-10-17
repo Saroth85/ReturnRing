@@ -1,4 +1,4 @@
-"""Regression probes of the adversarial re-review of 5d27259, round 5 (findings V1 to V18).
+"""Regression probes of the adversarial re-review of d944069, round 5 (findings V1 to V18).
 
 This is the closing round of the LLM layer. Operator statements and agent answers are free text
 read by a person who also sees the engine decision, so the checks are high precision (ADR-14

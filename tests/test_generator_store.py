@@ -1089,7 +1089,7 @@ def weekly_variant_sales(store: Store) -> tuple[pd.DataFrame, pd.Series]:
 
 
 def test_p1_reaching_the_sales_gate_does_not_identify_a_defect(lifted: Store) -> None:
-    """Review P1: at 472d798 the lift went to defective variants only, so 100 of the 106
+    """Review P1: at 8aaf686 the lift went to defective variants only, so 100 of the 106
     variants that ever sold 20 in a week were defective (real calibration, scale 1.0, synthetic):
     the spec 8.9 gate alone was a defect flag. Matched non-defective best sellers now get the
     same surge, so most variants the detector can assess are not defective."""
@@ -1105,7 +1105,7 @@ def test_p1_reaching_the_sales_gate_does_not_identify_a_defect(lifted: Store) ->
 
 def test_p1_the_label_free_surge_rule_has_low_precision(lifted: Store) -> None:
     """Review P1: "best week >= 15 sales and >= 4 times the median week" flagged 92 variants,
-    91 of them defective, at 472d798 (scale 1.0). A surge is now no evidence of a defect: the
+    91 of them defective, at 8aaf686 (scale 1.0). A surge is now no evidence of a defect: the
     rule's precision is about the share of defects among the surging best sellers."""
     weekly, defective = weekly_variant_sales(lifted)
     best, median = weekly.max(axis=1), weekly.median(axis=1)

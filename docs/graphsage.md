@@ -119,7 +119,7 @@ Not run on a GPU: the ASOS job (the ASOS files could not be downloaded, OSF HTTP
 gpu-marked tests.
 
 The GPU plan of 12 Oct 2026 budgeted the ASOS graph under 8 GB of MI300X memory (spec section 11
-before the cleanup: `git show 119b4b7:docs/spec.md`); it was never measured on a GPU. Each run
+before the cleanup: `git show dac3a3a:docs/spec.md`); it was never measured on a GPU. Each run
 records its peak (`peak_allocated_gb`). Every timing carries its machine (CPU model, threads, load
 average before and after), the UTC day it was measured and its nature (real, rule 11).
 `GNN_SAMPLE=0.25 make gnn-asos` runs a seeded customer sample, reported as such.

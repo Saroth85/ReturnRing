@@ -94,7 +94,7 @@ DEFECT_MAX_TYPE_SHARE: Final = 0.5
 # Matched controls (review P1): for each defective variant, this many non-defective best sellers
 # of the same pool get the same DEFECT_BOOST_WEEKS-week surge at a random Monday. Without them a
 # sales surge, or reaching the spec 8.9 minimum at all, would identify a defect (94% of the
-# variants that ever sold 20 in a week were defective at commit 472d798).
+# variants that ever sold 20 in a week were defective at commit 8aaf686).
 SURGE_CONTROLS_PER_DEFECT: Final = 4
 
 # Return probability of a line for a non-abusive customer: k_type x base_return_rate x propensity,

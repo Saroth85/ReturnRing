@@ -102,7 +102,7 @@ rehearsal come from the fake server, not from Gemma.
 ## Verification with Docker (15 Oct 2026, Windows)
 
 The first run with a real Docker daemon, on the team laptop (Windows, Docker 29.4.2, Compose
-v5.1.3, host Python 3.13, commit `ad2ceb8`; no WSL and no GNU make, so the `make` targets were run
+v5.1.3, host Python 3.13, commit `8f4d3f8`; no WSL and no GNU make, so the `make` targets were run
 as the `docker compose` commands they expand to, from PowerShell). The judge's path (V8, DEP-01):
 `demo-data` built the image and the snapshot, `dev-up` started postgres, the reset (623 open
 returns decided, none failed, 51 s with the drafts), the API (healthy), the UI and the proxy on

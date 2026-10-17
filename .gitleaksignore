@@ -1,4 +1,4 @@
 # These two API tests use the literal dummy credential "test-only" and mock all HTTP.
 # Exact commit/file/rule/line fingerprints keep every other finding enforceable.
-9b6a0f17f6b47691de855f76662e815ea4f10a53:tests/test_api_tokenfactory.py:generic-api-key:32
-9b6a0f17f6b47691de855f76662e815ea4f10a53:tests/test_api_tokenfactory.py:generic-api-key:64
+3f95476065b44d4eec24e05d56701cf35a5bc03e:tests/test_api_tokenfactory.py:generic-api-key:32
+3f95476065b44d4eec24e05d56701cf35a5bc03e:tests/test_api_tokenfactory.py:generic-api-key:64

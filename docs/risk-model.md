@@ -88,7 +88,15 @@ risk scores.
 
 - XGBoost on CPU (`xgboost-cpu`, hist, one thread, deterministic) with the spec 8.1 starting point:
   depth 4, learning rate 0.1, gamma 1, lambda 2, early stopping after 5 rounds on the validation log
-  loss. The MI300X run of phase 6 uses the same parameters with `device="cuda"`.
+  loss. Every number of `docs/results/us-204-risk.md` comes from this CPU run.
+- **AMD GPU run, 16 Oct 2026.** `python -m scripts.train_amd risk` ran `python -m ml.risk` with the
+  same parameters and `--device cuda` (no batch scores, no results file) on an AMD Instinct MI300X
+  VF, with the HIP build of AMD XGBoost 2.1.3, on the synthetic store regenerated with seed 42 and
+  scale 1.0 (docs/amd-training-session-2026-10-16.md). The job checks the booster's effective
+  device after every fit, so a CPU fallback cannot pass as GPU training. Its customer A3 figures
+  on the 6,009 held-out customers are in `docs/results/amd-session-2026-10-16.json` (synthetic):
+  risk threshold 0.25, 294 flagged, AUPRC 0.981. That run has its own validation threshold and
+  counts, so its figures are never mixed with those of us-204; it recorded no A4 figure.
 - Isotonic calibration on the validation groups (`ml.propensity.calibration`, stored as JSON),
   probabilities kept in [0.0001, 0.9999]. MOD-06 asks ECE <= 0.05 on the held-out rows.
 - **Risk threshold (spec 8.6)**: the lowest calibrated risk whose rule "risk >= t" has precision >= 0.8
@@ -143,7 +151,8 @@ the evaluation time and at every month-end snapshot (review F21); before the tra
 are in-sample backtests, marked as such. The output holds counts, never a customer id (rule 12).
 
 **OOD rows by behaviour** (review F4): the generator's wardrober rules are the same in both stores
-(the OOD scenario changes rings, families and missing identifiers only), so every OOD row is also
+(the OOD scenario changes rings, families and missing identifiers, and adds unrelated accounts
+sharing strong identifiers: `pipeline.generator.config.OOD`), so every OOD row is also
 reported per abusive behaviour, each against the non-abusive rows. The wardrober rows are in
 distribution; the ring rows carry the shift.
 

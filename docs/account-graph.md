@@ -93,9 +93,9 @@ Every account known at T has one row. An account without a cluster link has a nu
 | welcome_coupons, welcome_coupons_per_account | Welcome coupons **redeemed** by its accounts, and per account |
 | cluster_return_rate | Delivered lines returned on the withdrawal path, over delivered lines not returned on the guarantee path (a defect is not behaviour, rule 4); null before any such line |
 
-A cluster says that accounts are linked, never that they are the same person (rule 11), and it is
-not a judgement: the family Rossi is a cluster, and these features (old accounts, distinct cards,
-no repeated coupons, normal returns) keep it apart from a ring. Whether a cluster ends in Q3 or Q4
+A cluster says only that accounts are linked (rule 11), and it is not a judgement: the family
+Rossi is a cluster, and these features (old accounts, distinct cards, no repeated coupons, normal
+returns) keep it apart from a ring. Whether a cluster ends in Q3 or Q4
 is the risk model's and the engine's decision (US-204, FAIR-03), checked there. No feature name is
 forbidden (`contracts.parquet.forbidden_features`, FAIR-01), and a test multiplies every price by
 37 and finds identical features.
@@ -170,11 +170,17 @@ never used to choose a parameter. Definitions, on the accounts known at T:
 - **Circularity.** The generator plants the sharing the graph looks for, so the main scenario
   measures consistency with the generator. The OOD scenario, where rings share weakly and miss
   identifiers and unrelated accounts share strong identifiers, is the honest stress test, and its
-  recall is far below the target (see the results). Most of its same-ring pairs have no direct link, and many linked ones weigh less than
-  0.8 (an address, an IP prefix): the same property that keeps pickup points out. A lower threshold mixes unrelated accounts (the
-  threshold-0.6 variant). More recall needs other evidence, such as the GraphSAGE embeddings of
-  spec 8.3 (A4), measured against the cluster features on the same splits, never a threshold tuned
-  on the OOD store.
+  recall is far below the target (see the results). Most of its same-ring pairs have no direct
+  link, and many linked ones weigh less than 0.8 (an address, an IP prefix): the same property that
+  keeps pickup points out. A lower threshold mixes unrelated accounts (the threshold-0.6 variant).
+  More recall needs other evidence, such as the GraphSAGE embeddings of spec 8.3 (A4), measured
+  against the cluster features on the same splits, never a threshold tuned on the OOD store.
+  Measured by the risk model, not by this graph ([results/us-204-risk.md](results/us-204-risk.md),
+  ablation A0 to A4, CPU run; synthetic; features at 2026-10-01; models and thresholds from the
+  main store): on the OOD ring rows (300 promo_ring customers among 19,400 rows), A4 raises the
+  customer recall from 0.363 to 0.433 and lowers the precision from 0.402 to 0.374 against A3.
+  Pooled over every customer, A4 is a regression against A3: AUPRC 0.840 to 0.837 on the OOD
+  store, 0.980 to 0.977 on the held-out main customers.
 - **Strong hubs.** A card or device used by many accounts (a shop terminal) would form one large
   clique that Louvain cannot split; it is kept whole and shows in the report.
 - **Decay.** See decision 1.

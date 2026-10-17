@@ -1,9 +1,11 @@
 """The README a judge follows (US-904, spec 17 checklist; DEP-01).
 
 The quick start is at most three commands that exist; every make target and every relative link
-of the README exists; the sections of US-904 are there; the ASOS attribution, Claude Code as a
-development tool and the licence table of every runtime dependency are present; and the numbers
-table gives an origin, a period and a nature for each figure (rule 11).
+of the README exists; the sections of US-904 are there, the live demo among them; the reset of
+each stack comes before the walk, and the optional cached mode says how a CPU package is made,
+started and stopped; the ASOS attribution, the development tools (Claude Code, GitHub Copilot)
+and the licence table of every runtime dependency are present; and the numbers table gives an
+origin, a period and a nature for each figure (rule 11).
 """
 
 from __future__ import annotations
@@ -67,44 +69,65 @@ def test_every_relative_link_exists() -> None:
 
 def test_the_sections_of_us_904() -> None:
     for title in (
+        "Live demo",
         "Quick start",
-        "The cached demo",
-        "The GPU session",
         "Architecture",
         "How the risk is computed",
         "What Gemma does",
         "The legal guard",
-        "AMD benchmarks",
+        "AMD",
         "Licences",
         "Limits",
         "Team and hackathon",
     ):
         assert section(title).strip(), title
-    assert "infra/spikes/README.md" in section("The GPU session")
+    assert "docs/railway-demo.md" in section("Live demo")
     assert "docs/risk-model.md" in section("How the risk is computed")
     for rule_file in ("llm/validator.py", "llm/phrasebook.py", "llm/legal_clause.py"):
         assert rule_file in section("What Gemma does"), rule_file
     assert "policy/legal_guard.py" in section("The legal guard")
-    benchmarks = section("AMD benchmarks")
-    assert benchmarks.count("pending") >= 4 and "benchmarks-cpu.md" in benchmarks
+    amd = _flat(section("AMD"))
+    for needle in (
+        "ADR-18",
+        "docs/amd-training-session-2026-10-16.md",
+        "docs/results/amd-session-2026-10-16.json",
+        "No CPU/GPU speed comparison",
+        "benchmarks-cpu.md",
+        "synthetic",
+    ):
+        assert needle in amd, needle
+    assert "pending" not in amd  # B1-B4 were retired (ADR-18), not postponed
     limits = section("Limits")
-    for needle in ("simulated", "FAIR-02", "6.78", "OOD", "ADR-14", "pending", "professional"):
+    for needle in (
+        "simulated",
+        "FAIR-02",
+        "6.78",
+        "OOD",
+        "ADR-14",
+        "OSF",
+        "not deployed",
+        "professional",
+    ):
         assert needle in limits, needle
 
 
 def test_licences_attribution_and_development_tool() -> None:
-    """US-002 (licence report in the README), spec 17: ASOS CC BY 4.0 attribution, Claude Code
-    declared as a development tool, ADR-12 for the images."""
+    """US-002 (licence report in the README), spec 17: ASOS CC BY 4.0 attribution, the
+    development tools declared (Claude Code, GitHub Copilot), ADR-12 for the images."""
     licences = section("Licences")
     for needle in ("CC BY 4.0", "arXiv:2302.14096", "https://osf.io/c793h", "McGowan", "ADR-12"):
         assert needle in licences, needle
     table = dict(re.findall(r"^\| ([a-z0-9-]+) \| [\d.]+ \| (.+?) \|$", licences, re.M))
-    base = set(_pins(ROOT / "requirements" / "base.txt"))
-    assert set(table) == base, f"runtime dependencies without a row: {base - set(table)}"
+    runtime = set(_pins(ROOT / "requirements" / "base.txt"))
+    runtime |= set(_pins(ROOT / "requirements" / "public-demo.txt"))  # the live demo's service
+    assert set(table) == runtime, f"runtime dependencies without a row: {runtime - set(table)}"
     for name, licence in table.items():
         assert "GPL" not in licence, name
-    assert "Claude Code" in section("Team and hackathon")
-    assert "no hosted model is called by the product at runtime" in README
+    team = _flat(section("Team and hackathon"))
+    assert "Claude Code" in team and "GitHub Copilot" in team
+    assert "neither is called by the product at runtime" in team
+    # Since ADR-18 the product does call a hosted model (Gemma on AMD Token Factory).
+    assert "no hosted model is called by the product at runtime" not in README
 
 
 def test_every_figure_of_the_results_table_has_origin_period_and_nature() -> None:
@@ -150,31 +173,57 @@ def test_the_memory_figure_is_a_dated_range_measured_once() -> None:
     assert "1.81 GB" not in compose
 
 
+def _cached_mode() -> str:
+    """The `DEMO_MODE=cached` bullet of the optional modes, flattened."""
+    match = re.search(r"^- \*\*`DEMO_MODE=cached`\*\*(.*?)(?=^- |^$)", README, re.M | re.S)
+    assert match is not None, "no DEMO_MODE=cached bullet"
+    return _flat(match.group(1))
+
+
 def test_the_resets_come_before_the_walk_and_the_cached_stack_can_stop() -> None:
+    """US-903: each stack's reset before the walk. The cached mode (US-901, optional) packs a CPU
+    rehearsal only, so the README gives the switch that packs one, the host python3 the packaging
+    needs, how it starts and stops, and the rehearsal label; no MI300X package exists, so the
+    MI300X label is never claimed (rules 11 and 13; the live-demo test below checks it)."""
+    from apps.api.schemas import REHEARSAL_LABEL
+
     quick = section("Quick start")
     assert "`make reset` (dev) or `make demo-reset` (cached)" in quick
     assert "before `make demo-walk`" in quick
-    cached = code_blocks(section("The cached demo"))[0]
-    assert cached == ["make demo-import", "make demo-local", "make demo-reset", "make demo-down"]
+    cached = _cached_mode()
+    for needle in (
+        "`make demo-export ALLOW_EMPTY_CACHE=1`",
+        "`REHEARSAL=1`",
+        "Python 3.8 or later",
+        "`make demo-import`",
+        "`make demo-local`",
+        "`make demo-reset` before `make demo-walk`",
+        "`make demo-down`",
+        f'"{REHEARSAL_LABEL}"',
+        "no package made on an MI300X exists",
+    ):
+        assert needle in cached, needle
 
 
-def test_the_cached_demo_says_where_the_package_comes_from_and_what_it_claims() -> None:
-    """No URL is invented before the package exists; the MI300X label is claimed only for a
-    package that says so (rules 11 and 13), and the host python3 version is stated."""
-    from apps.api.schemas import CACHED_LABEL, REHEARSAL_LABEL
+def test_the_live_demo_says_what_it_runs_and_claims_no_mi300x_output() -> None:
+    """The public demo is live on the CPU with Gemma on Token Factory (ADR-18); no package of
+    outputs precomputed on the MI300X exists, so its label is never claimed (rules 11 and 13)."""
+    from apps.api.schemas import CACHED_LABEL
 
-    cached = _flat(section("The cached demo"))
-    assert "GitHub release asset after the GPU session" in cached
-    assert "the laptop path below is for the team" in cached
+    live = _flat(section("Live demo"))
+    for needle in ("`DEMO_MODE=live`", "`LLM_MODE=tokenfactory`", "`DEVICE=cpu`", "synthetic"):
+        assert needle in live, needle
+    assert CACHED_LABEL not in README
     assert "releases/download" not in README and "curl -LO" not in README
-    assert "Python 3.8 or later" in cached
-    assert f'"{CACHED_LABEL}"' in cached and f'"{REHEARSAL_LABEL}"' in cached
-    assert "DEMO_GPU" in cached and "REHEARSAL=1" in cached and "GEMMA_MODEL" in cached
 
 
 def _base_images() -> list[str]:
     images = []
-    for dockerfile in ("apps/api/Dockerfile", "apps/ui/Dockerfile"):
+    for dockerfile in (
+        "apps/api/Dockerfile",
+        "apps/ui/Dockerfile",
+        "infra/docker/public-demo.Dockerfile",
+    ):
         text = (ROOT / dockerfile).read_text(encoding="utf-8")
         images += re.findall(r"^FROM (\S+)", text, re.M)
     return images
@@ -198,6 +247,6 @@ def test_the_image_licences_say_how_each_image_is_pinned() -> None:
 
 
 def test_basic_auth_protects_the_data_not_the_admin_page() -> None:
-    gpu = _flat(section("The GPU session"))
-    assert "basic auth on the telemetry data and the writes" in gpu
+    live = _flat(section("Live demo")).lower()
+    assert "basic auth on the telemetry data" in live
     assert "admin page, the telemetry" not in README

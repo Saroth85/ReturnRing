@@ -11,9 +11,9 @@ Built for the AMD Developer Hackathon ACT III, Track 3. The source of truth for 
 ## Live demo
 
 **[Open the live demo](https://returnring-demo-production.up.railway.app/demo)** — a read-only
-Railway deployment with 1,000 synthetic customers. It runs `DEMO_MODE=live` and uses AMD Token
-Factory for the investigator; saved drafts retain their recorded provenance. Three initial
-drafts were validated through Gemma, while the others retain mock provenance. See the
+Railway deployment with a synthetic serving snapshot. It runs `DEMO_MODE=live` and uses AMD Token
+Factory for the investigator; saved drafts retain their recorded provenance. Some initial drafts
+were validated through Gemma, while others retain mock provenance. See the
 [Railway demo guide](docs/railway-demo.md) for the deployment and verification details.
 
 ## What the system does

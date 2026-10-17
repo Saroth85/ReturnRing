@@ -20,7 +20,7 @@ NATURES = {"real", "synthetic", "simulated"}
 
 def section(title: str) -> str:
     """The text of a Markdown section, including its nested subsections."""
-    match = re.search(rf"^(#{1,6}) {re.escape(title)}(?:\s.*)?$", README, re.M)
+    match = re.search(rf"^(#{{1,6}}) {re.escape(title)}(?:\s.*)?$", README, re.M)
     assert match is not None, f"no section {title!r}"
     level = len(match.group(1))
     next_heading = re.search(rf"^#{{1,{level}}} ", README[match.end() :], re.M)
@@ -167,7 +167,7 @@ def test_the_cached_demo_says_where_the_package_comes_from_and_what_it_claims() 
     cached = _flat(section("The cached demo"))
     assert "local mode" in cached and "not the live Railway demo" in cached
     assert "manifest verifies" in cached
-    assert "read-only access is controlled separately by `PUBLIC_READ_ONLY`" in cached
+    assert "Read-only access is controlled separately by `PUBLIC_READ_ONLY`" in cached
     assert "Python 3.8 or later" in cached
     assert f'"{CACHED_LABEL}"' in cached and f'"{REHEARSAL_LABEL}"' in cached
     assert "DEMO_GPU" in cached and "REHEARSAL=1" in cached and "GEMMA_MODEL" in cached

@@ -142,7 +142,7 @@ describe('QueueTable', () => {
   it('shows outcome, status and figures; an unscored row reads "not scored", never 0', () => {
     const page = readExample<QueueResponse>('queue_response.json');
     const { container } = renderWithProviders(
-      <QueueTable page={page} tab="all" selected={0} onSelect={() => undefined} onPrefetch={() => undefined} newIds={new Set()} />,
+      <QueueTable page={page} tab="all" selected={0} onSelect={() => undefined} onOpen={() => undefined} onPrefetch={() => undefined} newIds={new Set()} />,
     );
     const marco = container.querySelector('[data-return-row="RET-000102"]') as HTMLElement;
     expect(marco.querySelector('[data-rail="approval"]')).not.toBeNull();
@@ -168,7 +168,7 @@ describe('QueueTable refund deadlines (ADR-15 sections 15, 19, 20)', () => {
       items: base.items.map((i) => (i.return_id === 'RET-000101' ? { ...i, refund_overdue: true } : i)) as QueueResponse['items'],
     };
     const { container } = renderWithProviders(
-      <QueueTable page={page} tab="all" selected={0} onSelect={() => undefined} onPrefetch={() => undefined} newIds={new Set()} />,
+      <QueueTable page={page} tab="all" selected={0} onSelect={() => undefined} onOpen={() => undefined} onPrefetch={() => undefined} newIds={new Set()} />,
     );
     const row = (id: string) => container.querySelector(`[data-return-row="${id}"]`) as HTMLElement;
     expect(row('RET-000102').querySelector('[data-refund-due="2026-10-12"]')).toHaveTextContent('12 Oct 2026');

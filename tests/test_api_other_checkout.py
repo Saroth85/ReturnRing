@@ -21,8 +21,10 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from apps.api.schemas import COUPON_BLOCK
+from apps.api.db import make_engine
+from apps.api.schemas import COUPON_BLOCK, CheckoutConfirmRequest
 from apps.api.services.audit import entries
+from apps.api.services.other import checkout
 from apps.api.services.other.checkout import (
     P_RETURN_THRESHOLD,
     history_at_snapshot,
@@ -433,6 +435,61 @@ def test_a_coupon_applies_once_when_coupons_are_allowed(api: Api) -> None:
     unknown = _evaluate(api, request)
     wrong = {**body, "terms_snapshot_id": unknown["terms_snapshot_id"], "coupon_code": "NOPE-1"}
     assert api.client.post("/api/checkout/confirm", json=wrong).json()["coupon_applied"] is False
+
+
+def test_a_coupon_redeemed_while_waiting_for_an_order_id_is_not_applied_twice(
+    api: Api, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The competing confirmation commits before the waiting request gets its order number.
+    SQLite supplies real committed rows for the PostgreSQL READ COMMITTED interleaving;
+    PostgreSQL's counter row locking itself is covered by the concurrent-writer suite.
+    """
+    found = _unused_coupon(api)
+    if found is None:
+        pytest.skip("no unredeemed coupon in the tiny store")
+    customer, code = found
+    variant = str(api.serving.frame("store/variants")["variant_id"].iloc[0])
+    request = _cart(customer, variant, coupon_code=code)
+    competing = _evaluate(api, request)
+    waiting = _evaluate(api, request)
+    next_number = checkout.next_number
+    competed = False
+
+    async def after_competing_commit(conn: AsyncConnection, *args: Any) -> int:
+        nonlocal competed
+        if not competed:
+            competed = True
+            assert api.settings.database_url is not None
+            engine = make_engine(api.settings.database_url)
+            try:
+                async with engine.begin() as other:
+                    result = await checkout.confirm(
+                        other,
+                        api.serving,
+                        CheckoutConfirmRequest.model_validate(
+                            {**_confirm_body(competing, request), "coupon_code": code}
+                        ),
+                        api.clock.now(),
+                    )
+                    assert result.coupon_applied
+            finally:
+                await engine.dispose()
+        return await next_number(conn, *args)
+
+    monkeypatch.setattr(checkout, "next_number", after_competing_commit)
+    response = api.client.post(
+        "/api/checkout/confirm",
+        json={**_confirm_body(waiting, request), "coupon_code": code},
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["coupon_applied"] is False
+    assert response.json()["order_id"] == "ORD-CHK-000002"
+
+    async def applied_count(conn: AsyncConnection) -> int:
+        carts = (await conn.execute(select(terms_snapshots.c.cart))).scalars()
+        return sum(bool(cart.get("coupon_applied")) for cart in carts)
+
+    assert api.run(applied_count) == 1
 
 
 def test_snapshot_ids_and_order_ids_are_sequential(api: Api) -> None:

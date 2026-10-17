@@ -3,8 +3,8 @@
 // C-MARCO-1 in the contract questions are ids, not numbers), and the limits match the contract.
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
 import { fileURLToPath } from 'node:url';
+import { describe, expect, it } from 'vitest';
 import { AGENT_TOOLS } from '@/api/contract.gen';
 import { findBannedTerms, UI_COPY_BANNED } from '@/copy/bannedTerms';
 import { EXAMPLES_DIR, readExample } from '@/test/examples';
